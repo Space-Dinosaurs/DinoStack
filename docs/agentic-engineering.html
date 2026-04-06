@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentic Software Engineering with Claude Code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base: #08090d;
+    --bg-raised: #0e1017;
+    --bg-surface: #141720;
+    --bg-overlay: #1a1e2b;
+    --border-subtle: #1f2433;
+    --border-default: #282d3e;
+    --text-primary: #e0e3ea;
+    --text-secondary: #a0a8bc;
+    --text-muted: #717a90;
+    --text-bright: #eceef2;
+    --accent-indigo: #818cf8;
+    --accent-indigo-dim: #5b63b7;
+    --accent-green: #6ee7a0;
+    --accent-green-dim: #3a7a56;
+    --accent-amber: #f0ad4e;
+    --accent-amber-dim: #8a6530;
+    --accent-cyan: #5eced6;
+    --accent-cyan-dim: #356b70;
+    --accent-rose: #f27a7a;
+    --accent-rose-dim: #7a3e3e;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    padding: 48px 48px 48px 260px;
+    min-height: 100vh;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1 {
+    text-align: left;
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--text-bright);
+    letter-spacing: -0.03em;
+  }
+  .subtitle {
+    text-align: left;
+    color: var(--text-muted);
+    margin-bottom: 48px;
+    font-size: 20px;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+  }
+  .diagram { width: 100%; }
+
+  /* ── Side nav ── */
+  .side-nav {
+    position: fixed; top: 0; left: 0; width: 220px; height: 100vh;
+    background: var(--bg-base);
+    border-right: 1px solid var(--border-subtle);
+    padding: 24px 0; overflow-y: auto; z-index: 100;
+  }
+  .side-nav::-webkit-scrollbar { width: 0; }
+  .side-nav-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--text-muted); padding: 0 20px; margin-bottom: 16px; font-weight: 600;
+  }
+  .side-nav a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 20px; font-size: 13px; color: var(--text-secondary);
+    text-decoration: none; transition: color 0.2s, background 0.2s;
+    border-left: 2px solid transparent; font-weight: 400;
+  }
+  .side-nav a:hover { color: var(--text-primary); background: var(--bg-raised); }
+  .side-nav a.active { color: var(--text-bright); background: var(--bg-surface); border-left-color: var(--accent-indigo); }
+  .side-nav .nav-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; opacity: 0.7; }
+  .side-nav .nav-sub { padding-left: 35px; font-size: 12px; color: var(--text-muted); }
+  .side-nav .nav-sub:hover { color: var(--text-secondary); }
+  @media (max-width: 900px) { .side-nav { display: none; } body { padding-left: 48px; } }
+
+  /* ── Section styles ── */
+  .section {
+    margin-bottom: 32px; border-radius: var(--radius-lg);
+    padding: 32px; position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-raised);
+  }
+  .section-title {
+    margin-bottom: 24px;
+  }
+  .section-title h2 {
+    font-size: 32px; font-weight: 700; letter-spacing: -0.02em;
+    margin: 0 0 6px 0;
+  }
+  .section-title h3 {
+    font-size: 18px; font-weight: 400; letter-spacing: 0.01em;
+    color: var(--text-secondary); margin: 0;
+  }
+  .section-title .dot { display: none; }
+
+  .config-layer { background: var(--bg-raised); }
+  .config-layer .section-title h2 { color: var(--accent-cyan); }
+
+  .protocol-layer { background: var(--bg-raised); }
+  .protocol-layer .section-title h2 { color: var(--accent-indigo); }
+
+  .agent-layer { background: var(--bg-raised); }
+  .agent-layer .section-title h2 { color: var(--accent-green); }
+
+  .skill-layer { background: var(--bg-raised); }
+  .skill-layer .section-title h2 { color: var(--accent-green); }
+
+  .persistence-layer { background: var(--bg-raised); }
+  .persistence-layer .section-title h2 { color: var(--accent-amber); }
+
+  /* ── Node grid ── */
+  .node-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .node {
+    padding: 8px 14px; border-radius: var(--radius-sm);
+    font-weight: 500;
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace; font-size: 16px;
+  }
+  .node .icon { font-size: 16px; opacity: 0.6; }
+
+  .node-file { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-cyan); }
+  .node-protocol { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-indigo); }
+  .node-agent { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-green); }
+  .node-agent.writes { border-left: 2px solid var(--accent-amber); }
+  .node-skill { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-green); }
+  .node-persist { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-amber); }
+  .node-muted { background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--text-muted); }
+
+  /* ── Flow diagram ── */
+  .flow { margin-top: 24px; }
+  .flow-section { margin-bottom: 24px; }
+  .flow-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; color: var(--text-bright); }
+  .flow-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin: 4px 0; }
+  .flow-box {
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: 16px; font-weight: 500; white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .flow-arrow { color: var(--text-muted); font-size: 16px; padding: 0 6px; font-weight: 300; }
+  .flow-label { font-size: 16px; color: var(--text-muted); margin-left: 8px; font-style: normal; letter-spacing: 0.01em; }
+
+  .fb-conductor { background: var(--bg-overlay); color: var(--accent-indigo); border: 1px solid var(--border-default); }
+  .fb-agent { background: var(--bg-overlay); color: var(--accent-green); border: 1px solid var(--border-default); }
+  .fb-skeptic { background: var(--bg-overlay); color: #b8a3ec; border: 1px solid #3d3566; }
+  .fb-decision { background: var(--bg-overlay); color: var(--accent-amber); border: 1px solid var(--border-default); border-radius: 12px; }
+
+  /* ── Relationship map ── */
+  .rel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  @media (max-width: 768px) { .rel-grid { grid-template-columns: 1fr; } }
+  .rel-card {
+    background: var(--bg-surface); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md); padding: 16px;
+  }
+  .rel-card h4 { font-size: 16px; color: var(--text-bright); margin-bottom: 12px; font-weight: 600; letter-spacing: -0.01em; }
+  .rel-card ul { list-style: none; padding: 0; }
+  .rel-card li {
+    font-size: 16px; color: var(--text-secondary); padding: 5px 0; padding-left: 18px;
+    position: relative; line-height: 1.7;
+  }
+  .rel-card li::before { content: "\2192"; position: absolute; left: 0; color: var(--text-muted); font-size: 16px; top: 4px; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+
+  .desc { font-size: 16px; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
+  .note {
+    font-size: 16px; color: var(--text-secondary); margin-top: 14px;
+    padding: 14px 16px; background: var(--bg-surface);
+    border-radius: var(--radius-md); border-left: 2px solid var(--border-default);
+    line-height: 1.65;
+  }
+  .note ul { list-style: none; padding: 0; margin: 6px 0; }
+  .note li {
+    font-size: 16px; color: var(--text-secondary); padding: 4px 0; padding-left: 18px;
+    position: relative;
+  }
+  .note li::before { content: "\2192"; position: absolute; left: 0; color: var(--text-muted); font-size: 16px; top: 3px; }
+
+  code {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.88em;
+    background: var(--bg-overlay); padding: 2px 6px;
+    border-radius: 3px; color: #e8e9ed;
+  }
+
+  /* ── Code blocks (IDE-style) ── */
+  .code-block {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px; line-height: 1.7;
+    background: #0c0e14; border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 16px 20px; margin: 12px 0;
+    overflow-x: auto; position: relative;
+  }
+  .code-block .cb-comment { color: #5c6370; font-style: italic; }
+  .code-block .cb-cmd { color: #e5c07b; }
+  .code-block .cb-flag { color: #61afef; }
+  .code-block .cb-string { color: #98c379; }
+  .code-block .cb-path { color: #d19a66; }
+  .code-block .cb-keyword { color: #c678dd; }
+  .code-block .cb-op { color: #56b6c2; }
+  .code-block .cb-prompt { color: #5c6370; user-select: none; }
+  .code-block .cb-label {
+    position: absolute; top: 8px; right: 12px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: #3e4452; font-weight: 600;
+  }
+
+  strong { font-weight: 600; color: var(--text-bright); }
+
+  /* ── Table ── */
+  table { border-collapse: collapse; }
+  th { text-align: left; font-weight: 600; color: var(--text-secondary); font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; }
+  td { vertical-align: top; }
+  tr { border-bottom: 1px solid var(--border-subtle); }
+
+  /* ── Links ── */
+  a { color: var(--accent-indigo); text-decoration: none; transition: color 0.2s; }
+  a:hover { color: var(--text-bright); }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ Side Navigation ═══ -->
+<nav class="side-nav">
+  <div class="side-nav-title">Architecture Map</div>
+  <a href="#config"><span class="nav-dot" style="background:#7dd3fc;"></span> Configuration</a>
+  <a href="#protocols"><span class="nav-dot" style="background:#c4b5fd;"></span> Protocol Rules</a>
+  <a href="#protocol-deep-dive"><span class="nav-dot" style="background:#c4b5fd;"></span> Protocol Deep Dive</a>
+  <a href="#protocol-deep-dive" class="nav-sub">skeptic-protocol.md</a>
+  <a href="#proto-subagent" class="nav-sub">subagent-protocol.md</a>
+  <a href="#proto-agent-team" class="nav-sub">agent-team.md</a>
+  <a href="#proto-design-goals" class="nav-sub">design-goals.md</a>
+  <a href="#agents"><span class="nav-dot" style="background:#86efac;"></span> Agents</a>
+  <a href="#flows"><span class="nav-dot" style="background:#a5b4fc;"></span> Composed Flows</a>
+  <a href="#skills"><span class="nav-dot" style="background:#fdba74;"></span> Skills</a>
+  <a href="#persistence"><span class="nav-dot" style="background:#67e8f9;"></span> Persistence</a>
+  <a href="#lifecycle"><span class="nav-dot" style="background:#d8b4fe;"></span> Project Lifecycle</a>
+  <a href="#lifecycle" class="nav-sub">/init-project</a>
+  <a href="#lifecycle" class="nav-sub">/wrap</a>
+  <a href="#git"><span class="nav-dot" style="background:#7dd3fc;"></span> Git Workflow</a>
+  <a href="#risk"><span class="nav-dot" style="background:#fca5a5;"></span> Risk Classification</a>
+  <!-- <a href="#cross-ref"><span class="nav-dot" style="background:#e9d5ff;"></span> Video Cross-Ref</a> -->
+</nav>
+
+<h1>Agentic Software Engineering with Claude Code</h1>
+<p class="subtitle">Configuration files, protocols, agents, skills, and persistence - and how they compose</p>
+<p style="color: var(--text-secondary); font-size: 15px; margin-top: -40px; margin-bottom: 48px;">by Tyson Hummel</p>
+
+<div class="diagram">
+
+<!-- ═══ LAYER 1: Configuration Files ═══ -->
+<div id="config" class="section config-layer">
+  <div class="section-title"><h2>Configuration Layer</h2><h3>Global files loaded every session, every project</h3></div>
+  <p class="desc" style="margin-bottom: 16px;">These files are <strong>global</strong> - they apply to every project, every session, every Claude Code instance on this machine. They define the baseline behavior that all work inherits before any project-specific CLAUDE.md is loaded. This is what makes the system a reusable harness rather than per-project configuration.</p>
+  <div class="two-col">
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--accent-cyan);">~/.claude/CLAUDE.md</h4>
+        <ul>
+          <li>The global entry point. Loaded into every conversation context automatically by Claude Code.</li>
+          <li>Points to the 3 rules files (agent-methodology, code-standards, conventions)</li>
+          <li>Contains behavioral overrides: complete tasks fully before stopping, no PR footer emoji</li>
+          <li>Exempt from the 40-line limit that applies to project root CLAUDE.md files</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--accent-cyan);">~/.claude/rules/*.md (3 files)</h4>
+        <ul>
+          <li><strong>agent-methodology.md</strong> - delegation model, risk classification, spawn thresholds, task decomposition, worktree lifecycle</li>
+          <li><strong>code-standards.md</strong> - tool discipline, quality gates, per-language strict defaults, browser verification</li>
+          <li><strong>conventions.md</strong> - writing style, project structure convention, git workflow, session context and memory system</li>
+        </ul>
+        <p class="desc" style="margin-top: 8px;">These are symlinks to ~/claude-protocols/.claude/rules/ - a separate git repo where the canonical versions live. Changes are committed to claude-protocols and automatically reflected everywhere.</p>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <strong>Symlink chain:</strong> ~/.claude/rules/*.md &rarr; ~/claude-protocols/.claude/rules/*.md (canonical source, version-controlled)<br>
+    <strong>Per-project override:</strong> Each project has its own root CLAUDE.md (~40 lines) + subdirectory CLAUDE.md files for deeper context. Project CLAUDE.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
+  </div>
+</div>
+
+<!-- ═══ LAYER 2: What the rules contain ═══ -->
+<div id="protocols" class="section protocol-layer">
+  <div class="section-title"><h2>Protocol Layer</h2><h3>Behavioral rules governing all work</h3></div>
+  <div class="two-col">
+    <div>
+      <div class="rel-card">
+        <h4>agent-methodology.md</h4>
+        <ul>
+          <li>Delegation model: conductor never plays</li>
+          <li>Risk classification: Low vs Elevated</li>
+          <li>Spawn threshold decision table</li>
+          <li>Task decomposition: one agent, one task</li>
+          <li>Worktree lifecycle management</li>
+          <li>Pointers to detailed protocol docs</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card">
+        <h4>code-standards.md</h4>
+        <ul>
+          <li>Tool discipline (Read/Glob/Grep over bash)</li>
+          <li>Quality gates: lint, typecheck, test</li>
+          <li>Per-language strict defaults</li>
+          <li>Package management rules</li>
+          <li>Browser verification via agent-browser</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="margin-top: 10px;">
+        <h4>conventions.md</h4>
+        <ul>
+          <li>Writing style (no em dashes)</li>
+          <li>Project structure convention</li>
+          <li>Git workflow (worktrees, PRs, branches)</li>
+          <li>Session context + memory system</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 16px;">
+    <div class="section-title"><h3 style="color: #a78bfa; font-size: 16px; font-weight: 600;">Referenced Protocol Documents (~/claude-protocols/agent-methodology/)</h3></div>
+    <div class="node-grid">
+      <div class="node node-protocol">skeptic-protocol.md</div>
+      <div class="node node-protocol">subagent-protocol.md</div>
+      <div class="node node-protocol">agent-team.md</div>
+      <div class="node node-protocol">design-goals.md</div>
+    </div>
+    <p class="desc">Not auto-loaded. Read on-demand when protocols are triggered (e.g., Elevated risk declared, Skeptic review needed).</p>
+  </div>
+</div>
+
+<!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
+<div id="protocol-deep-dive" class="section" style="background: var(--bg-surface);">
+  <div class="section-title"><h2 style="color: #c4b5fd;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files</h3></div>
+
+  <!-- skeptic-protocol.md -->
+  <div style="margin-bottom: 24px;">
+    <div style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">skeptic-protocol.md</div>
+      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Adversarial Review Methodology - 12 sections. The core quality mechanism.</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">The Core Loop (Sections 1-5)</h4>
+          <ul>
+            <li>Worker implements &rarr; fresh Skeptic critiques &rarr; findings routed back &rarr; repeat until clean sign-off</li>
+            <li><strong>Fresh Skeptic every round</strong> - never continued from prior round. Independence requires clean context (no anchoring to Worker's justifications)</li>
+            <li>Resolved Issues Preflight prevents re-raising fixed items, but Skeptic can contest insufficient resolutions</li>
+            <li>Same finding contested 2+ re-routes &rarr; escalate to human (prevents infinite loops)</li>
+            <li>Simple/targeted changes: capped at 1 Skeptic round. Standard Elevated: 2-re-route limit</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+          <h4 style="color: #ddd6fe;">Findings Classification (Section 6)</h4>
+          <ul>
+            <li><strong style="color: #fca5a5;">Critical</strong> - blocks sign-off. Security vulns, correctness failures, data loss paths</li>
+            <li><strong style="color: #fbbf24;">Major</strong> - blocks sign-off unless Worker provides compelling documented reason to defer. Missing error handling, edge cases, design issues</li>
+            <li><strong style="color: #86efac;">Minor</strong> - never blocks sign-off. Applied by a separate Worker after sign-off, no follow-up Skeptic needed</li>
+            <li>Unclassified findings default to Major</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">Domain Adversarial Briefs (Section 8)</h4>
+          <ul>
+            <li><strong>Smart contracts:</strong> reentrancy, access control, signature replay, fee bypass</li>
+            <li><strong>Auth/sessions:</strong> session fixation, token replay, privilege escalation</li>
+            <li><strong>API endpoints:</strong> malformed inputs, race conditions, missing validation</li>
+            <li><strong>Crypto:</strong> weak randomness, domain separation, algorithm confusion</li>
+            <li><strong>DB/migrations:</strong> idempotency, partial failure, rollback paths</li>
+            <li><strong>Data pipelines:</strong> double-processing, silent failures, state divergence</li>
+            <li><strong>Doc synthesis:</strong> internal consistency, assumptions, completeness gaps</li>
+            <li><strong>General code:</strong> logic errors, edge cases, incorrect assumptions</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+          <h4 style="color: #ddd6fe;">Elevated + Cleanup Path (Section 12)</h4>
+          <ul>
+            <li>Worker &rarr; Skeptic sign-off &rarr; <code>/simplify</code> &rarr; narrow-scope Skeptic</li>
+            <li>For substantial implementations where code hygiene matters</li>
+            <li>Second Skeptic reviews only the /simplify diff (behavioral preservation check)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+      <strong>Core thesis:</strong> "The value of an adversarial reviewer is independence. A reviewer who has already heard the implementer's justifications is no longer independent."
+      The brief must be passed verbatim - never softened. Sign-off requires 4 elements: Reviewed, Findings, Active search attestation, and explicit sign-off statement.
+    </div>
+  </div>
+
+  <!-- subagent-protocol.md -->
+  <div style="margin-bottom: 24px;">
+    <div id="proto-subagent" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">subagent-protocol.md</div>
+      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Orchestration Methodology - 11 sections. The outer frame governing delegation.</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">The Seven Rules</h4>
+          <ul>
+            <li><strong>Rule 1 - Always background.</strong> Most critical rule. Foreground blocks the conductor entirely. All delegated work runs in background.</li>
+            <li><strong>Rule 2 - Parallel by default.</strong> Independent tasks spawn simultaneously. "Can I start B before A finishes?"</li>
+            <li><strong>Rule 3 - Spawn threshold.</strong> Elevated risk &rarr; spawn. Low risk &rarr; direct action. When in doubt, Elevated.</li>
+            <li><strong>Rule 4 - Agent type discipline.</strong> Wrong type silently degrades. Bash agents can't spawn subagents or do file work.</li>
+            <li><strong>Rule 5 - Skeptic Protocol orchestrated by main agent.</strong> Architect plans must receive Skeptic review before acting on them.</li>
+            <li><strong>Rule 6 - Check in, don't disappear.</strong> Status updates immediately after spawning. Proactive reporting when tasks complete.</li>
+            <li><strong>Rule 7 - Direct actions permitted.</strong> Reads, git status, screenshots, memory answers, synthesizing returned results.</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">Composition Pattern (Section 6)</h4>
+          <ul>
+            <li><strong>Decompose</strong> into atomic units (one agent, one task, one prompt)</li>
+            <li><strong>Classify risk</strong> per unit independently</li>
+            <li><strong>Spawn in parallel</strong> for independent units</li>
+            <li><strong>Review scope:</strong> independent units get per-unit Skeptics; interdependent units get one integration Skeptic (sees combined diff)</li>
+            <li>Mid-task re-decomposition if Worker discovers scope is too broad</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+          <h4 style="color: #ddd6fe;">Worktree Isolation (Section 7)</h4>
+          <ul>
+            <li>Parallel agents writing to same repo MUST use <code>isolation: "worktree"</code></li>
+            <li>Without it: concurrent <code>git checkout</code> silently corrupts both agents' work</li>
+            <li>Not needed for: single agents, separate repos, read-only agents</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+          <h4 style="color: #ddd6fe;">Anti-Patterns (Section 8)</h4>
+          <ul>
+            <li>Foreground blocking (most critical violation)</li>
+            <li>Sequential when parallel is possible</li>
+            <li>Bash agents for implementation tasks</li>
+            <li>Main agent doing implementation work</li>
+            <li>"Looks simple" rationalization</li>
+            <li>Softening adversarial briefs</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+      <strong>Core principle:</strong> "The main agent is a conductor, never a player. Its job is to decompose work, spawn subagents, stay available, and synthesize results."
+      The Subagent Protocol is the outer frame (should I delegate?). The Skeptic Protocol is the inner loop (is the output correct?).
+    </div>
+  </div>
+
+  <!-- agent-team.md -->
+  <div style="margin-bottom: 24px;">
+    <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">agent-team.md</div>
+      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Team Playbook - 7 agent roles, 4 composed flows, decision rules, and spawn instructions.</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">The Team</h4>
+          <ul>
+            <li><strong style="color: #86efac;">investigator</strong> - codebase investigation. Traces data flow, maps blast radius. No file writes.</li>
+            <li><strong style="color: #86efac;">debugger</strong> - root cause analysis. Given a failure, produces diagnosis + fix brief. No file writes.</li>
+            <li><strong style="color: #86efac;">security-auditor</strong> - OWASP-structured security review. Covers injection, auth, secrets, privilege escalation. No file writes.</li>
+            <li><strong style="color: #86efac;">architect</strong> - pre-implementation design. Reads codebase, produces plan. No file writes.</li>
+            <li><strong style="color: #86efac;">orchestration-planner</strong> - team composition and sequencing. No file writes.</li>
+            <li><strong style="color: #fbbf24;">engineer</strong> - implements the change. Reads conventions, writes code, runs quality gates. <strong>Only agent that writes files.</strong></li>
+            <li><strong style="color: #c4b5fd;">skeptic</strong> - adversarial reviewer. Reviews Worker output. Not a specialist - the review layer.</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">Decision Rules</h4>
+          <ul>
+            <li><strong>orchestration-planner</strong> when task is complex, agents/sequencing unclear, multiple phases</li>
+            <li><strong>architect</strong> when meaningful design decisions, unfamiliar codebase, multi-subsystem feature</li>
+            <li><strong>security-auditor</strong> when touching auth, sessions, tokens, secrets, privilege boundaries</li>
+            <li><strong>debugger</strong> when root cause not obvious, stack trace needs diagnosis</li>
+            <li>Skip architect for well-understood changes &rarr; straight to engineer</li>
+            <li>Skip debugger for already-understood bugs &rarr; straight to engineer</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+          <h4 style="color: #ddd6fe;">Spawn Requirements</h4>
+          <ul>
+            <li><strong>engineer:</strong> architect's plan + file paths + acceptance criteria + session context</li>
+            <li><strong>skeptic (plan review):</strong> adversarial brief verbatim + architect's complete plan + architectural constraints</li>
+            <li><strong>skeptic (code review):</strong> adversarial brief + engineer output + resolved issues preflight</li>
+            <li><strong>security-auditor:</strong> files changed + domain description + known mitigations</li>
+            <li>All agents spawn in background. Main session is the sole orchestrator.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+      <strong>Mandatory gate:</strong> Architect plan output MUST receive Skeptic review before the plan is acted on. Do not spawn engineers or run the orchestration-planner until the Skeptic grants sign-off. A flawed plan propagates errors through every downstream Worker.
+    </div>
+  </div>
+
+  <!-- design-goals.md -->
+  <div>
+    <div id="proto-design-goals" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">design-goals.md</div>
+      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">Why the System Exists - 4 goals and explicit non-goals, written for evaluators and auditors.</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">The Four Goals</h4>
+          <ul>
+            <li><strong style="color: #7dd3fc;">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
+            <li><strong style="color: #c4b5fd;">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
+            <li><strong style="color: #67e8f9;">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), CLAUDE.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
+            <li><strong style="color: #d8b4fe;">Goal 4 - Context window efficiency.</strong> Always-loaded files must be minimal. Trigger-pointer pattern: risk signals inline (chicken-and-egg), protocol details deferred until triggered.</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">Explicit Non-Goals</h4>
+          <ul>
+            <li>No persistent memory of personal facts or preferences (project-affecting info only)</li>
+            <li>Does not replace proper documentation (decisions.md is not a design doc)</li>
+            <li>Does not automate irreversible operations at git/infrastructure boundary (human confirms)</li>
+            <li>Does not guarantee correctness (defense in depth, not proof)</li>
+            <li>Does not eliminate need for human judgment (escalation paths exist for ambiguity)</li>
+            <li>Does not manage infrastructure or secrets</li>
+          </ul>
+        </div>
+        <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+          <strong>Evaluator questions for each goal:</strong><br>
+          G1: Does the main agent ever block or do substantial work inline?<br>
+          G2: Is the Skeptic actually fresh each round? Is the brief verbatim?<br>
+          G3: Is the Stop hook firing? Is decisions.md accurate? Is CLAUDE.md lean?<br>
+          G4: Would removing this line cause a wrong classification?
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LAYER 3: Agents ═══ -->
+<div id="agents" class="section agent-layer">
+  <div class="section-title"><h2>Agent Layer</h2><h3>Specialized subagents spawned by the conductor</h3></div>
+
+  <div class="two-col">
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--accent-green);">Planning and Analysis Agents</h4>
+        <ul>
+          <li><strong>investigator</strong> - traces data flow, maps blast radius, and explores unfamiliar areas. Used when you need to understand code before deciding how to change it. Returns an investigation brief for the conductor to hand to architect or engineer.</li>
+          <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Its output MUST be Skeptic-reviewed before any downstream work.</li>
+          <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious.</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="margin-top: 12px;">
+        <h4 style="color: var(--accent-green);">Diagnosis and Security Agents</h4>
+        <ul>
+          <li><strong>debugger</strong> - given a failing test or stack trace, forms and tests hypotheses to find the root cause. Returns a diagnosis plus a fix brief. Does NOT implement the fix - the engineer does that. If confidence is Low, escalates to human rather than guessing.</li>
+          <li><strong>security-auditor</strong> - applies OWASP Top 10 and CWE-category analysis. Assumes a capable attacker. Produces a structured findings report with severity ratings, specific code locations, and remediation guidance. Used in addition to (not instead of) the Skeptic.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card" style="border-left: 2px solid var(--accent-amber);">
+        <h4 style="color: var(--accent-amber);">Implementation Agent</h4>
+        <ul>
+          <li><strong>engineer</strong> - the only agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Receives the architect's plan, file paths, acceptance criteria, and session context. Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="margin-top: 12px; border-left: 2px solid #b8a3ec;">
+        <h4 style="color: #b8a3ec;">Review Agent</h4>
+        <ul>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Not a specialist - the review layer that all other agents' output passes through.</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="margin-top: 12px;">
+        <h4 style="color: var(--text-muted);">Supplementary Agents</h4>
+        <ul>
+          <li><strong>adr-drift-detector</strong> - audits codebase compliance against Architecture Decision Records</li>
+          <li><strong>adr-generator</strong> - creates comprehensive ADRs with structured formatting</li>
+          <li><strong>qa-engineer</strong> - verifies changes in a real browser, runs test suites, validates against acceptance criteria</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <strong>Key constraint:</strong> Only the main session agent (conductor) spawns agents. No agent spawns other agents.<br>
+    <strong>Isolation:</strong> Agents run in background by default. Can use <code>isolation: "worktree"</code> for git-isolated work.<br>
+    <strong>Only engineer writes files.</strong> All other agents are read-only analysis/planning. Orange left border = writes files.
+  </div>
+</div>
+
+<!-- ═══ LAYER 4: Composed Flows ═══ -->
+<div id="flows" class="section protocol-layer" style="background: var(--bg-surface);">
+  <div class="section-title"><h2>Composed Flows</h2><h3>How agents work together</h3></div>
+
+  <div class="flow">
+    <div class="flow-section">
+      <div class="flow-title">Standard Feature</div>
+      <div class="flow-row">
+        <span class="flow-box fb-conductor">Conductor</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-agent">architect</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-skeptic">skeptic</span>
+        <span class="flow-label">plan review (mandatory gate)</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-agent">engineer</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-skeptic">skeptic</span>
+        <span class="flow-label">code review</span>
+      </div>
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-title">Security-Sensitive Feature</div>
+      <div class="flow-row">
+        <span class="flow-box fb-conductor">Conductor</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-agent">architect</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-skeptic">skeptic</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-agent">engineer</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-skeptic">skeptic</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-decision">security-auditor</span>
+      </div>
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-title">Bug Fix</div>
+      <div class="flow-row">
+        <span class="flow-box fb-conductor">Conductor</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-agent">debugger</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-decision">confidence?</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-agent">engineer</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-skeptic">skeptic</span>
+      </div>
+      <div class="flow-row" style="margin-left: 260px; margin-top: 2px;">
+        <span class="flow-label">Low confidence &rarr; escalate to human</span>
+      </div>
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-title">Complex / Ambiguous Goal</div>
+      <div class="flow-row">
+        <span class="flow-box fb-conductor">Conductor</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-agent">orchestration-planner</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box fb-conductor">Conductor follows plan</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-label">parallel/sequential agent spawns per plan</span>
+      </div>
+    </div>
+
+    <div class="flow-section">
+      <div class="flow-title">Low Risk (quick change)</div>
+      <div class="flow-row">
+        <span class="flow-box fb-conductor">Conductor</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background:#334155;color:#94a3b8;border:1px solid #475569;">direct action</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background:#334155;color:#94a3b8;border:1px solid #475569;">self-check</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LAYER 5: Skills ═══ -->
+<div id="skills" class="section skill-layer">
+  <div class="section-title"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/skill-name</code> in the chat. They expand into full prompts with multi-step workflows, often spawning their own Worker + Skeptic loops internally. Skills are defined in <code>~/claude-protocols/.claude/skills/</code> and <code>.claude/commands/</code>.</p>
+  <div class="two-col">
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--accent-green);">Dev Workflow Skills</h4>
+        <ul>
+          <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
+          <li><strong>/flow-dev</strong> - sequential plan/work/review pipeline. Runs architect, then engineer, then skeptic in a structured sequence with handoffs.</li>
+          <li><strong>/flow-qa-plan</strong> - generates a manual QA test plan from an implementation. Produces acceptance criteria, test steps, and edge cases to verify.</li>
+          <li><strong>/init-project</strong> - scaffolds the CLAUDE.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/simplify</strong> - spawns 3 parallel review agents (code reuse, quality, efficiency) to clean up recently changed files. Used in the Elevated + Cleanup path after Skeptic sign-off.</li>
+          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and CLAUDE.md updates. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
+          <li><strong>/audit-protocols</strong> - full system audit of protocol compliance. Checks whether rules are being followed across the session.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--accent-green);">Content / Output Skills</h4>
+        <ul>
+          <li><strong>/pdf</strong> - read, extract, combine, split, rotate, watermark, or create PDF files</li>
+          <li><strong>/pptx</strong> - create or read PowerPoint presentations with PptxGenJS</li>
+          <li><strong>/docx</strong> - create or manipulate Word documents with professional formatting</li>
+          <li><strong>/xlsx</strong> - open, edit, compute formulas, chart, or create spreadsheets</li>
+          <li><strong>/frontend-design</strong> - create production-grade frontend interfaces with high design quality. Uses design system generation.</li>
+          <li><strong>/claude-api</strong> - build apps with the Claude API or Anthropic SDK. Triggers on anthropic/sdk imports. Covers tool use, streaming, batches, files API.</li>
+          <li><strong>/mcp-builder</strong> - guide for creating MCP servers that enable LLMs to interact with external services. Supports Python (FastMCP) and Node.</li>
+          <li><strong>/webapp-testing</strong> - verify frontend functionality using Playwright. Captures screenshots, browser logs, and validates UI behavior.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LAYER 6: Persistence ═══ -->
+<div id="persistence" class="section persistence-layer">
+  <div class="section-title"><h2>Persistence Layer</h2><h3>Per-project state that survives across sessions</h3></div>
+  <div class="two-col">
+    <div>
+      <div class="rel-card">
+        <h4>Files (all at <code>~/.claude/projects/[hash]/</code>)</h4>
+        <ul>
+          <li><strong>MEMORY.md</strong> - index of all memory files. Auto-injected into every conversation at startup. One-line pointers to individual memory files. Keep under 200 lines.</li>
+          <li><strong>memory/*.md</strong> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
+          <li><strong>context.md</strong> - session state. Auto-written by the Stop hook after every agent turn. <code>/wrap</code> produces a richer version with structured sections, merged across sessions.</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="margin-top: 12px;">
+        <h4>Memory Types</h4>
+        <ul>
+          <li><strong>user</strong> - role, goals, preferences, knowledge level. Helps tailor collaboration (senior engineer vs first-time coder).</li>
+          <li><strong>feedback</strong> - corrections and confirmations. "Don't mock the database" or "yes, the bundled PR was right." Includes Why and How to apply.</li>
+          <li><strong>project</strong> - ongoing work, goals, deadlines, decisions. "Merge freeze begins 2026-03-05." Includes Why and How to apply.</li>
+          <li><strong>reference</strong> - pointers to external systems. "Pipeline bugs tracked in Linear project INGEST." Where to look, not what's there.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card">
+        <h4>Persistence Hierarchy</h4>
+        <ul>
+          <li><strong>MEMORY.md</strong> - loaded every session (index). The system reads this first to decide which memory files are relevant.</li>
+          <li><strong>context.md</strong> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
+          <li><strong>memory/*.md</strong> - read on-demand. Each has frontmatter with description used for relevance matching.</li>
+          <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
+          <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="margin-top: 12px;">
+        <h4>What NOT to save in memory</h4>
+        <ul>
+          <li>Code patterns, architecture, file paths (derive from reading the code)</li>
+          <li>Git history, recent changes (use <code>git log</code> / <code>git blame</code>)</li>
+          <li>Debugging solutions (the fix is in the code; the commit message has context)</li>
+          <li>Anything already in CLAUDE.md files</li>
+          <li>Ephemeral task details or current conversation context</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="rel-card" style="margin-top: 16px; border-left: 2px solid var(--accent-amber);">
+    <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
+      <div style="font-size: 64px; line-height: 1; margin-top: 13px;">⚠️</div>
+      <div>
+        <div style="font-size: 30px; font-weight: 700; color: var(--accent-amber);">Named Sessions</div>
+        <div style="font-size: 20px; font-weight: 400; color: var(--text-secondary);">The key to cross-session continuity</div>
+      </div>
+    </div>
+    <p class="desc" style="margin-bottom: 12px;">Claude Code supports named sessions via the <code>--resume</code> flag. By always resuming the same session name for a given project, every run maps to the same project hash - which means it reads and enriches the same persistence files.</p>
+    <div style="margin-bottom: 16px;">
+      <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">The command:</div>
+      <div class="code-block">
+        <span class="cb-label">terminal</span>
+        <span class="cb-prompt">$ </span><span class="cb-cmd">claude</span> <span class="cb-flag">--resume</span> <span class="cb-string">"project-name"</span> <span class="cb-flag">-p</span> <span class="cb-path">/path/to/project</span>
+      </div>
+      <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; margin-top: 16px;">As a shell alias:</div>
+      <div class="code-block">
+        <span class="cb-label">~/.zshrc</span>
+        <span class="cb-comment"># Start a named Claude Code session for a specific project</span><br>
+        <span class="cb-keyword">alias</span> <span class="cb-cmd">claude-myproject</span><span class="cb-op">=</span><span class="cb-string">'claude --resume "myproject" -p ~/projects/myproject'</span>
+      </div>
+    </div>
+    <ul>
+      <li><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[hash]/context.md</code> every time. <code>/wrap</code>'s rolling-window merge (up to 3 sessions) works because the same file is revisited. Random sessions would scatter context across disposable files that are never read again.</li>
+      <li><strong>MEMORY.md compounds</strong> - same session name means the same project hash, which means the same memory directory. Stable facts accumulate in one place rather than starting fresh each time.</li>
+      <li><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -> work -> <code>/wrap</code> feedback loop. Each named session reads richer CLAUDE.md files and memory than the last. Random sessions would break the loop since each would start from zero context.</li>
+      <li><strong>Multi-session coordination</strong> - different projects get different named sessions, each with cleanly separated persistence. Multiple named sessions can run simultaneously on different projects. Running <code>/wrap</code> on one does not touch the other's state.</li>
+    </ul>
+    <div style="margin-top: 20px; padding: 24px; background: var(--bg-base); border: 1px solid var(--accent-amber-dim); border-radius: var(--radius-lg);">
+      <div style="font-size: 20px; font-weight: 700; color: var(--accent-amber); margin-bottom: 12px;">Without named sessions, cross-session continuity breaks.</div>
+      <p style="font-size: 16px; color: var(--text-primary); line-height: 1.7; margin-bottom: 16px;">
+        The entire persistence architecture - context.md, MEMORY.md, memory files, and the CLAUDE.md update cycle - depends on one assumption: <strong>that the same project hash is hit every time you open a project.</strong> The hash is derived from the session name and project path. If those change between runs, Claude Code creates a new, empty persistence directory. The old one still exists on disk, but no session will ever read it again.
+      </p>
+      <p style="font-size: 16px; color: var(--text-primary); line-height: 1.7; margin-bottom: 16px;">
+        This means context.md would be written by the Stop hook but never read back by a future session. Memory entries from <code>/wrap</code> and <code>/memory-update</code> would accumulate in orphaned directories. The CLAUDE.md updates that <code>/wrap</code> proposes - the decisions and conventions learned during work - would never feed back into the project files, because the next session wouldn't know where to find them.
+      </p>
+      <p style="font-size: 16px; color: var(--text-secondary); line-height: 1.7;">
+        Named sessions are what close the loop. They are the reason <code>/init-project</code> -> work -> <code>/wrap</code> -> next session is a cycle rather than a dead end. Every layer of the persistence system - the Stop hook, the memory system, the CLAUDE.md update pipeline, the rolling-window context merge - was designed with the assumption that sessions return to the same hash. Breaking that assumption doesn't cause an error. It silently degrades the system into one with no memory.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LAYER 7: Project Lifecycle - /init-project and /wrap ═══ -->
+<div id="lifecycle" class="section" style="background: var(--bg-surface);">
+  <div class="section-title"><h2 style="color: #d8b4fe;">Project Lifecycle</h2><h3>/init-project scaffolds, /wrap maintains</h3></div>
+
+  <p class="desc" style="margin-bottom: 16px; color: #a78bfa; font-size: 16px;">
+    These two skills form a lifecycle loop: <code>/init-project</code> creates the harness structure at project start,
+    <code>/wrap</code> keeps it current as work happens. Together they ensure every session has accurate context and every project follows the same structure.
+  </p>
+
+  <div class="two-col">
+    <!-- /init-project -->
+    <div>
+      <div style="font-size: 16px; font-weight: 700; color: #d8b4fe; margin-bottom: 10px;">/init-project - Project Bootstrap</div>
+      <div class="rel-card" style="border-color: #7c3aed40;">
+        <h4 style="color: #c4b5fd;">What it creates</h4>
+        <ul>
+          <li>Root <code>CLAUDE.md</code> (under 40 lines - lean by design)</li>
+          <li><code>[track]/CLAUDE.md</code> per subdirectory (backend, frontend, etc.)</li>
+          <li><code>.claude/settings.json</code> + <code>settings.local.json</code></li>
+          <li><code>.claude/qa.md</code> (if web UI confirmed)</li>
+          <li><code>MEMORY.md</code> seed in <code>~/.claude/projects/[hash]/memory/</code></li>
+          <li><code>.gitignore</code> with secrets protection</li>
+          <li><code>docs/</code> structure (overview, technical, planning, research)</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+        <h4 style="color: #c4b5fd;">How it works</h4>
+        <ul>
+          <li>Interactive: asks project name, tracks, tools, DB, web UI</li>
+          <li>Discovery scan: checks what exists before creating</li>
+          <li>If CLAUDE.md exists: curates in place (Worker + Skeptic)</li>
+          <li>Extracts verbose rationale into MEMORY.md entries</li>
+          <li>Never overwrites settings.local.json (may contain secrets)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- /wrap -->
+    <div>
+      <div style="font-size: 16px; font-weight: 700; color: #d8b4fe; margin-bottom: 10px;">/wrap - Session Context Enrichment</div>
+      <div class="rel-card" style="border-color: #7c3aed40;">
+        <h4 style="color: #c4b5fd;">What it produces (3 outputs)</h4>
+        <ul>
+          <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
+          <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
+          <li><strong>CLAUDE.md updates</strong> - proposed additions to root and track CLAUDE.md files (decisions, conventions, stack)</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+        <h4 style="color: #c4b5fd;">How it works</h4>
+        <ul>
+          <li>Compiles session data (files touched, errors, decisions)</li>
+          <li>Worker drafts all 3 outputs from raw session data</li>
+          <li>Skeptic reviews for accuracy and completeness</li>
+          <li>Writer Worker merges into existing files (rolling window for context.md, semantic dedup for memory.md)</li>
+          <li>Cleans up stale worktrees as final step</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lifecycle flow -->
+  <div style="margin-top: 20px;">
+    <div style="font-size: 16px; font-weight: 700; color: #e9d5ff; margin-bottom: 10px;">Lifecycle Flow</div>
+    <div class="flow">
+      <div class="flow-row">
+        <span class="flow-box" style="background:#4c1d95;color:#e9d5ff;border:1px solid #7c3aed;">/init-project</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">CLAUDE.md hierarchy + settings + docs/</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background:#1a3d22;color:#86efac;border:1px solid #22c55e60;">Work sessions (features, bugs, etc.)</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background:#4c1d95;color:#e9d5ff;border:1px solid #7c3aed;">/wrap</span>
+      </div>
+      <div class="flow-row" style="margin-top: 6px; margin-left: 40px;">
+        <span class="flow-label">Creates structure once</span>
+        <span style="width:160px;display:inline-block;"></span>
+        <span class="flow-label">Agents use the harness</span>
+        <span style="width:70px;display:inline-block;"></span>
+        <span class="flow-label">Enriches context + updates CLAUDE.md</span>
+      </div>
+
+      <!-- Feedback loop -->
+      <div class="flow-row" style="margin-top: 12px;">
+        <span style="width:40px;display:inline-block;"></span>
+        <span class="flow-box" style="background:#4c1d95;color:#e9d5ff;border:1px solid #7c3aed;">/wrap</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background:#1a3040;color:#67e8f9;border:1px solid #06b6d440;">context.md (session state)</span>
+        <span class="flow-arrow">+</span>
+        <span class="flow-box" style="background:#1a3040;color:#67e8f9;border:1px solid #06b6d440;">memory.md (stable facts)</span>
+        <span class="flow-arrow">+</span>
+        <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">CLAUDE.md updates</span>
+      </div>
+      <div class="flow-row" style="margin-top: 6px; margin-left: 80px;">
+        <span class="flow-label">Next session reads all three &rarr; full context from turn one &rarr; work &rarr; /wrap &rarr; repeat</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="border-left-color: #d8b4fe; margin-top: 16px;">
+    <strong>The feedback loop:</strong>
+    <ul>
+      <li><code>/init-project</code> creates empty structure. Work fills it with decisions and conventions.</li>
+      <li><code>/wrap</code> captures what was learned and feeds it back into the CLAUDE.md hierarchy and memory. Next session starts with richer context. The harness improves itself over time - each session makes the next one better.</li>
+    </ul>
+    <strong>Separation of concerns:</strong>
+    <ul>
+      <li><code>context.md</code> holds temporary session state (what's in progress, what's next).</li>
+      <li><code>memory.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
+      <li><code>CLAUDE.md</code> files hold the canonical project description (structure, tools, conventions).</li>
+      <li>The Stop hook auto-writes a basic context.md every turn; <code>/wrap</code> produces the enriched version when detail matters.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══ LAYER 8: Git Workflow ═══ -->
+<div id="git" class="section config-layer" style="background: var(--bg-surface);">
+  <div class="section-title"><h2>Git Workflow</h2><h3>Worktree isolation model</h3></div>
+
+  <div class="flow" style="margin-top: 0;">
+    <div class="flow-title">Standard Feature Branch Flow</div>
+    <div class="flow-row">
+      <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">development (main tree)</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-box" style="background:#1a3d22;color:#86efac;border:1px solid #22c55e60;">feature/* worktree</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-box" style="background:#312e81;color:#a5b4fc;border:1px solid #4338ca;">PR to develop</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">merge + cleanup</span>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top: 20px;">
+    <div>
+      <div class="rel-card">
+        <h4>Core Rules</h4>
+        <ul>
+          <li><strong>Main tree stays on development</strong> (or <code>develop</code>) at all times. Never move it to a feature branch. It is neutral ground for all sessions.</li>
+          <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/claude-protocols</code> may push directly to <code>main</code>.</li>
+          <li><strong>Base branch resolution:</strong> use <code>develop</code> if it exists, fall back to <code>development</code>, otherwise create <code>develop</code> from <code>main</code>.</li>
+          <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
+          <li><strong>Commit each fix immediately.</strong> Never accumulate uncommitted changes. After each validated fix: create branch, commit, PR, merge, pull - then start the next fix.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card">
+        <h4>Worktree Types</h4>
+        <ul>
+          <li><strong>Feature worktrees</strong> (<code>feature/*</code>, <code>fix/*</code>) - one per task, branched from <code>origin/development</code>. Removed after PR is merged via <code>gh pr merge --squash --delete-branch</code>.</li>
+          <li><strong>Isolation worktrees</strong> (<code>worktree-agent-*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Each parallel agent gets its own copy of the repo. Removed immediately after the conductor has opened a PR or confirmed no PR is needed.</li>
+          <li><strong>Multi-session support:</strong> multiple Claude Code sessions can work on different features simultaneously. Each creates its own worktree from development. No coordination needed - worktrees are independent filesystem copies.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LAYER 8: Risk Decision ═══ -->
+<div id="risk" class="section" style="background: var(--bg-surface);">
+  <div class="section-title"><h2 style="color: #fca5a5;">Risk Classification</h2><h3>The central decision that drives everything</h3></div>
+  <div class="two-col">
+    <div class="rel-card" style="border-color: #22c55e40;">
+      <h4 style="color: #86efac;">Low Risk &rarr; Direct Action</h4>
+      <ul>
+        <li>Read a file / git status (confirming known fact)</li>
+        <li>Answer from memory</li>
+        <li>Take a screenshot</li>
+        <li>Synthesize subagent results</li>
+        <li>Diagnostic-only logging (zero behavioral effect)</li>
+        <li>Documentation-only .md creation (pure list/glossary)</li>
+        <li>Targeted wording fix to already-reviewed content</li>
+      </ul>
+    </div>
+    <div class="rel-card" style="border-color: #ef444440;">
+      <h4 style="color: #fca5a5;">Elevated Risk &rarr; Worker + Skeptic</h4>
+      <ul>
+        <li>Any code edit with behavioral effect</li>
+        <li>Security / auth / crypto / payments</li>
+        <li>Irreversible operations</li>
+        <li>Architecture decisions</li>
+        <li>Multi-file changes / new file creation</li>
+        <li>External APIs / unfamiliar code</li>
+        <li>Research producing an artifact</li>
+        <li>Configuration changes</li>
+        <li>Anything where a mistake costs time or data</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note" style="border-left-color: #fca5a5;">
+    <strong>When in doubt, classify as Elevated.</strong> "Looks simple" is not a Low signal. Mid-task reclassification is mandatory if Elevated signals appear during execution.
+  </div>
+
+  <div class="rel-card" style="margin-top: 16px; border-color: var(--accent-rose-dim);">
+    <h4 style="color: var(--accent-rose);">Common Rationalizations to Reject</h4>
+    <ul>
+      <li><strong>"This looks simple, I can do it directly."</strong> - Simple-looking tasks are where unreviewed errors accumulate most often.</li>
+      <li><strong>"It's only one file / a few lines."</strong> - Line count is not a risk signal. A one-line change to a shared utility has high blast radius.</li>
+      <li><strong>"I already reviewed it myself."</strong> - Self-review is for Low risk. It does not substitute for Skeptic review on Elevated tasks.</li>
+      <li><strong>"The Skeptic will catch any mistakes."</strong> - The Skeptic reviews Worker output. It does not excuse skipping risk classification or spawning a Worker.</li>
+      <li><strong>"We're moving fast, we can skip review this time."</strong> - The protocol exists precisely for times when speed creates pressure to skip it.</li>
+      <li><strong>"I'm following the spirit of the rule, just not the letter."</strong> - Violating the letter is violating the spirit. No exceptions.</li>
+    </ul>
+  </div>
+
+  <div class="rel-card" style="margin-top: 12px; border: 3px dashed #5eaed6; font-size: 20px; padding: 24px;">
+    <h4 style="font-size: 26px;">The Decision Flow</h4>
+    <ul style="font-size: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">1</span> Before any task: classify risk (Low or Elevated)</li>
+      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">2</span> If any single Elevated signal is present: declare risk, spawn Worker + Skeptic</li>
+      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">3</span> If all signals are Low: act directly, then perform inline self-check (re-read in full, verify intent and side effects)</li>
+      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">4</span> If self-check raises concerns: reclassify as Elevated mid-task</li>
+      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">5</span> The <code>UserPromptSubmit</code> hook enforces this - it fires before every action with a reminder to classify first</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══ LAYER 9: Cross-Reference with Wes Roth / Sigrid Jin Video ═══ -->
+<div id="cross-ref" class="section" style="background: var(--bg-surface); display: none;">
+  <div class="section-title"><h2 style="color: #e9d5ff;">Cross-Reference</h2><h3>Wes Roth Video - "Claude Code Just Went Open Source"</h3></div>
+  <p class="desc" style="margin-bottom: 16px; color: #a78bfa;">
+    Source: <a href="https://youtu.be/eR167BCL-4g" style="color:#c4b5fd;">youtu.be/eR167BCL-4g</a> &mdash;
+    Wes Roth covers Sigrid Jin's clean room rewrite of Claude Code ("Claw Code") and Jin's article on agentic harnesses.
+    The video's core thesis maps directly to this system's architecture.
+  </p>
+
+  <div style="margin-bottom: 20px;">
+    <div style="font-size: 16px; font-weight: 700; color: #e9d5ff; margin-bottom: 12px;">Jin's Thesis: "The code is a byproduct. The system that produced it is the thing worth studying."</div>
+  </div>
+
+  <!-- Mapping table -->
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
+      <thead>
+        <tr style="border-bottom: 2px solid #4a3560;">
+          <th style="text-align: left; padding: 10px 12px; color: #c4b5fd; width: 30%;">Video Concept (Jin / Wes Roth)</th>
+          <th style="text-align: left; padding: 10px 12px; color: #86efac; width: 35%;">This System's Implementation</th>
+          <th style="text-align: left; padding: 10px 12px; color: #94a3b8; width: 35%;">Analysis</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom: 1px solid #2d2040;">
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"Claude Code is a harness"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">The model is interchangeable; the harness is the value</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            CLAUDE.md + rules/*.md + protocol docs = the harness definition.<br>
+            The harness is model-agnostic instruction - it governs <em>how</em> any model works, not which model.
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            Direct parallel. This system IS the harness Jin describes. The rules, protocols, and agent definitions are the scaffolding that turns a raw LLM into a disciplined engineering system.
+          </td>
+        </tr>
+        <tr style="border-bottom: 1px solid #2d2040;">
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"Agents break work into tasks, assign roles"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">Jin's OMX system decomposes and delegates</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            <code>orchestration-planner</code> decomposes tasks.<br>
+            <code>agent-team.md</code> defines roles (architect, engineer, debugger, etc.).<br>
+            Conductor follows the plan - spawns agents per the planner's output.
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            Same pattern. Jin's system auto-assigns roles among agents. This system has explicit role definitions with a human-designed decision table for which agent handles what.
+          </td>
+        </tr>
+        <tr style="border-bottom: 1px solid #2d2040;">
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"The human typed maybe 10 sentences into Discord"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">Human provides direction, agents provide labor</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            "The main session agent is a conductor, not a player."<br>
+            All substantial work delegated to subagents in background.<br>
+            User gives high-level intent; system handles decomposition and execution.
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            Identical philosophy. The conductor pattern mirrors Jin's "human as director." The difference: this system's conductor is itself an AI agent (the main session), adding an extra orchestration layer between human and workers.
+          </td>
+        </tr>
+        <tr style="border-bottom: 1px solid #2d2040;">
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"Write code, test it, argue over it, fix what fails"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">Closed development loop with self-correction</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            Composed flows: architect &rarr; skeptic (argue) &rarr; engineer (write) &rarr; skeptic (argue again).<br>
+            Re-route on findings. Quality gates (lint, typecheck, test).
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            The Skeptic protocol is the "argue over it" step, formalized. Jin's agents argue informally; this system has a structured adversarial review with Critical/Major/Minor classifications and mandatory sign-off gates.
+          </td>
+        </tr>
+        <tr style="border-bottom: 1px solid #2d2040;">
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"ClawWhip - notification and event router"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">Background daemon watching git commits, GitHub issues</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            Hooks system: <code>UserPromptSubmit</code> hook (risk classification gate), <code>Stop</code> hook (auto-saves context.md).<br>
+            Git worktree lifecycle with cleanup triggers.
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            Partial parallel. ClawWhip is a persistent daemon; this system's hooks are event-driven within the session. Both keep monitoring outside the agent's context window. This system lacks a persistent background watcher between sessions.
+          </td>
+        </tr>
+        <tr style="border-bottom: 1px solid #2d2040;">
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"Architectural clarity, task decomposition, system design"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">The skills that get more valuable as agents get stronger</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            Architect agent produces plans. Orchestration-planner handles decomposition.<br>
+            Risk classification drives system design decisions.<br>
+            Protocol docs encode architectural clarity as reusable rules.
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            This system is a concrete implementation of Jin's thesis. The protocols ARE the architectural clarity - codified into rules that any session can follow. The human invested time in system design (the harness) rather than individual code tasks.
+          </td>
+        </tr>
+        <tr style="border-bottom: 1px solid #2d2040;">
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"Multiple agents stay productive in parallel"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">Coordination so agents don't collide</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            Subagent Protocol Rule 2: "Parallel by default."<br>
+            Git worktree isolation prevents conflicts.<br>
+            Multiple Claude Code sessions can work simultaneously on different features.
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            Git worktrees are the isolation mechanism that makes parallelism safe. Each agent gets its own copy of the repo. This is a pragmatic solution to the coordination problem Jin describes.
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
+            <strong>"You sleep, they work"</strong><br>
+            <span style="color:#94a3b8;font-size:13px;">Fully autonomous overnight development</span>
+          </td>
+          <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
+            Context.md persists state across sessions.<br>
+            MEMORY.md carries stable facts forward.<br>
+            But: this system still requires human presence - the conductor prompts, Skeptic gates need human final approval.
+          </td>
+          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+            <strong>Key gap.</strong> Jin's system is fully autonomous (Discord message in, shipped code out). This system is semi-autonomous - it handles decomposition and review internally, but the human remains in the loop for approval and direction. The tradeoff is quality control vs full autonomy.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note" style="border-left-color: #a78bfa; margin-top: 16px;">
+    <strong>Summary:</strong> This system implements 6 of the 7 core concepts Jin describes in his agentic harness thesis.
+    The architecture is nearly identical in philosophy - conductor pattern, role-based agents, task decomposition, adversarial review loops, parallel execution with isolation.
+    The primary difference is autonomy level: Jin's system runs fully unattended (human sleeps, agents ship); this system keeps a human-in-the-loop at approval gates.
+    The secondary difference is persistence: Jin's ClawWhip is a persistent daemon; this system's hooks are session-scoped.
+  </div>
+</div>
+
+
+</div>
+<script>
+// Scroll spy for side nav
+const navLinks = document.querySelectorAll('.side-nav a[href^="#"]');
+const sections = [...new Set([...navLinks].map(a => a.getAttribute('href')))].map(id => document.querySelector(id)).filter(Boolean);
+
+function updateActiveNav() {
+  let current = '';
+  for (const section of sections) {
+    const rect = section.getBoundingClientRect();
+    if (rect.top <= 80) current = '#' + section.id;
+  }
+  navLinks.forEach(link => {
+    link.classList.toggle('active', link.getAttribute('href') === current);
+  });
+}
+window.addEventListener('scroll', updateActiveNav, { passive: true });
+updateActiveNav();
+</script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+## Writing Style
+
+Never use em dashes (--). Use a regular hyphen (-) instead in all generated text, copy, comments, documentation, and commit messages.
+
+## Project Structure Convention
+
+Always structure projects with a lean root `CLAUDE.md` and deeper context in subdirectory `CLAUDE.md` files co-located with the code they describe.
+
+- **Root `CLAUDE.md`** - one-paragraph summary, resolved architecture decisions, cross-cutting conventions, repo structure map. Keep it under ~40 lines. This limit applies to project root CLAUDE.md files. The global `~/.claude/CLAUDE.md` is exempt.
+- **Subdirectory `CLAUDE.md`** (e.g. `backend/CLAUDE.md`, `contracts/CLAUDE.md`) - loaded only when working in that directory. Can be as detailed as needed without polluting other contexts.
+- **`.claude/settings.json`** - project-scoped MCP servers and shared config (safe to commit).
+- **`.claude/settings.local.json`** - secrets and local env values (always gitignored).
+
+When starting a new project, run `/init-project` to scaffold this structure automatically.
+
+## Session Context and Memory
+
+**Session startup:** Read `context.md` as the first action of every session - standalone, never in parallel with other tool calls.
+
+**Session context** is auto-written by the Stop hook to `~/.claude/projects/[hash]/context.md` after every agent turn. `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned.
+
+**MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
+- Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
+- Remove entries that are no longer true
+- Do not duplicate what is already in `CLAUDE.md`
+- Session-specific state (current task, next steps) belongs in `context.md`, not here
+- Entry format: `- **YYYY-MM-DD:** [what and why, in one sentence]`
+
+## Git Workflow
+
+The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees. Exception: `~/agentic-engineering` is exempt - commit and push directly to `main` without a worktree or PR.
+
+**Protected branches:** Never commit directly to `main`, `master`, `develop`, or `development`. Exception: `~/agentic-engineering` may be committed to and pushed on `main` directly.
+
+**Base branch resolution** - resolve in this order before any work begins:
+1. Use `develop` if it exists.
+2. Fall back to `development` if it exists.
+3. Otherwise create `develop` from `main` (fall back to `master` if `main` does not exist).
+
+**Feature worktrees:** Each task or feature gets one worktree branched from `origin/development` (or `origin/develop`). Run `git fetch origin` before creating any worktree. Edit directly in the worktree - do not create sub-worktrees for individual changes.
+
+**Parallel agent work:** When multiple agents need to work simultaneously on the same task, each parallel agent gets its own sub-worktree branching from the feature branch. Sub-worktrees are the parallelism tool, not the default for every edit.
+
+**Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
+
+**Merging:** Always open a PR from the feature branch into `develop`/`development` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
+
+**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the main tree should be on `development` with no active worktrees.
+
+**Commit each fix immediately during testing.** Never accumulate uncommitted changes on the main working tree (`development`/`develop`) during live testing sessions. After each validated fix: create fix branch, commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
+
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `development`. The main tree stays on `development` as neutral ground - never move it to a feature branch.
+
+**Project overrides:** Any of these rules may be overridden by the root `CLAUDE.md` file of a project.
