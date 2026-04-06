@@ -38,15 +38,11 @@ skeptic, memory-update, wrap, init-project, flow-dev, flow-qa-plan, implement
 
 ```
 agentic-engineering/
-  .claude/              Claude Code adapter (skill, agents, commands)
-  .cursor/              Cursor adapter (rules, commands, hooks)
+  .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
+  .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters
-  install.sh            Claude Code installer
-  uninstall.sh          Claude Code uninstaller
-  install-cursor.sh     Cursor installer
-  uninstall-cursor.sh   Cursor uninstaller
   README.md             This file
 ```
 

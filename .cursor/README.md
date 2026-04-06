@@ -24,13 +24,13 @@ Commit `.cursor/` so the whole team gets the methodology. Rules, commands, and h
 Run the installer from the repo root:
 
 ```bash
-~/agentic-engineering/install-cursor.sh
+~/agentic-engineering/.cursor/install.sh
 ```
 
 This symlinks rules, reference docs, and commands into `~/.cursor/` and copies `hooks.json`. To remove:
 
 ```bash
-~/agentic-engineering/uninstall-cursor.sh
+~/agentic-engineering/.cursor/uninstall.sh
 ```
 
 ## How rules load

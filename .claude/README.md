@@ -12,7 +12,7 @@
 From the repo root:
 
 ```bash
-./install.sh
+.claude/install.sh
 ```
 
 This will:
@@ -26,7 +26,7 @@ The script is idempotent - safe to run multiple times.
 ## Uninstallation
 
 ```bash
-./uninstall.sh
+.claude/uninstall.sh
 ```
 
 Removes all symlinks and hook entries added by install. Leaves everything else untouched.
