@@ -125,6 +125,7 @@ changed = False
 # ---- Remove risk-classification hook from UserPromptSubmit -----------------
 ups_list = hooks.get("UserPromptSubmit", [])
 new_ups_list = []
+ups_list_changed = False
 for block in ups_list:
     new_hooks = [
         e for e in block.get("hooks", [])
@@ -133,14 +134,16 @@ for block in ups_list:
     removed_count = len(block.get("hooks", [])) - len(new_hooks)
     if removed_count:
         changed = True
+        ups_list_changed = True
         print(f"  - Removed risk-classification hook from UserPromptSubmit matcher '{block.get('matcher', '')}'")
     if new_hooks:
         block["hooks"] = new_hooks
         new_ups_list.append(block)
     elif removed_count:
+        ups_list_changed = True
         print(f"    (matcher block now empty - removed)")
 
-if new_ups_list != ups_list:
+if ups_list_changed:
     if new_ups_list:
         hooks["UserPromptSubmit"] = new_ups_list
     elif "UserPromptSubmit" in hooks:
@@ -216,7 +219,7 @@ pattern = re.compile(
     re.DOTALL
 )
 updated = pattern.sub("", existing)
-updated = updated.strip()
+updated = updated.strip("\n")
 if not updated:
     os.remove(target)
     print("  - Removed ~/.claude/CLAUDE.md (was only managed content)")
