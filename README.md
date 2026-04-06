@@ -46,6 +46,15 @@ agentic-engineering/
   README.md             This file
 ```
 
+## Documentation
+
+- `docs/agentic-engineering.html` - visual reference document describing the full system architecture. Deployed to Vercel at https://agentic-engineering-tyhummel.vercel.app
+- `docs/agentic-workflows.html` - legacy visual reference for the workflow system. Lives in the claude-protocols repo (not this one).
+
+## For agents working in this repo
+
+This repo uses a direct-to-main workflow. No branches, no worktrees, no PRs. Commit directly to `main` and push. Do not create feature branches or open pull requests for changes here.
+
 ## Part of a family
 
 This repo follows a pattern shared across domain-specific protocol packages:
