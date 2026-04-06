@@ -313,12 +313,7 @@
     <div>
       <div class="rel-card">
         <h4 style="color: var(--accent-cyan);">~/.claude/rules/*.md (3 files) <span class="load-badge always">always loaded</span></h4>
-        <ul>
-          <li><strong>agent-methodology.md</strong> - delegation model, risk classification, spawn thresholds, task decomposition, worktree lifecycle</li>
-          <li><strong>code-standards.md</strong> - tool discipline, quality gates, per-language strict defaults, browser verification</li>
-          <li><strong>conventions.md</strong> - writing style, project structure convention, git workflow, session context and memory system</li>
-        </ul>
-        <p class="desc" style="margin-top: 8px;">These are symlinks to ~/claude-protocols/.claude/rules/ - a separate git repo where the canonical versions live. Changes are committed to claude-protocols and automatically reflected everywhere.</p>
+        <p class="desc">Three rules files (agent-methodology, code-standards, conventions) symlinked from ~/agentic-engineering. Content detailed in the Protocol Layer below.</p>
       </div>
     </div>
   </div>
@@ -552,15 +547,7 @@
       <div>
         <div class="rel-card" style="border-color: #7c3aed40;">
           <h4 style="color: #ddd6fe;">The Team</h4>
-          <ul>
-            <li><strong style="color: #86efac;">investigator</strong> - codebase investigation. Traces data flow, maps blast radius. No file writes.</li>
-            <li><strong style="color: #86efac;">debugger</strong> - root cause analysis. Given a failure, produces diagnosis + fix brief. No file writes.</li>
-            <li><strong style="color: #86efac;">security-auditor</strong> - OWASP-structured security review. Covers injection, auth, secrets, privilege escalation. No file writes.</li>
-            <li><strong style="color: #86efac;">architect</strong> - pre-implementation design. Reads codebase, produces plan. No file writes.</li>
-            <li><strong style="color: #86efac;">orchestration-planner</strong> - team composition and sequencing. No file writes.</li>
-            <li><strong style="color: #fbbf24;">engineer</strong> - implements the change. Reads conventions, writes code, runs quality gates. <strong>Only agent that writes files.</strong></li>
-            <li><strong style="color: #c4b5fd;">skeptic</strong> - adversarial reviewer. Reviews Worker output. Not a specialist - the review layer.</li>
-          </ul>
+          <p class="desc">7 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic). Only the engineer writes files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
