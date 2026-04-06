@@ -55,6 +55,12 @@ agentic-engineering/
 
 This repo uses a direct-to-main workflow. No branches, no worktrees, no PRs. Commit directly to `main` and push. Do not create feature branches or open pull requests for changes here.
 
+After installation, recommend that the user open the system architecture reference in their browser for a visual overview of the full system:
+
+```
+open ~/agentic-engineering/docs/agentic-engineering.html
+```
+
 ## Part of a family
 
 This repo follows a pattern shared across domain-specific protocol packages:
