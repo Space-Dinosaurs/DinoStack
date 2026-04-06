@@ -221,6 +221,56 @@ print("  settings.json written.")
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Update ~/.claude/CLAUDE.md
+# ---------------------------------------------------------------------------
+
+echo "Updating ~/.claude/CLAUDE.md..."
+
+python3 - <<'PYEOF'
+import os, re
+
+target = os.path.expanduser("~/.claude/CLAUDE.md")
+begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
+end_marker = "<!-- END managed-by-agentic-engineering -->"
+
+managed_content = """\
+<!-- BEGIN managed-by-agentic-engineering -->
+## Available Skills
+
+- `/engineering` - agentic engineering protocol (delegation, risk classification, code standards, conventions). Auto-triggers on engineering tasks.
+<!-- END managed-by-agentic-engineering -->"""
+
+if os.path.exists(target):
+    with open(target, "r") as f:
+        existing = f.read()
+else:
+    existing = ""
+
+if begin_marker in existing and end_marker in existing:
+    pattern = re.compile(
+        r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
+        re.DOTALL
+    )
+    updated = pattern.sub(managed_content, existing)
+    with open(target, "w") as f:
+        f.write(updated)
+    print("  = Updated managed-by-agentic-engineering section in ~/.claude/CLAUDE.md")
+else:
+    # Append to end of file
+    if existing:
+        updated = existing.rstrip("\n") + "\n\n" + managed_content + "\n"
+    else:
+        updated = managed_content + "\n"
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w") as f:
+        f.write(updated)
+    if existing:
+        print("  + Appended managed-by-agentic-engineering section to ~/.claude/CLAUDE.md")
+    else:
+        print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
+PYEOF
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

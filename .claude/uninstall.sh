@@ -188,6 +188,45 @@ else:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Remove managed section from ~/.claude/CLAUDE.md
+# ---------------------------------------------------------------------------
+
+echo "Updating ~/.claude/CLAUDE.md..."
+
+python3 - <<'PYEOF'
+import os, re
+
+target = os.path.expanduser("~/.claude/CLAUDE.md")
+begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
+end_marker = "<!-- END managed-by-agentic-engineering -->"
+
+if not os.path.exists(target):
+    print("  - ~/.claude/CLAUDE.md not found, skipping")
+    raise SystemExit(0)
+
+with open(target, "r") as f:
+    existing = f.read()
+
+if begin_marker not in existing or end_marker not in existing:
+    print("  - ~/.claude/CLAUDE.md has no managed-by-agentic-engineering section, skipping")
+    raise SystemExit(0)
+
+pattern = re.compile(
+    r'\n?<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->\n?',
+    re.DOTALL
+)
+updated = pattern.sub("", existing)
+updated = updated.strip()
+if not updated:
+    os.remove(target)
+    print("  - Removed ~/.claude/CLAUDE.md (was only managed content)")
+else:
+    with open(target, "w") as f:
+        f.write(updated + "\n")
+    print("  - Removed managed-by-agentic-engineering section from ~/.claude/CLAUDE.md")
+PYEOF
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
