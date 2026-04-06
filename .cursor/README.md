@@ -21,13 +21,16 @@ Commit `.cursor/` so the whole team gets the methodology. Rules, commands, and h
 
 ### Global (personal use)
 
-Symlink into Cursor's global config:
+Run the installer from the repo root:
 
 ```bash
-mkdir -p ~/.cursor/rules ~/.cursor/commands
-ln -s ~/agentic-engineering/.cursor/rules/* ~/.cursor/rules/
-ln -s ~/agentic-engineering/.cursor/commands/* ~/.cursor/commands/
-cp ~/agentic-engineering/.cursor/hooks.json ~/.cursor/hooks.json
+~/agentic-engineering/install-cursor.sh
+```
+
+This symlinks rules, reference docs, and commands into `~/.cursor/` and copies `hooks.json`. To remove:
+
+```bash
+~/agentic-engineering/uninstall-cursor.sh
 ```
 
 ## How rules load

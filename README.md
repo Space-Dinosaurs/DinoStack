@@ -45,6 +45,8 @@ agentic-engineering/
   ADAPTERS.md           Guide for creating new tool adapters
   install.sh            Claude Code installer
   uninstall.sh          Claude Code uninstaller
+  install-cursor.sh     Cursor installer
+  uninstall-cursor.sh   Cursor uninstaller
   README.md             This file
 ```
 
