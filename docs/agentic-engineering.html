@@ -250,10 +250,10 @@
   <a href="#config"><span class="nav-dot" style="background:#7dd3fc;"></span> Configuration</a>
   <a href="#protocols"><span class="nav-dot" style="background:#c4b5fd;"></span> Protocol Rules</a>
   <a href="#protocol-deep-dive"><span class="nav-dot" style="background:#c4b5fd;"></span> Protocol Deep Dive</a>
+  <a href="#proto-design-goals" class="nav-sub">design-goals.md</a>
   <a href="#protocol-deep-dive" class="nav-sub">skeptic-protocol.md</a>
   <a href="#proto-subagent" class="nav-sub">subagent-protocol.md</a>
   <a href="#proto-agent-team" class="nav-sub">agent-team.md</a>
-  <a href="#proto-design-goals" class="nav-sub">design-goals.md</a>
   <a href="#agents"><span class="nav-dot" style="background:#86efac;"></span> Agents</a>
   <a href="#flows"><span class="nav-dot" style="background:#a5b4fc;"></span> Composed Flows</a>
   <a href="#skills"><span class="nav-dot" style="background:#fdba74;"></span> Skills</a>
@@ -361,6 +361,47 @@
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section" style="background: var(--bg-surface);">
   <div class="section-title"><h2 style="color: #c4b5fd;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files</h3></div>
+
+  <!-- design-goals.md -->
+  <div>
+    <div id="proto-design-goals" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">design-goals.md</div>
+      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">Why the System Exists - 4 goals and explicit non-goals, written for evaluators and auditors.</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">The Four Goals</h4>
+          <ul>
+            <li><strong style="color: #7dd3fc;">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
+            <li><strong style="color: #c4b5fd;">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
+            <li><strong style="color: #67e8f9;">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), CLAUDE.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
+            <li><strong style="color: #d8b4fe;">Goal 4 - Context window efficiency.</strong> Always-loaded files must be minimal. Trigger-pointer pattern: risk signals inline (chicken-and-egg), protocol details deferred until triggered.</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="rel-card" style="border-color: #7c3aed40;">
+          <h4 style="color: #ddd6fe;">Explicit Non-Goals</h4>
+          <ul>
+            <li>No persistent memory of personal facts or preferences (project-affecting info only)</li>
+            <li>Does not replace proper documentation (decisions.md is not a design doc)</li>
+            <li>Does not automate irreversible operations at git/infrastructure boundary (human confirms)</li>
+            <li>Does not guarantee correctness (defense in depth, not proof)</li>
+            <li>Does not eliminate need for human judgment (escalation paths exist for ambiguity)</li>
+            <li>Does not manage infrastructure or secrets</li>
+          </ul>
+        </div>
+        <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+          <strong>Evaluator questions for each goal:</strong><br>
+          G1: Does the main agent ever block or do substantial work inline?<br>
+          G2: Is the Skeptic actually fresh each round? Is the brief verbatim?<br>
+          G3: Is the Stop hook firing? Is decisions.md accurate? Is CLAUDE.md lean?<br>
+          G4: Would removing this line cause a wrong classification?
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- skeptic-protocol.md -->
   <div style="margin-bottom: 24px;">
@@ -529,46 +570,6 @@
     </div>
   </div>
 
-  <!-- design-goals.md -->
-  <div>
-    <div id="proto-design-goals" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">design-goals.md</div>
-      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">Why the System Exists - 4 goals and explicit non-goals, written for evaluators and auditors.</div>
-    </div>
-    <div class="two-col">
-      <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
-          <h4 style="color: #ddd6fe;">The Four Goals</h4>
-          <ul>
-            <li><strong style="color: #7dd3fc;">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
-            <li><strong style="color: #c4b5fd;">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
-            <li><strong style="color: #67e8f9;">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), CLAUDE.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
-            <li><strong style="color: #d8b4fe;">Goal 4 - Context window efficiency.</strong> Always-loaded files must be minimal. Trigger-pointer pattern: risk signals inline (chicken-and-egg), protocol details deferred until triggered.</li>
-          </ul>
-        </div>
-      </div>
-      <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
-          <h4 style="color: #ddd6fe;">Explicit Non-Goals</h4>
-          <ul>
-            <li>No persistent memory of personal facts or preferences (project-affecting info only)</li>
-            <li>Does not replace proper documentation (decisions.md is not a design doc)</li>
-            <li>Does not automate irreversible operations at git/infrastructure boundary (human confirms)</li>
-            <li>Does not guarantee correctness (defense in depth, not proof)</li>
-            <li>Does not eliminate need for human judgment (escalation paths exist for ambiguity)</li>
-            <li>Does not manage infrastructure or secrets</li>
-          </ul>
-        </div>
-        <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
-          <strong>Evaluator questions for each goal:</strong><br>
-          G1: Does the main agent ever block or do substantial work inline?<br>
-          G2: Is the Skeptic actually fresh each round? Is the brief verbatim?<br>
-          G3: Is the Stop hook firing? Is decisions.md accurate? Is CLAUDE.md lean?<br>
-          G4: Would removing this line cause a wrong classification?
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- ═══ LAYER 3: Agents ═══ -->
