@@ -773,11 +773,13 @@
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4>Files (all at <code>~/.claude/projects/[hash]/</code>)</h4>
+        <h4>Persistence Hierarchy <span style="font-weight: 400; font-size: 14px; color: var(--text-muted);">(all at <code>~/.claude/projects/[hash]/</code>)</span></h4>
         <ul>
           <li><strong>MEMORY.md</strong> <span class="load-badge always">always loaded</span> - index of all memory files. Auto-injected into every conversation at startup. One-line pointers to individual memory files. Keep under 200 lines.</li>
+          <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
-          <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - session state. Auto-written by the Stop hook after every agent turn. <code>/wrap</code> produces a richer version with structured sections, merged across sessions.</li>
+          <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
+          <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -792,16 +794,6 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4>Persistence Hierarchy</h4>
-        <ul>
-          <li><strong>MEMORY.md</strong> <span class="load-badge always">always loaded</span> - loaded every session (index). The system reads this first to decide which memory files are relevant.</li>
-          <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
-          <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - read on-demand. Each has frontmatter with description used for relevance matching.</li>
-          <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
-          <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
-        </ul>
-      </div>
-      <div class="rel-card" style="margin-top: 12px;">
         <h4>What NOT to save in memory</h4>
         <ul>
           <li>Code patterns, architecture, file paths (derive from reading the code)</li>
