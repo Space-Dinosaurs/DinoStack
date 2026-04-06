@@ -240,6 +240,28 @@
     html { scroll-behavior: auto; }
     * { transition: none !important; }
   }
+
+  .load-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .load-badge.always {
+    background: #1a3d22;
+    color: #6ee7a0;
+    border: 1px solid #22c55e40;
+  }
+  .load-badge.on-demand {
+    background: #2d2255;
+    color: #c4b5fd;
+    border: 1px solid #7c3aed40;
+  }
 </style>
 </head>
 <body>
@@ -279,7 +301,7 @@
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-cyan);">~/.claude/CLAUDE.md</h4>
+        <h4 style="color: var(--accent-cyan);">~/.claude/CLAUDE.md <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li>The global entry point. Loaded into every conversation context automatically by Claude Code.</li>
           <li>Points to the 3 rules files (agent-methodology, code-standards, conventions)</li>
@@ -290,7 +312,7 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-cyan);">~/.claude/rules/*.md (3 files)</h4>
+        <h4 style="color: var(--accent-cyan);">~/.claude/rules/*.md (3 files) <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li><strong>agent-methodology.md</strong> - delegation model, risk classification, spawn thresholds, task decomposition, worktree lifecycle</li>
           <li><strong>code-standards.md</strong> - tool discipline, quality gates, per-language strict defaults, browser verification</li>
@@ -312,7 +334,7 @@
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4>agent-methodology.md</h4>
+        <h4>agent-methodology.md <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li>Delegation model: conductor never plays</li>
           <li>Risk classification: Low vs Elevated</li>
@@ -325,7 +347,7 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4>code-standards.md</h4>
+        <h4>code-standards.md <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li>Tool discipline (Read/Glob/Grep over bash)</li>
           <li>Quality gates: lint, typecheck, test</li>
@@ -335,7 +357,7 @@
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 10px;">
-        <h4>conventions.md</h4>
+        <h4>conventions.md <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li>Writing style (no em dashes)</li>
           <li>Project structure convention</li>
@@ -349,10 +371,10 @@
   <div style="margin-top: 16px;">
     <div class="section-title"><h3 style="color: #a78bfa; font-size: 16px; font-weight: 600;">Referenced Protocol Documents (~/claude-protocols/agent-methodology/)</h3></div>
     <div class="node-grid">
-      <div class="node node-protocol">skeptic-protocol.md</div>
-      <div class="node node-protocol">subagent-protocol.md</div>
-      <div class="node node-protocol">agent-team.md</div>
-      <div class="node node-protocol">design-goals.md</div>
+      <div class="node node-protocol">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">agent-team.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">design-goals.md <span class="load-badge on-demand">on demand</span></div>
     </div>
     <p class="desc">Not auto-loaded. Read on-demand when protocols are triggered (e.g., Elevated risk declared, Skeptic review needed).</p>
   </div>
@@ -365,7 +387,7 @@
   <!-- design-goals.md -->
   <div>
     <div id="proto-design-goals" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">design-goals.md</div>
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">design-goals.md <span class="load-badge on-demand">on demand</span></div>
       <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">Why the System Exists - 4 goals and explicit non-goals, written for evaluators and auditors.</div>
     </div>
     <div class="two-col">
@@ -406,7 +428,7 @@
   <!-- skeptic-protocol.md -->
   <div style="margin-bottom: 24px;">
     <div style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">skeptic-protocol.md</div>
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Adversarial Review Methodology - 12 sections. The core quality mechanism.</div>
     </div>
     <div class="two-col">
@@ -464,7 +486,7 @@
   <!-- subagent-protocol.md -->
   <div style="margin-bottom: 24px;">
     <div id="proto-subagent" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">subagent-protocol.md</div>
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Orchestration Methodology - 11 sections. The outer frame governing delegation.</div>
     </div>
     <div class="two-col">
@@ -523,7 +545,7 @@
   <!-- agent-team.md -->
   <div style="margin-bottom: 24px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">agent-team.md</div>
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
       <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Team Playbook - 7 agent roles, 4 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
@@ -753,9 +775,9 @@
       <div class="rel-card">
         <h4>Files (all at <code>~/.claude/projects/[hash]/</code>)</h4>
         <ul>
-          <li><strong>MEMORY.md</strong> - index of all memory files. Auto-injected into every conversation at startup. One-line pointers to individual memory files. Keep under 200 lines.</li>
-          <li><strong>memory/*.md</strong> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
-          <li><strong>context.md</strong> - session state. Auto-written by the Stop hook after every agent turn. <code>/wrap</code> produces a richer version with structured sections, merged across sessions.</li>
+          <li><strong>MEMORY.md</strong> <span class="load-badge always">always loaded</span> - index of all memory files. Auto-injected into every conversation at startup. One-line pointers to individual memory files. Keep under 200 lines.</li>
+          <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
+          <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - session state. Auto-written by the Stop hook after every agent turn. <code>/wrap</code> produces a richer version with structured sections, merged across sessions.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -772,9 +794,9 @@
       <div class="rel-card">
         <h4>Persistence Hierarchy</h4>
         <ul>
-          <li><strong>MEMORY.md</strong> - loaded every session (index). The system reads this first to decide which memory files are relevant.</li>
-          <li><strong>context.md</strong> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
-          <li><strong>memory/*.md</strong> - read on-demand. Each has frontmatter with description used for relevance matching.</li>
+          <li><strong>MEMORY.md</strong> <span class="load-badge always">always loaded</span> - loaded every session (index). The system reads this first to decide which memory files are relevant.</li>
+          <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
+          <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - read on-demand. Each has frontmatter with description used for relevance matching.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
           <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
         </ul>
