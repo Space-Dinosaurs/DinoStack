@@ -289,22 +289,22 @@
 </nav>
 
 <h1>Agentic Software Engineering with Claude Code</h1>
-<p class="subtitle">Configuration files, protocols, agents, skills, and persistence - and how they compose</p>
+<p class="subtitle">Skill-based architecture - engineering methodology, agents, protocols, and persistence - and how they compose</p>
 <p style="color: var(--text-secondary); font-size: 15px; margin-top: -40px; margin-bottom: 48px;">by Tyson Hummel</p>
 
 <div class="diagram">
 
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
 <div id="config" class="section config-layer">
-  <div class="section-title"><h2>Configuration Layer</h2><h3>Global files loaded every session, every project</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">These files are <strong>global</strong> - they apply to every project, every session, every Claude Code instance on this machine. They define the baseline behavior that all work inherits before any project-specific CLAUDE.md is loaded. This is what makes the system a reusable harness rather than per-project configuration.</p>
+  <div class="section-title"><h2>Configuration Layer</h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
+  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/CLAUDE.md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
         <h4 style="color: var(--accent-cyan);">~/.claude/CLAUDE.md <span class="load-badge always">always loaded</span></h4>
         <ul>
-          <li>The global entry point. Loaded into every conversation context automatically by Claude Code.</li>
-          <li>Points to the 3 rules files (agent-methodology, code-standards, conventions)</li>
+          <li>Minimal global file - personal preferences and a list of available domain skills.</li>
+          <li>Does not contain the full methodology. Keeps always-loaded context small.</li>
           <li>Contains behavioral overrides: complete tasks fully before stopping, no PR footer emoji</li>
           <li>Exempt from the 40-line limit that applies to project root CLAUDE.md files</li>
         </ul>
@@ -312,13 +312,14 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-cyan);">~/.claude/rules/*.md (3 files) <span class="load-badge always">always loaded</span></h4>
-        <p class="desc">Three rules files (agent-methodology, code-standards, conventions) symlinked from ~/agentic-engineering. Content detailed in the Protocol Layer below.</p>
+        <h4 style="color: var(--accent-cyan);">~/.claude/skills/engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
+        <p class="desc">The <code>/engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/agentic-engineering/.claude/skills/engineering/</code>. Content detailed in the Protocol Layer below.</p>
       </div>
     </div>
   </div>
   <div class="note">
-    <strong>Symlink chain:</strong> ~/.claude/rules/*.md &rarr; ~/claude-protocols/.claude/rules/*.md (canonical source, version-controlled)<br>
+    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md) and <code>~/agentic-engineering/.claude/skills/engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md)<br>
+    <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships both a <code>.claude/</code> adapter (Claude Code) and a <code>.cursor/</code> adapter (Cursor IDE) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root CLAUDE.md (~40 lines) + subdirectory CLAUDE.md files for deeper context. Project CLAUDE.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
 </div>
@@ -364,7 +365,7 @@
   </div>
 
   <div style="margin-top: 16px;">
-    <div class="section-title"><h3 style="color: #a78bfa; font-size: 16px; font-weight: 600;">Referenced Protocol Documents (~/claude-protocols/agent-methodology/)</h3></div>
+    <div class="section-title"><h3 style="color: #a78bfa; font-size: 16px; font-weight: 600;">Referenced Protocol Documents (~/.claude/skills/engineering/references/)</h3></div>
     <div class="node-grid">
       <div class="node node-protocol">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
@@ -377,7 +378,7 @@
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section" style="background: var(--bg-surface);">
-  <div class="section-title"><h2 style="color: #c4b5fd;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files</h3></div>
+  <div class="section-title"><h2 style="color: #c4b5fd;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files in ~/agentic-engineering/.claude/skills/engineering/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>
@@ -719,7 +720,7 @@
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
   <div class="section-title"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/skill-name</code> in the chat. They expand into full prompts with multi-step workflows, often spawning their own Worker + Skeptic loops internally. Skills are defined in <code>~/claude-protocols/.claude/skills/</code> and <code>.claude/commands/</code>.</p>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/skill-name</code> in the chat. They expand into full prompts with multi-step workflows, often spawning their own Worker + Skeptic loops internally. Commands are defined in <code>~/agentic-engineering/.claude/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>~/agentic-engineering/.claude/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -974,7 +975,7 @@
         <h4>Core Rules</h4>
         <ul>
           <li><strong>Main tree stays on development</strong> (or <code>develop</code>) at all times. Never move it to a feature branch. It is neutral ground for all sessions.</li>
-          <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/claude-protocols</code> may push directly to <code>main</code>.</li>
+          <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/agentic-engineering</code> may commit and push directly to <code>main</code>.</li>
           <li><strong>Base branch resolution:</strong> use <code>develop</code> if it exists, fall back to <code>development</code>, otherwise create <code>develop</code> from <code>main</code>.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
           <li><strong>Commit each fix immediately.</strong> Never accumulate uncommitted changes. After each validated fix: create branch, commit, PR, merge, pull - then start the next fix.</li>
@@ -1083,7 +1084,7 @@
             <span style="color:#94a3b8;font-size:13px;">The model is interchangeable; the harness is the value</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
-            CLAUDE.md + rules/*.md + protocol docs = the harness definition.<br>
+            CLAUDE.md + skill rules + protocol docs = the harness definition.<br>
             The harness is model-agnostic instruction - it governs <em>how</em> any model works, not which model.
           </td>
           <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
