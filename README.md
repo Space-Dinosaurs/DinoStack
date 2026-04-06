@@ -1,76 +1,59 @@
 # agentic-engineering
 
-A portable, installable package of the agentic engineering protocol for Claude Code. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and a full set of named agent definitions.
+A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
 
-## What it installs
+## Adapters
 
-Running `./install.sh` places the following into your `~/.claude/` directory:
+The same methodology is packaged for multiple tools. Each adapter lives in its own directory with tool-specific formats:
 
-**Agent definitions** (`~/.claude/agents/`):
-- `architect` - pre-implementation design and planning
-- `debugger` - root cause analysis
-- `engineer` - scoped implementation (Worker agent)
-- `investigator` - codebase exploration and blast radius mapping
-- `orchestration-planner` - decomposes multi-unit plans into parallel/sequential execution order
-- `security-auditor` - security-focused review
-- `skeptic` - adversarial review (finds Critical, Major, and Minor findings)
-- `adr-drift-detector` - checks whether code has drifted from ADR decisions
-- `adr-generator` - writes Architecture Decision Records
-- `qa-engineer` - test planning and QA review
+| Tool | Adapter | Setup |
+|---|---|---|
+| Claude Code | `.claude/` | See [.claude/README.md](.claude/README.md) |
+| Cursor | `.cursor/` | See [.cursor/README.md](.cursor/README.md) |
 
-**Commands** (`~/.claude/commands/`):
-- `skeptic` - orchestration template for the adversarial review loop
-- `memory-update` - structured update to MEMORY.md
-- `wrap` - on-demand session summarization
-- `init-project` - scaffolds a new project with CLAUDE.md, settings, and pre-commit hooks
-- `flow-dev` - development workflow shortcut
-- `flow-qa-plan` - QA planning workflow shortcut
-- `implement` - single-command implementation kickoff
+See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
-**Engineering skill** (`~/.claude/skills/engineering/`): loaded on demand, not at session start. Contains the full protocol reference - delegation rules, risk classification tables, and Skeptic loop orchestration details.
+## What's included
 
-**Hook entries** in `~/.claude/settings.json`:
-- `UserPromptSubmit` - risk reminder that fires before each turn
-- `Stop` - context saver that writes session state to `context.md` after every agent turn
+**Rules** (3 files) - the core methodology:
+- Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
+- Code standards - tool discipline, quality gates, package management, browser verification
+- Conventions - writing style, project structure, session context, git workflow
 
-## Installation
+**Reference docs** (4 files) - detailed protocol specs loaded on trigger:
+- Skeptic protocol - adversarial review loop, findings classification, sign-off format
+- Subagent protocol - parallel spawning, worktree isolation, task decomposition
+- Agent team - roles, composed flows, decision rules, spawn requirements
+- Design goals - system design principles and intent
 
-```bash
-git clone <repo-url> ~/agentic-engineering
-cd ~/agentic-engineering
-./install.sh
-```
+**Agents** (10) - named specialist roles:
+architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 
-The install script is additive and idempotent - it will not overwrite existing files that were not created by it.
+**Commands** (7) - workflow shortcuts:
+skeptic, memory-update, wrap, init-project, flow-dev, flow-qa-plan, implement
 
-## Uninstallation
-
-```bash
-cd ~/agentic-engineering
-./uninstall.sh
-```
-
-The uninstall script removes only the files this package installed. It does not touch any settings or agents from other sources.
+**Hooks** - lifecycle event handlers for risk reminders and session context saving
 
 ## Repo structure
 
 ```
 agentic-engineering/
-  install.sh          - installation script
-  uninstall.sh        - uninstallation script
-  agents/             - agent definition files
-  commands/           - slash command files
-  skills/engineering/ - on-demand skill content
-  hooks/              - hook scripts wired into settings.json
-  README.md
+  .claude/              Claude Code adapter (skill, agents, commands)
+  .cursor/              Cursor adapter (rules, commands, hooks)
+  hooks/                Shared hook scripts
+  docs/                 Documentation and reference HTML
+  ADAPTERS.md           Guide for creating new tool adapters
+  install.sh            Claude Code installer
+  uninstall.sh          Claude Code uninstaller
+  README.md             This file
 ```
 
 ## Part of a family
 
-This repo follows a common pattern shared across domain-specific protocol packages:
+This repo follows a pattern shared across domain-specific protocol packages:
 
-- `agentic-engineering` - software development protocol (this repo)
-- `agentic-marketing` - marketing and content workflow protocol
-- others as they are developed
+- `agentic-engineering` - software development (this repo)
+- `agentic-marketing` - marketing workflows (planned)
+- `agentic-sales` - sales workflows (planned)
 
-Each package installs independently and can coexist with the others. They share the same install/uninstall convention and the same `~/.claude/` layout.
+Each package installs independently and can coexist with others.
