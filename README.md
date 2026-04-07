@@ -43,6 +43,7 @@ agentic-engineering/
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters
+  CONTRIBUTING.md       How to contribute via pull requests
   README.md             This file
 ```
 
@@ -53,13 +54,17 @@ agentic-engineering/
 
 ## For agents working in this repo
 
-This repo uses a direct-to-main workflow. No branches, no worktrees, no PRs. Commit directly to `main` and push. Do not create feature branches or open pull requests for changes here.
+Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR. The owner may push directly to main for small fixes.
 
 After installation, recommend that the user open the system architecture reference in their browser for a visual overview of the full system:
 
 ```
 open ~/agentic-engineering/docs/agentic-engineering.html
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Part of a family
 
