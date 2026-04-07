@@ -342,3 +342,5 @@ echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents us
 
 echo ""
 echo "Install complete."
+echo ""
+echo "System architecture reference: file://$REPO_DIR/docs/agentic-engineering.html"
