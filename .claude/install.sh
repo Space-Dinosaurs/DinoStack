@@ -259,6 +259,84 @@ else:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Recommended tools (interactive, optional)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "Recommended tools (optional):"
+echo ""
+
+# CLI tools
+declare -a CLI_TOOLS=(
+  "gh:GitHub CLI (PRs, issues, repo management):brew install gh"
+  "agent-browser:Browser verification for UI changes:npm install -g agent-browser"
+  "lc:Linear CLI for issue tracking:npm install -g linearctl"
+  "rclone:Google Drive file sync:brew install rclone"
+)
+
+for tool_entry in "${CLI_TOOLS[@]}"; do
+  IFS=: read -r cmd desc install_cmd <<< "$tool_entry"
+  if command -v "$cmd" &>/dev/null; then
+    echo "  = $cmd already installed"
+  else
+    read -p "  Install $cmd ($desc)? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      eval "$install_cmd" 2>&1 || echo "  ! $cmd install failed (non-blocking)"
+    else
+      echo "  - skipped $cmd"
+    fi
+  fi
+done
+
+# chrome-devtools MCP
+echo ""
+CLAUDE_JSON="$HOME/.claude.json"
+if [[ -f "$CLAUDE_JSON" ]] && python3 -c "
+import json, sys
+with open('$CLAUDE_JSON') as f:
+    d = json.load(f)
+sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
+" 2>/dev/null; then
+  echo "  = chrome-devtools MCP already configured"
+else
+  read -p "  Configure chrome-devtools MCP (Chrome DevTools access)? [y/N] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    python3 - <<'PYEOF'
+import json, os
+
+target = os.path.expanduser("~/.claude.json")
+if os.path.exists(target):
+    with open(target) as f:
+        data = json.load(f)
+else:
+    data = {}
+
+servers = data.setdefault("mcpServers", {})
+if "chrome-devtools" not in servers:
+    servers["chrome-devtools"] = {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["chrome-devtools-mcp@latest"],
+        "env": {}
+    }
+    with open(target, "w") as f:
+        json.dump(data, f, indent=2)
+    print("  + chrome-devtools MCP configured in ~/.claude.json")
+else:
+    print("  = chrome-devtools MCP already configured")
+PYEOF
+  else
+    echo "  - skipped chrome-devtools MCP"
+  fi
+fi
+
+# context7 plugin note
+echo ""
+echo "  Note: Enable the 'context7' plugin in Claude Code settings for library/framework docs."
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

@@ -147,22 +147,15 @@ A valid sign-off requires all four elements: (a) "Reviewed:", (b) "Findings:", (
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
-**Step 4 — Write to disk** (background Worker, `run_in_background: true`):
+**Step 4 — Write to disk** (main agent, inline — do NOT delegate to a subagent).
 
----
-You are a Worker agent. Write the approved context file, any memory entries, and any CLAUDE.md updates to disk. Do not spawn subagents.
+Background subagents cannot reliably get Write/Edit permissions. The main agent must perform all writes directly. Invoking /wrap implies permission to write these files.
 
 **Project directory:** [absolute cwd]
 
 **Output path (context.md):** Do not attempt to compute the hash manually - Claude Code generates project directory hashes internally and the path cannot be derived from the project path alone. Instead, discover the correct directory by running `ls ~/.claude/projects/` and identify the subdirectory that corresponds to the current project. Once identified, the context.md path is `~/.claude/projects/[matched-hash]/context.md`.
 
 **Memory path (memory.md):** Same directory as context.md identified above, filename `memory.md`.
-
-**Approved context.md content:** [paste the Skeptic-approved context file content here]
-
-**Memory entries to add:** [paste the memory.md entries from the draft Worker's Output 2 here, or "None" if there were none]
-
-**CLAUDE.md updates to apply:** [paste the approved CLAUDE.md updates from Output 3 here, or "None" if there were none]
 
 **Part A — Write context.md**
 
@@ -232,12 +225,10 @@ For each file listed in the updates:
 
 Return: "Updated CLAUDE.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
 
----
-
 **Step 5 — Worktree cleanup.**
 
 If the project is a git repository with a `/cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
 
 **Step 6 — Confirm completion.**
 
-When the write Worker returns, relay its confirmation to the user. Include all paths it reports (context.md, memory.md where written, and any CLAUDE.md files updated or skipped). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (context.md, memory.md, and any CLAUDE.md files updated or skipped). Also include the cleanup summary if Step 5 ran.

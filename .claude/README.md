@@ -23,6 +23,24 @@ This will:
 
 The script is idempotent - safe to run multiple times.
 
+## Recommended Tools
+
+The install script will prompt to install these optional tools that enhance the engineering workflow.
+
+**CLIs:**
+- `gh` - GitHub CLI for PRs, issues, repo management. Install: `brew install gh`
+- `agent-browser` - browser verification for UI changes. Install: `npm install -g agent-browser`
+- `lc` (linearctl) - Linear issue tracking CLI. Install: `npm install -g linearctl`
+- `rclone` - file sync for Google Drive access. Install: `brew install rclone`
+
+**MCP Servers:**
+- `chrome-devtools` - Chrome DevTools access for page inspection, DOM, network, console. Configured in `~/.claude.json`.
+
+**Plugins:**
+- `context7` - library and framework documentation. Enable in Claude Code settings.
+
+All tools are optional. Declining does not affect the core install.
+
 ## Uninstallation
 
 ```bash
