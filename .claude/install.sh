@@ -217,9 +217,15 @@ end_marker = "<!-- END managed-by-agentic-engineering -->"
 
 managed_content = """\
 <!-- BEGIN managed-by-agentic-engineering -->
-## Available Skills
+## Skill Loading
 
-- `/agentic-engineering` - agentic engineering protocol (delegation, risk classification, code standards, conventions). Auto-triggers on engineering tasks.
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
 <!-- END managed-by-agentic-engineering -->"""
 
 if os.path.exists(target):
