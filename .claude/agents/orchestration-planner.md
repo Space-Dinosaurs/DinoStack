@@ -51,7 +51,9 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 6. **Place Skeptic checkpoints.** Every Elevated-risk engineer output needs a Skeptic before the conductor accepts it. On multi-phase plans, Skeptic scope should cover all interdependent changes together - one integration Skeptic beats stacked per-unit Skeptics.
 
-7. **Write the plan** using the output format below. Commit to a specific sequence - do not present alternatives.
+7. **Work tracking.** Check if `.claude/work-tracking.md` exists in the project root. If it does, read it and follow its instructions.
+
+8. **Write the plan** using the output format below. Commit to a specific sequence - do not present alternatives.
 
 ## Agent selection rules
 
@@ -149,7 +151,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 
 ## Rules
 
-- **Read-only.** Never write, edit, or create files. Bash is for reading only: find, cat, ls, grep, dependency inspection.
+- **Read-only unless work-tracking instructs otherwise.** Never write, edit, or create project files. Bash is for reading only: find, cat, ls, grep, dependency inspection. Exception: `.claude/work-tracking.md` may instruct you to run commands.
 - **Do not implement.** Return only the orchestration plan.
 - **Be selective.** Only include agents that are genuinely needed. "Just in case" agents add cost without value.
 - **Always include Skeptic for Elevated risk.** If any Elevated signal exists, the plan must include a Skeptic after the engineer's output.

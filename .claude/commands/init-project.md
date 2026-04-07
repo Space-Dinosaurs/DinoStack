@@ -29,7 +29,8 @@ Before writing any files, check which files already exist. The full set of files
 - `[track]/CLAUDE.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
-- `.claude/qa.md` (only if web UI confirmed in Step 1)
+- `.claude/qa.md`
+- `.claude/work-tracking.md`
 - `memory/MEMORY.md` (created at `~/.claude/projects/[hash]/memory/MEMORY.md` by Claude Code — `/init-project` seeds it with a stub)
 - `.gitignore`
 - `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
@@ -157,9 +158,9 @@ MCP servers are not added by default — prefer CLI tools (`gh`, `psql`, etc.). 
 
 ### 6. Create `.claude/qa.md`
 
-Only create if the user confirmed a web UI in Step 1. Only create if the file does not already exist.
+Only create if the file does not already exist.
 
-Fill in `command` and `port` from the Step 1 answers. Use `TODO` placeholders for any unknowns.
+Fill in `command` and `port` from the Step 1 answers if available. Use `TODO` placeholders for any unknowns.
 
 Content template:
 
@@ -180,7 +181,50 @@ prefer: local
 
 The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
 
-### 7. Create `.claude/settings.local.json`
+### 7. Create `.claude/work-tracking.md`
+
+Only create if the file does not already exist.
+
+Fill in `[team key]` from the Step 1 answers if available. Use `TODO` placeholders for any unknowns.
+
+Content template:
+
+```markdown
+# Work Tracking
+
+## Tool
+Linear via `lc` CLI (linearctl)
+
+## Team
+[team key from Step 1]
+
+## Ticket format
+- Title: `type: description` (e.g., `feat: add operator permissions schema`)
+- Description: scope, files involved, acceptance criteria (markdown)
+- State workflow: Backlog -> Todo -> In Progress -> Done
+
+## Rules
+- One ticket per orchestration-planner unit
+- Parent tickets for multi-unit features (use `--parent` flag)
+- Include acceptance criteria that map to what the Skeptic will verify
+
+## Commands
+\```bash
+# Create a ticket
+lc issue create --team [team key] --title "type: description" --description "..." --state "Todo"
+
+# Update state
+lc issue update [TEAM]-XX --state "In Progress"
+lc issue update [TEAM]-XX --state "Done"
+
+# Create with parent
+lc issue create --team [team key] --title "..." --parent [TEAM]-XX --state "Todo"
+\```
+```
+
+The `orchestration-planner` agent reads this file to know how to track work. It checks for `.claude/work-tracking.md` at planning time and follows its instructions.
+
+### 8. Create `.claude/settings.local.json`
 
 Only create this file if it does not already exist (enforced in Step 2 — skip if it exists).
 
@@ -192,7 +236,7 @@ Only create this file if it does not already exist (enforced in Step 2 — skip 
 
 Add any project-specific env vars here (e.g. database connection strings, API keys).
 
-### 8. Seed `MEMORY.md`
+### 9. Seed `MEMORY.md`
 
 The project MEMORY.md lives outside the project directory at `~/.claude/projects/[hash]/memory/MEMORY.md` and is auto-injected by Claude Code at startup.
 
@@ -208,9 +252,9 @@ If the file does not already exist, create the memory directory and seed the fil
 <!-- Entry format: - **YYYY-MM-DD:** [what and why, one sentence] -->
 ```
 
-If the file already exists (e.g. because CLAUDE.md curation in Step 3 merged entries into it), leave the stub header step and proceed to Step 9.
+If the file already exists (e.g. because CLAUDE.md curation in Step 3 merged entries into it), leave the stub header step and proceed to Step 10.
 
-### 9. Create `.gitignore`
+### 10. Create `.gitignore`
 
 If `.gitignore` does not exist, create it. Include at minimum:
 ```
@@ -233,7 +277,7 @@ Add any framework-specific entries if the stack is already known (e.g. `.next/` 
 
 If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
 
-### 10. Create `docs/` structure
+### 11. Create `docs/` structure
 
 Create the following empty directories with a `.gitkeep` (only for directories that do not already exist):
 ```
@@ -244,7 +288,7 @@ docs/
   research/
 ```
 
-### 11. Set up Linear
+### 12. Set up Linear
 
 Only if the user confirmed Linear in Step 1. This step has three parts:
 
@@ -294,7 +338,7 @@ If the user did not provide project names, omit the "Projects" line. The global 
 
 Run `lc doctor` to confirm the connection is working. If it fails, add a reminder to the summary with the manual steps.
 
-### 12. Summary
+### 13. Summary
 
 After all files are processed, print a short summary with three sections:
 
@@ -309,5 +353,6 @@ Then remind the user to:
 4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `CLAUDE.md`. On re-run, `/init-project` will automatically curate `CLAUDE.md` and extract any facts that have crept in.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) — omit this reminder if `.claude/settings.local.json` was skipped
 6. Confirm `gh` is installed and update the `## Tools` section in root `CLAUDE.md` to add `- GitHub operations: use \`gh\` CLI — do not use GitHub MCP` — show only if `gh` was skipped in Step 1
-7. Update `.claude/qa.md` with your staging URL once a staging environment is available — show only if `.claude/qa.md` was created
-8. Install the Linear CLI (`npm install -g linearctl && lc init`) and use `/linear` for issue management — show only if Linear was confirmed in Step 1 and `lc` was not found
+7. Update `.claude/qa.md` with dev server command, port, and staging URL as they become available
+8. Update `.claude/work-tracking.md` with your issue tracker config as it becomes available. The orchestration-planner reads this file when planning work.
+9. Install the Linear CLI (`npm install -g linearctl && lc init`) and use `/linear` for issue management - show only if Linear was confirmed in Step 1 and `lc` was not found
