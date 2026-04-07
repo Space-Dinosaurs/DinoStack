@@ -337,6 +337,99 @@ echo ""
 echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents use it to look up current library and framework documentation instead of relying on training data."
 
 # ---------------------------------------------------------------------------
+# Permissions configuration
+# ---------------------------------------------------------------------------
+
+echo ""
+
+python3 - <<'PYEOF'
+import json, os
+
+settings_path = os.path.expanduser("~/.claude/settings.json")
+
+if os.path.exists(settings_path):
+    with open(settings_path, "r") as f:
+        settings = json.load(f)
+else:
+    settings = {}
+
+perms = settings.get("permissions", {})
+
+recommended_allow = [
+    "Bash(*)",
+    "Write",
+    "Write(~/.claude/**)",
+    "Edit",
+    "Edit(~/.claude/**)",
+    "Write(~/.claude/projects/**)",
+    "Edit(~/.claude/projects/**)"
+]
+recommended_deny = [
+    "Bash(git push --force*)",
+    "Bash(rm -rf*)",
+    "Bash(git reset --hard*)",
+    "Bash(git clean -f*)",
+    "Bash(sudo rm*)",
+    "Bash(dd if=*)",
+    "Bash(shutdown*)",
+    "Bash(reboot*)"
+]
+
+already_bypass = perms.get("defaultMode") == "bypassPermissions"
+
+if already_bypass:
+    # Already configured — silently merge any missing allow/deny rules
+    existing_allow = set(perms.get("allow", []))
+    existing_deny = set(perms.get("deny", []))
+    missing_allow = set(recommended_allow) - existing_allow
+    missing_deny = set(recommended_deny) - existing_deny
+    missing_dir = "~/.claude/projects" not in perms.get("additionalDirectories", [])
+
+    if missing_allow or missing_deny or missing_dir:
+        perms["allow"] = list(existing_allow | set(recommended_allow))
+        perms["deny"] = list(existing_deny | set(recommended_deny))
+        perms.setdefault("additionalDirectories", [])
+        if "~/.claude/projects" not in perms["additionalDirectories"]:
+            perms["additionalDirectories"].append("~/.claude/projects")
+        settings["permissions"] = perms
+        with open(settings_path, "w") as f:
+            json.dump(settings, f, indent=2)
+            f.write("\n")
+        added = []
+        if missing_allow:
+            added.append(f"{len(missing_allow)} allow")
+        if missing_deny:
+            added.append(f"{len(missing_deny)} deny")
+        print(f"  ~ Permissions: bypassPermissions already set, added {' and '.join(added)} rules")
+    else:
+        print("  = Permissions already configured (bypassPermissions mode)")
+else:
+    print("  Recommended: bypassPermissions mode with deny rules for destructive commands.")
+    print("  Agents work best with uninterrupted tool access. The deny list blocks dangerous")
+    print("  operations (force push, rm -rf, hard reset) as a safety net.")
+    resp = input("  Configure recommended permission settings? [y/N] ").strip().lower()
+    if resp == "y":
+        existing_allow = set(perms.get("allow", []))
+        existing_deny = set(perms.get("deny", []))
+
+        perms["allow"] = list(existing_allow | set(recommended_allow))
+        perms["deny"] = list(existing_deny | set(recommended_deny))
+        perms["defaultMode"] = "bypassPermissions"
+        perms.setdefault("additionalDirectories", [])
+        if "~/.claude/projects" not in perms["additionalDirectories"]:
+            perms["additionalDirectories"].append("~/.claude/projects")
+
+        settings["permissions"] = perms
+
+        with open(settings_path, "w") as f:
+            json.dump(settings, f, indent=2)
+            f.write("\n")
+        print("  + Configured bypassPermissions mode with recommended allow/deny rules")
+    else:
+        print("  - skipped permissions configuration")
+PYEOF
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

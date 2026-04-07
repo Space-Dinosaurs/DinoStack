@@ -41,13 +41,28 @@ The install script will prompt to install these optional tools that enhance the 
 
 All tools are optional. Declining does not affect the core install.
 
+## Permissions
+
+The install script offers to configure `bypassPermissions` mode in `~/.claude/settings.json`. This is the recommended setup for agentic-engineering — agents need uninterrupted access to Bash, Edit, and Write to work effectively. Constant permission prompts break agent flow and cause subagents to stall.
+
+**What it configures:**
+
+- `defaultMode: "bypassPermissions"` — agents can use tools without prompting
+- **Allow list** — `Bash(*)`, `Write`, `Edit`, and write access to `~/.claude/` directories
+- **Deny list** — blocks destructive commands as a safety net:
+  - `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`
+  - `sudo rm`, `dd if=`, `shutdown`, `reboot`
+- **Additional directories** — `~/.claude/projects` for cross-session context
+
+The deny list is merged with any existing deny rules — it won't overwrite rules you've already added. You can edit `~/.claude/settings.json` directly to customize.
+
 ## Uninstallation
 
 ```bash
 .claude/uninstall.sh
 ```
 
-Removes all symlinks and hook entries added by install. Leaves everything else untouched.
+Removes all symlinks and hook entries added by install. Permissions configuration (`bypassPermissions` mode, allow/deny rules) is intentionally preserved — edit `~/.claude/settings.json` manually to revert.
 
 ## How it works
 
