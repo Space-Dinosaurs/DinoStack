@@ -1,5 +1,5 @@
 ---
-name: "engineering"
+name: "agentic-engineering"
 description: >
   Apply when the user mentions any software development work: implementing features, fixing bugs,
   reviewing or refactoring code, debugging, testing, deploying, working with agents or subagents,

@@ -20,13 +20,13 @@ Each tool has its own mechanisms for the same core concepts:
 
 1. **Create the directory:** `.<toolname>/` matching the tool's config directory convention
 2. **Convert rules:** Translate the 3 rules files into the tool's native rule format
-   - Source: `.claude/skills/engineering/rules/`
+   - Source: `.claude/skills/agentic-engineering/rules/`
    - Decide which rules should always load vs. load conditionally
 3. **Copy reference docs:** The 4 reference docs are plain markdown - copy or symlink them
-   - Source: `.claude/skills/engineering/references/`
+   - Source: `.claude/skills/agentic-engineering/references/`
 4. **Convert commands:** Translate the 7 commands into the tool's command format
    - Source: `.claude/commands/`
-   - Remove the `/engineering` prerequisite line (it's Claude Code-specific)
+   - Remove the `/agentic-engineering` prerequisite line (it's Claude Code-specific)
 5. **Map hooks:** Wire up the tool's lifecycle events
    - Risk reminder: fire before each prompt/submission
    - Context save: fire on session stop/completion

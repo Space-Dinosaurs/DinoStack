@@ -6,7 +6,7 @@ export REPO_DIR
 
 AGENTS_DST="$HOME/.claude/agents"
 COMMANDS_DST="$HOME/.claude/commands"
-SKILLS_DST="$HOME/.claude/skills/engineering"
+SKILLS_DST="$HOME/.claude/skills/agentic-engineering"
 SETTINGS="$HOME/.claude/settings.json"
 
 
@@ -62,22 +62,22 @@ remove_symlinks "$COMMANDS_DST" "commands"
 # Remove skill symlink
 # ---------------------------------------------------------------------------
 
-echo "Removing skill: engineering..."
+echo "Removing skill: agentic-engineering..."
 
-SKILLS_SRC="$REPO_DIR/.claude/skills/engineering"
+SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
 
 if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
     rm "$SKILLS_DST"
-    echo "  - engineering"
+    echo "  - agentic-engineering"
   else
-    echo "  = engineering (points to $current_target - not ours, skipping)"
+    echo "  = agentic-engineering (points to $current_target - not ours, skipping)"
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
-  echo "  = engineering (real file/directory - not removing)"
+  echo "  = agentic-engineering (real file/directory - not removing)"
 else
-  echo "  = engineering (not found, nothing to remove)"
+  echo "  = agentic-engineering (not found, nothing to remove)"
 fi
 
 # ---------------------------------------------------------------------------

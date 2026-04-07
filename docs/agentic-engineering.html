@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agentic Software Engineering with Claude Code</title>
+<title>Agentic Software Engineering</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -288,7 +288,7 @@
   <!-- <a href="#cross-ref"><span class="nav-dot" style="background:#e9d5ff;"></span> Video Cross-Ref</a> -->
 </nav>
 
-<h1>Agentic Software Engineering with Claude Code</h1>
+<h1>Agentic Software Engineering</h1>
 <p class="subtitle">Skill-based architecture - engineering methodology, agents, protocols, and persistence - and how they compose</p>
 <p style="color: var(--text-secondary); font-size: 15px; margin-top: -40px; margin-bottom: 48px;">by Tyson Hummel</p>
 
@@ -312,13 +312,13 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-cyan);">~/.claude/skills/engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
-        <p class="desc">The <code>/engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/agentic-engineering/.claude/skills/engineering/</code>. Content detailed in the Protocol Layer below.</p>
+        <h4 style="color: var(--accent-cyan);">~/.claude/skills/agentic-engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
+        <p class="desc">The <code>/engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/agentic-engineering/.claude/skills/agentic-engineering/</code>. Content detailed in the Protocol Layer below.</p>
       </div>
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md) and <code>~/agentic-engineering/.claude/skills/engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md)<br>
+    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md)<br>
     <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships both a <code>.claude/</code> adapter (Claude Code) and a <code>.cursor/</code> adapter (Cursor IDE) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root CLAUDE.md (~40 lines) + subdirectory CLAUDE.md files for deeper context. Project CLAUDE.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
@@ -365,7 +365,7 @@
   </div>
 
   <div style="margin-top: 16px;">
-    <div class="section-title"><h3 style="color: #a78bfa; font-size: 16px; font-weight: 600;">Referenced Protocol Documents (~/.claude/skills/engineering/references/)</h3></div>
+    <div class="section-title"><h3 style="color: #a78bfa; font-size: 16px; font-weight: 600;">Referenced Protocol Documents (~/.claude/skills/agentic-engineering/references/)</h3></div>
     <div class="node-grid">
       <div class="node node-protocol">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
@@ -378,7 +378,7 @@
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section" style="background: var(--bg-surface);">
-  <div class="section-title"><h2 style="color: #c4b5fd;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files in ~/agentic-engineering/.claude/skills/engineering/references/</h3></div>
+  <div class="section-title"><h2 style="color: #c4b5fd;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files in ~/agentic-engineering/.claude/skills/agentic-engineering/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>

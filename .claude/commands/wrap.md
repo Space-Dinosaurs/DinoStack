@@ -1,4 +1,4 @@
-> **Prerequisite:** If the /engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /wrap — On-Demand Session Context Enrichment
 

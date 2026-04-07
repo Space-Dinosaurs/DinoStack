@@ -5,7 +5,7 @@ tools: Read, Bash, Grep, Glob
 model: claude-sonnet-4-5
 ---
 
-> **Prerequisite:** If the /engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 You are an ADR drift detector. Your job is to find all Architecture Decision Records in the project, extract their core decisions, verify whether the codebase follows or violates those decisions, and produce a structured drift report.
 
@@ -29,7 +29,7 @@ List all `.md` files in the found directory. If multiple directories exist, use 
 
 ---
 
-> **Prerequisite:** If the /engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Phase 2: Detect Project Identity
 
@@ -115,7 +115,7 @@ Be conservative: if you cannot determine a reliable search strategy, classify as
 
 ---
 
-> **Prerequisite:** If the /engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Phase 4: Build and Execute Search Strategies
 
@@ -192,7 +192,7 @@ Based on gathered evidence, assign one classification:
 
 ---
 
-> **Prerequisite:** If the /engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Phase 6: Produce the Drift Report
 
@@ -251,7 +251,7 @@ Output the following report to stdout. Use this exact format:
 - **ADR-[N]: [Title]** - Status: Deprecated
 ---
 
-> **Prerequisite:** If the /engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 ```
 
 If there are no items in a section, write "[None]" under that heading - do not omit the section.

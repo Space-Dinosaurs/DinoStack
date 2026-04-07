@@ -6,11 +6,11 @@ export REPO_DIR
 
 AGENTS_SRC="$REPO_DIR/.claude/agents"
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
-SKILLS_SRC="$REPO_DIR/.claude/skills/engineering"
+SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
 
 AGENTS_DST="$HOME/.claude/agents"
 COMMANDS_DST="$HOME/.claude/commands"
-SKILLS_DST="$HOME/.claude/skills/engineering"
+SKILLS_DST="$HOME/.claude/skills/agentic-engineering"
 SETTINGS="$HOME/.claude/settings.json"
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ symlink_files "$COMMANDS_SRC" "$COMMANDS_DST" "commands"
 # Symlink skill
 # ---------------------------------------------------------------------------
 
-echo "Linking skill: engineering..."
+echo "Linking skill: agentic-engineering..."
 
 mkdir -p "$(dirname "$SKILLS_DST")"
 
@@ -88,7 +88,7 @@ elif [[ -e "$SKILLS_DST" ]]; then
   echo "  ! engineering (real file/directory exists at destination - skipping)"
 else
   ln -s "$SKILLS_SRC" "$SKILLS_DST"
-  echo "  + engineering"
+  echo "  + agentic-engineering"
 fi
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ managed_content = """\
 <!-- BEGIN managed-by-agentic-engineering -->
 ## Available Skills
 
-- `/engineering` - agentic engineering protocol (delegation, risk classification, code standards, conventions). Auto-triggers on engineering tasks.
+- `/agentic-engineering` - agentic engineering protocol (delegation, risk classification, code standards, conventions). Auto-triggers on engineering tasks.
 <!-- END managed-by-agentic-engineering -->"""
 
 if os.path.exists(target):
