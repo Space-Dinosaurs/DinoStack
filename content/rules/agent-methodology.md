@@ -1,8 +1,3 @@
----
-description: "Agentic engineering delegation model, risk classification, task decomposition, and worktree lifecycle. Core rules for when to act directly vs. spawn Workers and Skeptics."
-alwaysApply: true
----
-
 ## Delegation
 
 **The main session agent is a conductor, not a player.** It stays lightweight, available, and responsive to the user at all times. All substantial work is delegated to subagents.

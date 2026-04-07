@@ -1,5 +1,3 @@
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 # /init-project
 
 Scaffold a new project with the standard CLAUDE.md hierarchy, CLI tool config, and gitignore.

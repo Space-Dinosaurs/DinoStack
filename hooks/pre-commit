@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(git rev-parse --show-toplevel)"
+
+# Detect worktree context - skip gracefully
+GIT_COMMON=$(git rev-parse --git-common-dir)
+GIT_DIR=$(git rev-parse --git-dir)
+if [[ "$GIT_COMMON" != "$GIT_DIR" ]]; then
+  echo "[pre-commit] Worktree detected - skipping builds."
+  exit 0
+fi
+
+# Only run if content/ files were modified
+if git diff --cached --name-only | grep -q "^content/"; then
+  echo "[pre-commit] content/ changes detected - running builds..."
+  bash "$REPO_DIR/.claude/build.sh"
+  bash "$REPO_DIR/.cursor/build.sh"
+
+  # Stage generated files
+  git add \
+    "$REPO_DIR/.claude/skills/agentic-engineering/rules/"*.md \
+    "$REPO_DIR/.claude/skills/agentic-engineering/references/"*.md \
+    "$REPO_DIR/.claude/commands/"*.md \
+    "$REPO_DIR/.cursor/rules/"*.mdc \
+    "$REPO_DIR/.cursor/rules/references/"*.md \
+    "$REPO_DIR/.cursor/commands/"*.md
+
+  echo "[pre-commit] Generated files staged."
+else
+  echo "[pre-commit] No content/ changes - skipping builds."
+fi

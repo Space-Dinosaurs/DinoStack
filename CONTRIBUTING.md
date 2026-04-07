@@ -2,8 +2,11 @@
 
 ## Getting started
 
-1. Fork and clone the repo
-2. Install the Claude Code adapter: `.claude/install.sh`
+1. Fork and clone the repo to `~/agentic-engineering/`:
+   ```bash
+   git clone https://github.com/fullmetalblanket/agentic-engineering ~/agentic-engineering
+   ```
+2. Install the Claude Code adapter: `.claude/install.sh` (this also runs the initial build and wires up the pre-commit hook)
 3. Test changes locally by re-running `install.sh` and verifying behavior in a Claude Code session
 
 ## What to contribute
@@ -21,17 +24,24 @@
 - Describe the *why* in the PR body, not just the *what*
 - Test locally before opening: re-run `install.sh`, open a Claude Code session, verify the change works as expected
 
+## Editing content
+
+**Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:
+- `content/rules/` - the 3 rule files (agent-methodology, code-standards, conventions)
+- `content/references/` - the 4 reference docs (skeptic-protocol, subagent-protocol, agent-team, design-goals)
+- `content/commands/` - the 5 command files (implement, init-project, memory-update, skeptic, wrap)
+
+Build scripts regenerate adapter files from `content/`:
+- `.claude/build.sh` - copies rules/references to the skill directory, prepends prerequisite blockquote to commands
+- `.cursor/build.sh` - combines frontmatter sidecars with rules to produce .mdc files, copies references and commands
+
+The pre-commit hook runs both build scripts automatically when `content/` files are staged. If you bypass the hook, run the build scripts manually before committing.
+
+**Frontmatter sidecars.** Cursor rules require YAML frontmatter. This metadata lives in `.cursor/rules/frontmatter/*.yaml` (one file per rule). The cursor build script combines the sidecar with the rule content to produce the `.mdc` file. Edit the sidecar to change frontmatter; edit `content/rules/` to change rule content.
+
 ## Architecture guardrails
 
-**Methodology vs. adapters.** Rules and references live in `.claude/skills/agentic-engineering/rules/` and `references/`. Adapters (`.claude/`, `.cursor/`) translate those into tool-specific formats. Content changes go in methodology files — never duplicate or diverge content in adapter files.
-
-**Rules vs. references.** Rules are always-loaded on every task. References are loaded on trigger. Keep rules terse — every line costs context on every task (Design Goal 4). Verbose content belongs in a reference file, not a rules file.
-
-**Idempotent install/uninstall.** Install scripts must be safe to run multiple times. Use sentinel markers (`<!-- BEGIN managed-by-agentic-engineering -->`) for managed sections so changes install gracefully and uninstall cleanly.
-
-**Agent frontmatter.** Agent definitions specify `tools:` and `model:` in frontmatter. Only list built-in Claude Code tools — MCP tools are implicitly available. All agents currently use `model: claude-sonnet-4-6`; match this unless there's a specific reason to diverge.
-
-**Symlink delivery.** Agents, commands, and skills are symlinked from the repo into `~/.claude/`. Changes in the repo take effect immediately after install — no copy step needed.
+**Methodology vs. adapters.** Rules and references live in `content/rules/` and `content/references/`. Adapters (`.claude/`, `.cursor/`) translate those into tool-specific formats. Content changes go in `content/` - never edit generated adapter files directly.
 
 ## Style
 

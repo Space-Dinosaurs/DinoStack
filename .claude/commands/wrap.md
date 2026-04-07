@@ -1,5 +1,7 @@
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
+> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+
 # /wrap — On-Demand Session Context Enrichment
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
@@ -24,6 +26,7 @@ Survey the current conversation and note down:
 - Identify the project root (absolute cwd).
 - Check for and read: the root `CLAUDE.md` (if it exists), and any `[track]/CLAUDE.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
 - Note which tracks (subdirectories) had files touched this session — these are candidates for CLAUDE.md updates.
+- **Check for missing CLAUDE.md files:** For each directory that had files touched this session, check whether a CLAUDE.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing a CLAUDE.md, note it as a **new CLAUDE.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
@@ -125,6 +128,26 @@ Rules:
 - If nothing new for a particular file, write "None" for that file.
 - If no CLAUDE.md files were found in the project, write "None."
 
+**New CLAUDE.md files:** For any touched directory explicitly noted as a "new CLAUDE.md candidate" in the raw session data (i.e. the directory had files touched but has no existing CLAUDE.md), propose creating a new file. Use this format:
+
+    File: [full path to new CLAUDE.md]
+    New file: true
+    Content:
+    # [Directory name]
+
+    [One sentence description of what this directory contains, based on the session data.]
+
+    ## Stack
+    [Key technologies from package.json or inferred from file types touched - bullet list]
+
+    ## Key Conventions
+    [Conventions observed from the session - bullet list. If none observed, omit this section.]
+
+    ## Gotchas
+    [Any gotchas or sharp edges encountered - bullet list. If none, omit this section.]
+
+This is automatic - do not ask the user. Populate sections from session context and any package.json content included in the session data.
+
 Return all three outputs clearly labeled. Do not write to disk.
 
 ---
@@ -213,7 +236,8 @@ For each file listed in the updates:
 2. **If the file does not exist** (Read returns a file-not-found error): create a minimal stub appropriate for the file type, then continue to steps 3-6 to apply the proposed updates into it.
    - **Subdirectory CLAUDE.md** (any path that is not the project root's CLAUDE.md - i.e. the file is not at `[cwd]/CLAUDE.md`): create a stub with `# [directory name]` as the H1 (derive from the parent directory of the file path), a `## Stack` section header, and a `## Key Conventions` section header.
    - **Root CLAUDE.md** (the file is at `[cwd]/CLAUDE.md`): create a stub with `# [project name]` as the H1 (derive from the cwd directory name), a `## Decisions` section header, and a `## Conventions` section header.
-   After creating the stub, proceed with steps 3-6 to apply the proposed updates into the new file. Return: "Created and updated CLAUDE.md at [path] (N additions)."
+   If the draft Worker proposed a complete `New file: true` block with content, use that content as the starting file instead of the minimal stub.
+   After creating the stub or new file, proceed with steps 3-6 to apply the proposed updates into it. Return: "Created and updated CLAUDE.md at [path] (N additions)."
 
 3. For each `Add:` update: locate the target section. Append the new bullet(s) at the end of that section, before the next `##` heading (or at end of file if it's the last section). Do not duplicate any bullet already present (check semantically, not just string match).
 

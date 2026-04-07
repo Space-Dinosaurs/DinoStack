@@ -1,5 +1,3 @@
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 # Implement
 
 Take a Linear ticket from description to merged PR, with full agent orchestration (Architect -> Orchestration Planner (conditional) -> Engineer -> Skeptic) and the CI Test URL posted back to the ticket.

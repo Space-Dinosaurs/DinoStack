@@ -1,8 +1,3 @@
----
-description: "Writing style, project structure conventions, session context and memory handling, and git workflow including protected branches and worktree-per-feature."
-alwaysApply: true
----
-
 ## Writing Style
 
 Never use em dashes (--). Use a regular hyphen (-) instead in all generated text, copy, comments, documentation, and commit messages.

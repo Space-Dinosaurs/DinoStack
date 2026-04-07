@@ -9,13 +9,17 @@
 
 ## Installation
 
-Open Claude Code and ask your agent:
+Clone the repo to `~/agentic-engineering/` (this path is expected by the skill):
+
+```bash
+git clone https://github.com/fullmetalblanket/agentic-engineering ~/agentic-engineering
+```
+
+Then open Claude Code and ask your agent:
 
 ```
-Clone https://github.com/fullmetalblanket/agentic-engineering and run .claude/install.sh
+Run ~/agentic-engineering/.claude/install.sh
 ```
-
-The agent handles everything - cloning the repo, running the installer, and walking you through optional tool setup. No manual steps required.
 
 Or run manually from the repo root:
 

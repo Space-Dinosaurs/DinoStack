@@ -1,5 +1,3 @@
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 # /skeptic - The Skeptic Protocol Invocation
 
 Orchestrate adversarial review for `$ARGUMENTS`. The main agent drives the loop: spawn Worker, spawn Skeptic, route findings, repeat until sign-off.

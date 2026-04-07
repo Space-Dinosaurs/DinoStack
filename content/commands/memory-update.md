@@ -1,5 +1,3 @@
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 # /memory-update - Memory Protocol: Capture a Decision
 
 When a project-affecting decision has been confirmed in conversation, the main agent invokes this command with the decision context passed as `$ARGUMENTS`.

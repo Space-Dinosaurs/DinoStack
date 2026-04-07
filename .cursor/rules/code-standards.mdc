@@ -4,6 +4,18 @@ globs: ["*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.rs", "*.java", "*.r
 alwaysApply: false
 ---
 
+## Documentation Lookups
+
+**When investigating, diagnosing, or reasoning about library, framework, or SDK behavior, look up current documentation using Context7 before forming conclusions.** Training data may be outdated - API signatures, configuration options, default behaviors, and error messages change across versions.
+
+Use Context7 (`resolve-library-id` -> `query-docs`) for:
+- Verifying API signatures, method parameters, or return types
+- Checking configuration options or default values
+- Understanding error messages or behavioral changes across versions
+- Any assumption about library behavior that influences a diagnosis or recommendation
+
+Do not rely on training knowledge for library-specific details when Context7 is available. This applies to all agents: investigators, debuggers, architects, and engineers.
+
 ## Tool Discipline
 
 **Never use Bash to read files, list directories, or search content.** Use the dedicated tools - they don't trigger permission prompts and give better output:

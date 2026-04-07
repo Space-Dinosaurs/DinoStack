@@ -2,6 +2,8 @@
 
 This guide is for adding support for a new AI coding tool. The methodology content is the same across all adapters - only the delivery format changes.
 
+**Source of truth:** All methodology content lives in `content/` at the repo root. Adapters are generated outputs - never edit them directly. When building a new adapter, read from `content/` and transform to the tool's required format.
+
 ## Concept mapping
 
 Each tool has its own mechanisms for the same core concepts:
@@ -20,12 +22,12 @@ Each tool has its own mechanisms for the same core concepts:
 
 1. **Create the directory:** `.<toolname>/` matching the tool's config directory convention
 2. **Convert rules:** Translate the 3 rules files into the tool's native rule format
-   - Source: `.claude/skills/agentic-engineering/rules/`
+   - Source: `content/rules/`
    - Decide which rules should always load vs. load conditionally
 3. **Copy reference docs:** The 4 reference docs are plain markdown - copy or symlink them
-   - Source: `.claude/skills/agentic-engineering/references/`
+   - Source: `content/references/`
 4. **Convert commands:** Translate the 7 commands into the tool's command format
-   - Source: `.claude/commands/`
+   - Source: `content/commands/`
    - Remove the `/agentic-engineering` prerequisite line (it's Claude Code-specific)
 5. **Map hooks:** Wire up the tool's lifecycle events
    - Risk reminder: fire before each prompt/submission
@@ -48,5 +50,5 @@ Each adapter directory matches the tool's native config directory name:
 
 ## Existing adapters as reference
 
-- **Claude Code** (`.claude/`): Uses a skill with YAML frontmatter for on-demand loading. Agents and commands are separate files symlinked into `~/.claude/`. Hooks are JSON entries in `settings.json`.
-- **Cursor** (`.cursor/`): Uses .mdc files with YAML frontmatter (`alwaysApply`, `globs`). Commands are markdown. Hooks use `hooks.json` with lifecycle event names.
+- **Claude Code** (`.claude/`): Uses a skill with YAML frontmatter for on-demand loading. Agents and commands are separate files symlinked into `~/.claude/`. Hooks are JSON entries in `settings.json`. Build script at `.claude/build.sh` copies from `content/` and prepends the prerequisite blockquote to commands.
+- **Cursor** (`.cursor/`): Uses .mdc files with YAML frontmatter (`alwaysApply`, `globs`). Commands are markdown. Hooks use `hooks.json` with lifecycle event names. Build script at `.cursor/build.sh` combines `content/rules/` with frontmatter sidecars from `.cursor/rules/frontmatter/*.yaml` to produce `.mdc` files.

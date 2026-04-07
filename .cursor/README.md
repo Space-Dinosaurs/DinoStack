@@ -9,6 +9,12 @@
 
 ## Setup
 
+Clone the repo to `~/agentic-engineering/` (this path is expected by references):
+
+```bash
+git clone https://github.com/fullmetalblanket/agentic-engineering ~/agentic-engineering
+```
+
 ### Project-level (team use)
 
 Copy the `.cursor/` directory into your project repo:
