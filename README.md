@@ -49,7 +49,7 @@ agentic-engineering/
 
 ## Documentation
 
-- [~/agentic-engineering/docs/agentic-engineering.html](~/agentic-engineering/docs/agentic-engineering.html) - visual reference document describing the full system architecture
+- `~/agentic-engineering/docs/agentic-engineering.html` - visual reference document describing the full system architecture
 
 ## For agents working in this repo
 
