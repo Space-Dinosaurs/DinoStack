@@ -593,7 +593,7 @@
         <ul>
           <li><strong>investigator</strong> - traces data flow, maps blast radius, and explores unfamiliar areas. Used when you need to understand code before deciding how to change it. Returns an investigation brief for the conductor to hand to architect or engineer.</li>
           <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Its output MUST be Skeptic-reviewed before any downstream work.</li>
-          <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious.</li>
+          <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious. Checks for <code>.claude/work-tracking.md</code> in the project root and follows its instructions when present.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -854,7 +854,8 @@
           <li>Root <code>CLAUDE.md</code> (under 40 lines - lean by design)</li>
           <li><code>[track]/CLAUDE.md</code> per subdirectory (backend, frontend, etc.)</li>
           <li><code>.claude/settings.json</code> + <code>settings.local.json</code></li>
-          <li><code>.claude/qa.md</code> (if web UI confirmed)</li>
+          <li><code>.claude/qa.md</code> (always created - TODO placeholders for unknown values)</li>
+          <li><code>.claude/work-tracking.md</code> (always created - read by orchestration-planner at planning time)</li>
           <li><code>MEMORY.md</code> seed in <code>~/.claude/projects/[hash]/memory/</code></li>
           <li><code>.gitignore</code> with secrets protection</li>
           <li><code>docs/</code> structure (overview, technical, planning, research)</li>
