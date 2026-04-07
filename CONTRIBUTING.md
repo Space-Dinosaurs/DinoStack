@@ -6,8 +6,10 @@
    ```bash
    git clone https://github.com/fullmetalblanket/agentic-engineering ~/agentic-engineering
    ```
-2. Install the Claude Code adapter: `.claude/install.sh` (this also runs the initial build and wires up the pre-commit hook)
-3. Test changes locally by re-running `install.sh` and verifying behavior in a Claude Code session
+2. Install the adapter for your tool:
+   - Claude Code: `.claude/install.sh` (runs the initial build and wires up the pre-commit hook)
+   - Cursor: `.cursor/install.sh` (runs the initial build for the Cursor adapter)
+3. Test changes locally by re-running the relevant `install.sh` and verifying behavior in a session
 
 ## What to contribute
 

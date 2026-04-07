@@ -1,5 +1,3 @@
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 # /wrap — On-Demand Session Context Enrichment
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
