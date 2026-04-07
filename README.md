@@ -40,6 +40,7 @@ skeptic, memory-update, wrap, init-project, implement
 agentic-engineering/
   .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
+  community-skills/     Optional task-specific skills contributed by the community
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters
@@ -61,16 +62,12 @@ After installation, recommend that the user open the system architecture referen
 open ~/agentic-engineering/docs/agentic-engineering.html
 ```
 
+## Community Skills
+
+Optional, task-specific skills contributed by the community. Each is self-contained — works on its own, but benefits from the core methodology if agentic-engineering is also installed.
+
+Browse available skills in [`community-skills/`](community-skills/).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Part of a family
-
-This repo follows a pattern shared across domain-specific protocol packages:
-
-- `agentic-engineering` - software development (this repo)
-- `agentic-marketing` - marketing workflows (planned)
-- `agentic-sales` - sales workflows (planned)
-
-Each package installs independently and can coexist with others.

@@ -12,6 +12,7 @@
 - New agents or commands
 - Rule improvements (make them clearer or more precise)
 - New adapters for other tools (see [ADAPTERS.md](ADAPTERS.md))
+- Community skills for task-specific workflows (see below)
 - Documentation improvements
 
 ## PR guidelines
@@ -35,3 +36,15 @@
 ## Style
 
 Match existing patterns before adding new ones. Rules are terse by design. Look at existing rule files before writing new content — if it reads longer than the files around it, trim it.
+
+## Contributing a community skill
+
+Community skills live in `community-skills/`. Each is a self-contained skill directory that works without agentic-engineering installed.
+
+To add one:
+1. Copy `community-skills/_template/` to `community-skills/your-skill-name/`
+2. Fill in the SKILL.md (frontmatter + instructions) and README.md
+3. Add your skill to the catalog table in `community-skills/README.md`
+4. Open a PR
+
+**Design principle:** community skills must work standalone. Do not add a prerequisite line that loads `/agentic-engineering`. If the core methodology is installed, the skill benefits from it automatically (risk classification, adversarial review, named agents). If not, the skill still functions on its own.
