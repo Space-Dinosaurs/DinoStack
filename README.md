@@ -2,7 +2,19 @@
 
 A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
 
-This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final  - treat it as a living system, not a finished product.
+This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final - treat it as a living system, not a finished product.
+
+## Getting started
+
+Open Claude Code and ask your agent:
+
+```
+Clone https://github.com/fullmetalblanket/agentic-engineering and run .claude/install.sh
+```
+
+The agent handles everything - cloning the repo, running the installer, and walking you through optional tool setup. No manual steps required.
+
+For other tools (Cursor, etc.), see the install instructions in each adapter's README.
 
 ## Adapters
 
