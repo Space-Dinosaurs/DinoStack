@@ -13,13 +13,6 @@ COMMANDS_DST="$HOME/.claude/commands"
 SKILLS_DST="$HOME/.claude/skills/engineering"
 SETTINGS="$HOME/.claude/settings.json"
 
-installed_agents=()
-skipped_agents=()
-warned_agents=()
-installed_commands=()
-skipped_commands=()
-warned_commands=()
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -28,9 +21,6 @@ symlink_files() {
   local src_dir="$1"
   local dst_dir="$2"
   local label="$3"
-  local -n installed_ref="$4"
-  local -n skipped_ref="$5"
-  local -n warned_ref="$6"
 
   if [[ ! -d "$src_dir" ]]; then
     echo "  [skip] $label source directory not found: $src_dir"
@@ -49,19 +39,19 @@ symlink_files() {
       local current_target
       current_target="$(readlink "$dst_file")"
       if [[ "$current_target" == "$src_file" ]]; then
-        skipped_ref+=("$name (already linked)")
+        echo "  = $name (already linked)"
         continue
       else
-        warned_ref+=("$name (symlink points elsewhere: $current_target - skipping)")
+        echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
         continue
       fi
     elif [[ -e "$dst_file" ]]; then
-      warned_ref+=("$name (real file exists at destination - skipping)")
+      echo "  ! $name (real file exists at destination - skipping)"
       continue
     fi
 
     ln -s "$src_file" "$dst_file"
-    installed_ref+=("$name")
+    echo "  + $name"
   done
 }
 
@@ -70,22 +60,14 @@ symlink_files() {
 # ---------------------------------------------------------------------------
 
 echo "Linking agents..."
-symlink_files "$AGENTS_SRC" "$AGENTS_DST" "agents" installed_agents skipped_agents warned_agents
-
-for f in "${installed_agents[@]+"${installed_agents[@]}"}"; do echo "  + $f"; done
-for f in "${skipped_agents[@]+"${skipped_agents[@]}"}"; do echo "  = $f"; done
-for f in "${warned_agents[@]+"${warned_agents[@]}"}"; do echo "  ! $f"; done
+symlink_files "$AGENTS_SRC" "$AGENTS_DST" "agents"
 
 # ---------------------------------------------------------------------------
 # Symlink commands
 # ---------------------------------------------------------------------------
 
 echo "Linking commands..."
-symlink_files "$COMMANDS_SRC" "$COMMANDS_DST" "commands" installed_commands skipped_commands warned_commands
-
-for f in "${installed_commands[@]+"${installed_commands[@]}"}"; do echo "  + $f"; done
-for f in "${skipped_commands[@]+"${skipped_commands[@]}"}"; do echo "  = $f"; done
-for f in "${warned_commands[@]+"${warned_commands[@]}"}"; do echo "  ! $f"; done
+symlink_files "$COMMANDS_SRC" "$COMMANDS_DST" "commands"
 
 # ---------------------------------------------------------------------------
 # Symlink skill
@@ -276,5 +258,3 @@ PYEOF
 
 echo ""
 echo "Install complete."
-echo "  Agents linked:   ${#installed_agents[@]}"
-echo "  Commands linked: ${#installed_commands[@]}"
