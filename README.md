@@ -2,6 +2,8 @@
 
 A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
 
+This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final — treat it as a living system, not a finished product.
+
 ## Adapters
 
 The same methodology is packaged for multiple tools. Each adapter lives in its own directory with tool-specific formats:
