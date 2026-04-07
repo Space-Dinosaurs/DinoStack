@@ -29,8 +29,8 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 **Agents** (10) - named specialist roles:
 architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 
-**Commands** (7) - workflow shortcuts:
-skeptic, memory-update, wrap, init-project, flow-dev, flow-qa-plan, implement
+**Commands** (5) - workflow shortcuts:
+skeptic, memory-update, wrap, init-project, implement
 
 **Hooks** - lifecycle event handlers for risk reminders and session context saving
 

@@ -4,7 +4,7 @@
 
 - **Skill** (`/engineering`) - loads the full engineering methodology on demand
 - **Agents** (10) - architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
-- **Commands** (7) - skeptic, memory-update, wrap, init-project, flow-dev, flow-qa-plan, implement
+- **Commands** (5) - skeptic, memory-update, wrap, init-project, implement
 - **Hooks** - UserPromptSubmit risk-classification reminder, Stop context saver
 
 ## Installation
