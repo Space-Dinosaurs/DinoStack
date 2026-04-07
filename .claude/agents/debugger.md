@@ -25,15 +25,19 @@ Your spawn prompt will contain:
 
 Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving.
 
-### Phase 2: Pattern Analysis
+### Phase 2: Look up library docs
+
+If the failure involves library, framework, or SDK behavior (error messages, API usage, configuration), use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming hypotheses. Training data may be outdated — verify API signatures, expected behavior, configuration options, and known issues against current docs. A misdiagnosis based on stale knowledge wastes the entire downstream fix cycle.
+
+### Phase 3: Pattern Analysis
 
 Find working examples of the same pattern in the codebase. Read reference implementations completely - do not skim them. List every difference between the working behavior and the broken behavior. This is the step most agents skip - it surfaces assumption violations and subtle mismatches that hypothesis-first investigation misses.
 
-### Phase 3: Hypothesis and Testing
+### Phase 4: Hypothesis and Testing
 
 Generate 2-3 plausible root causes ranked by likelihood. Test ONE hypothesis at a time. Make the smallest possible change to test it. Change one variable before evaluating - never change multiple things between observations. Be explicit about why each hypothesis is eliminated or confirmed.
 
-### Phase 4: Conclusion
+### Phase 5: Conclusion
 
 Confirm the root cause with evidence that points to it directly. State specifically: what is wrong, where it is (file:line where possible), and the causal chain from the bug to the observed failure. Write the fix brief with concrete, specific instructions for the Worker: what to change, where, and any gotchas (related call sites, invariants to preserve, tests to update).
 
@@ -80,4 +84,5 @@ Use this exact structure:
 - If the error is ambiguous or codebase context is insufficient, state this under Confidence and list exactly what additional information would let you close the diagnosis.
 - Bash is available for running tests, grepping, and inspecting files - use it when it produces useful diagnostic signal. Prefer targeted commands over broad ones.
 - Never omit any section of the output format. If a section has nothing to report (e.g., only one hypothesis was viable), note that explicitly rather than dropping the section.
+- When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Do not keep testing hypotheses after 3 eliminations without fresh evidence. Continuing to guess without new information does not converge on a root cause - it produces a list of things that aren't wrong. Stop, state confidence low, describe what you found, and identify what would close the diagnosis.

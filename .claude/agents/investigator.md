@@ -27,11 +27,13 @@ Your spawn prompt will contain:
 
 2. **Map the terrain.** Use Glob and Grep to orient quickly: find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first.
 
-3. **Trace and explore.** Follow the code where the question leads: read implementations, trace call chains, map data flow. Follow the evidence rather than assumptions.
+3. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
 
-4. **Identify blast radius and risks.** What depends on this code? What invariants exist? What would break or need updating if this area changed? Surface non-obvious coupling.
+4. **Trace and explore.** Follow the code where the question leads: read implementations, trace call chains, map data flow. Follow the evidence rather than assumptions.
 
-5. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
+5. **Identify blast radius and risks.** What depends on this code? What invariants exist? What would break or need updating if this area changed? Surface non-obvious coupling.
+
+6. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
 
 ## Output format
 
@@ -76,4 +78,5 @@ Use this exact structure:
 - Stay scoped. If the investigation area is too large to fully explore, explicitly state what was covered and what was skipped.
 - Bash is available for read-only commands (find, grep, cat, head, wc, etc.) - use it for structural exploration when needed. Never use it to write or modify files.
 - Never omit sections from the output format. If a section has nothing to report, state that explicitly.
+- When the investigation involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating findings. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Under "Gaps and unknowns", explicitly name any files, subsystems, or paths you did not explore. A conductor reading your brief must be able to assess completeness.

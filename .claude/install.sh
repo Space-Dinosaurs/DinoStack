@@ -268,10 +268,10 @@ echo ""
 
 # CLI tools
 declare -a CLI_TOOLS=(
-  "gh:GitHub CLI (PRs, issues, repo management):brew install gh"
-  "agent-browser:Browser verification for UI changes:npm install -g agent-browser"
-  "lc:Linear CLI for issue tracking:npm install -g linearctl"
-  "rclone:Google Drive file sync:brew install rclone"
+  "gh:GitHub CLI — create PRs, manage issues, and run repo operations from the terminal:brew install gh"
+  "agent-browser:Headless browser — lets agents verify UI changes by taking snapshots and interacting with pages:npm install -g agent-browser"
+  "lc:Linear CLI — create, update, and triage issues directly from Claude Code:npm install -g linearctl"
+  "rclone:Cloud file sync — read and write Google Drive files from the terminal:brew install rclone"
 )
 
 for tool_entry in "${CLI_TOOLS[@]}"; do
@@ -300,7 +300,7 @@ sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
 " 2>/dev/null; then
   echo "  = chrome-devtools MCP already configured"
 else
-  read -p "  Configure chrome-devtools MCP (Chrome DevTools access)? [y/N] " -n 1 -r
+  read -p "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] " -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     python3 - <<'PYEOF'
@@ -334,7 +334,7 @@ fi
 
 # context7 plugin note
 echo ""
-echo "  Note: Enable the 'context7' plugin in Claude Code settings for library/framework docs."
+echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents use it to look up current library and framework documentation instead of relying on training data."
 
 # ---------------------------------------------------------------------------
 # Summary
