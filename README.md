@@ -49,7 +49,7 @@ agentic-engineering/
 
 ## Documentation
 
-- `docs/agentic-engineering.html` - visual reference document describing the full system architecture. Deployed to Vercel at https://agentic-engineering-tyhummel.vercel.app
+- `docs/agentic-engineering.html` - visual reference document describing the full system architecture. Open locally: `open ~/agentic-engineering/docs/agentic-engineering.html`
 - `docs/agentic-workflows.html` - legacy visual reference for the workflow system. Lives in the claude-protocols repo (not this one).
 
 ## For agents working in this repo
