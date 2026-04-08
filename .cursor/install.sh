@@ -26,15 +26,21 @@ warned_commands=()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+array_append() {
+  local _arr="$1"
+  local _item="$2"
+  eval "${_arr}+=(\"\${_item}\")"
+}
 
 symlink_files() {
   local src_dir="$1"
   local dst_dir="$2"
   local label="$3"
   local pattern="$4"
-  local -n installed_ref="$5"
-  local -n skipped_ref="$6"
-  local -n warned_ref="$7"
+  local suffix="$5"
+  local installed_name="installed_${suffix}"
+  local skipped_name="skipped_${suffix}"
+  local warned_name="warned_${suffix}"
 
   if [[ ! -d "$src_dir" ]]; then
     echo "  [skip] $label source directory not found: $src_dir"
@@ -53,22 +59,22 @@ symlink_files() {
       local current_target
       current_target="$(readlink "$dst_file")"
       if [[ "$current_target" == "$src_file" ]]; then
-        skipped_ref+=("$name (already linked)")
+        array_append "$skipped_name" "$name (already linked)"
         continue
       elif [[ "$current_target" == "$REPO_DIR"* ]]; then
-        skipped_ref+=("$name (already linked to agentic-engineering but different path: $current_target - skipping)")
+        array_append "$skipped_name" "$name (already linked to agentic-engineering but different path: $current_target - skipping)"
         continue
       else
-        warned_ref+=("$name (symlink points elsewhere: $current_target - skipping)")
+        array_append "$warned_name" "$name (symlink points elsewhere: $current_target - skipping)"
         continue
       fi
     elif [[ -e "$dst_file" ]]; then
-      warned_ref+=("$name (real file exists at destination - skipping)")
+      array_append "$warned_name" "$name (real file exists at destination - skipping)"
       continue
     fi
 
     ln -s "$src_file" "$dst_file"
-    installed_ref+=("$name")
+    array_append "$installed_name" "$name"
   done
 }
 
@@ -77,7 +83,7 @@ symlink_files() {
 # ---------------------------------------------------------------------------
 
 echo "Linking rules..."
-symlink_files "$RULES_SRC" "$RULES_DST" "rules" "*.mdc" installed_rules skipped_rules warned_rules
+symlink_files "$RULES_SRC" "$RULES_DST" "rules" "*.mdc" rules
 
 for f in "${installed_rules[@]+"${installed_rules[@]}"}"; do echo "  + $f"; done
 for f in "${skipped_rules[@]+"${skipped_rules[@]}"}"; do echo "  = $f"; done
@@ -88,7 +94,7 @@ for f in "${warned_rules[@]+"${warned_rules[@]}"}"; do echo "  ! $f"; done
 # ---------------------------------------------------------------------------
 
 echo "Linking reference docs..."
-symlink_files "$REFS_SRC" "$REFS_DST" "references" "*.md" installed_refs skipped_refs warned_refs
+symlink_files "$REFS_SRC" "$REFS_DST" "references" "*.md" refs
 
 for f in "${installed_refs[@]+"${installed_refs[@]}"}"; do echo "  + $f"; done
 for f in "${skipped_refs[@]+"${skipped_refs[@]}"}"; do echo "  = $f"; done
@@ -99,7 +105,7 @@ for f in "${warned_refs[@]+"${warned_refs[@]}"}"; do echo "  ! $f"; done
 # ---------------------------------------------------------------------------
 
 echo "Linking commands..."
-symlink_files "$COMMANDS_SRC" "$COMMANDS_DST" "commands" "*.md" installed_commands skipped_commands warned_commands
+symlink_files "$COMMANDS_SRC" "$COMMANDS_DST" "commands" "*.md" commands
 
 for f in "${installed_commands[@]+"${installed_commands[@]}"}"; do echo "  + $f"; done
 for f in "${skipped_commands[@]+"${skipped_commands[@]}"}"; do echo "  = $f"; done

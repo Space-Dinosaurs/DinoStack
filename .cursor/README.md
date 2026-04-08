@@ -12,7 +12,7 @@
 Clone the repo to `~/agentic-engineering/` (this path is expected by references):
 
 ```bash
-git clone https://github.com/fullmetalblanket/agentic-engineering ~/agentic-engineering
+git clone git@github.com:Solara6/agentic-engineering.git ~/agentic-engineering
 ```
 
 ### Project-level (team use)
