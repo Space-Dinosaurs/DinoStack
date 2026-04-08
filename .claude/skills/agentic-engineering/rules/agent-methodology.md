@@ -46,7 +46,7 @@
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Use `engineer` for implementation, `architect` for pre-implementation design, `investigator` for codebase exploration and blast radius mapping, `debugger` for root cause analysis, `security-auditor` for security review. Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator.
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Use `engineer` for implementation, `architect` for pre-implementation design, `investigator` for codebase exploration and blast radius mapping, `debugger` for root cause analysis, `security-auditor` for security review, `qa-engineer` for post-Skeptic browser verification of UI-visible changes. Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator.
 
 **Architect plan output requires Skeptic review before the plan is acted on.** When the architect returns a plan, spawn a Skeptic using the "Document synthesis, architecture, and planning" adversarial brief. Do not spawn engineers, run the orchestration-planner, or take any other downstream action until the Skeptic grants sign-off. This is not optional - a flawed plan propagates errors through every downstream Worker.
 
@@ -83,6 +83,26 @@ Applying adversarial review.
 Risk: Elevated + Cleanup - [specific signal]
 Applying adversarial review with /simplify cleanup pass.
 ```
+
+## QA Gate
+
+**Post-Skeptic QA for UI-visible changes.** After Skeptic sign-off on any Elevated unit, check whether the project has a `.claude/qa.md` with a `## QA triggers` section containing file patterns. If the reviewed diff includes files matching any trigger pattern, spawn `qa-engineer` before declaring the unit complete. QA failure blocks completion - the conductor spawns a fix engineer, then re-runs QA.
+
+**When QA is skipped:**
+- No `.claude/qa.md` exists in the project
+- `.claude/qa.md` has no `## QA triggers` section
+- No files in the reviewed diff match any trigger pattern
+- The change is Low risk (direct action)
+
+**QA gate flow:**
+1. Skeptic grants sign-off (minor fixes applied if any)
+2. Conductor checks `.claude/qa.md` trigger patterns against the diff
+3. If matched: spawn `qa-engineer` with the unit's acceptance criteria and the qa.md config
+4. QA engineer opens the dev server in a browser, verifies functionality, returns pass/fail report
+5. On PASS: unit is complete
+6. On FAIL: spawn fix engineer for each bug, then re-run QA
+
+**Phase breadcrumb:** `[phase: qa-review]`
 
 ## Task Decomposition
 
@@ -161,3 +181,6 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/subage
 
 **Agent team composition** - which agent to use and how they compose:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
+
+**QA gate** - when Skeptic sign-off is granted on a UI-visible change:
+Check `.claude/qa.md` for trigger patterns. If the diff matches, spawn `qa-engineer`. The qa-engineer reads `.claude/qa.md` for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.

@@ -108,6 +108,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `applying-minors` | Minor findings being applied post-sign-off |
 | `cleanup` | /simplify pass running (Elevated + Cleanup path only) |
 | `cleanup-review` | Narrow Skeptic reviewing /simplify diff |
+| `qa-review` | QA engineer is verifying the change in a browser |
 | `complete` | All work done, synthesizing results |
 
 Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-review (round 1)]"

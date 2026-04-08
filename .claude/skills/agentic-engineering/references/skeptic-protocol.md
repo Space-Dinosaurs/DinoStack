@@ -131,10 +131,13 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 9. **Repeat steps 4–8** until the Skeptic grants sign-off:
    > "No unresolved Critical or Major findings. Sign-off granted."
 
-10. **Primary agent reports back** with:
+10. **QA gate check (conditional).** After sign-off is granted and any minor fixes are applied, the conductor checks the QA gate condition (see agent-methodology.md QA Gate section). If the project has `.claude/qa.md` with trigger patterns matching the diff, spawn `qa-engineer` before reporting back. QA failure routes back to an engineer for fixes, then re-runs QA. If no QA gate applies, proceed directly to step 11.
+
+11. **Primary agent reports back** with:
     - The final implementation
     - The full exchange log (round-by-round: findings, fixes, deferrals with reasoning)
     - The verbatim sign-off statement from the final Skeptic round
+    - QA result (pass/fail) if the QA gate was triggered
 
 ---
 
