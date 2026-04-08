@@ -9,7 +9,7 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 Open Claude Code and ask your agent:
 
 ```
-Clone https://github.com/fullmetalblanket/agentic-engineering and run .claude/install.sh
+Clone git@github.com:Solara6/agentic-engineering.git and run .claude/install.sh
 ```
 
 The agent handles everything - cloning the repo, running the installer, and walking you through optional tool setup. No manual steps required.
