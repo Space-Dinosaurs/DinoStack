@@ -60,3 +60,15 @@ To add one:
 4. Open a PR
 
 **Design principle:** community skills must work standalone. Do not add a prerequisite line that loads `/agentic-engineering`. If the core methodology is installed, the skill benefits from it automatically (risk classification, adversarial review, named agents). If not, the skill still functions on its own.
+
+### Formatting standards
+
+Every community skill must follow these conventions so discovery, listing, and install behavior stays consistent:
+
+- **Directory name**: lowercase kebab-case. No spaces, uppercase letters, or underscores. The directory name must match the `name` field in the SKILL.md frontmatter.
+- **SKILL.md frontmatter**: a YAML block at the top with `name` and `description` required. The `description` is one line, under 200 characters, phrased as "Use when ..." or a declarative statement of the triggering scenario. This string is what Claude Code matches against to auto-trigger the skill, so be specific about when the skill should fire.
+- **SKILL.md body**: must include a `## When to use` section and a `## What it does` section. Additional sections are allowed.
+- **README.md**: must include `## What this does`, `## Prerequisites`, `## Installation`, `## Usage`, and `## Author` sections. The Installation section should show `/community-skills install <skill-name>` as the primary method, with the manual `ln -s` command as a fallback.
+- **Additional files**: scripts, reference docs, or assets may live in the skill directory. Keep the layout flat unless complexity demands subdirectories.
+- **Standalone requirement**: the skill must function without agentic-engineering installed. Verify by temporarily removing the `~/.claude/skills/agentic-engineering` symlink (or testing on a machine without the core methodology) and triggering your skill in a fresh Claude Code session.
+- **Catalog entry**: add a row to the table in `community-skills/README.md`: `| skill-name | description | @handle |`
