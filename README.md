@@ -16,6 +16,24 @@ The agent handles everything - cloning the repo, running the installer, and walk
 
 For other tools (Cursor, etc.), see the install instructions in each adapter's README.
 
+## Updating
+
+Pull the latest changes and re-run the installer. It's idempotent - existing symlinks and settings are preserved, new ones added, and build artifacts regenerated.
+
+```
+cd ~/agentic-engineering
+git pull
+bash .claude/install.sh    # and/or .cursor/install.sh
+```
+
+For a clean refresh that also prunes stale symlinks for files removed upstream:
+
+```
+bash .claude/uninstall.sh
+git pull
+bash .claude/install.sh
+```
+
 ## Adapters
 
 The same methodology is packaged for multiple tools. Each adapter lives in its own directory with tool-specific formats:
