@@ -11,6 +11,14 @@
 
 ## Installation
 
+Ask your agent:
+
+> "Install the skill-name community skill"
+
+Or use the slash command directly: `/community-skills install skill-name`.
+
+Manual fallback:
+
 ```bash
 ln -s /path/to/agentic-engineering/community-skills/skill-name ~/.claude/skills/skill-name
 ```

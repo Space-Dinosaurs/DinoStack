@@ -81,6 +81,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Remove community skill symlinks
+# ---------------------------------------------------------------------------
+
+echo "Removing community skill symlinks..."
+
+_cs_removed=0
+_skills_dir="$HOME/.claude/skills"
+
+if [[ -d "$_skills_dir" ]]; then
+  for _skill_link in "$_skills_dir"/*/; do
+    [[ -L "${_skill_link%/}" ]] || continue
+    _skill_name="$(basename "$_skill_link")"
+    _target="$(readlink "$_skills_dir/$_skill_name")"
+    if [[ "$_target" == "$REPO_DIR/community-skills/"* ]]; then
+      rm "$_skills_dir/$_skill_name"
+      echo "  - $_skill_name"
+      _cs_removed=$((_cs_removed + 1))
+    fi
+  done
+fi
+
+if [[ $_cs_removed -eq 0 ]]; then
+  echo "  = no community skill symlinks found"
+else
+  echo "  ($_cs_removed community skill symlinks removed)"
+fi
+
+# ---------------------------------------------------------------------------
 # Remove pre-commit hook symlink
 # ---------------------------------------------------------------------------
 
