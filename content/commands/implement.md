@@ -1,6 +1,6 @@
 # Implement
 
-Take a Linear ticket from description to merged PR, with full agent orchestration (Architect -> Orchestration Planner (conditional) -> Engineer -> Skeptic) and the CI Test URL posted back to the ticket.
+Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
 ## Invocation
 
@@ -10,27 +10,68 @@ Take a Linear ticket from description to merged PR, with full agent orchestratio
 
 ## Setup: Read project config
 
-Before any phase, read the project's `CLAUDE.md` and extract the following values. These are used throughout all phases:
+Before any phase, read the project's `CLAUDE.md` and extract the following values:
 
-- `REPO` - absolute path to the repo root
-- `GH_REPO` - GitHub repo slug (e.g. `org/repo-name`)
-- `BASE_BRANCH` - the branch all work is based from (e.g. `development`)
-- `QUALITY_CMD` - the full quality gate command to run from repo root
-- `TICKET_PREFIX` - the Linear ticket prefix (e.g. `FRM`)
-- `LINEAR_QA_ASSIGNEE_ID` - Linear user ID to assign when moving to Testing
-- `LINEAR_WORKSPACE` - Linear workspace slug used in issue URLs
-- Branch naming convention for features and bug fixes
+- `REPO` — absolute path to the repo root
+- `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
+- `BASE_BRANCH` — the branch all work is based from. If not declared in `CLAUDE.md`, resolve in this order: (1) `develop` if it exists locally; (2) `development` if it exists locally; (3) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
+- `QUALITY_CMD` — the full quality gate command to run from repo root
+
+**Tracker resolution** — read tracker config using this fallback chain:
+
+1. If a `## Tracker` section exists in `CLAUDE.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default).
+2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`.
+3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional).
+4. Else: set `TRACKER=none`.
+
+**Dual-shape note:** Linear projects canonically store tracker config under `## Linear`; Jira projects use `## Tracker`. This is intentional — it preserves zero-migration compatibility for every existing Linear project that already has a `## Linear` section.
+
+**Legacy `## Linear` shape guard** — if `TRACKER=linear` was resolved from a `## Linear` section AND the section is missing the `Workspace:` field (required for URL generation), stop immediately and print:
+
+```
+Your tracker config is missing fields /implement needs. Run /init-project to update it —
+discovery will fill in most fields automatically.
+```
+
+Do not continue. Do not attempt to write the migration. All config-mutation logic lives in `/init-project`.
+
+Print a summary of resolved values before Phase 1:
+
+```
+Tracker:       [linear | jira | none]
+TICKET_PREFIX: [value or "n/a"]
+BASE_BRANCH:   [value]
+```
+
+All work lives in `$REPO`.
 
 ---
 
 ## Phase 1: Understand the ticket
 
-1. `mcp__linear__get_issue` with the ticket ID, `includeRelations: true`
-2. Read the full description - specifically the **Implementation**, **Files**, and **QA** sections
-3. Note any blocking tickets (`blockedBy`) - confirm they are done before proceeding
-4. Note the ticket type: feature (adds new capability) vs bug (fixes broken behavior) - this drives branch naming
+(Setup has already resolved TRACKER. Execute exactly one of the sub-sections below.)
 
-All work lives in `$REPO`.
+#### If TRACKER is `linear`
+
+1. Call `mcp__linear__get_issue` with the ticket ID and `includeRelations: true`.
+2. Read the full description — specifically the **Implementation**, **Files**, and **QA** sections.
+3. Note any blocking tickets (`blockedBy`) — confirm they are done before proceeding.
+4. Note the ticket type (feature vs bug) — this drives branch naming.
+
+#### If TRACKER is `jira`
+
+1. Call `mcp__mcp-atlassian__jira_get_issue` with `issue_key: "[TICKET_PREFIX]-NNN"` and `fields: "*all"` to get the full issue including description and current status.
+2. Read the full description — note any **Acceptance Criteria**, **Implementation Notes**, and **QA** content in the description or sub-tasks.
+3. Note any blocking issues — confirm they are resolved before proceeding.
+4. Note the issue type (Story, Bug, Task) — this drives branch naming.
+
+#### If TRACKER is `none`
+
+No ticket to fetch. Ask the user: "No tracker configured. Please describe what you want to implement." Use the user's description as the ticket content for all downstream phases. Set ticket type to "feature" unless the user indicates otherwise.
+
+---
+
+Proceed to Phase 2 regardless of which sub-section executed.
 
 ---
 
@@ -224,10 +265,34 @@ Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
 ## Phase 9: Open the PR
 
+Compose the `[TRACKER_REFERENCE_BLOCK]` based on the resolved `TRACKER`, then run the `gh pr create` command with that block included in the body.
+
+#### If TRACKER is `linear`
+
+```
+## Linear
+Closes [[TICKET_PREFIX]-NNN](https://linear.app/[LINEAR_WORKSPACE]/issue/[TICKET_PREFIX]-NNN)
+```
+
+#### If TRACKER is `jira`
+
+```
+## Jira
+Closes [[TICKET_PREFIX]-NNN]([JIRA_BASE_URL]/browse/[TICKET_PREFIX]-NNN)
+```
+
+#### If TRACKER is `none`
+
+Omit the tracker reference block entirely. The PR body will have only Summary and Test plan, and the PR title should omit the `[TICKET_PREFIX]-NNN:` prefix.
+
+---
+
+Run:
+
 ```bash
 gh pr create \
-  --repo $GH_REPO \
-  --base $BASE_BRANCH \
+  --repo [GH_REPO] \
+  --base [BASE_BRANCH] \
   --head [BRANCH_NAME] \
   --title "[TICKET_PREFIX]-NNN: [ticket title]" \
   --body "$(cat <<'EOF'
@@ -235,8 +300,7 @@ gh pr create \
 - [bullet 1]
 - [bullet 2]
 
-## Linear
-Closes [[TICKET_PREFIX]-NNN](https://linear.app/$LINEAR_WORKSPACE/issue/[TICKET_PREFIX]-NNN/...)
+[TRACKER_REFERENCE_BLOCK]
 
 ## Test plan
 - [ ] [step 1]
@@ -244,6 +308,8 @@ Closes [[TICKET_PREFIX]-NNN](https://linear.app/$LINEAR_WORKSPACE/issue/[TICKET_
 EOF
 )"
 ```
+
+For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
 
 Capture the PR number from the URL printed by `gh pr create`.
 
@@ -286,23 +352,60 @@ If CI hasn't posted after 5 minutes, proceed with what you have - post the PR li
 
 ---
 
-## Phase 11: Post to Linear
+## Phase 11: Post to tracker
 
 Once you have the Test URL (or the PR link as fallback):
 
-1. **Update the issue:**
-   `mcp__linear__save_issue`:
-   - `state: "Testing"`
-   - `assignee: "$LINEAR_QA_ASSIGNEE_ID"`
+(Execute exactly one of the sub-sections below based on the resolved `TRACKER`.)
 
-2. **Post the comment:**
-   `mcp__linear__save_comment` with body:
+#### If TRACKER is `linear`
+
+1. **Update the issue** — call `mcp__linear__save_issue` with:
+   - `state: "Testing"` (or the equivalent state transition for your team)
+   - `assigneeId: "[LINEAR_QA_ASSIGNEE_ID]"` — **only include this field if `LINEAR_QA_ASSIGNEE_ID` was present in `## Linear`**. If absent, skip the assignee change entirely and log: "QA assignee ID not configured — skipping assignee update. Add it to ## Linear to enable this."
+
+2. **Post the comment** — call `mcp__linear__save_comment` with body:
 
 ```
 Implementation complete. Ready for QA.
 
-**Test URL:** [EXTRACTED_TEST_URL]
-**PR:** https://github.com/$GH_REPO/pull/PR_NUMBER
+**Test URL:** [EXTRACTED_TEST_URL or "pending — see PR"]
+**PR:** https://github.com/[GH_REPO]/pull/[PR_NUMBER]
 
 [1-2 sentences on what specifically to test and any known limitations from the Skeptic review]
 ```
+
+#### If TRACKER is `jira`
+
+1. **Transition the issue** — **only if `JIRA_QA_TRANSITION` was present in `## Tracker`**. If absent, skip this step entirely and log: "JIRA_QA_TRANSITION not configured — skipping transition. Add it to ## Tracker to enable this."
+   
+   If present: call `mcp__mcp-atlassian__jira_get_transitions` with the ticket ID to list available transitions, then call `mcp__mcp-atlassian__jira_transition_issue` with:
+   - `issue_key: "[TICKET_PREFIX]-NNN"`
+   - the transition ID matching `[JIRA_QA_TRANSITION]` (by name)
+   
+   If the transition name is not found in the returned list, log the failure ("JIRA_QA_TRANSITION value '[value]' did not match any available transition — skipping") and proceed to step 2. Do not abort Phase 11 — the comment is higher value than the status change.
+
+2. **Update the assignee** — **only if `JIRA_QA_ASSIGNEE_ACCOUNT_ID` was present in `## Tracker`**. If absent, skip and log: "Jira QA assignee not configured — skipping assignee update." 
+   
+   If present: call `mcp__mcp-atlassian__jira_update_issue` with:
+   - `issue_key: "[TICKET_PREFIX]-NNN"`
+   - `fields: '{"assignee": {"accountId": "[JIRA_QA_ASSIGNEE_ACCOUNT_ID]"}}'`
+   
+   If the call fails (invalid account ID, permission error), log and proceed to step 3.
+
+3. **Post the comment** — call `mcp__mcp-atlassian__jira_add_comment` with:
+   - `issue_key: "[TICKET_PREFIX]-NNN"`
+   - `body`:
+
+```
+Implementation complete. Ready for QA.
+
+Test URL: [EXTRACTED_TEST_URL or "pending — see PR"]
+PR: https://github.com/[GH_REPO]/pull/[PR_NUMBER]
+
+[1-2 sentences on what specifically to test and any known limitations from the Skeptic review]
+```
+
+#### If TRACKER is `none`
+
+Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update. PR is open at: https://github.com/[GH_REPO]/pull/[PR_NUMBER]"
