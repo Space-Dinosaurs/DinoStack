@@ -26,6 +26,10 @@
 - Describe the *why* in the PR body, not just the *what*
 - Test locally before opening: re-run `install.sh`, open a Claude Code session, verify the change works as expected
 
+## Before editing
+
+**Pull before you change anything.** Run `git fetch origin && git pull --rebase origin main` at the start of every editing session — especially one that will spawn agents or touch multiple files. This repo is actively maintained. A refactor landing remotely while you work (file renames, symlink restructures, directory reshapes) turns clean edits into hand-merges. Cheap to prevent, expensive to untangle.
+
 ## Editing content
 
 **Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:

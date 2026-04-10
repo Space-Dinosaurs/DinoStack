@@ -6,22 +6,75 @@ Scaffold a new project with the standard CLAUDE.md hierarchy, CLI tool config, a
 
 ## Steps
 
-### 1. Gather project info
+### 0. Run discovery
 
-Ask the user (in a single message) for:
-- **Project name** - used in headings and filenames. *Required.* If not provided, ask once more. If still not provided, stop the command, tell the user a project name is required, and ask them to re-run `/init-project` with a name ready.
-- **One-line description** - what the project does. *Optional.* If skipped or unknown, a TODO placeholder will be used in `CLAUDE.md`.
-- **Tracks / components** - list of subdirectories that will each get their own `CLAUDE.md` (e.g. `backend`, `frontend`, `contracts`, `mobile`). *Optional.* If skipped, unknown, or "none/not yet", no track `CLAUDE.md` files will be created - do not default to `backend`/`frontend`. The user can re-run `/init-project` or add them manually later.
-- **GitHub CLI** - confirm `gh` is available. *Optional.* If skipped or unconfirmed, omit the `gh` line from `## Tools` entirely (same treatment as the database CLI).
-- **Database CLI** - if the project has a database, what CLI will be used? (e.g. `psql`, `mongosh`, `prisma`). *Optional.* If skipped or "none", the database line is omitted from `## Tools` entirely.
-- **Web UI** - does this project have a web interface that can be browser-tested? If yes, ask for the dev server start command and port (e.g. `npm run dev`, port `3000`). *Optional.* If skipped or "none/not yet", skip `.claude/qa.md` creation entirely.
-- **Linear** - does this project use Linear for issue tracking? If yes, ask for: Linear API key, team key (e.g. `AUT`), default assignee name, and project names (comma-separated). *Optional.* If skipped or "none/not yet", omit the `## Linear` section from `CLAUDE.md` entirely and skip Linear setup in Step 11.
+Before prompting for anything, silently scan the project to derive as many configuration values as possible.
 
-**Partial answers are fine.** If the user gives a partial answer or says "I don't know", proceed with what you have. Never loop or re-ask a question the user has already answered or declined.
+**Project name** — check in order: `package.json` `.name` (strip leading `@scope/`); `pyproject.toml` `[project] name`; `Cargo.toml` `[package] name`; `go.mod` module path last segment; `build.gradle`/`settings.gradle` `rootProject.name`; git remote origin URL last path segment (strip `.git`); current directory basename. First match wins. Steps 1–5 = high confidence; steps 6–7 = low confidence (annotate as "(inferred)").
 
-Wait for the user's answers before continuing.
+**Description** — check in order: `package.json` `.description`; `pyproject.toml` `[project] description`; first non-title, non-badge paragraph of `README.md`. First match wins.
 
-### 2. Discovery - scan before creating anything
+**Tracks** — two passes: (1) check for `apps/`, `packages/`, `services/`, `libs/` at repo root; a subdirectory under these is a track if it contains its own `package.json`, `pyproject.toml`, `go.mod`, or `Cargo.toml`; (2) scan top-level subdirectories (excluding `.git`, `.claude`, `node_modules`, `dist`, `build`, `.next`, `coverage`, `__pycache__`, `.venv`, `venv`) for their own manifest file. Deduplicate. 0 candidates = no signal (omit). 1 candidate = low confidence (annotate). 2+ candidates = high confidence.
+
+**Database CLI** — scan `package.json` deps, `requirements.txt`/`pyproject.toml` deps, `Cargo.toml`, `go.mod`. Match in order: `@prisma/client` or `schema.prisma` → recommend `prisma`; `pg`/`pg-promise`/`psycopg2`/`psycopg`/`asyncpg` → recommend `psql`; `mongoose`/`mongodb`/`pymongo`/`motor` → recommend `mongosh`; `mysql2`/`pymysql`/`aiomysql` → recommend `mysql`; `better-sqlite3`/`sqlite3`/`aiosqlite` → recommend `sqlite3`. No match = no signal (omit). Multiple database matches = list both and ask user to confirm in the confirmation step.
+
+**Web UI** — scan `package.json` deps and scripts. Match in order: `next` dep + `dev` script → Next.js (default port 3000); `@remix-run/react` or `@remix-run/node` → Remix (port 3000); `react-scripts` → CRA (port 3000); `vite` dep + `dev` script (check `vite.config.ts`/`vite.config.js` for `server.port`; default 5173) → Vite; `@vue/cli-service` → Vue CLI (port 8080); `svelte` + `vite` → SvelteKit (port 5173); `astro` → Astro (port 4321). Package manager: prefer `pnpm` if `pnpm-lock.yaml` exists, `yarn` if `yarn.lock`, `bun` if `bun.lock`/`bun.lockb`, else `npm`. No match = no signal (omit). Compose dev command as `[package-manager] run dev` (or `[pm] dev` for bun).
+
+**Tracker** — check in order: (1) if `## Tracker` or `## Linear` already exists in `CLAUDE.md` → tracker is already configured, stop tracker detection, annotate as "(already configured)"; (2) check `~/.claude.json` `mcpServers` for keys `linear` or `mcp-atlassian`; (3) scan `git log --oneline -50` for ticket patterns `[A-Z][A-Z0-9]{1,9}-\d+` — if a prefix appears 3+ times, flag as a signal; (4) check for `.linear/` directory. Signals: Linear MCP entry or `.linear/` dir = Linear signal; `mcp-atlassian` entry = Jira signal; commit patterns alone = low confidence. No signals = no prompt (leave tracker unconfigured).
+
+**GitHub CLI** — run `which gh`. If present, treat as a high-confidence signal and include the `gh` line in `## Tools` automatically. If absent, omit.
+
+### 1. Present discovery results
+
+Present the results of Step 0 in a single message:
+
+```
+Discovery complete. Here's what I found:
+
+  Project name:  [value]         ([source, e.g. "from package.json"])
+  Description:   [value]         ([source])
+  Tracks:        [list]          ([e.g. "detected as monorepo — apps/"])
+  Database CLI:  [value]         ([e.g. "detected @prisma/client"])
+  Web UI:        [command, port] ([e.g. "detected Next.js"])
+  GitHub CLI:    gh               (detected on PATH)
+  Tracker:       [value]         ([e.g. "from CLAUDE.md ## Linear" or "detected in ~/.claude.json"])
+
+Fields not shown were not detected and are optional — you can add them now or later.
+
+Press Enter to accept all, or tell me what to change (e.g. "project name is widgetco", "no web UI", "no gh", "use Jira").
+```
+
+Show only fields where a value was found. Omit fields with no detection. Annotate low-confidence values with "(inferred — verify)".
+
+**Override grammar** — the user may correct any field in free-form. Recognized patterns:
+- "project name is X" → override project name
+- "description is X" → override description
+- "tracks are X, Y" / "add track Z" / "remove track Z" → update track list
+- "database is X" / "use X for database" → override database CLI
+- "no web UI" / "skip web UI" → clear web UI
+- "no gh" / "skip gh" → remove gh from Tools
+- "use Linear" / "set up Linear" / "use Jira" / "set up Jira" / "no tracker" → set tracker
+- "port is N" → override detected port
+
+Corrections patch in-memory state; they do not re-run discovery. After corrections, echo only the changed lines: "Updated: [field] → [value]. Anything else, or press Enter to continue."
+
+**Exit conditions:** empty input (Enter), "done", or "accept" → proceed with current state.
+
+**If tracker signals were found** but tracker is not already configured, prompt before the confirmation block ends:
+
+- Linear only → "Set up Linear tracker? [y/N]"
+- Jira only → "Set up Jira tracker? [y/N]"
+- Both → "I detected signals for both Linear and Jira. Which tracker does this project use? [linear/jira/neither]"
+
+Wait for tracker confirmation before proceeding.
+
+**Required fields** — project name is required. If it was not discovered and the user does not provide it in the override step, ask once more: "A project name is required. What should I call this project?" If still not provided, stop and ask the user to re-run `/init-project` with a name ready.
+
+### 2. File scan and mode detection
+
+**Idempotent mode trigger** — if `CLAUDE.md` already exists and contains any of the standard sections (`## Tools`, `## Docs`, `## Conventions`, `## Linear`, or `## Tracker`), this is an **update run**, not a greenfield run. Switch to the update mode algorithm (Step 2a) instead of the normal create flow.
+
+**Greenfield mode** — if `CLAUDE.md` does not exist, or exists but contains none of the standard sections, proceed with the normal create flow (Steps 3 onward).
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
@@ -65,6 +118,57 @@ Already exists (will be left untouched or curated in place):
 
 This check is unconditional - run it whether `.gitignore` was just created or was already present.
 
+### 2a. Update mode algorithm
+
+This step runs only when Step 2 detects an existing configured `CLAUDE.md` (update run).
+
+**Compute the diff** — compare current `CLAUDE.md` and adjacent files against what Step 1 discovery + confirmation implies:
+
+1. **Legacy `## Linear` migration** — if `## Linear` exists but is missing `Workspace:` or `QA assignee ID:` fields:
+   - Attempt to derive `Workspace`: scan git remote origin URL and last 50 commit messages for `linear.app/<slug>/` URL patterns. Use the slug if found.
+   - Attempt to derive `QA assignee ID`: check for any UUID-shaped value already in the section.
+   - Prompt only for values that could not be derived: "What is your Linear workspace slug?" and/or "What is the Linear QA assignee UUID? (optional — press Enter to skip)".
+   - Rewrite `## Linear` in place using the new canonical shape (see Step 11a for shape). Preserve `Projects:` if present. Preserve the old `Default assignee:` name as a comment line if it existed and differs from any new UUID.
+
+2. **Tracker mutual exclusion** — Linear and Jira are mutually exclusive:
+   - If user confirmed Jira during Step 1 and `## Linear` exists: plan to remove `## Linear` and write `## Tracker` (Jira shape).
+   - If user confirmed Linear and `## Tracker` (Jira) exists: plan to remove `## Tracker` and write `## Linear` (Linear shape).
+   - If no tracker change: leave existing section untouched.
+
+3. **`## Tools` backfill** — for each new CLI tool discovered in Step 0 that is not already present in `## Tools`: plan to append it. Never touch existing entries. Match on CLI name (e.g. `psql`, `mongosh`, `gh`).
+
+4. **Missing sections** — if `## Docs` or `## Conventions` is absent: plan to add them (same content as greenfield template).
+
+5. **`docs/` directories** — plan to create any missing subdirectories.
+
+6. **`.claude/qa.md`** — if web UI was confirmed and file does not exist: plan to create it.
+
+**Present the diff:**
+
+```
+Here's what I'd update:
+
+  CLAUDE.md:
+    - Migrate ## Linear to new shape (Workspace: [value], QA assignee ID: [value or "not set"])
+    - Append to ## Tools: [new entry]
+
+  .claude/qa.md:
+    - Create (not found, web UI detected as [framework] on port [N])
+
+  docs/research/:
+    - Create .gitkeep (directory missing)
+
+No changes needed for: .gitignore, .claude/settings.json, [track] CLAUDE.md files.
+
+Proceed? [y/N]
+```
+
+On "y": apply all planned changes. On "n" or Enter: abort with "Update cancelled. No files were modified."
+
+**Never destroy existing content.** All changes are additive or migrate-in-place. The `## Decisions` and `## Conventions` content is never overwritten — sections are only added if absent.
+
+After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 through 11.
+
 ### 3. Curate or create root `CLAUDE.md`
 
 **If `CLAUDE.md` does not exist:** create from scratch using the template below. No curation needed - proceed directly.
@@ -90,7 +194,7 @@ Read the existing `CLAUDE.md` and identify two groups of content:
 - `## Decisions` - resolved architecture decisions as brief bullets, no rationale paragraphs
 - Repo structure map listing each track with a one-line description (omit if no tracks)
 - `## Tools`
-- `## Linear` (preserve if it exists - do not drop during curation)
+- `## Linear` OR `## Tracker` (preserve whichever is present — do not drop during curation)
 - `## Docs`
 - `## Conventions`
 
@@ -119,7 +223,7 @@ After sign-off: write the curated `CLAUDE.md`, then merge the Worker's memory en
   - GitHub operations: use `gh` CLI - do not use GitHub MCP
   - [Database CLI if applicable, e.g.: Database operations: use `psql` with `$DB_URL`]
   ```
-  Include the `gh` line only if `gh` was confirmed; include the database line only if a DB CLI was specified.
+  Include the `gh` line only if `gh` was detected or confirmed; include the database line only if a DB CLI was specified.
 - `## Docs` section:
   ```markdown
   ## Docs
@@ -159,7 +263,7 @@ MCP servers are not added by default - prefer CLI tools (`gh`, `psql`, etc.). On
 
 Only create if the user confirmed a web UI in Step 1. Only create if the file does not already exist.
 
-Fill in `command` and `port` from the Step 1 answers. Use `TODO` placeholders for any unknowns.
+Fill in `command` and `port` from the Step 1 confirmation results. If discovery populated these values and the user confirmed them, use those values directly. Use `TODO` placeholders only for values that were neither discovered nor provided.
 
 Content template:
 
@@ -244,11 +348,11 @@ docs/
   research/
 ```
 
-### 11. Set up Linear
+### 11. Set up tracker
 
-Only if the user confirmed Linear in Step 1. This step has three parts:
+Only run if the user confirmed a tracker in Step 1. If tracker was "none" or not confirmed, skip this step entirely.
 
-**11a. Install and authenticate the CLI**
+**11a. Linear setup** (run if tracker = Linear)
 
 Check if `linearctl` is installed: `which lc`. If not installed:
 
@@ -256,43 +360,79 @@ Check if `linearctl` is installed: `which lc`. If not installed:
 npm install -g linearctl
 ```
 
-If the user provided an API key in Step 1, authenticate:
+If the user provided a Linear API key in Step 1, authenticate:
 
 ```bash
-lc init --api-key <LINEAR_API_KEY>
+lc init --api-key [LINEAR_API_KEY]
 ```
 
-Then store the key in `.claude/settings.local.json` under `"env"`:
+Store the key in `.claude/settings.local.json` under `"env"`:
 
 ```json
 {
   "env": {
-    "LINEAR_API_KEY": "<key from Step 1>"
+    "LINEAR_API_KEY": "[key from Step 1]"
   }
 }
 ```
 
-If `.claude/settings.local.json` already exists, add the `LINEAR_API_KEY` entry to the existing `"env"` object - do not overwrite other keys.
+If `.claude/settings.local.json` already exists, merge `LINEAR_API_KEY` into the existing `"env"` object — do not overwrite other keys.
 
 If `lc` was already installed, run `lc doctor` to verify the connection. If it fails and the user provided a key, re-init with `lc init --api-key`.
 
-**11b. Add `## Linear` section to `CLAUDE.md`**
-
-Add a `## Linear` section to root `CLAUDE.md` after the `## Tools` section:
+**Add `## Linear` section to `CLAUDE.md`** (canonical shape):
 
 ```markdown
 ## Linear
-- Team: [team key from Step 1]
-- Default assignee: [assignee from Step 1]
+- Team: [team key, e.g. FRM]
+- Workspace: [workspace slug, e.g. acme]
+- QA assignee ID: [Linear user UUID — optional, omit line if not provided]
 - Branch prefix: Include issue ID (e.g., `feature/[TEAM]-12-description`)
-- Projects: [comma-separated project names from Step 1, or omit this line if none provided]
+- Projects: [comma-separated project names, or omit this line if none provided]
 ```
 
-If the user did not provide project names, omit the "Projects" line. The global `/linear` command reads this section for defaults.
+Place after `## Tools`. Prompt for: team key (required), workspace slug (required), QA assignee UUID (optional — "press Enter to skip"). If the user did not provide project names, omit the `Projects:` line.
 
-**11c. Verify**
+Run `lc doctor` to confirm the connection. If it fails, add a reminder to the summary with the manual steps.
 
-Run `lc doctor` to confirm the connection is working. If it fails, add a reminder to the summary with the manual steps.
+**11b. Jira setup** (run if tracker = Jira)
+
+Jira credentials go in `~/.claude.json` under `mcpServers.mcp-atlassian.env` — NOT in `.claude/settings.local.json`. Print the following instructions for the user to complete manually:
+
+```
+Jira credentials must be added to ~/.claude.json manually.
+
+Find or create the mcp-atlassian entry under mcpServers and add to its env block:
+
+  For Jira Cloud:
+    "JIRA_URL": "https://yourcompany.atlassian.net"
+    "JIRA_USERNAME": "your@email.com"
+    "JIRA_API_TOKEN": "your-api-token"
+
+  For Jira Server/Data Center:
+    "JIRA_URL": "https://jira.yourcompany.com"
+    "JIRA_PERSONAL_TOKEN": "your-personal-access-token"
+
+Get a Cloud API token at: https://id.atlassian.com/manage-profile/security/api-tokens
+Find your Atlassian account ID at: https://[your-instance].atlassian.net/rest/api/3/myself
+```
+
+**Add `## Tracker` section to `CLAUDE.md`** (canonical shape):
+
+```markdown
+## Tracker
+TRACKER: jira
+TICKET_PREFIX: [project key, e.g. PROJ]
+JIRA_BASE_URL: [e.g. https://acme.atlassian.net]
+JIRA_QA_ASSIGNEE_ACCOUNT_ID: [Atlassian account ID — optional, omit line if not provided]
+JIRA_QA_TRANSITION: [transition name — optional, omit line if not provided]
+```
+
+Place after `## Tools`. Prompt for: TICKET_PREFIX (required), JIRA_BASE_URL (required), JIRA_QA_ASSIGNEE_ACCOUNT_ID (optional), JIRA_QA_TRANSITION (optional). **Do not use a default value for `JIRA_QA_TRANSITION`** — if the user does not provide one, omit the line entirely. `/implement` Phase 11 will skip the transition step when absent rather than guessing a transition name.
+
+**11c. None**
+
+No tracker setup needed. Skip this step.
 
 ### 12. Summary
 
@@ -306,8 +446,9 @@ Then remind the user to:
 1. Update the `## Tools` section in root `CLAUDE.md` as new CLI tools are added to the project over time
 2. Fill in the `## Conventions` section in root `CLAUDE.md` as the project takes shape
 3. Grow each `[track]/CLAUDE.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
-4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` - not in `CLAUDE.md`. On re-run, `/init-project` will automatically curate `CLAUDE.md` and extract any facts that have crept in.
+4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `CLAUDE.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
-6. Confirm `gh` is installed and update the `## Tools` section in root `CLAUDE.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was skipped in Step 1
+6. Confirm `gh` is installed and update the `## Tools` section in root `CLAUDE.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1
 7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created
-8. Install the Linear CLI (`npm install -g linearctl && lc init`) and use `/linear` for issue management - show only if Linear was confirmed in Step 1 and `lc` was not found
+8. *(If Jira was configured)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
+9. *(If Linear was configured without a QA assignee UUID)* You skipped the QA assignee UUID — `/implement` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.

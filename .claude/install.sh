@@ -302,6 +302,7 @@ declare -a CLI_TOOLS=(
   "gh:GitHub CLI — create PRs, manage issues, and run repo operations from the terminal:brew install gh"
   "agent-browser:Headless browser — lets agents verify UI changes by taking snapshots and interacting with pages:npm install -g agent-browser"
   "lc:Linear CLI — create, update, and triage issues directly from Claude Code:npm install -g linearctl"
+  "jira:Jira CLI — create, update, and triage Jira issues directly from Claude Code:brew install jira-cli"
   "rclone:Cloud file sync — read and write Google Drive files from the terminal:brew install rclone"
 )
 
@@ -360,6 +361,48 @@ else:
 PYEOF
   else
     echo "  - skipped chrome-devtools MCP"
+  fi
+fi
+
+# mcp-atlassian MCP
+echo ""
+if [[ -f "$CLAUDE_JSON" ]] && python3 -c "
+import json, sys
+with open('$CLAUDE_JSON') as f:
+    d = json.load(f)
+sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
+" 2>/dev/null; then
+  echo "  = mcp-atlassian MCP already configured"
+else
+  read -p "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    python3 - <<'PYEOF'
+import json, os
+
+target = os.path.expanduser("~/.claude.json")
+if os.path.exists(target):
+    with open(target) as f:
+        data = json.load(f)
+else:
+    data = {}
+
+servers = data.setdefault("mcpServers", {})
+if "mcp-atlassian" not in servers:
+    servers["mcp-atlassian"] = {
+        "type": "stdio",
+        "command": "uvx",
+        "args": ["mcp-atlassian"],
+        "env": {}
+    }
+    with open(target, "w") as f:
+        json.dump(data, f, indent=2)
+    print("  + mcp-atlassian MCP configured in ~/.claude.json")
+else:
+    print("  = mcp-atlassian MCP already configured")
+PYEOF
+  else
+    echo "  - skipped mcp-atlassian MCP"
   fi
 fi
 
