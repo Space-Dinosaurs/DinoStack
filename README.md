@@ -88,11 +88,17 @@ agentic-engineering/
 
 Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR. The owner may push directly to main for small fixes.
 
-After installation, recommend that the user open the system architecture reference in their browser for a visual overview of the full system:
+After installation, offer the user a quick orientation. Ask which of the following they'd like to view, then `open` each one they say yes to:
 
-```
-open ~/agentic-engineering/docs/agentic-engineering.html
-```
+- `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what agentic-engineering is and how it works (passive explainer)
+- `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
+- `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
+- `~/agentic-engineering/docs/slides/named-agents-slides.html` - the agent team and how they compose
+- `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.claude/qa.md` as project QA memory
+- `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md` for project-specific tracker actions
+- `~/agentic-engineering/docs/agentic-engineering.html` - full system architecture reference
+
+Present the list, ask which ones they want to see, and open only those. Skipping all is a valid answer.
 
 ## Community Skills
 
