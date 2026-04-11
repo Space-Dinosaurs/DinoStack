@@ -96,9 +96,9 @@ open ~/agentic-engineering/docs/agentic-engineering.html
 
 ## Community Skills
 
-Optional, task-specific skills contributed by the community. Each is self-contained  - works on its own, but benefits from the core methodology if agentic-engineering is also installed.
+Optional, task-specific skills contributed by the community. Each is self-contained - works on its own, but benefits from the core methodology if agentic-engineering is also installed.
 
-Browse available skills in [`community-skills/`](community-skills/).
+Browse and install skills from the standalone repo: [github.com/Solara6/community-skills](https://github.com/Solara6/community-skills).
 
 ## Contributing
 
