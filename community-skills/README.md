@@ -26,3 +26,5 @@ Copy `_template/`, fill it in, and open a PR. See [CONTRIBUTING.md](../CONTRIBUT
 
 | Skill | Description | Author |
 |---|---|---|
+| marp-slides | Generate polished Marp slide decks from research documents or topics | @tysonhummel |
+| remotion-video | Generate animated MP4 video presentations from any source using Remotion | @tysonhummel |
