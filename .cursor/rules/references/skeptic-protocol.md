@@ -214,6 +214,8 @@ If a Worker discovers mid-task that its work requires decomposition into indepen
 
 The Skeptic must classify every finding. Unclassified findings are treated as Major by default.
 
+**Spec deviation is a finding.** When a Worker implements against an Architect plan, any deviation from the plan's "API / interface design" section is a Skeptic finding. Classify as **Major** by default (the spec was the contract; the Worker did not honor it), or **Critical** if the deviation changes externally observable behavior, breaks a caller, or introduces a security/correctness regression. A documented Worker deviation with explicit rationale may downgrade to Minor, but only if the Skeptic can affirmatively state all three of the following in its sign-off: (1) the Worker's stated rationale for the deviation is technically correct - the Skeptic has verified the claim of infeasibility, conflict, or impracticality, not merely accepted the Worker's assertion; (2) the plan's downstream assumptions still hold under the deviation - no other part of the plan depends on the original spec in a way the deviation breaks; (3) the deviation does not change externally observable behavior, break a caller, or introduce a security/correctness regression - if any of these are present, the finding is Critical, not Minor. If the Skeptic cannot affirmatively state all three, the finding remains at least Major. Silent deviation is never acceptable - the Worker must state the deviation explicitly regardless of rationale. See Section 11 for the mandatory sign-off format when a spec deviation is downgraded.
+
 When reviewing, check spec compliance first - does the implementation do what was asked? Then check code quality. Surface spec compliance issues before stylistic concerns in the findings list. Spec compliance gaps at the Critical or Major level make code quality moot.
 
 ### Review depth
@@ -263,6 +265,8 @@ These are starting templates. Adapt them for your specific domain, threat model,
 
 **General code review:**
 > "Assume this code will be deployed to production and maintained by engineers who did not write it. Find: logic errors, edge cases that cause silent failures, missing error handling, incorrect assumptions about input ranges or ordering, and any assumption that will break under realistic load or adversarial input."
+
+**When reviewing a Worker that implemented against an Architect plan:** In addition to the above, verify that the Worker's output matches the plan's "API / interface design" section exactly. Any deviation is a finding (Major by default, Critical if behavior-changing). A deviation may downgrade to Minor only if the Skeptic can affirmatively state all three criteria in its sign-off: (1) the Worker's rationale is technically verified (not just accepted); (2) no downstream plan assumptions are broken by the deviation; (3) the deviation does not change externally observable behavior, break a caller, or introduce a security/correctness regression. If all three cannot be stated affirmatively, the finding remains at least Major. Silent deviation from the spec is always at least Major.
 
 ---
 
@@ -328,8 +332,19 @@ The structured sign-off format is required for every Skeptic response, whether f
 Reviewed: [list of components/aspects examined]
 Findings: Critical: N, Major: N, Minor: N — or "No findings."
 [List any findings with classification]
+[If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 No unresolved Critical or Major findings. Sign-off granted.
+```
+
+When any Minor finding is a spec-deviation downgrade, the following block must also appear in the sign-off, once per downgraded finding:
+
+```
+Spec deviation downgrade justification (if any Minor finding is a spec deviation):
+For [finding ID]:
+(1) Worker's rationale verified: [specific verification the Skeptic performed]
+(2) Downstream plan assumptions preserved: [confirmation no other plan element depends on the original spec in a way the deviation breaks]
+(3) No externally observable behavior change, broken caller, or security/correctness regression: [affirmative statement]
 ```
 
 The "Reviewed" and "Active search" lines are mandatory even when findings are zero — they are evidence that review occurred.
@@ -354,7 +369,7 @@ Round 3:
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains all four mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
+The primary agent treats a Skeptic response as a valid sign-off only when it contains all four mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 

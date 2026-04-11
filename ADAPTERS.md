@@ -50,5 +50,5 @@ Each adapter directory matches the tool's native config directory name:
 
 ## Existing adapters as reference
 
-- **Claude Code** (`.claude/`): Uses a skill with YAML frontmatter for on-demand loading. Agents and commands are separate files symlinked into `~/.claude/`. Hooks are JSON entries in `settings.json`. Build script at `.claude/build.sh` copies from `content/` and prepends the prerequisite blockquote to commands.
+- **Claude Code** (`.claude/`): Uses a skill with YAML frontmatter for on-demand loading. Agents live in `content/agents/`. `.claude/agents/` is a directory symlink into `content/agents/`, and `~/.claude/agents/<name>.md` are user-global symlinks into `.claude/agents/`. Commands are build artifacts in `.claude/commands/`, rebuilt from `content/commands/` by `.claude/build.sh` (prepending the `/agentic-engineering` prerequisite blockquote). Hooks are JSON entries in `settings.json`. Rules and references need no copy step - they are symlinked from `.claude/skills/agentic-engineering/` directly into `content/`.
 - **Cursor** (`.cursor/`): Uses .mdc files with YAML frontmatter (`alwaysApply`, `globs`). Commands are markdown. Hooks use `hooks.json` with lifecycle event names. Build script at `.cursor/build.sh` combines `content/rules/` with frontmatter sidecars from `.cursor/rules/frontmatter/*.yaml` to produce `.mdc` files.

@@ -35,10 +35,11 @@
 **Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:
 - `content/rules/` - the 3 rule files (agent-methodology, code-standards, conventions)
 - `content/references/` - the 4 reference docs (skeptic-protocol, subagent-protocol, agent-team, design-goals)
-- `content/commands/` - the 5 command files (implement, init-project, memory-update, skeptic, wrap)
+- `content/commands/` - the 7 command files (community-skills, implement, init-project, memory-update, skeptic, update-protocol, wrap)
+- `content/agents/` - the 10 agent definitions (adr-drift-detector, adr-generator, architect, debugger, engineer, investigator, orchestration-planner, qa-engineer, security-auditor, skeptic)
 
 Build scripts regenerate adapter files from `content/`:
-- `.claude/build.sh` - copies rules/references to the skill directory, prepends prerequisite blockquote to commands
+- `.claude/build.sh` - rebuilds `.claude/commands/*.md` by prepending the `/agentic-engineering` prerequisite blockquote to each `content/commands/*.md` source. Rules, references, and agents need no copy step - `.claude/skills/agentic-engineering/rules`, `.claude/skills/agentic-engineering/references`, and `.claude/agents/` are all symlinks pointing directly into `content/`.
 - `.cursor/build.sh` - combines frontmatter sidecars with rules to produce .mdc files, copies references and commands
 
 The pre-commit hook runs both build scripts automatically when `content/` files are staged. If you bypass the hook, run the build scripts manually before committing.
