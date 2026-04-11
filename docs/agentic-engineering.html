@@ -614,7 +614,7 @@
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid #b8a3ec;">
         <h4 style="color: #b8a3ec;">Review Agent</h4>
         <ul>
-          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Not a specialist - the review layer that all other agents' output passes through.</li>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -796,40 +796,41 @@
     <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
       <div style="font-size: 64px; line-height: 1; margin-top: 13px;">⚠️</div>
       <div>
-        <div style="font-size: 30px; font-weight: 700; color: var(--accent-amber);">Named Sessions</div>
-        <div style="font-size: 20px; font-weight: 400; color: var(--text-secondary);">The key to cross-session continuity</div>
+        <div style="font-size: 30px; font-weight: 700; color: var(--accent-amber);">Project Directory Is The Project Identity</div>
+        <div style="font-size: 20px; font-weight: 400; color: var(--text-secondary);">How cross-session continuity actually works</div>
       </div>
     </div>
-    <p class="desc" style="margin-bottom: 12px;">Claude Code supports named sessions via the <code>--resume</code> flag. By always resuming the same session name for a given project, every run maps to the same project hash - which means it reads and enriches the same persistence files.</p>
+    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's CLAUDE.md, MEMORY.md, session history, and <code>/wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
     <div style="margin-bottom: 16px;">
       <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">The command:</div>
       <div class="code-block">
         <span class="cb-label">terminal</span>
-        <span class="cb-prompt">$ </span><span class="cb-cmd">claude</span> <span class="cb-flag">--resume</span> <span class="cb-string">"project-name"</span> <span class="cb-flag">-p</span> <span class="cb-path">/path/to/project</span>
+        <span class="cb-prompt">$ </span><span class="cb-cmd">cd</span> <span class="cb-path">~/projects/myproject</span><br>
+        <span class="cb-prompt">$ </span><span class="cb-cmd">claude</span>
       </div>
-      <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; margin-top: 16px;">As a shell alias:</div>
+      <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; margin-top: 16px;">Optional: a shell alias to jump into the project and launch:</div>
       <div class="code-block">
         <span class="cb-label">~/.zshrc</span>
-        <span class="cb-comment"># Start a named Claude Code session for a specific project</span><br>
-        <span class="cb-keyword">alias</span> <span class="cb-cmd">claude-myproject</span><span class="cb-op">=</span><span class="cb-string">'claude --resume "myproject" -p ~/projects/myproject'</span>
+        <span class="cb-comment"># cd into the project and open Claude Code with an optional ergonomic label</span><br>
+        <span class="cb-keyword">alias</span> <span class="cb-cmd">claude-myproject</span><span class="cb-op">=</span><span class="cb-string">'cd ~/projects/myproject &amp;&amp; claude -n myproject'</span>
       </div>
     </div>
     <ul>
-      <li><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[hash]/context.md</code> every time. <code>/wrap</code>'s rolling-window merge (up to 3 sessions) works because the same file is revisited. Random sessions would scatter context across disposable files that are never read again.</li>
-      <li><strong>MEMORY.md compounds</strong> - same session name means the same project hash, which means the same memory directory. Stable facts accumulate in one place rather than starting fresh each time.</li>
-      <li><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -> work -> <code>/wrap</code> feedback loop. Each named session reads richer CLAUDE.md files and memory than the last. Random sessions would break the loop since each would start from zero context.</li>
-      <li><strong>Multi-session coordination</strong> - different projects get different named sessions, each with cleanly separated persistence. Multiple named sessions can run simultaneously on different projects. Running <code>/wrap</code> on one does not touch the other's state.</li>
+      <li><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
+      <li><strong>MEMORY.md compounds</strong> - same cwd means the same project directory means the same memory files. Stable facts accumulate in one place rather than starting fresh each time.</li>
+      <li><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -> work -> <code>/wrap</code> feedback loop. Each session reads richer CLAUDE.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
+      <li><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/wrap</code> on one project does not touch the other's state.</li>
     </ul>
     <div style="margin-top: 20px; padding: 24px; background: var(--bg-base); border: 1px solid var(--accent-amber-dim); border-radius: var(--radius-lg);">
-      <div style="font-size: 20px; font-weight: 700; color: var(--accent-amber); margin-bottom: 12px;">Without named sessions, cross-session continuity breaks.</div>
+      <div style="font-size: 20px; font-weight: 700; color: var(--accent-amber); margin-bottom: 12px;">Naming and resuming are ergonomic, not load-bearing.</div>
       <p style="font-size: 16px; color: var(--text-primary); line-height: 1.7; margin-bottom: 16px;">
-        The entire persistence architecture - context.md, MEMORY.md, memory files, and the CLAUDE.md update cycle - depends on one assumption: <strong>that the same project hash is hit every time you open a project.</strong> The hash is derived from the session name and project path. If those change between runs, Claude Code creates a new, empty persistence directory. The old one still exists on disk, but no session will ever read it again.
+        Claude Code's <code>-n, --name</code> flag attaches a display label to the session - useful in the <code>/resume</code> picker and in your terminal title, but it has no effect on which persistence directory is read or written. Two runs of <code>claude -n myproject</code> in the same directory create two independent sessions that share the same project persistence. The label is a finder, not an identifier.
       </p>
       <p style="font-size: 16px; color: var(--text-primary); line-height: 1.7; margin-bottom: 16px;">
-        This means context.md would be written by the Stop hook but never read back by a future session. Memory entries from <code>/wrap</code> and <code>/memory-update</code> would accumulate in orphaned directories. The CLAUDE.md updates that <code>/wrap</code> proposes - the decisions and conventions learned during work - would never feed back into the project files, because the next session wouldn't know where to find them.
+        <code>-r, --resume</code> is similarly narrow: it replays a specific prior session's conversation history. That is valuable when you got interrupted mid-task and the agent had working state that wasn't yet captured to memory, but it is <em>not</em> how cross-session continuity works under the protocol. The protocol prefers <strong>fresh sessions</strong>: one focused goal per session, <code>/wrap</code> at the end to commit learnings to memory, and the next session starts clean and reads those learnings via the normal cwd-based load. The Skeptic agent is the canonical example - it is explicitly never resumed, because a fresh context is sharper than a replayed one.
       </p>
       <p style="font-size: 16px; color: var(--text-secondary); line-height: 1.7;">
-        Named sessions are what close the loop. They are the reason <code>/init-project</code> -> work -> <code>/wrap</code> -> next session is a cycle rather than a dead end. Every layer of the persistence system - the Stop hook, the memory system, the CLAUDE.md update pipeline, the rolling-window context merge - was designed with the assumption that sessions return to the same hash. Breaking that assumption doesn't cause an error. It silently degrades the system into one with no memory.
+        The thing that silently breaks continuity is not forgetting to name or resume a session - it is launching <code>claude</code> from the <em>wrong directory</em>. That points at a different project slug, which reads and writes a different, empty persistence directory. The fix is muscle memory: always <code>cd</code> into the project before starting Claude Code. An alias that bundles the <code>cd</code> and the launch is the cleanest way to make that automatic.
       </p>
     </div>
   </div>

@@ -13,7 +13,7 @@
 | `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.claude/qa.md`. Verifies changes in a real browser, returns structured pass/fail report. Appends learned quirks to `.claude/qa.md` Knowledge section. | No (appends to qa.md only) |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
-The `skeptic` is the review layer - it is not a specialist. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
+The `skeptic` is the cross-cutting review layer - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
 
 ---
 

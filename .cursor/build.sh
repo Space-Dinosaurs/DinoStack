@@ -20,11 +20,25 @@ for src in "$CONTENT/rules/"*.md; do
   fi
 done
 
-# References: copy as-is
-mkdir -p "$REFS_DST"
-cp "$CONTENT/references/"*.md "$REFS_DST/"
+hardlink_from_content() {
+  local src="$1"
+  local dst="$2"
+  if [[ -e "$dst" ]] && [[ "$(stat -f %i "$src")" == "$(stat -f %i "$dst")" ]]; then
+    return
+  fi
+  rm -f "$dst"
+  ln "$src" "$dst"
+}
 
-# Commands: copy as-is (no prerequisite for Cursor)
-cp "$CONTENT/commands/"*.md "$COMMANDS_DST/"
+# References: hardlink from content/ so edits stay in sync across adapters
+mkdir -p "$REFS_DST"
+for src in "$CONTENT/references/"*.md; do
+  hardlink_from_content "$src" "$REFS_DST/$(basename "$src")"
+done
+
+# Commands: hardlink from content/ (no prerequisite transform for Cursor)
+for src in "$CONTENT/commands/"*.md; do
+  hardlink_from_content "$src" "$COMMANDS_DST/$(basename "$src")"
+done
 
 echo "Cursor adapter build complete."

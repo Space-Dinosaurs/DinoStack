@@ -1,0 +1,269 @@
+---
+marp: true
+theme: default
+paginate: true
+style: |
+  section {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+  }
+  section.lead {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: white;
+  }
+  section.lead h1 {
+    font-size: 2.5em;
+    margin-bottom: 0.2em;
+    color: white;
+  }
+  section.lead p {
+    font-size: 1.2em;
+    opacity: 0.85;
+  }
+  section.highlight {
+    background: #f8f9fa;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5em;
+  }
+  .columns-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1em;
+  }
+  .card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.2em;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-left: 4px solid #0f3460;
+  }
+  .stat {
+    font-size: 2.5em;
+    font-weight: bold;
+    color: #0f3460;
+  }
+  .label {
+    font-size: 0.9em;
+    color: #666;
+    margin-top: 0.2em;
+  }
+  .callout {
+    background: #e8f4f8;
+    border-left: 4px solid #0f3460;
+    padding: 0.8em 1.2em;
+    border-radius: 0 8px 8px 0;
+    margin: 0.5em 0;
+  }
+  blockquote {
+    border-left: 4px solid #0f3460;
+    padding-left: 1em;
+    color: #555;
+    font-style: italic;
+  }
+---
+
+<!-- _class: lead -->
+
+# Named Agents
+
+Purpose-built roles. Structured handoffs. Clean context.
+
+---
+
+## Why named agents
+
+- Each agent has a **narrow job** and a clean context
+- Specialization produces sharper output than one generalist doing everything
+- Isolated worktrees mean their noise never touches your main session
+- The protocol picks the right agent for the task so you usually don't have to
+
+<div class="callout">
+Think of named agents as a small team of specialists you can dispatch. The main thread is the manager, not the do-er.
+</div>
+
+---
+
+<!-- _class: highlight -->
+
+## The team
+
+<style scoped>
+  .columns-3 { gap: 0.6em; }
+  .columns-3 .card { padding: 0.55em 0.75em; font-size: 0.68em; border-radius: 8px; line-height: 1.3; }
+  .columns-3 .card strong { font-size: 1.1em; }
+  .columns-3 .card:nth-child(1) { border-left-color: #1e88e5; }
+  .columns-3 .card:nth-child(2) { border-left-color: #e53935; }
+  .columns-3 .card:nth-child(3) { border-left-color: #8e24aa; }
+  .columns-3 .card:nth-child(4) { border-left-color: #00897b; }
+  .columns-3 .card:nth-child(5) { border-left-color: #43a047; }
+  .columns-3 .card:nth-child(6) { border-left-color: #fb8c00; }
+  .columns-3 .card:nth-child(7) { border-left-color: #00acc1; }
+  .columns-3 .card:nth-child(8) { border-left-color: #c62828; }
+  .columns-3 .card:nth-child(9) { border-left-color: #3949ab; }
+  h2 { margin-bottom: 0.4em; }
+</style>
+
+<div class="columns-3">
+<div class="card"><strong>investigator</strong><br/>Maps unfamiliar code. Traces data flow and blast radius before you change anything.</div>
+<div class="card"><strong>debugger</strong><br/>Root cause analysis. Given a failure, returns a diagnosis and fix brief.</div>
+<div class="card"><strong>orchestration-planner</strong><br/>Picks the team. Given a goal, produces a structured execution plan.</div>
+<div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase, returns a structured technical plan.</div>
+<div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, runs quality gates.</div>
+<div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor.</div>
+<div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.</div>
+<div class="card"><strong>security-auditor</strong><br/>OWASP-structured review. Auth, secrets, injection, privilege escalation.</div>
+<div class="card"><strong>adr-generator</strong><br/>Writes decision records. Captures the why behind architectural choices.</div>
+</div>
+
+---
+
+## How they work alone
+
+- Spawned into their own **isolated worktree** - their own files, their own context
+- Given a **structured brief** - goal, constraints, acceptance criteria, non-goals
+- Do their narrow job and return a **structured result** - not raw transcript
+- Only `engineer` writes files; every other specialist returns findings or plans
+
+<div class="callout">
+The main thread never sees their raw work - only their conclusion. That's the whole point: heavy work without heavy context.
+</div>
+
+---
+
+## How they work together - standard feature
+
+```
+architect (plan)
+    v
+skeptic (plan review)       <- sign-off required
+    v
+engineer (implement)
+    v
+skeptic (code review)       <- sign-off required
+    v
+qa-engineer (verify)        <- conditional: UI-visible diff
+    v
+done
+```
+
+Plans get reviewed before code. Code gets reviewed before QA. Each stage hands off a structured artifact.
+
+---
+
+## The Skeptic layer is special
+
+<style scoped>
+  ul { font-size: 0.88em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+- **Always a fresh spawn.** Never resumed, never continued from a prior round.
+- A resumed Skeptic has seen its own previous criticism - it gets polite and misses things.
+- Fresh context = adversarial teeth.
+- Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major requires action or a justified waiver.
+- **Domain fit comes from the adversarial brief**, not the agent. The conductor writes a brief tailored to the change - auth flow, migration, perf regression - and the Skeptic reviews through that lens.
+
+<div class="callout">
+The Skeptic brings the teeth. The adversarial brief aims them - at auth, at a migration, at a perf regression - so a generic reviewer produces domain-sharp findings.
+</div>
+
+---
+
+## Conditional gates and composed flows
+
+<style scoped>
+  .columns { font-size: 0.85em; }
+  .columns pre { font-size: 0.85em; padding: 0.5em 0.8em; }
+  .columns p { margin: 0.3em 0; }
+  .columns strong { font-size: 1em; }
+</style>
+
+<div class="columns">
+<div>
+
+**Bug or broken test**
+
+```
+debugger (diagnose)
+    v
+engineer (fix)
+    v
+skeptic (review)
+    v
+done
+```
+
+If debugger confidence is Low, escalate to the human - don't fix blind.
+
+</div>
+<div>
+
+**Security-sensitive change**
+
+```
+architect -> skeptic
+    v
+engineer -> skeptic
+    v
+security-auditor
+    v
+qa-engineer (if UI)
+    v
+done
+```
+
+Auth, payments, secrets, user data all route through the auditor.
+
+</div>
+</div>
+
+---
+
+## When to invoke manually vs let the protocol choose
+
+<style scoped>
+  .columns { font-size: 0.88em; }
+  .columns ul { margin: 0.3em 0; }
+  .columns li { margin: 0.2em 0; }
+  .callout { font-size: 0.88em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+<div class="columns">
+<div>
+
+**Let the protocol choose (default)**
+- You describe the goal in plain English
+- Risk classification + orchestration-planner picks the right team
+- This is the 90% case
+
+</div>
+<div>
+
+**Invoke manually**
+- You need a specific second opinion ("have the security-auditor look at this")
+- You want to force a Skeptic pass on recent changes: `/skeptic`
+- You want architecture first: ask for the architect explicitly
+
+</div>
+</div>
+
+<div class="callout">
+Manual invocation is an override, not the default interface. Trust the protocol first.
+</div>
+
+---
+
+<!-- _class: lead -->
+
+# A team of specialists. One manager.
+
+Named agents do the work. You review the output and decide.
+
+github.com/Solara6/agentic-engineering
