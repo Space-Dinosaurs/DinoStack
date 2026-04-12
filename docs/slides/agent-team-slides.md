@@ -1,30 +1,32 @@
 ---
 marp: true
+title: Agent Team
 theme: default
 paginate: true
 style: |
   section {
     font-family: 'Helvetica Neue', Arial, sans-serif;
+    background: #faf8f3;
   }
   section.lead {
     display: flex;
     flex-direction: column;
     justify-content: center;
     text-align: center;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: white;
+    background: #faf8f3;
+    color: #1a1a1f;
   }
   section.lead h1 {
     font-size: 2.5em;
     margin-bottom: 0.2em;
-    color: white;
+    color: #224466;
   }
   section.lead p {
     font-size: 1.2em;
     opacity: 0.85;
   }
   section.highlight {
-    background: #f8f9fa;
+    background: #faf8f3;
   }
   .columns {
     display: grid;
@@ -43,12 +45,12 @@ style: |
     border-radius: 12px;
     padding: 1.2em;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    border-left: 4px solid #0f3460;
+    border-left: 4px solid #b5451f;
   }
   .stat {
     font-size: 2.5em;
     font-weight: bold;
-    color: #0f3460;
+    color: #b5451f;
   }
   .label {
     font-size: 0.9em;
@@ -56,14 +58,14 @@ style: |
     margin-top: 0.2em;
   }
   .callout {
-    background: #e8f4f8;
-    border-left: 4px solid #0f3460;
+    background: #faf0e8;
+    border-left: 4px solid #b5451f;
     padding: 0.8em 1.2em;
     border-radius: 0 8px 8px 0;
     margin: 0.4em 0 0.8em 0;
   }
   blockquote {
-    border-left: 4px solid #0f3460;
+    border-left: 4px solid #b5451f;
     padding-left: 1em;
     color: #555;
     font-style: italic;
@@ -72,7 +74,7 @@ style: |
 
 <!-- _class: lead -->
 
-# Named Agents
+# Agent Team
 
 Purpose-built roles. Structured handoffs. Clean context.
 
@@ -121,6 +123,25 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.</div>
 <div class="card"><strong>security-auditor</strong><br/>OWASP-structured review. Auth, secrets, injection, privilege escalation.</div>
 <div class="card"><strong>adr-generator</strong><br/>Writes decision records. Captures the why behind architectural choices.</div>
+</div>
+
+---
+
+## The planner's planner
+
+<style scoped>
+  ul { font-size: 0.9em; }
+  ul li { margin: 0.25em 0; }
+  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+- `orchestration-planner` is a **meta-agent** - it plans which other agents to spawn and in what order
+- Given a goal, it returns: agent roster, phased execution plan, Skeptic checkpoints, parallelization map, open questions
+- It does not implement anything - planning only
+- Output is a structured plan the conductor follows directly
+
+<div class="callout">
+Default step: after an architect plan clears Skeptic review, run the orchestration-planner before spawning any workers on a multi-unit plan. See the Orchestration Planner deck for the full protocol.
 </div>
 
 ---
