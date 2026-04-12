@@ -6,261 +6,562 @@
 <title>Agentic Software Engineering</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@700&family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* ═══════════════════════════════════════════
+     DESIGN BRIEF: Technical Cartography
+     Direction: Engineering blueprints meet dark academic journal.
+     Authority of a field manual; precision of a circuit schematic.
+     Headings: Space Grotesk (geometric sans, technical character)
+     Code/Labels: DM Mono (fresh, precise)
+     Body: Space Grotesk (geometric sans, readable)
+     Numerals: IBM Plex Serif (design elements only)
+     Palette: #0a0c12 base, #e8a829 amber-gold accent,
+              #52d68a agent-green, #a89cf7 protocol-violet,
+              #5ecfda config-cyan, #f0836a risk-rose
+     Signature: large faded section numerals, grid texture,
+                blueprint-style borders, annotation labels
+  ═══════════════════════════════════════════ */
+
   :root {
-    --bg-base: #08090d;
-    --bg-raised: #0e1017;
-    --bg-surface: #141720;
-    --bg-overlay: #1a1e2b;
-    --border-subtle: #1f2433;
-    --border-default: #282d3e;
-    --text-primary: #e0e3ea;
-    --text-secondary: #a0a8bc;
-    --text-muted: #717a90;
-    --text-bright: #eceef2;
-    --accent-indigo: #818cf8;
-    --accent-indigo-dim: #5b63b7;
-    --accent-green: #6ee7a0;
-    --accent-green-dim: #3a7a56;
-    --accent-amber: #f0ad4e;
-    --accent-amber-dim: #8a6530;
-    --accent-cyan: #5eced6;
-    --accent-cyan-dim: #356b70;
-    --accent-rose: #f27a7a;
-    --accent-rose-dim: #7a3e3e;
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius-lg: 10px;
+    --bg-base:         #0a0c12;
+    --bg-raised:       #0f1219;
+    --bg-surface:      #141820;
+    --bg-overlay:      #1a1f2e;
+    --bg-deep:         #080a0f;
+
+    --border-faint:    #1c2133;
+    --border-subtle:   #232942;
+    --border-default:  #2e3554;
+    --border-strong:   #3d4870;
+
+    --text-bright:     #edf0f7;
+    --text-primary:    #c8cee0;
+    --text-secondary:  #8a94b0;
+    --text-muted:      #8a94b0;
+    --text-dim:        #363e58;
+
+    /* Accent palette */
+    --gold:            #e8a829;
+    --gold-dim:        #7a5610;
+    --gold-glow:       rgba(232, 168, 41, 0.08);
+
+    --green:           #52d68a;
+    --green-dim:       #1e5c3a;
+    --green-glow:      rgba(82, 214, 138, 0.07);
+
+    --violet:          #a89cf7;
+    --violet-dim:      #3d3680;
+    --violet-glow:     rgba(168, 156, 247, 0.07);
+
+    --cyan:            #5ecfda;
+    --cyan-dim:        #1e5860;
+    --cyan-glow:       rgba(94, 207, 218, 0.07);
+
+    --rose:            #f0836a;
+    --rose-dim:        #6b2e20;
+    --rose-glow:       rgba(240, 131, 106, 0.07);
+
+    --amber-soft:      #ffd580;
+    --sky:             #7bbffa;
+
+    --radius-sm:  3px;
+    --radius-md:  5px;
+    --radius-lg:  8px;
+
+    --nav-width: 224px;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  html { scroll-behavior: smooth; scroll-padding-top: 28px; }
 
+  /* ── Blueprint grid background ── */
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
     background: var(--bg-base);
+    background-image:
+      linear-gradient(rgba(46, 53, 84, 0.18) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(46, 53, 84, 0.18) 1px, transparent 1px);
+    background-size: 32px 32px;
     color: var(--text-primary);
-    padding: 48px 48px 48px 260px;
+    padding: 52px 32px 80px calc(var(--nav-width) + 40px);
     min-height: 100vh;
     font-size: 16px;
-    line-height: 1.6;
+    line-height: 1.65;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  /* ── Document header ── */
+  .doc-header {
+    margin-bottom: 56px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border-subtle);
+    position: relative;
+  }
+  .doc-header::before {
+    content: 'REF-AE-001';
+    position: absolute;
+    top: 0;
+    right: 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.12em;
   }
 
   h1 {
-    text-align: left;
-    font-size: 36px;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 42px;
     font-weight: 700;
-    margin-bottom: 6px;
     color: var(--text-bright);
     letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 8px;
   }
   .subtitle {
-    text-align: left;
-    color: var(--text-muted);
-    margin-bottom: 48px;
-    font-size: 20px;
-    font-weight: 400;
-    letter-spacing: 0.01em;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 17px;
+    font-weight: 300;
+    color: var(--text-secondary);
+    letter-spacing: 0.005em;
+    margin-bottom: 10px;
   }
-  .diagram { width: 100%; }
+  .byline {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* ── Slide link chips ── */
+  .slide-link {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+    padding: 3px 9px;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    border: 1px solid var(--border-subtle);
+    vertical-align: middle;
+    margin-left: 10px;
+    letter-spacing: 0.04em;
+    transition: color 0.18s, border-color 0.18s, background 0.18s;
+  }
+  .slide-link:hover {
+    color: var(--gold);
+    border-color: var(--gold-dim);
+    background: var(--gold-glow);
+  }
 
   /* ── Side nav ── */
   .side-nav {
-    position: fixed; top: 0; left: 0; width: 220px; height: 100vh;
-    background: var(--bg-base);
-    border-right: 1px solid var(--border-subtle);
-    padding: 24px 0; overflow-y: auto; z-index: 100;
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--nav-width);
+    height: 100vh;
+    background: var(--bg-deep);
+    border-right: 1px solid var(--border-faint);
+    padding: 28px 0;
+    overflow-y: auto;
+    z-index: 100;
   }
   .side-nav::-webkit-scrollbar { width: 0; }
-  .side-nav-title {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em;
-    color: var(--text-muted); padding: 0 20px; margin-bottom: 16px; font-weight: 600;
-  }
-  .side-nav a {
-    display: flex; align-items: center; gap: 10px;
-    padding: 7px 20px; font-size: 13px; color: var(--text-secondary);
-    text-decoration: none; transition: color 0.2s, background 0.2s;
-    border-left: 2px solid transparent; font-weight: 400;
-  }
-  .side-nav a:hover { color: var(--text-primary); background: var(--bg-raised); }
-  .side-nav a.active { color: var(--text-bright); background: var(--bg-surface); border-left-color: var(--accent-indigo); }
-  .side-nav .nav-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; opacity: 0.7; }
-  .side-nav .nav-sub { padding-left: 35px; font-size: 12px; color: var(--text-muted); }
-  .side-nav .nav-sub:hover { color: var(--text-secondary); }
-  @media (max-width: 900px) { .side-nav { display: none; } body { padding-left: 48px; } }
 
-  /* ── Section styles ── */
-  .section {
-    margin-bottom: 32px; border-radius: var(--radius-lg);
-    padding: 32px; position: relative;
-    border: 1px solid var(--border-subtle);
+  .side-nav-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--text-dim);
+    padding: 0 20px;
+    margin-bottom: 20px;
+  }
+
+  .side-nav a {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 20px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: color 0.18s, background 0.18s, border-color 0.18s;
+    letter-spacing: 0.02em;
+  }
+  .side-nav a:hover {
+    color: var(--text-secondary);
     background: var(--bg-raised);
   }
+  .side-nav a.active {
+    color: var(--text-bright);
+    background: var(--bg-surface);
+    border-left-color: var(--gold);
+  }
+  .side-nav .nav-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+  .side-nav .nav-sub {
+    padding-left: 38px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .side-nav .nav-sub:hover { color: var(--text-muted); }
+
+  @media (max-width: 920px) {
+    .side-nav { display: none; }
+    body { padding-left: 24px; padding-right: 24px; }
+  }
+
+  /* ── Sections ── */
+  .diagram { position: relative; }
+
+  .section {
+    padding-block: 48px 40px;
+    padding-inline: 0;
+    position: relative;
+    border-top: 1px solid var(--border-faint);
+  }
+  .section:first-child {
+    border-top: none;
+  }
+
+  /* Large faded section numerals - anchored to heading row only */
   .section-title {
     margin-bottom: 24px;
+    position: relative;
+  }
+  .section-title::before {
+    content: attr(data-num);
+    position: absolute;
+    top: -48px;
+    right: 0;
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 100px;
+    font-weight: 700;
+    color: var(--border-faint);
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+    letter-spacing: -0.04em;
+    opacity: 0.4;
   }
   .section-title h2 {
-    font-size: 32px; font-weight: 700; letter-spacing: -0.02em;
-    margin: 0 0 6px 0;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin: 0 0 5px 0;
+    line-height: 1.15;
   }
   .section-title h3 {
-    font-size: 18px; font-weight: 400; letter-spacing: 0.01em;
-    color: var(--text-secondary); margin: 0;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin: 0;
+    letter-spacing: 0.01em;
   }
-  .section-title .dot { display: none; }
 
-  .config-layer { background: var(--bg-raised); }
-  .config-layer .section-title h2 { color: var(--accent-cyan); }
-
-  .protocol-layer { background: var(--bg-raised); }
-  .protocol-layer .section-title h2 { color: var(--accent-indigo); }
-
-  .agent-layer { background: var(--bg-raised); }
-  .agent-layer .section-title h2 { color: var(--accent-green); }
-
-  .skill-layer { background: var(--bg-raised); }
-  .skill-layer .section-title h2 { color: var(--accent-green); }
-
-  .persistence-layer { background: var(--bg-raised); }
-  .persistence-layer .section-title h2 { color: var(--accent-amber); }
+  /* Layer accent colors */
+  .config-layer     .section-title h2 { color: var(--cyan); }
+  .protocol-layer   .section-title h2 { color: var(--violet); }
+  .agent-layer      .section-title h2 { color: var(--green); }
+  .skill-layer      .section-title h2 { color: var(--green); }
+  .persistence-layer .section-title h2 { color: var(--gold); }
 
   /* ── Node grid ── */
-  .node-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .node-grid { display: flex; flex-wrap: wrap; gap: 7px; }
   .node {
-    padding: 8px 14px; border-radius: var(--radius-sm);
-    font-weight: 500;
-    display: flex; align-items: center; gap: 6px; white-space: nowrap;
-    font-family: 'JetBrains Mono', monospace; font-size: 16px;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    font-weight: 400;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    transition: border-color 0.18s;
   }
-  .node .icon { font-size: 16px; opacity: 0.6; }
-
-  .node-file { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-cyan); }
-  .node-protocol { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-indigo); }
-  .node-agent { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-green); }
-  .node-agent.writes { border-left: 2px solid var(--accent-amber); }
-  .node-skill { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-green); }
-  .node-persist { background: var(--bg-surface); border: 1px solid var(--border-default); color: var(--accent-amber); }
-  .node-muted { background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--text-muted); }
+  .node .icon { font-size: 14px; opacity: 0.55; }
+  .node-file     { color: var(--cyan); }
+  .node-protocol { color: var(--violet); }
+  .node-agent    { color: var(--green); }
+  .node-agent.writes { border-left: 2px solid var(--gold); }
+  .node-skill    { color: var(--green); }
+  .node-persist  { color: var(--gold); }
+  .node-muted    { color: var(--text-muted); border-color: var(--border-faint); }
 
   /* ── Flow diagram ── */
-  .flow { margin-top: 24px; }
-  .flow-section { margin-bottom: 24px; }
-  .flow-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; color: var(--text-bright); }
-  .flow-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin: 4px 0; }
-  .flow-box {
-    padding: 6px 12px; border-radius: var(--radius-sm);
-    font-size: 16px; font-weight: 500; white-space: nowrap;
-    font-family: 'JetBrains Mono', monospace;
+  .flow { margin-top: 20px; }
+  .flow-section { margin-bottom: 22px; }
+  .flow-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 500;
+    margin-bottom: 10px;
+    color: var(--text-muted);
   }
-  .flow-arrow { color: var(--text-muted); font-size: 16px; padding: 0 6px; font-weight: 300; }
-  .flow-label { font-size: 16px; color: var(--text-muted); margin-left: 8px; font-style: normal; letter-spacing: 0.01em; }
+  .flow-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin: 4px 0;
+  }
+  .flow-box {
+    padding: 5px 11px;
+    border-radius: var(--radius-sm);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 400;
+    white-space: nowrap;
+    border: 1px solid var(--border-subtle);
+  }
+  .flow-arrow {
+    color: var(--text-dim);
+    font-size: 15px;
+    padding: 0 7px;
+    font-weight: 300;
+  }
+  .flow-label {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-left: 10px;
+    font-weight: 300;
+    letter-spacing: 0.01em;
+  }
 
-  .fb-conductor { background: var(--bg-overlay); color: var(--accent-indigo); border: 1px solid var(--border-default); }
-  .fb-agent { background: var(--bg-overlay); color: var(--accent-green); border: 1px solid var(--border-default); }
-  .fb-skeptic { background: var(--bg-overlay); color: #b8a3ec; border: 1px solid #3d3566; }
-  .fb-decision { background: var(--bg-overlay); color: var(--accent-amber); border: 1px solid var(--border-default); border-radius: 12px; }
+  .fb-conductor { background: var(--bg-overlay); color: var(--violet); border-color: var(--violet-dim); }
+  .fb-agent     { background: var(--bg-overlay); color: var(--green);  border-color: var(--green-dim); }
+  .fb-skeptic   { background: var(--bg-overlay); color: #c4b3ff; border-color: #4a3d8a; }
+  .fb-decision  { background: var(--bg-overlay); color: var(--gold);   border-color: var(--gold-dim); border-radius: 14px; }
 
   /* ── Relationship map ── */
-  .rel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
-  @media (max-width: 768px) { .rel-grid { grid-template-columns: 1fr; } }
-  .rel-card {
-    background: var(--bg-surface); border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md); padding: 16px;
+  .rel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
   }
-  .rel-card h4 { font-size: 16px; color: var(--text-bright); margin-bottom: 12px; font-weight: 600; letter-spacing: -0.01em; }
+  @media (max-width: 768px) { .rel-grid { grid-template-columns: 1fr; } }
+
+  .rel-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-faint);
+    border-radius: var(--radius-md);
+    padding: 18px 18px 16px;
+    transition: border-color 0.2s;
+  }
+  .rel-card:hover { border-color: var(--border-subtle); }
+
+  .rel-card h4 {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 15px;
+    color: var(--text-bright);
+    margin-bottom: 12px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
   .rel-card ul { list-style: none; padding: 0; }
   .rel-card li {
-    font-size: 16px; color: var(--text-secondary); padding: 5px 0; padding-left: 18px;
-    position: relative; line-height: 1.7;
+    font-size: 14.5px;
+    color: var(--text-secondary);
+    padding: 4px 0;
+    padding-left: 18px;
+    position: relative;
+    line-height: 1.65;
   }
-  .rel-card li::before { content: "\2192"; position: absolute; left: 0; color: var(--text-muted); font-size: 16px; top: 4px; }
+  .rel-card li::before {
+    content: "\2192";
+    position: absolute;
+    left: 0;
+    color: var(--text-dim);
+    font-size: 13px;
+    top: 5px;
+  }
 
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
   @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
 
-  .desc { font-size: 16px; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
+  .desc {
+    font-size: 15px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+    line-height: 1.7;
+    max-width: 72ch;
+  }
+
+  /* ── Note / callout ── */
   .note {
-    font-size: 16px; color: var(--text-secondary); margin-top: 14px;
-    padding: 14px 16px; background: var(--bg-surface);
-    border-radius: var(--radius-md); border-left: 2px solid var(--border-default);
-    line-height: 1.65;
+    font-size: 14.5px;
+    color: var(--text-secondary);
+    margin-top: 16px;
+    padding: 14px 18px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    border-left: 2px solid var(--border-default);
+    line-height: 1.7;
   }
   .note ul { list-style: none; padding: 0; margin: 6px 0; }
   .note li {
-    font-size: 16px; color: var(--text-secondary); padding: 4px 0; padding-left: 18px;
+    font-size: 14.5px;
+    color: var(--text-secondary);
+    padding: 3px 0;
+    padding-left: 18px;
     position: relative;
   }
-  .note li::before { content: "\2192"; position: absolute; left: 0; color: var(--text-muted); font-size: 16px; top: 3px; }
+  .note li::before {
+    content: "\2192";
+    position: absolute;
+    left: 0;
+    color: var(--text-dim);
+    font-size: 13px;
+    top: 4px;
+  }
 
+  /* ── Inline code ── */
   code {
-    font-family: 'JetBrains Mono', monospace; font-size: 0.88em;
-    background: var(--bg-overlay); padding: 2px 6px;
-    border-radius: 3px; color: #e8e9ed;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.86em;
+    background: var(--bg-overlay);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--cyan);
+    border: 1px solid var(--border-faint);
   }
 
   /* ── Code blocks (IDE-style) ── */
   .code-block {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px; line-height: 1.7;
-    background: #0c0e14; border: 1px solid var(--border-subtle);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    line-height: 1.75;
+    background: var(--bg-deep);
+    border: 1px solid var(--border-faint);
     border-radius: var(--radius-md);
-    padding: 16px 20px; margin: 12px 0;
-    overflow-x: auto; position: relative;
+    padding: 16px 20px;
+    margin: 12px 0;
+    overflow-x: auto;
+    position: relative;
   }
-  .code-block .cb-comment { color: #5c6370; font-style: italic; }
-  .code-block .cb-cmd { color: #e5c07b; }
-  .code-block .cb-flag { color: #61afef; }
-  .code-block .cb-string { color: #98c379; }
-  .code-block .cb-path { color: #d19a66; }
-  .code-block .cb-keyword { color: #c678dd; }
-  .code-block .cb-op { color: #56b6c2; }
-  .code-block .cb-prompt { color: #5c6370; user-select: none; }
+  .code-block .cb-comment { color: #4a5370; font-style: italic; }
+  .code-block .cb-cmd     { color: var(--amber-soft); }
+  .code-block .cb-flag    { color: var(--sky); }
+  .code-block .cb-string  { color: var(--green); }
+  .code-block .cb-path    { color: var(--gold); }
+  .code-block .cb-keyword { color: var(--violet); }
+  .code-block .cb-op      { color: var(--cyan); }
+  .code-block .cb-prompt  { color: var(--text-dim); user-select: none; }
   .code-block .cb-label {
-    position: absolute; top: 8px; right: 12px;
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
-    color: #3e4452; font-weight: 600;
+    position: absolute;
+    top: 8px; right: 12px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    font-weight: 500;
   }
 
   strong { font-weight: 600; color: var(--text-bright); }
 
   /* ── Table ── */
-  table { border-collapse: collapse; }
-  th { text-align: left; font-weight: 600; color: var(--text-secondary); font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; }
-  td { vertical-align: top; }
-  tr { border-bottom: 1px solid var(--border-subtle); }
+  table { border-collapse: collapse; width: 100%; }
+  th {
+    text-align: left;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 10px 12px;
+  }
+  td {
+    vertical-align: top;
+    padding: 10px 12px;
+    font-size: 14.5px;
+    line-height: 1.65;
+  }
+  tr { border-bottom: 1px solid var(--border-faint); }
 
   /* ── Links ── */
-  a { color: var(--accent-indigo); text-decoration: none; transition: color 0.2s; }
+  a { color: var(--violet); text-decoration: none; transition: color 0.18s; }
   a:hover { color: var(--text-bright); }
+
+  /* ── Load badges ── */
+  .load-badge {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+    margin-left: 7px;
+    vertical-align: middle;
+    border: 1px solid transparent;
+  }
+  .load-badge.always {
+    background: rgba(82, 214, 138, 0.08);
+    color: var(--green);
+    border-color: rgba(82, 214, 138, 0.25);
+  }
+  .load-badge.on-demand {
+    background: rgba(168, 156, 247, 0.08);
+    color: var(--violet);
+    border-color: rgba(168, 156, 247, 0.25);
+  }
+
+  /* ── Horizontal divider within section ── */
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--border-faint);
+    margin: 24px 0;
+  }
+
+  /* ── Staggered entrance animation ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .section {
+    animation: fadeUp 0.4s ease both;
+  }
+  .section:nth-child(1) { animation-delay: 0.05s; }
+  .section:nth-child(2) { animation-delay: 0.10s; }
+  .section:nth-child(3) { animation-delay: 0.15s; }
+  .section:nth-child(4) { animation-delay: 0.18s; }
+  .section:nth-child(5) { animation-delay: 0.21s; }
+  .section:nth-child(6) { animation-delay: 0.24s; }
+  .section:nth-child(7) { animation-delay: 0.27s; }
+  .section:nth-child(8) { animation-delay: 0.30s; }
+  .section:nth-child(9) { animation-delay: 0.33s; }
 
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    * { transition: none !important; }
-  }
-
-  .load-badge {
-    display: inline-block;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    padding: 2px 8px;
-    border-radius: 3px;
-    margin-left: 8px;
-    vertical-align: middle;
-  }
-  .load-badge.always {
-    background: #1a3d22;
-    color: #6ee7a0;
-    border: 1px solid #22c55e40;
-  }
-  .load-badge.on-demand {
-    background: #2d2255;
-    color: #c4b5fd;
-    border: 1px solid #7c3aed40;
+    * { transition: none !important; animation: none !important; }
   }
 </style>
 </head>
@@ -269,43 +570,40 @@
 <!-- ═══ Side Navigation ═══ -->
 <nav class="side-nav">
   <div class="side-nav-title">Architecture Map</div>
-  <a href="#config"><span class="nav-dot" style="background:#7dd3fc;"></span> Configuration</a>
-  <a href="#protocols"><span class="nav-dot" style="background:#c4b5fd;"></span> Protocol Rules</a>
-  <a href="#protocol-deep-dive"><span class="nav-dot" style="background:#c4b5fd;"></span> Protocol Deep Dive</a>
+  <a href="#config"><span class="nav-dot" style="background: var(--cyan);"></span> Configuration</a>
+  <a href="#protocols"><span class="nav-dot" style="background: var(--violet);"></span> Protocol Rules</a>
+  <a href="#protocol-deep-dive"><span class="nav-dot" style="background: var(--violet);"></span> Protocol Deep Dive</a>
   <a href="#proto-design-goals" class="nav-sub">design-goals.md</a>
   <a href="#protocol-deep-dive" class="nav-sub">skeptic-protocol.md</a>
   <a href="#proto-subagent" class="nav-sub">subagent-protocol.md</a>
   <a href="#proto-agent-team" class="nav-sub">agent-team.md</a>
-  <a href="#agents"><span class="nav-dot" style="background:#86efac;"></span> Agents</a>
-  <a href="#flows"><span class="nav-dot" style="background:#a5b4fc;"></span> Composed Flows</a>
-  <a href="#skills"><span class="nav-dot" style="background:#fdba74;"></span> Skills</a>
-  <a href="#persistence"><span class="nav-dot" style="background:#67e8f9;"></span> Persistence</a>
-  <a href="#lifecycle"><span class="nav-dot" style="background:#d8b4fe;"></span> Project Lifecycle</a>
+  <a href="#agents"><span class="nav-dot" style="background: var(--green);"></span> Agents</a>
+  <a href="#flows"><span class="nav-dot" style="background: var(--violet);"></span> Composed Flows</a>
+  <a href="#skills"><span class="nav-dot" style="background: var(--gold);"></span> Skills</a>
+  <a href="#persistence"><span class="nav-dot" style="background: var(--cyan);"></span> Persistence</a>
+  <a href="#lifecycle"><span class="nav-dot" style="background: var(--violet);"></span> Project Lifecycle</a>
   <a href="#lifecycle" class="nav-sub">/init-project</a>
   <a href="#lifecycle" class="nav-sub">/wrap</a>
-  <a href="#git"><span class="nav-dot" style="background:#7dd3fc;"></span> Git Workflow</a>
-  <a href="#risk"><span class="nav-dot" style="background:#fca5a5;"></span> Risk Classification</a>
-  <!-- <a href="#cross-ref"><span class="nav-dot" style="background:#e9d5ff;"></span> Video Cross-Ref</a> -->
+  <a href="#git"><span class="nav-dot" style="background: var(--cyan);"></span> Git Workflow</a>
+  <a href="#risk"><span class="nav-dot" style="background: var(--rose);"></span> Risk Classification</a>
 </nav>
 
-<h1>Agentic Software Engineering</h1>
-<p class="subtitle">Skill-based architecture - engineering methodology, agents, protocols, and persistence - and how they compose</p>
-<p style="color: var(--text-secondary); font-size: 15px; margin-top: -40px; margin-bottom: 48px;">by Tyson Hummel</p>
-<style>
-  .slide-link { display: inline-block; font-size: 13px; color: #93c5fd; background: #1e3a5f40; padding: 3px 10px; border-radius: 4px; text-decoration: none; margin-left: 12px; vertical-align: middle; }
-  .slide-link:hover { background: #1e3a5f80; color: #bfdbfe; }
-</style>
+<div class="doc-header">
+  <h1>Agentic Software Engineering</h1>
+  <p class="subtitle">Skill-based architecture - engineering methodology, agents, protocols, and persistence - and how they compose</p>
+  <p class="byline">by Tyson Hummel</p>
+</div>
 
 <div class="diagram">
 
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
 <div id="config" class="section config-layer">
-  <div class="section-title"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html">slides: getting started</a> <a class="slide-link" href="slides/claude-md-hierarchy-slides.html">slides: CLAUDE.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
+  <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html">slides: getting started</a> <a class="slide-link" href="slides/claude-md-hierarchy-slides.html">slides: CLAUDE.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
   <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/CLAUDE.md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-cyan);">~/.claude/CLAUDE.md <span class="load-badge always">always loaded</span></h4>
+        <h4 style="color: var(--cyan);">~/.claude/CLAUDE.md <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li>Minimal global file - personal preferences and a list of available domain skills.</li>
           <li>Does not contain the full methodology. Keeps always-loaded context small.</li>
@@ -316,7 +614,7 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-cyan);">~/.claude/skills/agentic-engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
+        <h4 style="color: var(--cyan);">~/.claude/skills/agentic-engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
         <p class="desc">The <code>/engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/agentic-engineering/.claude/skills/agentic-engineering/</code>. Content detailed in the Protocol Layer below.</p>
       </div>
     </div>
@@ -330,7 +628,7 @@
 
 <!-- ═══ LAYER 2: What the rules contain ═══ -->
 <div id="protocols" class="section protocol-layer">
-  <div class="section-title"><h2>Protocol Layer <a class="slide-link" href="slides/how-it-works-slides.html">slides: how it works</a></h2><h3>Behavioral rules governing all work</h3></div>
+  <div class="section-title" data-num="02"><h2>Protocol Layer <a class="slide-link" href="slides/how-it-works-slides.html">slides: how it works</a></h2><h3>Behavioral rules governing all work</h3></div>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -369,7 +667,7 @@
   </div>
 
   <div style="margin-top: 16px;">
-    <div class="section-title"><h3 style="color: #a78bfa; font-size: 16px; font-weight: 600;">Referenced Protocol Documents (~/.claude/skills/agentic-engineering/references/)</h3></div>
+    <div class="section-title"><h3 style="color: var(--violet); font-size: 14px; font-weight: 500; font-style: normal; letter-spacing: 0.04em; text-transform: uppercase; font-family: 'DM Mono', monospace;">Referenced Protocol Documents (~/.claude/skills/agentic-engineering/references/)</h3></div>
     <div class="node-grid">
       <div class="node node-protocol">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
@@ -381,29 +679,29 @@
 </div>
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
-<div id="protocol-deep-dive" class="section" style="background: var(--bg-surface);">
-  <div class="section-title"><h2 style="color: #c4b5fd;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files in ~/agentic-engineering/.claude/skills/agentic-engineering/references/</h3></div>
+<div id="protocol-deep-dive" class="section">
+  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Space Grotesk', sans-serif;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files in ~/agentic-engineering/.claude/skills/agentic-engineering/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>
-    <div id="proto-design-goals" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">design-goals.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">Why the System Exists - 4 goals and explicit non-goals, written for evaluators and auditors.</div>
+    <div id="proto-design-goals" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">design-goals.md <span class="load-badge on-demand">on demand</span></div>
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">Why the System Exists - 4 goals and explicit non-goals, written for evaluators and auditors.</div>
     </div>
     <div class="two-col">
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">The Four Goals</h4>
           <ul>
-            <li><strong style="color: #7dd3fc;">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
-            <li><strong style="color: #c4b5fd;">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
-            <li><strong style="color: #67e8f9;">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), CLAUDE.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
+            <li><strong style="color: var(--sky);">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
+            <li><strong style="color: var(--violet);">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
+            <li><strong style="color: var(--cyan);">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), CLAUDE.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
             <li><strong style="color: #d8b4fe;">Goal 4 - Context window efficiency.</strong> Always-loaded files must be minimal. Trigger-pointer pattern: risk signals inline (chicken-and-egg), protocol details deferred until triggered.</li>
           </ul>
         </div>
       </div>
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">Explicit Non-Goals</h4>
           <ul>
             <li>No persistent memory of personal facts or preferences (project-affecting info only)</li>
@@ -414,7 +712,7 @@
             <li>Does not manage infrastructure or secrets</li>
           </ul>
         </div>
-        <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+        <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
           <strong>Evaluator questions for each goal:</strong><br>
           G1: Does the main agent ever block or do substantial work inline?<br>
           G2: Is the Skeptic actually fresh each round? Is the brief verbatim?<br>
@@ -425,15 +723,17 @@
     </div>
   </div>
 
+  <hr class="section-divider">
+
   <!-- skeptic-protocol.md -->
   <div style="margin-bottom: 24px;">
-    <div style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">skeptic-protocol.md <span class="load-badge on-demand">on demand</span> <a class="slide-link" href="slides/skeptic-protocol-slides.html">slides</a></div>
-      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Adversarial Review Methodology - 12 sections. The core quality mechanism.</div>
+    <div style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">skeptic-protocol.md <span class="load-badge on-demand">on demand</span> <a class="slide-link" href="slides/skeptic-protocol-slides.html">slides</a></div>
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Adversarial Review Methodology - 12 sections. The core quality mechanism.</div>
     </div>
     <div class="two-col">
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">The Core Loop (Sections 1-5)</h4>
           <ul>
             <li>Worker implements &rarr; fresh Skeptic critiques &rarr; findings routed back &rarr; repeat until clean sign-off</li>
@@ -443,18 +743,18 @@
             <li>Simple/targeted changes: capped at 1 Skeptic round. Standard Elevated: 2-re-route limit</li>
           </ul>
         </div>
-        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2); margin-top: 10px;">
           <h4 style="color: #ddd6fe;">Findings Classification (Section 6)</h4>
           <ul>
-            <li><strong style="color: #fca5a5;">Critical</strong> - blocks sign-off. Security vulns, correctness failures, data loss paths</li>
-            <li><strong style="color: #fbbf24;">Major</strong> - blocks sign-off unless Worker provides compelling documented reason to defer. Missing error handling, edge cases, design issues</li>
-            <li><strong style="color: #86efac;">Minor</strong> - never blocks sign-off. Applied by a separate Worker after sign-off, no follow-up Skeptic needed</li>
+            <li><strong style="color: var(--rose);">Critical</strong> - blocks sign-off. Security vulns, correctness failures, data loss paths</li>
+            <li><strong style="color: var(--gold);">Major</strong> - blocks sign-off unless Worker provides compelling documented reason to defer. Missing error handling, edge cases, design issues</li>
+            <li><strong style="color: var(--green);">Minor</strong> - never blocks sign-off. Applied by a separate Worker after sign-off, no follow-up Skeptic needed</li>
             <li>Unclassified findings default to Major</li>
           </ul>
         </div>
       </div>
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">Domain Adversarial Briefs (Section 8)</h4>
           <ul>
             <li><strong>Smart contracts:</strong> reentrancy, access control, signature replay, fee bypass</li>
@@ -467,7 +767,7 @@
             <li><strong>General code:</strong> logic errors, edge cases, incorrect assumptions</li>
           </ul>
         </div>
-        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2); margin-top: 10px;">
           <h4 style="color: #ddd6fe;">Elevated + Cleanup Path (Section 12)</h4>
           <ul>
             <li>Worker &rarr; Skeptic sign-off &rarr; <code>/simplify</code> &rarr; narrow-scope Skeptic</li>
@@ -477,21 +777,23 @@
         </div>
       </div>
     </div>
-    <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+    <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Core thesis:</strong> "The value of an adversarial reviewer is independence. A reviewer who has already heard the implementer's justifications is no longer independent."
       The brief must be passed verbatim - never softened. Sign-off requires 4 elements: Reviewed, Findings, Active search attestation, and explicit sign-off statement.
     </div>
   </div>
 
+  <hr class="section-divider">
+
   <!-- subagent-protocol.md -->
   <div style="margin-bottom: 24px;">
-    <div id="proto-subagent" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Orchestration Methodology - 11 sections. The outer frame governing delegation.</div>
+    <div id="proto-subagent" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Orchestration Methodology - 11 sections. The outer frame governing delegation.</div>
     </div>
     <div class="two-col">
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">The Seven Rules</h4>
           <ul>
             <li><strong>Rule 1 - Always background.</strong> Most critical rule. Foreground blocks the conductor entirely. All delegated work runs in background.</li>
@@ -505,7 +807,7 @@
         </div>
       </div>
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">Composition Pattern (Section 6)</h4>
           <ul>
             <li><strong>Decompose</strong> into atomic units (one agent, one task, one prompt)</li>
@@ -515,7 +817,7 @@
             <li>Mid-task re-decomposition if Worker discovers scope is too broad</li>
           </ul>
         </div>
-        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2); margin-top: 10px;">
           <h4 style="color: #ddd6fe;">Worktree Isolation (Section 7)</h4>
           <ul>
             <li>Parallel agents writing to same repo MUST use <code>isolation: "worktree"</code></li>
@@ -523,7 +825,7 @@
             <li>Not needed for: single agents, separate repos, read-only agents</li>
           </ul>
         </div>
-        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2); margin-top: 10px;">
           <h4 style="color: #ddd6fe;">Anti-Patterns (Section 8)</h4>
           <ul>
             <li>Foreground blocking (most critical violation)</li>
@@ -536,27 +838,29 @@
         </div>
       </div>
     </div>
-    <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+    <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Core principle:</strong> "The main agent is a conductor, never a player. Its job is to decompose work, spawn subagents, stay available, and synthesize results."
       The Subagent Protocol is the outer frame (should I delegate?). The Skeptic Protocol is the inner loop (is the output correct?).
     </div>
   </div>
 
+  <hr class="section-divider">
+
   <!-- agent-team.md -->
-  <div style="margin-bottom: 24px;">
-    <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Team Playbook - 7 agent roles, 4 composed flows, decision rules, and spawn instructions.</div>
+  <div style="margin-bottom: 8px;">
+    <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 7 agent roles, 4 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">The Team</h4>
           <p class="desc">7 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic). Only the engineer writes files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
-        <div class="rel-card" style="border-color: #7c3aed40;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
           <h4 style="color: #ddd6fe;">Decision Rules</h4>
           <ul>
             <li><strong>orchestration-planner</strong> when task is complex, agents/sequencing unclear, multiple phases</li>
@@ -567,7 +871,7 @@
             <li>Skip debugger for already-understood bugs &rarr; straight to engineer</li>
           </ul>
         </div>
-        <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
+        <div class="rel-card" style="border-color: rgba(168,156,247,0.2); margin-top: 10px;">
           <h4 style="color: #ddd6fe;">Spawn Requirements</h4>
           <ul>
             <li><strong>engineer:</strong> architect's plan + file paths + acceptance criteria + session context</li>
@@ -579,7 +883,7 @@
         </div>
       </div>
     </div>
-    <div class="note" style="border-left-color: #7c3aed; margin-top: 10px;">
+    <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Mandatory gate:</strong> Architect plan output MUST receive Skeptic review before the plan is acted on. Do not spawn engineers or run the orchestration-planner until the Skeptic grants sign-off. A flawed plan propagates errors through every downstream Worker.
     </div>
   </div>
@@ -588,12 +892,12 @@
 
 <!-- ═══ LAYER 3: Agents ═══ -->
 <div id="agents" class="section agent-layer">
-  <div class="section-title"><h2>Agent Layer <a class="slide-link" href="slides/named-agents-slides.html">slides: named agents</a></h2><h3>Specialized subagents spawned by the conductor</h3></div>
+  <div class="section-title" data-num="04"><h2>Agent Layer <a class="slide-link" href="slides/named-agents-slides.html">slides: named agents</a></h2><h3>Specialized subagents spawned by the conductor</h3></div>
 
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-green);">Planning and Analysis Agents</h4>
+        <h4 style="color: var(--green);">Planning and Analysis Agents</h4>
         <ul>
           <li><strong>investigator</strong> - traces data flow, maps blast radius, and explores unfamiliar areas. Used when you need to understand code before deciding how to change it. Returns an investigation brief for the conductor to hand to architect or engineer.</li>
           <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Its output MUST be Skeptic-reviewed before any downstream work.</li>
@@ -601,7 +905,7 @@
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
-        <h4 style="color: var(--accent-green);">Diagnosis and Security Agents</h4>
+        <h4 style="color: var(--green);">Diagnosis and Security Agents</h4>
         <ul>
           <li><strong>debugger</strong> - given a failing test or stack trace, forms and tests hypotheses to find the root cause. Returns a diagnosis plus a fix brief. Does NOT implement the fix - the engineer does that. If confidence is Low, escalates to human rather than guessing.</li>
           <li><strong>security-auditor</strong> - applies OWASP Top 10 and CWE-category analysis. Assumes a capable attacker. Produces a structured findings report with severity ratings, specific code locations, and remediation guidance. Used in addition to (not instead of) the Skeptic.</li>
@@ -609,14 +913,14 @@
       </div>
     </div>
     <div>
-      <div class="rel-card" style="border-left: 2px solid var(--accent-amber);">
-        <h4 style="color: var(--accent-amber);">Implementation Agent</h4>
+      <div class="rel-card" style="border-left: 2px solid var(--gold);">
+        <h4 style="color: var(--gold);">Implementation Agent</h4>
         <ul>
           <li><strong>engineer</strong> - the only agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Receives the architect's plan, file paths, acceptance criteria, and session context. Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
         </ul>
       </div>
-      <div class="rel-card" style="margin-top: 12px; border-left: 2px solid #b8a3ec;">
-        <h4 style="color: #b8a3ec;">Review Agent</h4>
+      <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
+        <h4 style="color: var(--violet);">Review Agent</h4>
         <ul>
           <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
@@ -634,13 +938,13 @@
   <div class="note">
     <strong>Key constraint:</strong> Only the main session agent (conductor) spawns agents. No agent spawns other agents.<br>
     <strong>Isolation:</strong> Agents run in background by default. Can use <code>isolation: "worktree"</code> for git-isolated work.<br>
-    <strong>Only engineer writes files.</strong> All other agents are read-only analysis/planning. Orange left border = writes files.
+    <strong>Only engineer writes files.</strong> All other agents are read-only analysis/planning. Gold left border = writes files.
   </div>
 </div>
 
 <!-- ═══ LAYER 4: Composed Flows ═══ -->
-<div id="flows" class="section protocol-layer" style="background: var(--bg-surface);">
-  <div class="section-title"><h2>Composed Flows <a class="slide-link" href="slides/work-tracking-slides.html">slides: work tracking</a></h2><h3>How agents work together</h3></div>
+<div id="flows" class="section protocol-layer">
+  <div class="section-title" data-num="05"><h2>Composed Flows <a class="slide-link" href="slides/work-tracking-slides.html">slides: work tracking</a></h2><h3>How agents work together</h3></div>
 
   <div class="flow">
     <div class="flow-section">
@@ -713,9 +1017,9 @@
       <div class="flow-row">
         <span class="flow-box fb-conductor">Conductor</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background:#334155;color:#94a3b8;border:1px solid #475569;">direct action</span>
+        <span class="flow-box" style="background: var(--bg-overlay); color: var(--text-muted); border: 1px solid var(--border-subtle);">direct action</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background:#334155;color:#94a3b8;border:1px solid #475569;">self-check</span>
+        <span class="flow-box" style="background: var(--bg-overlay); color: var(--text-muted); border: 1px solid var(--border-subtle);">self-check</span>
       </div>
     </div>
   </div>
@@ -723,12 +1027,12 @@
 
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
-  <div class="section-title"><h2>Skill Layer <a class="slide-link" href="slides/skill-creator-slides.html">slides: skill creator</a></h2><h3>Slash commands for specialized workflows</h3></div>
+  <div class="section-title" data-num="06"><h2>Skill Layer <a class="slide-link" href="slides/skill-creator-slides.html">slides: skill creator</a></h2><h3>Slash commands for specialized workflows</h3></div>
   <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/skill-name</code> in the chat. They expand into full prompts with multi-step workflows, often spawning their own Worker + Skeptic loops internally. Commands are defined in <code>~/agentic-engineering/.claude/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>~/agentic-engineering/.claude/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-green);">Dev Workflow Skills</h4>
+        <h4 style="color: var(--green);">Dev Workflow Skills</h4>
         <ul>
           <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
           <li><strong>/init-project</strong> - scaffolds the CLAUDE.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
@@ -741,7 +1045,7 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--accent-green);">Content / Output Skills</h4>
+        <h4 style="color: var(--green);">Content / Output Skills</h4>
         <ul>
           <li><strong>/pdf</strong> - read, extract, combine, split, rotate, watermark, or create PDF files</li>
           <li><strong>/pptx</strong> - create or read PowerPoint presentations with PptxGenJS</li>
@@ -759,11 +1063,11 @@
 
 <!-- ═══ LAYER 6: Persistence ═══ -->
 <div id="persistence" class="section persistence-layer">
-  <div class="section-title"><h2>Persistence Layer <a class="slide-link" href="slides/context-management-slides.html">slides: context management</a></h2><h3>Per-project state that survives across sessions</h3></div>
+  <div class="section-title" data-num="07"><h2>Persistence Layer <a class="slide-link" href="slides/context-management-slides.html">slides: context management</a></h2><h3>Per-project state that survives across sessions</h3></div>
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4>Persistence Hierarchy <span style="font-weight: 400; font-size: 14px; color: var(--text-muted);">(all at <code>~/.claude/projects/[hash]/</code>)</span></h4>
+        <h4>Persistence Hierarchy <span style="font-family: 'DM Mono', monospace; font-weight: 400; font-size: 12px; color: var(--text-muted);">(all at <code>~/.claude/projects/[hash]/</code>)</span></h4>
         <ul>
           <li><strong>MEMORY.md</strong> <span class="load-badge always">always loaded</span> - index of all memory files. Auto-injected into every conversation at startup. One-line pointers to individual memory files. Keep under 200 lines.</li>
           <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
@@ -796,23 +1100,23 @@
     </div>
   </div>
 
-  <div class="rel-card" style="margin-top: 16px; border-left: 2px solid var(--accent-amber);">
+  <div class="rel-card" style="margin-top: 16px; border-left: 2px solid var(--gold);">
     <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
-      <div style="font-size: 64px; line-height: 1; margin-top: 13px;">⚠️</div>
+      <div style="font-size: 56px; line-height: 1; margin-top: 10px;">&#9888;</div>
       <div>
-        <div style="font-size: 30px; font-weight: 700; color: var(--accent-amber);">Project Directory Is The Project Identity</div>
-        <div style="font-size: 20px; font-weight: 400; color: var(--text-secondary);">How cross-session continuity actually works</div>
+        <div style="font-family: 'Space Grotesk', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.025em; color: var(--gold);">Project Directory Is The Project Identity</div>
+        <div style="font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 300; color: var(--text-secondary);">How cross-session continuity actually works</div>
       </div>
     </div>
     <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's CLAUDE.md, MEMORY.md, session history, and <code>/wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
     <div style="margin-bottom: 16px;">
-      <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">The command:</div>
+      <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em;">The command:</div>
       <div class="code-block">
         <span class="cb-label">terminal</span>
         <span class="cb-prompt">$ </span><span class="cb-cmd">cd</span> <span class="cb-path">~/projects/myproject</span><br>
         <span class="cb-prompt">$ </span><span class="cb-cmd">claude</span>
       </div>
-      <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; margin-top: 16px;">Optional: a shell alias to jump into the project and launch:</div>
+      <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; margin-top: 16px; text-transform: uppercase; letter-spacing: 0.08em;">Optional: a shell alias to jump into the project and launch:</div>
       <div class="code-block">
         <span class="cb-label">~/.zshrc</span>
         <span class="cb-comment"># cd into the project and open Claude Code with an optional ergonomic label</span><br>
@@ -820,20 +1124,20 @@
       </div>
     </div>
     <ul>
-      <li><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
-      <li><strong>MEMORY.md compounds</strong> - same cwd means the same project directory means the same memory files. Stable facts accumulate in one place rather than starting fresh each time.</li>
-      <li><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -> work -> <code>/wrap</code> feedback loop. Each session reads richer CLAUDE.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
-      <li><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/wrap</code> on one project does not touch the other's state.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>MEMORY.md compounds</strong> - same cwd means the same project directory means the same memory files. Stable facts accumulate in one place rather than starting fresh each time.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -&gt; work -&gt; <code>/wrap</code> feedback loop. Each session reads richer CLAUDE.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/wrap</code> on one project does not touch the other's state.</li>
     </ul>
-    <div style="margin-top: 20px; padding: 24px; background: var(--bg-base); border: 1px solid var(--accent-amber-dim); border-radius: var(--radius-lg);">
-      <div style="font-size: 20px; font-weight: 700; color: var(--accent-amber); margin-bottom: 12px;">Naming and resuming are ergonomic, not load-bearing.</div>
-      <p style="font-size: 16px; color: var(--text-primary); line-height: 1.7; margin-bottom: 16px;">
+    <div style="margin-top: 20px; padding: 24px; background: var(--bg-base); border: 1px solid var(--gold-dim); border-radius: var(--radius-lg);">
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--gold); margin-bottom: 12px;">Naming and resuming are ergonomic, not load-bearing.</div>
+      <p style="font-size: 15px; color: var(--text-primary); line-height: 1.75; margin-bottom: 16px;">
         Claude Code's <code>-n, --name</code> flag attaches a display label to the session - useful in the <code>/resume</code> picker and in your terminal title, but it has no effect on which persistence directory is read or written. Two runs of <code>claude -n myproject</code> in the same directory create two independent sessions that share the same project persistence. The label is a finder, not an identifier.
       </p>
-      <p style="font-size: 16px; color: var(--text-primary); line-height: 1.7; margin-bottom: 16px;">
+      <p style="font-size: 15px; color: var(--text-primary); line-height: 1.75; margin-bottom: 16px;">
         <code>-r, --resume</code> is similarly narrow: it replays a specific prior session's conversation history. That is valuable when you got interrupted mid-task and the agent had working state that wasn't yet captured to memory, but it is <em>not</em> how cross-session continuity works under the protocol. The protocol prefers <strong>fresh sessions</strong>: one focused goal per session, <code>/wrap</code> at the end to commit learnings to memory, and the next session starts clean and reads those learnings via the normal cwd-based load. The Skeptic agent is the canonical example - it is explicitly never resumed, because a fresh context is sharper than a replayed one.
       </p>
-      <p style="font-size: 16px; color: var(--text-secondary); line-height: 1.7;">
+      <p style="font-size: 15px; color: var(--text-secondary); line-height: 1.75;">
         The thing that silently breaks continuity is not forgetting to name or resume a session - it is launching <code>claude</code> from the <em>wrong directory</em>. That points at a different project slug, which reads and writes a different, empty persistence directory. The fix is muscle memory: always <code>cd</code> into the project before starting Claude Code. An alias that bundles the <code>cd</code> and the launch is the cleanest way to make that automatic.
       </p>
     </div>
@@ -841,10 +1145,10 @@
 </div>
 
 <!-- ═══ LAYER 7: Project Lifecycle - /init-project and /wrap ═══ -->
-<div id="lifecycle" class="section" style="background: var(--bg-surface);">
-  <div class="section-title"><h2 style="color: #d8b4fe;">Project Lifecycle <a class="slide-link" href="slides/getting-started-slides.html">slides: getting started</a></h2><h3>/init-project scaffolds, /wrap maintains</h3></div>
+<div id="lifecycle" class="section">
+  <div class="section-title" data-num="08"><h2 style="color: #d8b4fe; font-family: 'Space Grotesk', sans-serif;">Project Lifecycle <a class="slide-link" href="slides/getting-started-slides.html">slides: getting started</a></h2><h3>/init-project scaffolds, /wrap maintains</h3></div>
 
-  <p class="desc" style="margin-bottom: 16px; color: #a78bfa; font-size: 16px;">
+  <p class="desc" style="margin-bottom: 16px; color: var(--violet); font-size: 15px; font-style: italic;">
     These two skills form a lifecycle loop: <code>/init-project</code> creates the harness structure at project start,
     <code>/wrap</code> keeps it current as work happens. Together they ensure every session has accurate context and every project follows the same structure.
   </p>
@@ -852,9 +1156,9 @@
   <div class="two-col">
     <!-- /init-project -->
     <div>
-      <div style="font-size: 16px; font-weight: 700; color: #d8b4fe; margin-bottom: 10px;">/init-project - Project Bootstrap</div>
-      <div class="rel-card" style="border-color: #7c3aed40;">
-        <h4 style="color: #c4b5fd;">What it creates</h4>
+      <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: #d8b4fe; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.1em;">/init-project - Project Bootstrap</div>
+      <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
+        <h4 style="color: var(--violet);">What it creates</h4>
         <ul>
           <li>Root <code>CLAUDE.md</code> (under 40 lines - lean by design)</li>
           <li><code>[track]/CLAUDE.md</code> per subdirectory (backend, frontend, etc.)</li>
@@ -866,8 +1170,8 @@
           <li><code>docs/</code> structure (overview, technical, planning, research)</li>
         </ul>
       </div>
-      <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
-        <h4 style="color: #c4b5fd;">How it works</h4>
+      <div class="rel-card" style="border-color: rgba(168,156,247,0.2); margin-top: 10px;">
+        <h4 style="color: var(--violet);">How it works</h4>
         <ul>
           <li>Interactive: asks project name, tracks, tools, DB, web UI</li>
           <li>Discovery scan: checks what exists before creating</li>
@@ -880,17 +1184,17 @@
 
     <!-- /wrap -->
     <div>
-      <div style="font-size: 16px; font-weight: 700; color: #d8b4fe; margin-bottom: 10px;">/wrap - Session Context Enrichment</div>
-      <div class="rel-card" style="border-color: #7c3aed40;">
-        <h4 style="color: #c4b5fd;">What it produces (3 outputs)</h4>
+      <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: #d8b4fe; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.1em;">/wrap - Session Context Enrichment</div>
+      <div class="rel-card" style="border-color: rgba(168,156,247,0.2);">
+        <h4 style="color: var(--violet);">What it produces (3 outputs)</h4>
         <ul>
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
           <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
           <li><strong>CLAUDE.md updates</strong> - proposed additions to root and track CLAUDE.md files (decisions, conventions, stack)</li>
         </ul>
       </div>
-      <div class="rel-card" style="border-color: #7c3aed40; margin-top: 10px;">
-        <h4 style="color: #c4b5fd;">How it works</h4>
+      <div class="rel-card" style="border-color: rgba(168,156,247,0.2); margin-top: 10px;">
+        <h4 style="color: var(--violet);">How it works</h4>
         <ul>
           <li>Compiles session data (files touched, errors, decisions)</li>
           <li>Worker drafts all 3 outputs from raw session data</li>
@@ -904,16 +1208,16 @@
 
   <!-- Lifecycle flow -->
   <div style="margin-top: 20px;">
-    <div style="font-size: 16px; font-weight: 700; color: #e9d5ff; margin-bottom: 10px;">Lifecycle Flow</div>
+    <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: #e9d5ff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.1em;">Lifecycle Flow</div>
     <div class="flow">
       <div class="flow-row">
-        <span class="flow-box" style="background:#4c1d95;color:#e9d5ff;border:1px solid #7c3aed;">/init-project</span>
+        <span class="flow-box" style="background: rgba(124,58,237,0.15); color:#e9d5ff; border:1px solid rgba(124,58,237,0.4);">/init-project</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">CLAUDE.md hierarchy + settings + docs/</span>
+        <span class="flow-box" style="background: rgba(37,99,235,0.12); color:#93c5fd; border:1px solid rgba(37,99,235,0.35);">CLAUDE.md hierarchy + settings + docs/</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background:#1a3d22;color:#86efac;border:1px solid #22c55e60;">Work sessions (features, bugs, etc.)</span>
+        <span class="flow-box" style="background: rgba(34,197,94,0.1); color:#86efac; border:1px solid rgba(34,197,94,0.3);">Work sessions (features, bugs, etc.)</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background:#4c1d95;color:#e9d5ff;border:1px solid #7c3aed;">/wrap</span>
+        <span class="flow-box" style="background: rgba(124,58,237,0.15); color:#e9d5ff; border:1px solid rgba(124,58,237,0.4);">/wrap</span>
       </div>
       <div class="flow-row" style="margin-top: 6px; margin-left: 40px;">
         <span class="flow-label">Creates structure once</span>
@@ -926,13 +1230,13 @@
       <!-- Feedback loop -->
       <div class="flow-row" style="margin-top: 12px;">
         <span style="width:40px;display:inline-block;"></span>
-        <span class="flow-box" style="background:#4c1d95;color:#e9d5ff;border:1px solid #7c3aed;">/wrap</span>
+        <span class="flow-box" style="background: rgba(124,58,237,0.15); color:#e9d5ff; border:1px solid rgba(124,58,237,0.4);">/wrap</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background:#1a3040;color:#67e8f9;border:1px solid #06b6d440;">context.md (session state)</span>
+        <span class="flow-box" style="background: rgba(6,182,212,0.1); color:#67e8f9; border:1px solid rgba(6,182,212,0.25);">context.md (session state)</span>
         <span class="flow-arrow">+</span>
-        <span class="flow-box" style="background:#1a3040;color:#67e8f9;border:1px solid #06b6d440;">memory.md (stable facts)</span>
+        <span class="flow-box" style="background: rgba(6,182,212,0.1); color:#67e8f9; border:1px solid rgba(6,182,212,0.25);">memory.md (stable facts)</span>
         <span class="flow-arrow">+</span>
-        <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">CLAUDE.md updates</span>
+        <span class="flow-box" style="background: rgba(37,99,235,0.12); color:#93c5fd; border:1px solid rgba(37,99,235,0.35);">CLAUDE.md updates</span>
       </div>
       <div class="flow-row" style="margin-top: 6px; margin-left: 80px;">
         <span class="flow-label">Next session reads all three &rarr; full context from turn one &rarr; work &rarr; /wrap &rarr; repeat</span>
@@ -957,19 +1261,19 @@
 </div>
 
 <!-- ═══ LAYER 8: Git Workflow ═══ -->
-<div id="git" class="section config-layer" style="background: var(--bg-surface);">
-  <div class="section-title"><h2>Git Workflow</h2><h3>Worktree isolation model</h3></div>
+<div id="git" class="section config-layer">
+  <div class="section-title" data-num="09"><h2>Git Workflow</h2><h3>Worktree isolation model</h3></div>
 
   <div class="flow" style="margin-top: 0;">
     <div class="flow-title">Standard Feature Branch Flow</div>
     <div class="flow-row">
-      <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">development (main tree)</span>
+      <span class="flow-box" style="background: rgba(37,99,235,0.12); color:#93c5fd; border:1px solid rgba(37,99,235,0.35);">development (main tree)</span>
       <span class="flow-arrow">&rarr;</span>
-      <span class="flow-box" style="background:#1a3d22;color:#86efac;border:1px solid #22c55e60;">feature/* worktree</span>
+      <span class="flow-box" style="background: rgba(34,197,94,0.1); color:#86efac; border:1px solid rgba(34,197,94,0.3);">feature/* worktree</span>
       <span class="flow-arrow">&rarr;</span>
-      <span class="flow-box" style="background:#312e81;color:#a5b4fc;border:1px solid #4338ca;">PR to develop</span>
+      <span class="flow-box" style="background: rgba(67,56,202,0.15); color:#a5b4fc; border:1px solid rgba(67,56,202,0.35);">PR to develop</span>
       <span class="flow-arrow">&rarr;</span>
-      <span class="flow-box" style="background:#1e3a5f;color:#93c5fd;border:1px solid #2563eb60;">merge + cleanup</span>
+      <span class="flow-box" style="background: rgba(37,99,235,0.12); color:#93c5fd; border:1px solid rgba(37,99,235,0.35);">merge + cleanup</span>
     </div>
   </div>
 
@@ -999,12 +1303,12 @@
   </div>
 </div>
 
-<!-- ═══ LAYER 8: Risk Decision ═══ -->
-<div id="risk" class="section" style="background: var(--bg-surface);">
-  <div class="section-title"><h2 style="color: #fca5a5;">Risk Classification <a class="slide-link" href="slides/quality-assurance-slides.html">slides: quality assurance</a></h2><h3>The central decision that drives everything</h3></div>
+<!-- ═══ LAYER 9: Risk Decision ═══ -->
+<div id="risk" class="section">
+  <div class="section-title" data-num="10"><h2 style="color: var(--rose); font-family: 'Space Grotesk', sans-serif;">Risk Classification <a class="slide-link" href="slides/quality-assurance-slides.html">slides: quality assurance</a></h2><h3>The central decision that drives everything</h3></div>
   <div class="two-col">
-    <div class="rel-card" style="border-color: #22c55e40;">
-      <h4 style="color: #86efac;">Low Risk &rarr; Direct Action</h4>
+    <div class="rel-card" style="border-color: rgba(34,197,94,0.2);">
+      <h4 style="color: var(--green);">Low Risk &rarr; Direct Action</h4>
       <ul>
         <li>Read a file / git status (confirming known fact)</li>
         <li>Answer from memory</li>
@@ -1015,8 +1319,8 @@
         <li>Targeted wording fix to already-reviewed content</li>
       </ul>
     </div>
-    <div class="rel-card" style="border-color: #ef444440;">
-      <h4 style="color: #fca5a5;">Elevated Risk &rarr; Worker + Skeptic</h4>
+    <div class="rel-card" style="border-color: rgba(240,131,106,0.2);">
+      <h4 style="color: var(--rose);">Elevated Risk &rarr; Worker + Skeptic</h4>
       <ul>
         <li>Any code edit with behavioral effect</li>
         <li>Security / auth / crypto / payments</li>
@@ -1030,12 +1334,12 @@
       </ul>
     </div>
   </div>
-  <div class="note" style="border-left-color: #fca5a5;">
+  <div class="note" style="border-left-color: var(--rose);">
     <strong>When in doubt, classify as Elevated.</strong> "Looks simple" is not a Low signal. Mid-task reclassification is mandatory if Elevated signals appear during execution.
   </div>
 
-  <div class="rel-card" style="margin-top: 16px; border-color: var(--accent-rose-dim);">
-    <h4 style="color: var(--accent-rose);">Common Rationalizations to Reject</h4>
+  <div class="rel-card" style="margin-top: 16px; border-color: var(--rose-dim);">
+    <h4 style="color: var(--rose);">Common Rationalizations to Reject</h4>
     <ul>
       <li><strong>"This looks simple, I can do it directly."</strong> - Simple-looking tasks are where unreviewed errors accumulate most often.</li>
       <li><strong>"It's only one file / a few lines."</strong> - Line count is not a risk signal. A one-line change to a shared utility has high blast radius.</li>
@@ -1046,148 +1350,163 @@
     </ul>
   </div>
 
-  <div class="rel-card" style="margin-top: 12px; border: 3px dashed #5eaed6; font-size: 20px; padding: 24px;">
-    <h4 style="font-size: 26px;">The Decision Flow</h4>
-    <ul style="font-size: 20px; display: flex; flex-direction: column; gap: 12px;">
-      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">1</span> Before any task: classify risk (Low or Elevated)</li>
-      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">2</span> If any single Elevated signal is present: declare risk, spawn Worker + Skeptic</li>
-      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">3</span> If all signals are Low: act directly, then perform inline self-check (re-read in full, verify intent and side effects)</li>
-      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">4</span> If self-check raises concerns: reclassify as Elevated mid-task</li>
-      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#1e3a5f;color:#93c5fd;font-size:16px;font-weight:700;margin-right:8px;flex-shrink:0;">5</span> The <code>UserPromptSubmit</code> hook enforces this - it fires before every action with a reminder to classify first</li>
+  <div class="rel-card" style="margin-top: 12px; border: 2px solid var(--border-default); padding: 28px;">
+    <h4 style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; margin-bottom: 20px; color: var(--text-bright);">The Decision Flow</h4>
+    <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px;">
+      <li style="display: flex; align-items: flex-start; gap: 14px; font-size: 15px; color: var(--text-primary); line-height: 1.65;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background: rgba(123,191,250,0.12);color: var(--sky);font-family:'DM Mono',monospace;font-size:13px;font-weight:500;flex-shrink:0;border:1px solid rgba(123,191,250,0.3);">1</span>
+        Before any task: classify risk (Low or Elevated)
+      </li>
+      <li style="display: flex; align-items: flex-start; gap: 14px; font-size: 15px; color: var(--text-primary); line-height: 1.65;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background: rgba(123,191,250,0.12);color: var(--sky);font-family:'DM Mono',monospace;font-size:13px;font-weight:500;flex-shrink:0;border:1px solid rgba(123,191,250,0.3);">2</span>
+        If any single Elevated signal is present: declare risk, spawn Worker + Skeptic
+      </li>
+      <li style="display: flex; align-items: flex-start; gap: 14px; font-size: 15px; color: var(--text-primary); line-height: 1.65;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background: rgba(123,191,250,0.12);color: var(--sky);font-family:'DM Mono',monospace;font-size:13px;font-weight:500;flex-shrink:0;border:1px solid rgba(123,191,250,0.3);">3</span>
+        If all signals are Low: act directly, then perform inline self-check (re-read in full, verify intent and side effects)
+      </li>
+      <li style="display: flex; align-items: flex-start; gap: 14px; font-size: 15px; color: var(--text-primary); line-height: 1.65;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background: rgba(123,191,250,0.12);color: var(--sky);font-family:'DM Mono',monospace;font-size:13px;font-weight:500;flex-shrink:0;border:1px solid rgba(123,191,250,0.3);">4</span>
+        If self-check raises concerns: reclassify as Elevated mid-task
+      </li>
+      <li style="display: flex; align-items: flex-start; gap: 14px; font-size: 15px; color: var(--text-primary); line-height: 1.65;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background: rgba(123,191,250,0.12);color: var(--sky);font-family:'DM Mono',monospace;font-size:13px;font-weight:500;flex-shrink:0;border:1px solid rgba(123,191,250,0.3);">5</span>
+        The <code>UserPromptSubmit</code> hook enforces this - it fires before every action with a reminder to classify first
+      </li>
     </ul>
   </div>
 </div>
 
-<!-- ═══ LAYER 9: Cross-Reference with Wes Roth / Sigrid Jin Video ═══ -->
-<div id="cross-ref" class="section" style="background: var(--bg-surface); display: none;">
-  <div class="section-title"><h2 style="color: #e9d5ff;">Cross-Reference</h2><h3>Wes Roth Video - "Claude Code Just Went Open Source"</h3></div>
-  <p class="desc" style="margin-bottom: 16px; color: #a78bfa;">
-    Source: <a href="https://youtu.be/eR167BCL-4g" style="color:#c4b5fd;">youtu.be/eR167BCL-4g</a> &mdash;
+<!-- ═══ LAYER 10: Cross-Reference (hidden) ═══ -->
+<div id="cross-ref" class="section" style="display: none;">
+  <div class="section-title" data-num="11"><h2 style="color: #e9d5ff; font-family: 'Space Grotesk', sans-serif;">Cross-Reference</h2><h3>Wes Roth Video - "Claude Code Just Went Open Source"</h3></div>
+  <p class="desc" style="margin-bottom: 16px; color: var(--violet);">
+    Source: <a href="https://youtu.be/eR167BCL-4g" style="color: var(--violet);">youtu.be/eR167BCL-4g</a> &mdash;
     Wes Roth covers Sigrid Jin's clean room rewrite of Claude Code ("Claw Code") and Jin's article on agentic harnesses.
     The video's core thesis maps directly to this system's architecture.
   </p>
 
   <div style="margin-bottom: 20px;">
-    <div style="font-size: 16px; font-weight: 700; color: #e9d5ff; margin-bottom: 12px;">Jin's Thesis: "The code is a byproduct. The system that produced it is the thing worth studying."</div>
+    <div style="font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; letter-spacing: -0.015em; color: #e9d5ff; margin-bottom: 12px;">Jin's Thesis: "The code is a byproduct. The system that produced it is the thing worth studying."</div>
   </div>
 
   <!-- Mapping table -->
   <div style="overflow-x: auto;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14.5px;">
       <thead>
-        <tr style="border-bottom: 2px solid #4a3560;">
-          <th style="text-align: left; padding: 10px 12px; color: #c4b5fd; width: 30%;">Video Concept (Jin / Wes Roth)</th>
-          <th style="text-align: left; padding: 10px 12px; color: #86efac; width: 35%;">This System's Implementation</th>
-          <th style="text-align: left; padding: 10px 12px; color: #94a3b8; width: 35%;">Analysis</th>
+        <tr style="border-bottom: 1px solid var(--border-subtle);">
+          <th style="text-align: left; padding: 10px 12px; color: var(--violet); width: 30%;">Video Concept (Jin / Wes Roth)</th>
+          <th style="text-align: left; padding: 10px 12px; color: var(--green); width: 35%;">This System's Implementation</th>
+          <th style="text-align: left; padding: 10px 12px; color: var(--text-muted); width: 35%;">Analysis</th>
         </tr>
       </thead>
       <tbody>
-        <tr style="border-bottom: 1px solid #2d2040;">
+        <tr style="border-bottom: 1px solid var(--border-faint);">
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"Claude Code is a harness"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">The model is interchangeable; the harness is the value</span>
+            <span style="color: var(--text-muted); font-size: 13px;">The model is interchangeable; the harness is the value</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             CLAUDE.md + skill rules + protocol docs = the harness definition.<br>
             The harness is model-agnostic instruction - it governs <em>how</em> any model works, not which model.
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             Direct parallel. This system IS the harness Jin describes. The rules, protocols, and agent definitions are the scaffolding that turns a raw LLM into a disciplined engineering system.
           </td>
         </tr>
-        <tr style="border-bottom: 1px solid #2d2040;">
+        <tr style="border-bottom: 1px solid var(--border-faint);">
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"Agents break work into tasks, assign roles"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">Jin's OMX system decomposes and delegates</span>
+            <span style="color: var(--text-muted); font-size: 13px;">Jin's OMX system decomposes and delegates</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             <code>orchestration-planner</code> decomposes tasks.<br>
             <code>agent-team.md</code> defines roles (architect, engineer, debugger, etc.).<br>
             Conductor follows the plan - spawns agents per the planner's output.
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             Same pattern. Jin's system auto-assigns roles among agents. This system has explicit role definitions with a human-designed decision table for which agent handles what.
           </td>
         </tr>
-        <tr style="border-bottom: 1px solid #2d2040;">
+        <tr style="border-bottom: 1px solid var(--border-faint);">
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"The human typed maybe 10 sentences into Discord"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">Human provides direction, agents provide labor</span>
+            <span style="color: var(--text-muted); font-size: 13px;">Human provides direction, agents provide labor</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             "The main session agent is a conductor, not a player."<br>
             All substantial work delegated to subagents in background.<br>
             User gives high-level intent; system handles decomposition and execution.
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             Identical philosophy. The conductor pattern mirrors Jin's "human as director." The difference: this system's conductor is itself an AI agent (the main session), adding an extra orchestration layer between human and workers.
           </td>
         </tr>
-        <tr style="border-bottom: 1px solid #2d2040;">
+        <tr style="border-bottom: 1px solid var(--border-faint);">
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"Write code, test it, argue over it, fix what fails"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">Closed development loop with self-correction</span>
+            <span style="color: var(--text-muted); font-size: 13px;">Closed development loop with self-correction</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             Composed flows: architect &rarr; skeptic (argue) &rarr; engineer (write) &rarr; skeptic (argue again).<br>
             Re-route on findings. Quality gates (lint, typecheck, test).
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             The Skeptic protocol is the "argue over it" step, formalized. Jin's agents argue informally; this system has a structured adversarial review with Critical/Major/Minor classifications and mandatory sign-off gates.
           </td>
         </tr>
-        <tr style="border-bottom: 1px solid #2d2040;">
+        <tr style="border-bottom: 1px solid var(--border-faint);">
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"ClawWhip - notification and event router"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">Background daemon watching git commits, GitHub issues</span>
+            <span style="color: var(--text-muted); font-size: 13px;">Background daemon watching git commits, GitHub issues</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             Hooks system: <code>UserPromptSubmit</code> hook (risk classification gate), <code>Stop</code> hook (auto-saves context.md).<br>
             Git worktree lifecycle with cleanup triggers.
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             Partial parallel. ClawWhip is a persistent daemon; this system's hooks are event-driven within the session. Both keep monitoring outside the agent's context window. This system lacks a persistent background watcher between sessions.
           </td>
         </tr>
-        <tr style="border-bottom: 1px solid #2d2040;">
+        <tr style="border-bottom: 1px solid var(--border-faint);">
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"Architectural clarity, task decomposition, system design"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">The skills that get more valuable as agents get stronger</span>
+            <span style="color: var(--text-muted); font-size: 13px;">The skills that get more valuable as agents get stronger</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             Architect agent produces plans. Orchestration-planner handles decomposition.<br>
             Risk classification drives system design decisions.<br>
             Protocol docs encode architectural clarity as reusable rules.
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             This system is a concrete implementation of Jin's thesis. The protocols ARE the architectural clarity - codified into rules that any session can follow. The human invested time in system design (the harness) rather than individual code tasks.
           </td>
         </tr>
-        <tr style="border-bottom: 1px solid #2d2040;">
+        <tr style="border-bottom: 1px solid var(--border-faint);">
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"Multiple agents stay productive in parallel"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">Coordination so agents don't collide</span>
+            <span style="color: var(--text-muted); font-size: 13px;">Coordination so agents don't collide</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             Subagent Protocol Rule 2: "Parallel by default."<br>
             Git worktree isolation prevents conflicts.<br>
             Multiple Claude Code sessions can work simultaneously on different features.
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             Git worktrees are the isolation mechanism that makes parallelism safe. Each agent gets its own copy of the repo. This is a pragmatic solution to the coordination problem Jin describes.
           </td>
         </tr>
         <tr>
           <td style="padding: 10px 12px; color: #ddd6fe; vertical-align: top;">
             <strong>"You sleep, they work"</strong><br>
-            <span style="color:#94a3b8;font-size:13px;">Fully autonomous overnight development</span>
+            <span style="color: var(--text-muted); font-size: 13px;">Fully autonomous overnight development</span>
           </td>
           <td style="padding: 10px 12px; color: #bbf7d0; vertical-align: top;">
             Context.md persists state across sessions.<br>
             MEMORY.md carries stable facts forward.<br>
             But: this system still requires human presence - the conductor prompts, Skeptic gates need human final approval.
           </td>
-          <td style="padding: 10px 12px; color: #94a3b8; vertical-align: top;">
+          <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">
             <strong>Key gap.</strong> Jin's system is fully autonomous (Discord message in, shipped code out). This system is semi-autonomous - it handles decomposition and review internally, but the human remains in the loop for approval and direction. The tradeoff is quality control vs full autonomy.
           </td>
         </tr>
@@ -1195,7 +1514,7 @@
     </table>
   </div>
 
-  <div class="note" style="border-left-color: #a78bfa; margin-top: 16px;">
+  <div class="note" style="border-left-color: var(--violet); margin-top: 16px;">
     <strong>Summary:</strong> This system implements 6 of the 7 core concepts Jin describes in his agentic harness thesis.
     <br><br><a class="slide-link" href="slides/contributing-slides.html" style="font-size: 14px;">slides: contributing to this repo</a>
     The architecture is nearly identical in philosophy - conductor pattern, role-based agents, task decomposition, adversarial review loops, parallel execution with isolation.

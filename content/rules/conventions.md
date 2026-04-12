@@ -30,8 +30,6 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 
 The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees. Exception: `~/agentic-engineering` is exempt - commit and push directly to `main` without a worktree or PR.
 
-**Protected branches:** Never commit directly to `main`, `master`, `develop`, or `development`. Exception: `~/agentic-engineering` may be committed to and pushed on `main` directly.
-
 **Base branch resolution** - resolve in this order before any work begins:
 1. Use `develop` if it exists.
 2. Fall back to `development` if it exists.
