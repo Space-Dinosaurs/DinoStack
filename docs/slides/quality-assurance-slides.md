@@ -30,11 +30,13 @@ style: |
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.5em;
+    margin-bottom: 0.8em;
   }
   .columns-3 {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 1em;
+    margin-bottom: 0.8em;
   }
   .card {
     background: white;
@@ -58,7 +60,7 @@ style: |
     border-left: 4px solid #0f3460;
     padding: 0.8em 1.2em;
     border-radius: 0 8px 8px 0;
-    margin: 0.5em 0;
+    margin: 0.4em 0 0.8em 0;
   }
   blockquote {
     border-left: 4px solid #0f3460;
@@ -93,7 +95,7 @@ Static review (Skeptic) plus runtime review (qa-engineer) is the protocol's two-
 ## `.claude/qa.md` is the project's QA memory
 
 <style scoped>
-  pre { font-size: 0.8em; padding: 0.5em 0.8em; margin: 0.3em 0; }
+  pre { font-size: 0.8em; padding: 0.5em 0.8em; margin: 0.3em 0 0.8em 0; }
   p { margin: 0.4em 0; }
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
@@ -193,7 +195,7 @@ First run in a new project is slow - qa-engineer is discovering quirks. Every ru
 ## Example - one week in the life of qa.md
 
 <style scoped>
-  pre { font-size: 0.72em; padding: 0.5em 0.8em; margin: 0.3em 0; line-height: 1.3; }
+  pre { font-size: 0.72em; padding: 0.5em 0.8em; margin: 0.3em 0 0.8em 0; line-height: 1.3; }
   p { margin: 0.3em 0; font-size: 0.9em; }
 </style>
 

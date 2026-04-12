@@ -30,11 +30,13 @@ style: |
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.5em;
+    margin-bottom: 0.8em;
   }
   .columns-3 {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 1em;
+    margin-bottom: 0.8em;
   }
   .card {
     background: white;
@@ -58,7 +60,7 @@ style: |
     border-left: 4px solid #0f3460;
     padding: 0.8em 1.2em;
     border-radius: 0 8px 8px 0;
-    margin: 0.5em 0;
+    margin: 0.4em 0 0.8em 0;
   }
   blockquote {
     border-left: 4px solid #0f3460;
@@ -100,7 +102,7 @@ Every project tracks work differently:
 ## Where it lives and who reads it
 
 <style scoped>
-  pre { font-size: 0.82em; padding: 0.5em 0.8em; margin: 0.3em 0; }
+  pre { font-size: 0.82em; padding: 0.5em 0.8em; margin: 0.3em 0 0.8em 0; }
   p { margin: 0.4em 0; }
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
@@ -150,7 +152,7 @@ Treat it as a runbook the planner will literally execute. Vague instructions pro
 ## Example - a Linear project
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.6em 0.8em; line-height: 1.35; margin: 0.3em 0; }
+  pre { font-size: 0.68em; padding: 0.6em 0.8em; line-height: 1.35; margin: 0.3em 0 0.8em 0; }
   h2 { margin-bottom: 0.4em; }
 </style>
 
@@ -181,7 +183,7 @@ This project uses Linear. Ticket IDs look like ENG-1234.
 ## Example - a project with no external tracker
 
 <style scoped>
-  pre { font-size: 0.78em; padding: 0.55em 0.8em; line-height: 1.35; margin: 0.3em 0; }
+  pre { font-size: 0.78em; padding: 0.55em 0.8em; line-height: 1.35; margin: 0.3em 0 0.8em 0; }
   h2 { margin-bottom: 0.4em; }
 </style>
 
