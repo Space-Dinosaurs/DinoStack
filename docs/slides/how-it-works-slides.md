@@ -92,14 +92,22 @@ Not a framework you call into. A living protocol that shapes every response, eve
 
 ## What a typical session feels like
 
+<style scoped>
+  ol { font-size: 0.88em; }
+  ol li { margin: 0.2em 0; }
+  .callout { font-size: 0.88em; padding: 0.5em 1em; margin-top: 0.4em; }
+</style>
+
 1. You state a goal in plain English - "fix the bug in X", "add feature Y"
-2. The agent **classifies risk automatically** - small edit vs. real change
+2. The agent **classifies risk** - small edit vs. real change
 3. Small stuff is handled directly, in the conversation
-4. Bigger stuff spawns a Worker in an isolated worktree, then a Skeptic review
-5. You read the summary and decide: ship, revise, or drop
+4. For bigger work, the agent proposes a **plan** - agents to spawn, sequencing, review gates
+5. You **review the plan together** - push back, adjust scope, approve. This is the key decision point.
+6. Approved plan executes: Worker in an isolated worktree, then Skeptic review
+7. You read the summary and decide: ship, revise, or drop
 
 <div class="callout">
-No commands required. The protocol runs itself - you just describe what you want.
+The planning step is collaborative - the agent proposes, you refine. Implementation only starts after you approve.
 </div>
 
 ---
@@ -147,6 +155,16 @@ Most sessions don't invoke any of these. Commands are accents, not the interface
 
 ## Under the hood - risk classification
 
+<style scoped>
+  p { font-size: 0.9em; margin: 0.3em 0; }
+  .columns { font-size: 0.88em; }
+  .columns ul { margin: 0.2em 0; }
+  .columns li { margin: 0.15em 0; }
+  .callout { font-size: 0.85em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+The main session agent decides for each task: handle it directly, or delegate to a specialist in the background.
+
 <div class="columns">
 <div>
 
@@ -178,9 +196,19 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 
 <style scoped>
   .columns-3 { gap: 0.6em; }
-  .columns-3 .card { padding: 0.6em 0.8em; font-size: 0.75em; border-radius: 8px; }
-  .columns-3 .card strong { font-size: 1.05em; }
+  .columns-3 .card { padding: 0.55em 0.75em; font-size: 0.68em; border-radius: 8px; line-height: 1.3; }
+  .columns-3 .card strong { font-size: 1.1em; }
+  .columns-3 .card:nth-child(1) { border-left-color: #1e88e5; }
+  .columns-3 .card:nth-child(2) { border-left-color: #e53935; }
+  .columns-3 .card:nth-child(3) { border-left-color: #8e24aa; }
+  .columns-3 .card:nth-child(4) { border-left-color: #00897b; }
+  .columns-3 .card:nth-child(5) { border-left-color: #43a047; }
+  .columns-3 .card:nth-child(6) { border-left-color: #fb8c00; }
+  .columns-3 .card:nth-child(7) { border-left-color: #00acc1; }
+  .columns-3 .card:nth-child(8) { border-left-color: #c62828; }
+  .columns-3 .card:nth-child(9) { border-left-color: #3949ab; }
   .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.6em; }
+  h2 { margin-bottom: 0.4em; }
 </style>
 
 <div class="columns-3">
