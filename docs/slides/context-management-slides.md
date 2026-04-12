@@ -199,6 +199,61 @@ The whole system is designed around one bet: <strong>context hygiene beats raw m
 
 ---
 
+<!-- _class: highlight -->
+
+## Two layers of session capture
+
+<style scoped>
+  .columns { font-size: 0.85em; margin-bottom: 0.8em; }
+  .columns .card { padding: 0.7em 1em; font-size: 0.92em; }
+  p { font-size: 0.85em; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
+</style>
+
+<div class="columns">
+<div class="card">
+<strong>Stop hook (automatic)</strong><br/>
+Fires after every turn. Writes <code>context.md</code> with recent user messages, files touched, uncommitted changes, and tools used. Zero ceremony - it just runs.
+</div>
+<div class="card">
+<strong>/wrap (on demand)</strong><br/>
+Replaces the stop hook's raw snapshot with a structured, enriched version. Captures decisions, conventions, and gotchas into CLAUDE.md and memory. Merges across sessions.
+</div>
+</div>
+
+<p style="margin-top: 0.8em;">If <code>/wrap</code> has already written <code>context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/wrap</code> content is never lost.</p>
+
+<div class="callout">
+The stop hook is the safety net - you always get <em>something</em>. <code>/wrap</code> is the upgrade - you get structured, compounding context.
+</div>
+
+---
+
+## Multiple sessions and the rolling window
+
+<style scoped>
+  p { font-size: 0.88em; margin: 0.3em 0; }
+  ul { font-size: 0.88em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.4em; }
+</style>
+
+You can run **multiple sessions in parallel** - open separate terminals, each with `claude` in the same project directory. They share the same persistent memory and CLAUDE.md.
+
+When you `/wrap` each session, they merge into a shared `context.md` using a **rolling window of five slots** (Session A through E):
+
+- First wrap writes Session A. Second wrap labels the existing as A, adds B.
+- At five sessions, the oldest (A) drops off and everything shifts down.
+- Non-focus sections (next steps, file paths, gotchas) merge across all sessions - duplicates removed.
+
+This means you can work on five parallel streams in a project and `/wrap` each one. The next session that starts sees a merged view of all recent work.
+
+<div class="callout">
+The rolling window keeps context.md bounded. Five slots is enough to capture active workstreams without drowning the next session in stale history.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Keep context clean. Let it compound.

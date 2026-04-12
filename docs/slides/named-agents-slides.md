@@ -156,7 +156,7 @@ Plans get reviewed before code. Code gets reviewed before QA. Each stage hands o
 
 ---
 
-## The Skeptic layer is special
+## The Skeptic agent is special
 
 <style scoped>
   ul { font-size: 0.88em; }

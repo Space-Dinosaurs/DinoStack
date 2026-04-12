@@ -233,7 +233,11 @@ After sign-off: write the curated `CLAUDE.md`, then merge the Worker's memory en
   - `docs/overview/` - high-level summaries and onboarding docs
   ```
   Always include this section.
-- `## Conventions` - a single TODO bullet placeholder; filled in as the project evolves.
+- `## Conventions` - seed with one bullet, then filled in as the project evolves:
+  ```markdown
+  ## Conventions
+  - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
+  ```
 
 Keep it under 40 lines.
 
@@ -444,7 +448,7 @@ After all files are processed, print a short summary with three sections:
 
 Then remind the user to:
 1. Update the `## Tools` section in root `CLAUDE.md` as new CLI tools are added to the project over time
-2. Fill in the `## Conventions` section in root `CLAUDE.md` as the project takes shape
+2. Add project-specific conventions to `## Conventions` in root `CLAUDE.md` as the project takes shape
 3. Grow each `[track]/CLAUDE.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
 4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `CLAUDE.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
