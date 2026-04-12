@@ -291,12 +291,16 @@
 <h1>Agentic Software Engineering</h1>
 <p class="subtitle">Skill-based architecture - engineering methodology, agents, protocols, and persistence - and how they compose</p>
 <p style="color: var(--text-secondary); font-size: 15px; margin-top: -40px; margin-bottom: 48px;">by Tyson Hummel</p>
+<style>
+  .slide-link { display: inline-block; font-size: 13px; color: #93c5fd; background: #1e3a5f40; padding: 3px 10px; border-radius: 4px; text-decoration: none; margin-left: 12px; vertical-align: middle; }
+  .slide-link:hover { background: #1e3a5f80; color: #bfdbfe; }
+</style>
 
 <div class="diagram">
 
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
 <div id="config" class="section config-layer">
-  <div class="section-title"><h2>Configuration Layer</h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
+  <div class="section-title"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html">slides: getting started</a> <a class="slide-link" href="slides/claude-md-hierarchy-slides.html">slides: CLAUDE.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
   <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/CLAUDE.md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
@@ -326,7 +330,7 @@
 
 <!-- ═══ LAYER 2: What the rules contain ═══ -->
 <div id="protocols" class="section protocol-layer">
-  <div class="section-title"><h2>Protocol Layer</h2><h3>Behavioral rules governing all work</h3></div>
+  <div class="section-title"><h2>Protocol Layer <a class="slide-link" href="slides/how-it-works-slides.html">slides: how it works</a></h2><h3>Behavioral rules governing all work</h3></div>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -424,7 +428,7 @@
   <!-- skeptic-protocol.md -->
   <div style="margin-bottom: 24px;">
     <div style="margin-bottom: 16px; border-bottom: 1px solid #2d2555; padding-bottom: 10px;">
-      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
+      <div style="font-size: 24px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px;">skeptic-protocol.md <span class="load-badge on-demand">on demand</span> <a class="slide-link" href="slides/skeptic-protocol-slides.html">slides</a></div>
       <div style="font-size: 16px; font-weight: 400; color: #a78bfa;">The Adversarial Review Methodology - 12 sections. The core quality mechanism.</div>
     </div>
     <div class="two-col">
@@ -584,7 +588,7 @@
 
 <!-- ═══ LAYER 3: Agents ═══ -->
 <div id="agents" class="section agent-layer">
-  <div class="section-title"><h2>Agent Layer</h2><h3>Specialized subagents spawned by the conductor</h3></div>
+  <div class="section-title"><h2>Agent Layer <a class="slide-link" href="slides/named-agents-slides.html">slides: named agents</a></h2><h3>Specialized subagents spawned by the conductor</h3></div>
 
   <div class="two-col">
     <div>
@@ -636,7 +640,7 @@
 
 <!-- ═══ LAYER 4: Composed Flows ═══ -->
 <div id="flows" class="section protocol-layer" style="background: var(--bg-surface);">
-  <div class="section-title"><h2>Composed Flows</h2><h3>How agents work together</h3></div>
+  <div class="section-title"><h2>Composed Flows <a class="slide-link" href="slides/work-tracking-slides.html">slides: work tracking</a></h2><h3>How agents work together</h3></div>
 
   <div class="flow">
     <div class="flow-section">
@@ -719,7 +723,7 @@
 
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
-  <div class="section-title"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
+  <div class="section-title"><h2>Skill Layer <a class="slide-link" href="slides/skill-creator-slides.html">slides: skill creator</a></h2><h3>Slash commands for specialized workflows</h3></div>
   <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/skill-name</code> in the chat. They expand into full prompts with multi-step workflows, often spawning their own Worker + Skeptic loops internally. Commands are defined in <code>~/agentic-engineering/.claude/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>~/agentic-engineering/.claude/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
@@ -755,7 +759,7 @@
 
 <!-- ═══ LAYER 6: Persistence ═══ -->
 <div id="persistence" class="section persistence-layer">
-  <div class="section-title"><h2>Persistence Layer</h2><h3>Per-project state that survives across sessions</h3></div>
+  <div class="section-title"><h2>Persistence Layer <a class="slide-link" href="slides/context-management-slides.html">slides: context management</a></h2><h3>Per-project state that survives across sessions</h3></div>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -838,7 +842,7 @@
 
 <!-- ═══ LAYER 7: Project Lifecycle - /init-project and /wrap ═══ -->
 <div id="lifecycle" class="section" style="background: var(--bg-surface);">
-  <div class="section-title"><h2 style="color: #d8b4fe;">Project Lifecycle</h2><h3>/init-project scaffolds, /wrap maintains</h3></div>
+  <div class="section-title"><h2 style="color: #d8b4fe;">Project Lifecycle <a class="slide-link" href="slides/getting-started-slides.html">slides: getting started</a></h2><h3>/init-project scaffolds, /wrap maintains</h3></div>
 
   <p class="desc" style="margin-bottom: 16px; color: #a78bfa; font-size: 16px;">
     These two skills form a lifecycle loop: <code>/init-project</code> creates the harness structure at project start,
@@ -997,7 +1001,7 @@
 
 <!-- ═══ LAYER 8: Risk Decision ═══ -->
 <div id="risk" class="section" style="background: var(--bg-surface);">
-  <div class="section-title"><h2 style="color: #fca5a5;">Risk Classification</h2><h3>The central decision that drives everything</h3></div>
+  <div class="section-title"><h2 style="color: #fca5a5;">Risk Classification <a class="slide-link" href="slides/quality-assurance-slides.html">slides: quality assurance</a></h2><h3>The central decision that drives everything</h3></div>
   <div class="two-col">
     <div class="rel-card" style="border-color: #22c55e40;">
       <h4 style="color: #86efac;">Low Risk &rarr; Direct Action</h4>
@@ -1193,6 +1197,7 @@
 
   <div class="note" style="border-left-color: #a78bfa; margin-top: 16px;">
     <strong>Summary:</strong> This system implements 6 of the 7 core concepts Jin describes in his agentic harness thesis.
+    <br><br><a class="slide-link" href="slides/contributing-slides.html" style="font-size: 14px;">slides: contributing to this repo</a>
     The architecture is nearly identical in philosophy - conductor pattern, role-based agents, task decomposition, adversarial review loops, parallel execution with isolation.
     The primary difference is autonomy level: Jin's system runs fully unattended (human sleeps, agents ship); this system keeps a human-in-the-loop at approval gates.
     The secondary difference is persistence: Jin's ClawWhip is a persistent daemon; this system's hooks are session-scoped.

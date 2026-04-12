@@ -91,6 +91,7 @@ agentic-engineering/
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
+- `~/agentic-engineering/docs/slides/contributing-slides.html` - how to contribute to the repo
 
 ## For agents working in this repo
 
@@ -107,6 +108,7 @@ After installation, offer the user a quick orientation. Ask which of the followi
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
+- `~/agentic-engineering/docs/slides/contributing-slides.html` - how to contribute to the repo
 - `~/agentic-engineering/docs/agentic-engineering.html` - full system architecture reference
 
 Present the list, ask which ones they want to see, and open only those. Skipping all is a valid answer.
