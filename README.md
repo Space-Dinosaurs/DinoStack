@@ -72,7 +72,6 @@ skeptic, memory-update, wrap, init-project, implement
 agentic-engineering/
   .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
-  community-skills/     Optional task-specific skills contributed by the community
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters
@@ -92,7 +91,6 @@ agentic-engineering/
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
-- `~/agentic-engineering/docs/slides/community-skills-slides.html` - how community skills work, install, and contribute
 
 ## For agents working in this repo
 
@@ -109,7 +107,6 @@ After installation, offer the user a quick orientation. Ask which of the followi
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
-- `~/agentic-engineering/docs/slides/community-skills-slides.html` - how community skills work, install, and contribute
 - `~/agentic-engineering/docs/agentic-engineering.html` - full system architecture reference
 
 Present the list, ask which ones they want to see, and open only those. Skipping all is a valid answer.
