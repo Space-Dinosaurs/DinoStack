@@ -85,7 +85,7 @@ agentic-engineering/
 - `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what agentic-engineering is and how it works
 - `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
 - `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
-- `~/agentic-engineering/docs/slides/named-agents-slides.html` - the agent team and how they compose
+- `~/agentic-engineering/docs/slides/agent-team-slides.html` - the agent team and how they compose
 - `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.claude/qa.md` as project QA memory
 - `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md`
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
@@ -102,7 +102,7 @@ After installation, offer the user a quick orientation. Ask which of the followi
 - `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what agentic-engineering is and how it works (passive explainer)
 - `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
 - `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
-- `~/agentic-engineering/docs/slides/named-agents-slides.html` - the agent team and how they compose
+- `~/agentic-engineering/docs/slides/agent-team-slides.html` - the agent team and how they compose
 - `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.claude/qa.md` as project QA memory
 - `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md` for project-specific tracker actions
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator

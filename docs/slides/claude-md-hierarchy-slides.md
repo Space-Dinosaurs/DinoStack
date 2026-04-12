@@ -7,6 +7,7 @@ style: |
     font-family: 'Helvetica Neue', Arial, sans-serif;
     font-size: 26px;
     padding: 50px 60px;
+    background: #faf8f3;
   }
   section h2 {
     font-size: 1.6em;
@@ -21,19 +22,20 @@ style: |
     flex-direction: column;
     justify-content: center;
     text-align: center;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: white;
+    background: #faf8f3;
+    color: #1a1a1f;
   }
   section.lead h1 {
     font-size: 2.5em;
     margin-bottom: 0.2em;
+    color: #224466;
   }
   section.lead p {
     font-size: 1.2em;
     opacity: 0.85;
   }
   section.highlight {
-    background: #f8f9fa;
+    background: #faf8f3;
   }
   .columns {
     display: grid;
@@ -53,12 +55,12 @@ style: |
     padding: 0.8em 1em;
     font-size: 0.9em;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    border-left: 4px solid #0f3460;
+    border-left: 4px solid #b5451f;
   }
   .stat {
     font-size: 2.5em;
     font-weight: bold;
-    color: #0f3460;
+    color: #b5451f;
   }
   .label {
     font-size: 0.9em;
@@ -66,8 +68,8 @@ style: |
     margin-top: 0.2em;
   }
   .callout {
-    background: #e8f4f8;
-    border-left: 4px solid #0f3460;
+    background: #faf0e8;
+    border-left: 4px solid #b5451f;
     padding: 0.5em 1em;
     border-radius: 0 8px 8px 0;
     margin: 0.4em 0 0.8em 0;
@@ -82,7 +84,7 @@ style: |
     font-size: 0.9em;
   }
   blockquote {
-    border-left: 4px solid #0f3460;
+    border-left: 4px solid #b5451f;
     padding-left: 1em;
     color: #555;
     font-style: italic;
