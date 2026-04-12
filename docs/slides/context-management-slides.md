@@ -30,11 +30,13 @@ style: |
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.5em;
+    margin-bottom: 0.8em;
   }
   .columns-3 {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 1em;
+    margin-bottom: 0.8em;
   }
   .card {
     background: white;
@@ -58,7 +60,7 @@ style: |
     border-left: 4px solid #0f3460;
     padding: 0.8em 1.2em;
     border-radius: 0 8px 8px 0;
-    margin: 0.5em 0;
+    margin: 0.4em 0 0.8em 0;
   }
   blockquote {
     border-left: 4px solid #0f3460;

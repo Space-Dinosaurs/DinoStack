@@ -83,6 +83,16 @@ agentic-engineering/
 ## Documentation
 
 - `~/agentic-engineering/docs/agentic-engineering.html` - visual reference document describing the full system architecture
+- `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what agentic-engineering is and how it works
+- `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
+- `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
+- `~/agentic-engineering/docs/slides/named-agents-slides.html` - the agent team and how they compose
+- `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.claude/qa.md` as project QA memory
+- `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md`
+- `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
+- `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
+- `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
+- `~/agentic-engineering/docs/slides/community-skills-slides.html` - how community skills work, install, and contribute
 
 ## For agents working in this repo
 
@@ -96,6 +106,10 @@ After installation, offer the user a quick orientation. Ask which of the followi
 - `~/agentic-engineering/docs/slides/named-agents-slides.html` - the agent team and how they compose
 - `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.claude/qa.md` as project QA memory
 - `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md` for project-specific tracker actions
+- `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
+- `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
+- `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
+- `~/agentic-engineering/docs/slides/community-skills-slides.html` - how community skills work, install, and contribute
 - `~/agentic-engineering/docs/agentic-engineering.html` - full system architecture reference
 
 Present the list, ask which ones they want to see, and open only those. Skipping all is a valid answer.
