@@ -159,4 +159,184 @@ done
 
 echo "Rebuilt commands/ hardlinks"
 
+# ---------------------------------------------------------------------------
+# Build .codex/agents/ (generated TOML files from content/agents/*.md)
+#
+# Each content/agents/<name>.md has YAML frontmatter (name, description,
+# model, tools) followed by the agent body. The body becomes
+# developer_instructions in the TOML file. Only name and description are
+# written to the TOML - the model field is intentionally omitted so agents
+# inherit the session model. The Claude-specific model and tools: fields
+# have no useful Codex TOML equivalent and are silently dropped.
+#
+# The /agentic-engineering prerequisite blockquote (Claude Code-specific) is
+# stripped from the body before writing to developer_instructions. Any line
+# matching "> **Prerequisite:**.*agentic-engineering" and any immediately
+# following blockquote continuation lines ("> ...") are removed, along with
+# one trailing blank line if present.
+#
+# This keeps content/agents/*.md as the single source of truth - editing
+# there regenerates the TOML on the next build.
+# ---------------------------------------------------------------------------
+
+AGENTS_TOML_DST="$CODEX_DIR/agents"
+mkdir -p "$AGENTS_TOML_DST"
+
+# Track which TOML files we generated so we can remove stale ones below.
+declare -a generated_tomls=()
+
+for src in "$CONTENT/agents/"*.md; do
+  [ -f "$src" ] || continue
+
+  # --- Parse frontmatter ---
+  # Extract the YAML block between the first pair of --- delimiters.
+  fm_name=""
+  fm_description=""
+  fm_model=""
+  in_fm=0
+  past_fm=0
+  body_lines=()
+
+  while IFS= read -r line; do
+    if [[ $in_fm -eq 0 && $past_fm -eq 0 ]]; then
+      if [[ "$line" == "---" ]]; then
+        in_fm=1
+        continue
+      fi
+    fi
+    if [[ $in_fm -eq 1 ]]; then
+      if [[ "$line" == "---" ]]; then
+        in_fm=0
+        past_fm=1
+        continue
+      fi
+      # Parse simple key: value pairs (no nested YAML)
+      key="${line%%:*}"
+      val="${line#*: }"
+      # Strip leading/trailing whitespace from val
+      val="${val#"${val%%[![:space:]]*}"}"
+      val="${val%"${val##*[![:space:]]}"}"
+      case "$key" in
+        name)        fm_name="$val" ;;
+        description) fm_description="$val" ;;
+        model)       fm_model="$val" ;;
+      esac
+      continue
+    fi
+    # Past frontmatter: accumulate body lines
+    if [[ $past_fm -eq 1 ]]; then
+      body_lines+=("$line")
+    fi
+  done < "$src"
+
+  if [[ -z "$fm_name" ]]; then
+    echo "WARNING: $src has no 'name' in frontmatter - skipping"
+    continue
+  fi
+  if [[ -z "$fm_description" ]]; then
+    echo "WARNING: $src has no 'description' in frontmatter - skipping"
+    continue
+  fi
+
+  # model is intentionally not written to TOML - agents inherit the session
+  # model. Anthropic model IDs (claude-*) are not valid in Codex anyway.
+
+  # Strip /agentic-engineering prerequisite blockquotes from body.
+  # Pattern: a line starting with "> " that contains "/agentic-engineering"
+  # followed by any immediately-following blockquote continuation lines
+  # (lines that start with ">"), followed by one optional blank line.
+  # Use a simple state-machine line-skip rather than fragile regex.
+  filtered_body_lines=()
+  skip_next_blockquotes=0
+  skip_one_blank=0
+  for bline in "${body_lines[@]}"; do
+    if [[ $skip_next_blockquotes -eq 1 ]]; then
+      # Still inside the blockquote block - skip continuation lines
+      if [[ "$bline" == ">"* ]]; then
+        continue
+      fi
+      skip_next_blockquotes=0
+      skip_one_blank=1
+    fi
+    if [[ $skip_one_blank -eq 1 ]]; then
+      skip_one_blank=0
+      if [[ -z "$bline" ]]; then
+        # Blank line immediately after stripped blockquote - skip it too
+        continue
+      fi
+      # Not blank - keep it and fall through to normal processing
+    fi
+    # Detect the prerequisite blockquote line
+    if [[ "$bline" == ">"* ]] && echo "$bline" | grep -q "/agentic-engineering"; then
+      skip_next_blockquotes=1
+      continue
+    fi
+    filtered_body_lines+=("$bline")
+  done
+  body_lines=("${filtered_body_lines[@]+"${filtered_body_lines[@]}"}")
+
+  # Build the body string: join accumulated lines.
+  # We need to escape backslash and double-quote for the TOML triple-quoted
+  # string. In TOML """ strings, only backslash requires escaping; double
+  # quotes are allowed as long as three consecutive ones are not present.
+  # We escape backslash as \\ and replace any run of 3+ double-quotes with
+  # escaped variants to be safe.
+  body_content=""
+  first_body=1
+  for bline in "${body_lines[@]}"; do
+    if [[ $first_body -eq 1 ]]; then
+      body_content="$bline"
+      first_body=0
+    else
+      body_content="$body_content
+$bline"
+    fi
+  done
+
+  # Escape backslashes for TOML multi-line basic string
+  body_escaped="${body_content//\\/\\\\}"
+  # Escape sequences of 3+ double-quotes so they don't terminate the TOML string
+  body_escaped="${body_escaped//\"\"\"/\\\"\\\"\\\"}"
+
+  # Escape description for a TOML basic string (escape backslash then double-quote)
+  desc_escaped="${fm_description//\\/\\\\}"
+  desc_escaped="${desc_escaped//\"/\\\"}"
+
+  dst="$AGENTS_TOML_DST/${fm_name}.toml"
+  generated_tomls+=("${fm_name}.toml")
+
+  {
+    echo "# Generated by .codex/build.sh from content/agents/$(basename "$src")"
+    echo "# Do not edit directly - edit the source markdown file instead."
+    echo ""
+    echo "name        = \"${fm_name}\""
+    echo "description = \"${desc_escaped}\""
+    echo ""
+    echo "developer_instructions = \"\"\""
+    printf '%s' "$body_escaped"
+    echo ""
+    echo "\"\"\""
+  } > "$dst"
+
+done
+
+# Remove stale TOML files (present in agents/ but not generated this run)
+for existing in "$AGENTS_TOML_DST"/*.toml; do
+  [ -f "$existing" ] || continue
+  bname="$(basename "$existing")"
+  found=0
+  for gen in "${generated_tomls[@]}"; do
+    if [[ "$gen" == "$bname" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    rm "$existing"
+    echo "Removed stale agent TOML: $bname"
+  fi
+done
+
+echo "Built ${#generated_tomls[@]} agent TOML files in .codex/agents/"
+
 echo "Codex adapter build complete."

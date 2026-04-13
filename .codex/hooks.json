@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/agentic-engineering/.codex/hooks/risk-reminder.sh\"",
+            "statusMessage": "Checking risk classification"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/agentic-engineering/.codex/hooks/stop-context-codex.js\"",
+            "timeout": 10,
+            "statusMessage": "Saving session context"
+          }
+        ]
+      }
+    ]
+  }
+}
