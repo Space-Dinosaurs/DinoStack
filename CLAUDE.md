@@ -8,6 +8,9 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
 
+## Deploy
+- Docs site: see `docs/technical/deploy.md`. Always verify the linked project ID before running `vercel --prod`.
+
 ## Docs
 - `docs/planning/` - pre-implementation design artifacts
 - `docs/research/` - research notes and reference material
