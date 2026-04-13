@@ -122,10 +122,6 @@ New tool support (Windsurf, Continue.dev, etc.) or improvements to existing Clau
 </div>
 </div>
 
-<div class="callout">
-Community skills live in their own repo: <strong>github.com/Solara6/community-skills</strong>. Task-specific skill contributions go there, not here.
-</div>
-
 ---
 
 <!-- _class: highlight -->
@@ -144,7 +140,7 @@ The `content/` directory is the single source of truth. Adapter files (`.claude/
 content/
   rules/        3 rule files (agent-methodology, code-standards, conventions)
   references/   4 reference docs (skeptic-protocol, subagent-protocol, agent-team, design-goals)
-  commands/     7 command files (community-skills, implement, init-project, ...)
+  commands/     6 command files (implement, init-project, memory-update, ...)
   agents/       10 agent definitions (architect, debugger, engineer, ...)
 ```
 

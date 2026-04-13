@@ -115,8 +115,6 @@ bash .codex/install.sh
 | Named agents | `~/.claude/agents/*.md` loaded automatically | Not supported natively. Use agent preambles from `SKILL.md` when spawning subagents. |
 | Background subagents | `run_in_background: true` in Agent tool | Depends on Codex version - verify in your Codex release. |
 | Global AGENTS.md | `~/.claude/CLAUDE.md` loaded globally | `~/.codex/AGENTS.md` is confirmed - installed as a symlink to `.codex/AGENTS.md`. Backup behavior applies if a file already exists (see Installation). |
-| Community skills | Managed via `/community-skills` command | Not available - `community-skills` is a Claude Code-only command that symlinks into `~/.claude/skills/`. It is intentionally absent from `.codex/commands/`. |
-
 ## Customizing for a project
 
 To add the methodology to a project that doesn't have `.codex/AGENTS.md` checked in, create an `AGENTS.md` at your project root:
