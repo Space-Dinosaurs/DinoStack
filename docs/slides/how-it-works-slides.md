@@ -198,8 +198,8 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 ## Under the hood - the agent team
 
 <style scoped>
-  .columns-3 { gap: 0.6em; }
-  .columns-3 .card { padding: 0.55em 0.75em; font-size: 0.68em; border-radius: 8px; line-height: 1.3; }
+  .columns-3 { gap: 0.5em; margin-bottom: 0; }
+  .columns-3 .card { padding: 0.45em 0.7em; font-size: 0.66em; border-radius: 8px; line-height: 1.25; }
   .columns-3 .card strong { font-size: 1.1em; }
   .columns-3 .card:nth-child(1) { border-left-color: #1e88e5; }
   .columns-3 .card:nth-child(2) { border-left-color: #e53935; }
@@ -213,8 +213,8 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
   .columns-3 .card:nth-child(10) { border-left-color: #558b2f; }
   .columns-3 .card:nth-child(11) { border-left-color: #6d4c41; }
   .columns-3 .card:nth-child(12) { border-left-color: #37474f; }
-  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.6em; }
-  h2 { margin-bottom: 0.4em; }
+  .columns-3 .card:nth-child(13) { border-left-color: #f4511e; }
+  h2 { margin-bottom: 0.35em; }
 </style>
 
 <div class="columns-3">
@@ -227,13 +227,10 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <div class="card"><strong>qa-engineer</strong><br/>Runtime verification</div>
 <div class="card"><strong>security-auditor</strong><br/>Threat modeling</div>
 <div class="card"><strong>adr-generator</strong><br/>Decision records</div>
+<div class="card"><strong>adr-drift-detector</strong><br/>ADR compliance audit</div>
 <div class="card"><strong>perf-analyst</strong><br/>Performance profiling</div>
 <div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing</div>
 <div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review</div>
-</div>
-
-<div class="callout">
-Each role has a narrow job. The protocol picks the right one for the task - you don't have to.
 </div>
 
 ---

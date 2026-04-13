@@ -95,7 +95,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 
 <!-- _class: highlight -->
 
-## The team
+## The team (1/2)
 
 <style scoped>
   .columns-3 { gap: 0.6em; }
@@ -108,11 +108,6 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(5) { border-left-color: #43a047; }
   .columns-3 .card:nth-child(6) { border-left-color: #fb8c00; }
   .columns-3 .card:nth-child(7) { border-left-color: #00acc1; }
-  .columns-3 .card:nth-child(8) { border-left-color: #c62828; }
-  .columns-3 .card:nth-child(9) { border-left-color: #3949ab; }
-  .columns-3 .card:nth-child(10) { border-left-color: #558b2f; }
-  .columns-3 .card:nth-child(11) { border-left-color: #6d4c41; }
-  .columns-3 .card:nth-child(12) { border-left-color: #37474f; }
   h2 { margin-bottom: 0.4em; }
 </style>
 
@@ -124,8 +119,31 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, runs quality gates.</div>
 <div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor.</div>
 <div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.</div>
+</div>
+
+---
+
+<!-- _class: highlight -->
+
+## The team (2/2)
+
+<style scoped>
+  .columns-3 { gap: 0.6em; }
+  .columns-3 .card { padding: 0.55em 0.75em; font-size: 0.68em; border-radius: 8px; line-height: 1.3; }
+  .columns-3 .card strong { font-size: 1.1em; }
+  .columns-3 .card:nth-child(1) { border-left-color: #c62828; }
+  .columns-3 .card:nth-child(2) { border-left-color: #3949ab; }
+  .columns-3 .card:nth-child(3) { border-left-color: #558b2f; }
+  .columns-3 .card:nth-child(4) { border-left-color: #6d4c41; }
+  .columns-3 .card:nth-child(5) { border-left-color: #37474f; }
+  .columns-3 .card:nth-child(6) { border-left-color: #f4511e; }
+  h2 { margin-bottom: 0.4em; }
+</style>
+
+<div class="columns-3">
 <div class="card"><strong>security-auditor</strong><br/>OWASP-structured review. Auth, secrets, injection, privilege escalation.</div>
 <div class="card"><strong>adr-generator</strong><br/>Writes decision records. Captures the why behind architectural choices.</div>
+<div class="card"><strong>adr-drift-detector</strong><br/>Audits codebase compliance against Architecture Decision Records.</div>
 <div class="card"><strong>perf-analyst</strong><br/>Profiles CPU, memory, and latency hotspots. Returns a measured findings brief; does not implement fixes.</div>
 <div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing. Pre-flight gates, version bump, tag, deploy, post-deploy verification.</div>
 <div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review. CVE scanning, license compliance, lockfile analysis across all ecosystems.</div>
