@@ -69,7 +69,7 @@ For detailed protocol specs, see the reference docs:
 
 These live in `~/.agents/skills/agentic-engineering/references/` (global install) or `.codex/references/` (local copies).
 
-For command templates (skeptic, implement, wrap, etc.), see `.codex/commands/`.
+For command templates (skeptic, implement-ticket, wrap, etc.), see `.codex/commands/`.
 FOOTER
 
 } > "$AGENTS_DST"

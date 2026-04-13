@@ -704,7 +704,7 @@
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md)<br>
+    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, findings-flywheel.md)<br>
     <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships both a <code>.claude/</code> adapter (Claude Code) and a <code>.cursor/</code> adapter (Cursor IDE) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
@@ -742,6 +742,7 @@
           <li>Per-language strict defaults</li>
           <li>Package management rules</li>
           <li>Browser verification via agent-browser</li>
+          <li>Module manifests: required header block on non-trivial files (exports public symbol, ~50+ LOC, or side-effecting). Six fields: Purpose, Public API, Upstream deps, Downstream consumers, Failure modes, Performance</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 10px;">
@@ -763,6 +764,7 @@
       <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">agent-team.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">design-goals.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">findings-flywheel.md <span class="load-badge on-demand">on demand</span></div>
     </div>
     <p class="desc">Not auto-loaded. Read on-demand when protocols are triggered (e.g., Elevated risk declared, Skeptic review needed).</p>
   </div>
@@ -770,7 +772,7 @@
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section">
-  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Space Grotesk', sans-serif;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files in ~/agentic-engineering/.claude/skills/agentic-engineering/references/</h3></div>
+  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Space Grotesk', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/agentic-engineering/.claude/skills/agentic-engineering/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>
@@ -785,7 +787,7 @@
           <ul>
             <li><strong style="color: var(--sky);">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
             <li><strong style="color: var(--violet);">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
-            <li><strong style="color: var(--cyan);">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), AGENTS.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
+            <li><strong style="color: var(--cyan);">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), MEMORY.md (stable facts), AGENTS.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
             <li><strong style="color: #5a3d8a;">Goal 4 - Context window efficiency.</strong> Always-loaded files must be minimal. Trigger-pointer pattern: risk signals inline (chicken-and-egg), protocol details deferred until triggered.</li>
           </ul>
         </div>
@@ -795,7 +797,7 @@
           <h4 style="color: #5a3d8a;">Explicit Non-Goals</h4>
           <ul>
             <li>No persistent memory of personal facts or preferences (project-affecting info only)</li>
-            <li>Does not replace proper documentation (decisions.md is not a design doc)</li>
+            <li>Does not replace proper documentation (MEMORY.md is not a design doc)</li>
             <li>Does not automate irreversible operations at git/infrastructure boundary (human confirms)</li>
             <li>Does not guarantee correctness (defense in depth, not proof)</li>
             <li>Does not eliminate need for human judgment (escalation paths exist for ambiguity)</li>
@@ -806,7 +808,7 @@
           <strong>Evaluator questions for each goal:</strong><br>
           G1: Does the main agent ever block or do substantial work inline?<br>
           G2: Is the Skeptic actually fresh each round? Is the brief verbatim?<br>
-          G3: Is the Stop hook firing? Is decisions.md accurate? Is AGENTS.md lean?<br>
+          G3: Is the Stop hook firing? Is MEMORY.md accurate? Is AGENTS.md lean?<br>
           G4: Would removing this line cause a wrong classification?
         </div>
       </div>
@@ -865,11 +867,22 @@
             <li>Second Skeptic reviews only the /simplify diff (behavioral preservation check)</li>
           </ul>
         </div>
+        <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+          <h4 style="color: #5a3d8a;">New Skeptic Obligations</h4>
+          <ul>
+            <li><strong>Module manifest check</strong> - flags missing or stale manifests on non-trivial modules as a <strong style="color: var(--gold);">Major</strong> finding. Non-trivial = exports a public symbol, ~50+ LOC, or side-effecting. Blocks sign-off.</li>
+            <li><strong>Regression test verification</strong> - before granting sign-off when a Critical/Major finding was fixed, verifies a regression test was added (or a documented exception given). Missing test without explanation is a <strong style="color: var(--gold);">Major</strong> finding.</li>
+            <li><strong>Findings pattern check</strong> - if <code>.claude/findings.md</code> exists, treat its entries as known anti-patterns. Repeating a documented pattern is a <strong style="color: var(--gold);">Major</strong> finding.</li>
+          </ul>
+        </div>
       </div>
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Core thesis:</strong> "The value of an adversarial reviewer is independence. A reviewer who has already heard the implementer's justifications is no longer independent."
       The brief must be passed verbatim - never softened. Sign-off requires 4 elements: Reviewed, Findings, Active search attestation, and explicit sign-off statement.
+    </div>
+    <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
+      <strong>Findings Flywheel:</strong> Every Critical/Major finding that gets fixed without a regression test is a latent regression. Two loops close this gap: (1) <strong>per-finding regression test</strong> - Worker adds a test that would have caught the failure; Skeptic verifies before sign-off. (2) <strong>pattern promotion</strong> - recurring or high-impact patterns are written to <code>.claude/findings.md</code>; Architect reads this file at plan time so prior lessons shape future plans. The conductor runs the promote step (Phase 6c in <code>/implement-ticket</code>) after sign-off.
     </div>
   </div>
 
@@ -990,7 +1003,7 @@
         <h4 style="color: var(--green);">Planning and Analysis Agents</h4>
         <ul>
           <li><strong>investigator</strong> - traces data flow, maps blast radius, and explores unfamiliar areas. Used when you need to understand code before deciding how to change it. Returns an investigation brief for the conductor to hand to architect or engineer.</li>
-          <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Its output MUST be Skeptic-reviewed before any downstream work.</li>
+          <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Reads <code>.claude/findings.md</code> at plan time and cites applicable entries in the plan's constraints section. Its output MUST be Skeptic-reviewed before any downstream work.</li>
           <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious. Checks for <code>.claude/work-tracking.md</code> in the project root and follows its instructions when present.</li>
         </ul>
       </div>
@@ -1006,13 +1019,13 @@
       <div class="rel-card" style="border-left: 2px solid var(--gold);">
         <h4 style="color: var(--gold);">Implementation Agent</h4>
         <ul>
-          <li><strong>engineer</strong> - the only agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Receives the architect's plan, file paths, acceptance criteria, and session context. Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
+          <li><strong>engineer</strong> - the only agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Writes module manifests on non-trivial files and adds regression tests when fixing Critical/Major findings. Receives the architect's plan, file paths, acceptance criteria, and session context. Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
         <h4 style="color: var(--violet);">Review Agent</h4>
         <ul>
-          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files (missing/stale = Major) and verifies regression tests were added for any Critical/Major fixes. Reads <code>.claude/findings.md</code> and flags repetition of documented patterns. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">

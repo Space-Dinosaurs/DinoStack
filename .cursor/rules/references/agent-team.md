@@ -7,6 +7,9 @@
 | `investigator` | Codebase investigation. Traces data flow, maps blast radius, explores unfamiliar areas before design or implementation. | No |
 | `debugger` | Root cause analysis. Given a failure, diagnoses what's wrong and produces a fix brief. | No |
 | `security-auditor` | OWASP-structured security review. Covers injection, auth, secrets, privilege escalation. | No |
+| `perf-analyst` | Performance profiling. Measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer. Does not implement fixes. | No |
+| `dependency-auditor` | Supply-chain review. Runs vulnerability scanners across all detected ecosystems, audits lockfiles, flags license risks and maintenance signals. Produces a findings report for the engineer to execute. | No |
+| `release-orchestrator` | End-to-end release sequencing. Owns pre-flight gates, version bump, changelog, tag, deploy, and post-deploy verification. Writes version bumps and changelog entries; does not write feature code. | Yes |
 | `architect` | Pre-implementation design. Reads the codebase, produces a structured technical plan. | No |
 | `orchestration-planner` | Team composition and sequencing. Given a goal, produces a structured execution plan: which agents to spawn, in what order, with what handoffs, and where Skeptic review is needed. | No |
 | `engineer` | Implements the change. Reads conventions, writes code, runs quality gates, reports clearly. | Yes |
@@ -118,6 +121,23 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - A stack trace or production error needs diagnosis before a fix is attempted
 - Skip it when the bug is already understood - go straight to `engineer`
 
+**Use `perf-analyst` when:**
+- A feature is slow, a regression has been reported, or you need before/after benchmarking around a change
+- Profiling CPU hotspots, memory leaks, or throughput limits
+- A perf budget exists and must be measured against
+- Skip when the bottleneck is already understood - go straight to `engineer`
+
+**Use `release-orchestrator` when:**
+- Cutting a release, shipping to production, bumping a version and tagging, or rolling back the last release
+- You need the full release sequence: pre-flight checks, changelog, tag, deploy, post-deploy verification
+- Do NOT use for feature implementation or bug fixing - this agent sequences a release, it does not write product code
+
+**Use `dependency-auditor` when:**
+- Running a supply-chain review or CVE scan of the project's lockfiles
+- Evaluating whether a new or upgraded dependency is safe to add
+- Checking license compliance across the dependency graph
+- Skip when a shallow CVE check as part of a security audit is sufficient - the `security-auditor` covers that path
+
 **Use `qa-engineer` when:**
 - Skeptic has signed off AND the project has `.claude/qa.md` with trigger patterns matching the diff
 - User explicitly asks to verify, test, or QA a change ("run QA", "check the feature works", "verify in the browser", "does it work")
@@ -152,6 +172,25 @@ When spawning `skeptic` for engineer output review, include:
 When spawning `security-auditor`, include:
 - The files changed or the scope of the feature
 - The domain (e.g., "authentication flow", "payment processing")
+
+When spawning `perf-analyst`, include:
+- The target: what to profile (function, endpoint, query, service, or workflow)
+- The repro command: how to run the code so it can be measured
+- The baseline (optional): prior measurement, commit SHA, or branch name to compare against
+- The perf budget (optional): a target such as "under 100ms p99" or "< 50 MB peak memory"
+- The hypothesis (optional): a suspicion about the bottleneck - treated as unconfirmed until measured
+
+When spawning `release-orchestrator`, include:
+- The target environment: where this release is going (staging, production, a named remote)
+- The release type hint: patch / minor / major, or a description of the changeset
+- The changeset boundary: "since last tag", "since commit abc123", or a specific range
+- The deploy command or runbook reference: the exact command or a path to a runbook
+- The `.claude/release.md` config (if it exists) for environment, version scheme, and rollback info
+
+When spawning `dependency-auditor`, include:
+- The scope: "full audit", a specific package name and version, or a before/after lockfile diff
+- The project root directory to scan
+- Known constraints (optional): license policy (e.g., "GPL is not allowed"), min-version floors, or specific CVE IDs to verify
 
 When spawning `qa-engineer`, include:
 - The unit's acceptance criteria as the test plan

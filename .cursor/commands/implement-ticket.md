@@ -1,10 +1,10 @@
-# Implement
+# Implement Ticket
 
 Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
 ## Invocation
 
-`/implement [TICKET_ID]`
+`/implement-ticket [TICKET_ID]`
 
 ---
 
@@ -29,7 +29,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 **Legacy `## Linear` shape guard** — if `TRACKER=linear` was resolved from a `## Linear` section AND the section is missing the `Workspace:` field (required for URL generation), stop immediately and print:
 
 ```
-Your tracker config is missing fields /implement needs. Run /init-project to update it —
+Your tracker config is missing fields /implement-ticket needs. Run /init-project to update it —
 discovery will fill in most fields automatically.
 ```
 
@@ -88,9 +88,12 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- `$REPO/.claude/rules/decisions.md` for architectural decisions
+- The project's `MEMORY.md` (auto-injected at session start) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.
+
+**Investigator conditional:** If the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
 
 ---
 
@@ -100,7 +103,7 @@ Spawn an `architect` agent. Provide:
 - The full ticket title and description
 - The relevant code snippets you gathered
 - The AGENTS.md conventions
-- Any architectural decisions from decisions.md that bear on this ticket
+- Any architectural decisions and rationale from MEMORY.md (or the project's custom decision log) that bear on this ticket
 
 Ask the architect for:
 1. A concrete implementation plan (what changes, in which files, in what order)
@@ -108,7 +111,7 @@ Ask the architect for:
 3. Any risks, gotchas, or ambiguities that need resolution before coding
 4. The appropriate adversarial brief type for Skeptic review (security, logic, performance, data integrity, etc.)
 
-Review the output. If anything conflicts with a known decision or feels off, resolve it before moving to implementation.
+**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `agent-methodology.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 ---
 
@@ -150,6 +153,8 @@ Derive the short title from the ticket title: lowercase, hyphens, ~4-5 words max
 Use the orchestration-planner's output to drive agent spawning decisions if Phase 3b produced a plan. If Phase 3b was skipped, use the architect's plan directly. When both are present, the orchestration-planner's output supersedes the architect's plan for agent spawning and parallelization decisions.
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
+
+**Module manifests:** Files modified must carry module manifests per `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic will flag missing or stale manifests as Major findings in Phase 6.
 
 ### If work is a single logical unit (or units must be sequential):
 
@@ -204,6 +209,8 @@ git -C $REPO worktree remove ${REPO}/.worktrees/[BRANCH_NAME]-unit2 --force
 git -C $REPO branch -d [BRANCH_NAME]-unit1 [BRANCH_NAME]-unit2
 ```
 
+For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `agent-methodology.md §Worktree Lifecycle`.
+
 ---
 
 ## Phase 6: Skeptic review
@@ -214,10 +221,29 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 
+For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+
 **Findings handling:**
 - **Critical:** Route back to a fresh `engineer` agent to fix. Re-run Skeptic after.
 - **Major:** Route back to engineer unless there's a strong reason to defer. Re-run Skeptic.
 - **Minor:** Address inline or document as known limitation. No re-run needed.
+
+---
+
+## Phase 6b: QA Gate (conditional)
+
+**Trigger:** `.claude/qa.md` exists AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
+
+- **If triggered:** spawn `qa-engineer` with the ticket context and diff. On failure, route back to `engineer` for fixes, then re-run Phase 6b. On pass, proceed to Phase 6c.
+- **If not triggered:** skip directly to Phase 6c.
+
+For full QA gate rules, see `agent-methodology.md §QA Gate`.
+
+---
+
+## Phase 6c: Promote findings
+
+Apply the post-sign-off finding promotion rule from `agent-methodology.md` §Post-sign-off finding promotion. The rule is not `/implement-ticket`-specific - it fires after every Skeptic sign-off in any context. Full promotion criteria, entry format, and size-cap rules: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
 
 ---
 

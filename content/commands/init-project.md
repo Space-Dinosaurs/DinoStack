@@ -94,6 +94,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/settings.local.json`
 - `.claude/qa.md` (only if web UI confirmed in Step 1)
 - `.claude/release.md` (only if release signals detected in Step 0)
+- `.claude/findings.md` - the findings flywheel's project-local anti-pattern log - always created empty, populated by `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle over time
 - `memory/MEMORY.md` (created at `~/.claude/projects/[hash]/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
 - `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
@@ -156,6 +157,8 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 7. **`.claude/release.md`** — if release signals were detected and file does not exist: plan to create it using the same template as Step 6a.
 
+8. **`.claude/findings.md`** — if the file does not exist: plan to create it using the same stub template as Step 6b.
+
 **Present the diff:**
 
 ```
@@ -170,6 +173,9 @@ Here's what I'd update:
 
   .claude/release.md:
     - Create (not found, release signal detected: [type])
+
+  .claude/findings.md:
+    - Create (not found)
 
   docs/research/:
     - Create .gitkeep (directory missing)
@@ -332,6 +338,24 @@ prefer: production
 
 The `release-orchestrator` agent reads this file the same way `qa-engineer` reads `qa.md` — it uses these values as defaults for target environment, deploy command, and rollback procedure. Fill in `staging` if the project has a staging environment. Update `command` once the exact deploy command is confirmed.
 
+### 6b. Create `.claude/findings.md`
+
+Always create. No signal required - the findings flywheel applies to every project regardless of stack or release setup. Only create if the file does not already exist.
+
+Content template:
+
+```markdown
+# Findings
+
+<!-- Recurring Skeptic anti-patterns promoted after sign-off by /implement-ticket, /wrap, or any Worker+Skeptic cycle. -->
+<!-- Target under 15 entries; consolidate or retire stale entries when adding. -->
+<!-- Read by Architect at plan time and Skeptic at review time. -->
+```
+
+Architect reads this file at plan time to surface prior lessons and cites applicable entries in the plan's "Trade-offs and constraints" section. Skeptic reads it at review time and raises a Major finding if the diff repeats a documented anti-pattern. Promotion happens in `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle - after the QA gate passes.
+
+Full spec: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`
+
 ### 7. Create `.claude/settings.local.json`
 
 Only create this file if it does not already exist (enforced in Step 2 - skip if it exists).
@@ -476,7 +500,7 @@ JIRA_QA_ASSIGNEE_ACCOUNT_ID: [Atlassian account ID — optional, omit line if no
 JIRA_QA_TRANSITION: [transition name — optional, omit line if not provided]
 ```
 
-Place after `## Tools`. Prompt for: TICKET_PREFIX (required), JIRA_BASE_URL (required), JIRA_QA_ASSIGNEE_ACCOUNT_ID (optional), JIRA_QA_TRANSITION (optional). **Do not use a default value for `JIRA_QA_TRANSITION`** — if the user does not provide one, omit the line entirely. `/implement` Phase 11 will skip the transition step when absent rather than guessing a transition name.
+Place after `## Tools`. Prompt for: TICKET_PREFIX (required), JIRA_BASE_URL (required), JIRA_QA_ASSIGNEE_ACCOUNT_ID (optional), JIRA_QA_TRANSITION (optional). **Do not use a default value for `JIRA_QA_TRANSITION`** — if the user does not provide one, omit the line entirely. `/implement-ticket` Phase 11 will skip the transition step when absent rather than guessing a transition name.
 
 **11c. None**
 
@@ -499,5 +523,6 @@ Then remind the user to:
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1
 7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created
 8a. *(If `.claude/release.md` was created)* Fill in the deploy command and rollback procedure in `.claude/release.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
+8b. `.claude/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time.
 8. *(If Jira was configured)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
-9. *(If Linear was configured without a QA assignee UUID)* You skipped the QA assignee UUID — `/implement` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
+9. *(If Linear was configured without a QA assignee UUID)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.

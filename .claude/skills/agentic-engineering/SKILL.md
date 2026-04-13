@@ -37,3 +37,13 @@ files on every session and the reference docs on the triggers described in agent
 
 - **references/design-goals.md** - design principles and goals of the Agentic Engineering system;
   read when evaluating whether a proposed change aligns with the system's intent.
+
+- **references/findings-flywheel.md** - per-finding regression test obligation, pattern promotion
+  criteria and entry format for `.claude/findings.md`, and who reads the file; read when promoting
+  a finding after Skeptic sign-off or when the Skeptic checks for repeated anti-patterns.
+
+## Rules (read on trigger)
+
+- **rules/module-manifest.md** - required manifest header format for non-trivial source files;
+  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
+  LOC, or implements a side-effecting operation.

@@ -28,7 +28,7 @@ These live in `references/` alongside this skill:
 These are prompt templates for common workflows. In Codex, use them from `.codex/commands/<name>.md`:
 
 - `skeptic` - Full Skeptic Protocol orchestration (Worker -> Skeptic -> re-route loop)
-- `implement` - Ticket-to-PR flow (Architect -> Orchestration Planner -> Engineer -> Skeptic)
+- `implement-ticket` - Ticket-to-PR flow (Architect -> Orchestration Planner -> Engineer -> Skeptic)
 - `wrap` - Session context enrichment and AGENTS.md updates
 - `memory-update` - Capture a project decision to memory
 - `init-project` - Scaffold a new project with AGENTS.md hierarchy
@@ -88,7 +88,7 @@ If hooks are not firing, verify `codex_hooks = true` is present in `~/.codex/con
 
 ## Command Templates
 
-Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement`, `wrap`, `memory-update`, `init-project`, or `update-protocol` flow in a Codex session.
+Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, or `update-protocol` flow in a Codex session.
 
 ## Remaining Limitations vs Claude Code
 

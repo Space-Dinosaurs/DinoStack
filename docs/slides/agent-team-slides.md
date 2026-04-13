@@ -115,9 +115,9 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>investigator</strong><br/>Maps unfamiliar code. Traces data flow and blast radius before you change anything.</div>
 <div class="card"><strong>debugger</strong><br/>Root cause analysis. Given a failure, returns a diagnosis and fix brief.</div>
 <div class="card"><strong>orchestration-planner</strong><br/>Picks the team. Given a goal, produces a structured execution plan.</div>
-<div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase, returns a structured technical plan.</div>
-<div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, runs quality gates.</div>
-<div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor.</div>
+<div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase, reads <code>.claude/findings.md</code> at plan time, returns a structured technical plan.</div>
+<div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, writes module manifests, adds regression tests for Critical/Major fixes, runs quality gates.</div>
+<div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor. Checks module manifests and regression tests.</div>
 <div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.</div>
 </div>
 
@@ -196,6 +196,7 @@ Plans get reviewed before code. Code gets reviewed before QA. Each stage hands o
 - A resumed Skeptic has seen its own previous criticism - it gets polite and misses things.
 - Fresh context = adversarial teeth.
 - Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major requires action or a justified waiver.
+- **Two new obligations:** (1) flags missing/stale module manifests on non-trivial files as Major; (2) verifies regression tests exist for any Critical/Major fix before granting sign-off.
 - **Domain fit comes from the adversarial brief**, not the agent. The conductor writes a brief tailored to the change - auth flow, migration, perf regression - and the Skeptic reviews through that lens.
 
 <div class="callout">

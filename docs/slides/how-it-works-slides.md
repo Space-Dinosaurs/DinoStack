@@ -145,7 +145,7 @@ Learnings, conventions, and decisions persist across sessions instead of dying w
 | Command | When you'd reach for it |
 |---|---|
 | `/init-project` | One-time setup when bringing the protocol into a repo |
-| `/implement` | Explicitly hand a task to a Worker |
+| `/implement-ticket` | Explicitly hand a task to a Worker |
 | `/skeptic` | Force a review pass on recent changes |
 | `/wrap` | Close out a session: commit, PR, memory, cleanup |
 | `/memory-update` | Persist a learning you want to keep |
@@ -231,6 +231,35 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <div class="card"><strong>perf-analyst</strong><br/>Performance profiling</div>
 <div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing</div>
 <div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review</div>
+</div>
+
+---
+
+## The findings flywheel
+
+<style scoped>
+  .columns { gap: 1.2em; margin-bottom: 0.6em; }
+  .columns .card { font-size: 0.8em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns .card strong { font-size: 1.05em; }
+  p { font-size: 0.88em; margin: 0.3em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+Every Critical/Major finding that gets fixed without a test is a latent regression. Two loops close the gap:
+
+<div class="columns">
+<div class="card">
+<strong>Per-finding regression test</strong><br/>
+Worker adds a test that would have <em>failed</em> without the fix. Skeptic verifies it exists before sign-off. Lives in the project test suite.
+</div>
+<div class="card">
+<strong>Pattern promotion</strong><br/>
+Recurring or high-blast-radius patterns are written to <code>.claude/findings.md</code>. Architect reads this file at plan time. Future plans are shaped by prior mistakes.
+</div>
+</div>
+
+<div class="callout">
+The regression test is code-level (catches the specific failure). The findings entry is session-level (informs future planning). Both are required. Neither replaces the other.
 </div>
 
 ---
