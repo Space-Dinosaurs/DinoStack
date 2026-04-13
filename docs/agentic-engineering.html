@@ -660,7 +660,7 @@
   <p class="subtitle">An opinionated architecture for doing engineering work with AI agents.</p>
   <p class="byline">by Tyson Hummel</p>
   <p class="epigraph">Operator attention is the scarce resource. Agents aren't. This architecture is an attempt to run as much of the process without you as possible - so the attention you do spend goes where judgment is load-bearing.</p>
-  <p class="compat-note">Built around Claude Code. <code>CLAUDE.md</code> maps to <code>AGENTS.md</code> - the patterns translate to any agentic framework.</p>
+  <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex reads it natively; Claude Code loads it via a one-line <code>CLAUDE.md</code> containing <code>@AGENTS.md</code>. The patterns translate to any agentic framework.</p>
 </div>
 
 <nav id="decks" class="deck-index" aria-label="Slide decks">
@@ -668,7 +668,7 @@
   <a class="deck-index-link" href="slides/how-it-works-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">01</span> How It Works</a>
   <a class="deck-index-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">02</span> Getting Started</a>
   <a class="deck-index-link" href="slides/context-management-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">03</span> Context Management</a>
-  <a class="deck-index-link" href="slides/claude-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">04</span> CLAUDE.md/AGENTS.md Hierarchy</a>
+  <a class="deck-index-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">04</span> AGENTS.md Hierarchy</a>
   <a class="deck-index-link" href="slides/agent-team-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">05</span> Agent Team</a>
   <a class="deck-index-link" href="slides/skeptic-protocol-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">06</span> Skeptic Protocol</a>
   <a class="deck-index-link" href="slides/orchestration-planner-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">07</span> Orchestration Planner</a>
@@ -682,7 +682,7 @@
 
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
 <div id="config" class="section config-layer">
-  <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/claude-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: CLAUDE.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
+  <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: AGENTS.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
   <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/CLAUDE.md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
@@ -692,7 +692,7 @@
           <li>Minimal global file - personal preferences and a list of available domain skills.</li>
           <li>Does not contain the full methodology. Keeps always-loaded context small.</li>
           <li>Contains behavioral overrides: complete tasks fully before stopping, no PR footer emoji</li>
-          <li>Exempt from the 40-line limit that applies to project root CLAUDE.md files</li>
+          <li>Exempt from the 40-line limit that applies to project root AGENTS.md files</li>
         </ul>
       </div>
     </div>
@@ -706,7 +706,13 @@
   <div class="note">
     <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md)<br>
     <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships both a <code>.claude/</code> adapter (Claude Code) and a <code>.cursor/</code> adapter (Cursor IDE) - the same methodology in each tool's native format.<br>
-    <strong>Per-project override:</strong> Each project has its own root CLAUDE.md (~40 lines) + subdirectory CLAUDE.md files for deeper context. Project CLAUDE.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
+    <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
+  </div>
+  <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
+    <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and importable by Claude Code via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
+    <strong>Claude Code users:</strong> create a <code>CLAUDE.md</code> at the repo root containing exactly one line - <code>@AGENTS.md</code> - and Claude Code will import <code>AGENTS.md</code> transparently.<br>
+    <strong>Codex CLI users:</strong> Codex reads <code>AGENTS.md</code> natively with no extra setup.<br>
+    <strong>Result:</strong> one file drives both tools. No duplication.
   </div>
 </div>
 
@@ -779,7 +785,7 @@
           <ul>
             <li><strong style="color: var(--sky);">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
             <li><strong style="color: var(--violet);">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
-            <li><strong style="color: var(--cyan);">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), CLAUDE.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
+            <li><strong style="color: var(--cyan);">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), decisions.md (persistent), AGENTS.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
             <li><strong style="color: #5a3d8a;">Goal 4 - Context window efficiency.</strong> Always-loaded files must be minimal. Trigger-pointer pattern: risk signals inline (chicken-and-egg), protocol details deferred until triggered.</li>
           </ul>
         </div>
@@ -800,7 +806,7 @@
           <strong>Evaluator questions for each goal:</strong><br>
           G1: Does the main agent ever block or do substantial work inline?<br>
           G2: Is the Skeptic actually fresh each round? Is the brief verbatim?<br>
-          G3: Is the Stop hook firing? Is decisions.md accurate? Is CLAUDE.md lean?<br>
+          G3: Is the Stop hook firing? Is decisions.md accurate? Is AGENTS.md lean?<br>
           G4: Would removing this line cause a wrong classification?
         </div>
       </div>
@@ -1119,9 +1125,9 @@
         <h4 style="color: var(--green);">Dev Workflow Skills</h4>
         <ul>
           <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
-          <li><strong>/init-project</strong> - scaffolds the CLAUDE.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/simplify</strong> - spawns 3 parallel review agents (code reuse, quality, efficiency) to clean up recently changed files. Used in the Elevated + Cleanup path after Skeptic sign-off.</li>
-          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and CLAUDE.md updates. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
           <li><strong>/audit-protocols</strong> - full system audit of protocol compliance. Checks whether rules are being followed across the session.</li>
         </ul>
@@ -1177,7 +1183,7 @@
           <li>Code patterns, architecture, file paths (derive from reading the code)</li>
           <li>Git history, recent changes (use <code>git log</code> / <code>git blame</code>)</li>
           <li>Debugging solutions (the fix is in the code; the commit message has context)</li>
-          <li>Anything already in CLAUDE.md files</li>
+          <li>Anything already in AGENTS.md files</li>
           <li>Ephemeral task details or current conversation context</li>
         </ul>
       </div>
@@ -1192,7 +1198,7 @@
         <div style="font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 300; color: var(--text-secondary);">How cross-session continuity actually works</div>
       </div>
     </div>
-    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's CLAUDE.md, MEMORY.md, session history, and <code>/wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
+    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's AGENTS.md, MEMORY.md, session history, and <code>/wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
     <div style="margin-bottom: 16px;">
       <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.01em;">The command:</div>
       <div class="code-block">
@@ -1210,7 +1216,7 @@
     <ul>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>MEMORY.md compounds</strong> - same cwd means the same project directory means the same memory files. Stable facts accumulate in one place rather than starting fresh each time.</li>
-      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -&gt; work -&gt; <code>/wrap</code> feedback loop. Each session reads richer CLAUDE.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -&gt; work -&gt; <code>/wrap</code> feedback loop. Each session reads richer AGENTS.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/wrap</code> on one project does not touch the other's state.</li>
     </ul>
     <div style="margin-top: 20px; padding: 24px; background: var(--bg-base); border: 1px solid var(--gold-dim); border-radius: var(--radius-lg);">
@@ -1244,8 +1250,8 @@
       <div class="rel-card" style="border-color: rgba(90,61,138,0.2);">
         <h4 style="color: var(--violet);">What it creates</h4>
         <ul>
-          <li>Root <code>CLAUDE.md</code> (under 40 lines - lean by design)</li>
-          <li><code>[track]/CLAUDE.md</code> per subdirectory (backend, frontend, etc.)</li>
+          <li>Root <code>AGENTS.md</code> (under 40 lines - lean by design)</li>
+          <li><code>[track]/AGENTS.md</code> per subdirectory (backend, frontend, etc.)</li>
           <li><code>.claude/settings.json</code> + <code>settings.local.json</code></li>
           <li><code>.claude/qa.md</code> (always created - TODO placeholders for unknown values)</li>
           <li><code>.claude/work-tracking.md</code> (always created - read by orchestration-planner at planning time)</li>
@@ -1259,7 +1265,7 @@
         <ul>
           <li>Interactive: asks project name, tracks, tools, DB, web UI</li>
           <li>Discovery scan: checks what exists before creating</li>
-          <li>If CLAUDE.md exists: curates in place (Worker + Skeptic)</li>
+          <li>If AGENTS.md exists: curates in place (Worker + Skeptic)</li>
           <li>Extracts verbose rationale into MEMORY.md entries</li>
           <li>Never overwrites settings.local.json (may contain secrets)</li>
         </ul>
@@ -1274,7 +1280,7 @@
         <ul>
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
           <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
-          <li><strong>CLAUDE.md updates</strong> - proposed additions to root and track CLAUDE.md files (decisions, conventions, stack)</li>
+          <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
@@ -1297,7 +1303,7 @@
       <div class="flow-row">
         <span class="flow-box" style="background: rgba(90,61,138,0.08); color:#5a3d8a; border:1px solid rgba(90,61,138,0.3);">/init-project</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">CLAUDE.md hierarchy + settings + docs/</span>
+        <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">AGENTS.md hierarchy + settings + docs/</span>
         <span class="flow-arrow">&rarr;</span>
         <span class="flow-box" style="background: rgba(45,90,61,0.08); color:#2d5a3d; border:1px solid rgba(45,90,61,0.25);">Work sessions (features, bugs, etc.)</span>
         <span class="flow-arrow">&rarr;</span>
@@ -1308,7 +1314,7 @@
         <span style="width:160px;display:inline-block;"></span>
         <span class="flow-label">Agents use the harness</span>
         <span style="width:70px;display:inline-block;"></span>
-        <span class="flow-label">Enriches context + updates CLAUDE.md</span>
+        <span class="flow-label">Enriches context + updates AGENTS.md</span>
       </div>
 
       <!-- Feedback loop -->
@@ -1320,7 +1326,7 @@
         <span class="flow-arrow">+</span>
         <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">memory.md (stable facts)</span>
         <span class="flow-arrow">+</span>
-        <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">CLAUDE.md updates</span>
+        <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">AGENTS.md updates</span>
       </div>
       <div class="flow-row" style="margin-top: 6px; margin-left: 80px;">
         <span class="flow-label">Next session reads all three &rarr; full context from turn one &rarr; work &rarr; /wrap &rarr; repeat</span>
@@ -1332,13 +1338,13 @@
     <strong>The feedback loop:</strong>
     <ul>
       <li><code>/init-project</code> creates empty structure. Work fills it with decisions and conventions.</li>
-      <li><code>/wrap</code> captures what was learned and feeds it back into the CLAUDE.md hierarchy and memory. Next session starts with richer context. The harness improves itself over time - each session makes the next one better.</li>
+      <li><code>/wrap</code> captures what was learned and feeds it back into the AGENTS.md hierarchy and memory. Next session starts with richer context. The harness improves itself over time - each session makes the next one better.</li>
     </ul>
     <strong>Separation of concerns:</strong>
     <ul>
       <li><code>context.md</code> holds temporary session state (what's in progress, what's next).</li>
       <li><code>memory.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
-      <li><code>CLAUDE.md</code> files hold the canonical project description (structure, tools, conventions).</li>
+      <li><code>AGENTS.md</code> files hold the canonical project description (structure, tools, conventions).</li>
       <li>The Stop hook auto-writes a basic context.md every turn; <code>/wrap</code> produces the enriched version when detail matters.</li>
     </ul>
   </div>
@@ -1491,7 +1497,7 @@
             <span style="color: var(--text-muted); font-size: 13px;">The model is interchangeable; the harness is the value</span>
           </td>
           <td style="padding: 10px 12px; color: #2d5a3d; vertical-align: top;">
-            CLAUDE.md + skill rules + protocol docs = the harness definition.<br>
+            AGENTS.md + skill rules + protocol docs = the harness definition.<br>
             The harness is model-agnostic instruction - it governs <em>how</em> any model works, not which model.
           </td>
           <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">

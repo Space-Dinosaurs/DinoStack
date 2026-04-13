@@ -42,6 +42,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 |---|---|---|
 | Claude Code | `.claude/` | See [.claude/README.md](.claude/README.md) |
 | Cursor | `.cursor/` | See [.cursor/README.md](.cursor/README.md) |
+| Codex CLI | `.codex/` | See [.codex/README.md](.codex/README.md) |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
@@ -71,6 +72,7 @@ skeptic, memory-update, wrap, init-project, implement
 ```
 agentic-engineering/
   .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
+  .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
@@ -90,7 +92,7 @@ agentic-engineering/
 - `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md`
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
-- `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
+- `~/agentic-engineering/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/agentic-engineering/docs/slides/contributing-slides.html` - how to contribute to the repo
 
 ## For agents working in this repo
@@ -107,7 +109,7 @@ After installation, offer the user a quick orientation. Ask which of the followi
 - `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md` for project-specific tracker actions
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
-- `~/agentic-engineering/docs/slides/claude-md-hierarchy-slides.html` - the three-tier CLAUDE.md context hierarchy
+- `~/agentic-engineering/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/agentic-engineering/docs/slides/contributing-slides.html` - how to contribute to the repo
 - `~/agentic-engineering/docs/agentic-engineering.html` - full system architecture reference
 

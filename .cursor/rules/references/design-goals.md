@@ -53,17 +53,17 @@ Context is managed in three complementary tiers, each with different characteris
 
 2. **Decision log** (`.claude/rules/decisions.md`) — persistent, version-controlled, auto-loaded by Claude Code at startup. Contains architectural choices, technology decisions, scope resolutions, and deliberate tradeoffs. Updated via `/memory-update`, which spawns a background Worker with its own Skeptic loop to ensure accuracy before writing. Decisions are curated: a new entry that contradicts a prior one updates the prior one rather than appending a conflicting record.
 
-3. **Architecture documentation** (`CLAUDE.md`) — lean, auto-loaded, kept under ~40 lines for project roots. Architecture only — not decisions, not session state. The global `~/.claude/CLAUDE.md` is exempt from the line limit.
+3. **Architecture documentation** (`AGENTS.md`) - lean, auto-loaded, kept under ~40 lines for project roots. Architecture only - not decisions, not session state. The global `~/.claude/CLAUDE.md` is exempt from the line limit.
 
 **What this means in practice:**
 
 - The Stop hook runs silently after every turn. No user action is required to maintain turn-level context.
 - The main agent includes the project context file content in each Worker's spawn prompt. Workers must not be expected to self-direct reads — they may not have reliable path knowledge.
 - `/memory-update` is the only write path to `decisions.md`. Direct edits bypass the Skeptic accuracy loop.
-- `CLAUDE.md` does not accumulate decisions. The separation between architecture (CLAUDE.md) and decisions (decisions.md) is a deliberate design constraint, not a style preference.
+- `AGENTS.md` does not accumulate decisions. The separation between architecture (`AGENTS.md`) and decisions (`decisions.md`) is a deliberate design constraint, not a style preference.
 - `/wrap` is available for richer on-demand context enrichment — e.g., before handing off complex in-progress work. It is not required for normal operation; the Stop hook provides sufficient baseline continuity.
 
-**An evaluator should ask:** Is the Stop hook actually firing and writing current context? Is `decisions.md` accurate and up-to-date — not stale or conflicted? Is CLAUDE.md staying lean, or accumulating decisions it should not hold? Are Workers receiving context at spawn time?
+**An evaluator should ask:** Is the Stop hook actually firing and writing current context? Is `decisions.md` accurate and up-to-date — not stale or conflicted? Is `AGENTS.md` staying lean, or accumulating decisions it should not hold? Are Workers receiving context at spawn time?
 
 The "Decisions & Context" section of `~/.claude/CLAUDE.md` operationalizes this goal. That file is symlinked from the repo's `.claude/CLAUDE.md` by `install.sh`, so the repo is the canonical source. The Stop hook implementation lives in `claude-hooks/stop-context.js`.
 

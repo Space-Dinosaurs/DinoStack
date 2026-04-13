@@ -219,7 +219,7 @@ No external tracker. Work is captured in docs/worklog.md.
 - **`/init-project`** can seed the file during project setup - you edit it to match your tracker
 - **The orchestration-planner** reads it every time it plans a task - no caching, no staleness
 - **Every other agent ignores it** - engineer, skeptic, qa-engineer, investigator never touch it
-- **Version control it** - same as `CLAUDE.md`, `decisions.md`, and the rest of `.claude/`
+- **Version control it** - same as `AGENTS.md`, `decisions.md`, and the rest of `.claude/`
 - **Scales down cleanly** - no file means no tracker actions, and the planner plans the same way otherwise
 
 <div class="callout">

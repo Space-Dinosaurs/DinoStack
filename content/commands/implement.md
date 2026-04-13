@@ -10,16 +10,16 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 
 ## Setup: Read project config
 
-Before any phase, read the project's `CLAUDE.md` and extract the following values:
+Before any phase, read the project's `AGENTS.md` and extract the following values:
 
 - `REPO` — absolute path to the repo root
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
-- `BASE_BRANCH` — the branch all work is based from. If not declared in `CLAUDE.md`, resolve in this order: (1) `develop` if it exists locally; (2) `development` if it exists locally; (3) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
+- `BASE_BRANCH` — the branch all work is based from. If not declared in `AGENTS.md`, resolve in this order: (1) `develop` if it exists locally; (2) `development` if it exists locally; (3) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
-1. If a `## Tracker` section exists in `CLAUDE.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default).
+1. If a `## Tracker` section exists in `AGENTS.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default).
 2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`.
 3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional).
 4. Else: set `TRACKER=none`.
@@ -87,7 +87,7 @@ git -C $REPO fetch origin $BASE_BRANCH --quiet
 Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
-- `$REPO/CLAUDE.md` for conventions
+- `$REPO/AGENTS.md` for conventions
 - `$REPO/.claude/rules/decisions.md` for architectural decisions
 
 Focus on understanding enough to make a solid plan - don't over-read.
@@ -99,7 +99,7 @@ Focus on understanding enough to make a solid plan - don't over-read.
 Spawn an `architect` agent. Provide:
 - The full ticket title and description
 - The relevant code snippets you gathered
-- The CLAUDE.md conventions
+- The AGENTS.md conventions
 - Any architectural decisions from decisions.md that bear on this ticket
 
 Ask the architect for:
@@ -136,10 +136,10 @@ Create the branch locally from `$BASE_BRANCH` - do not push yet (push happens af
 
 ```bash
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
-git -C $REPO checkout -b [BRANCH_NAME per CLAUDE.md convention] origin/$BASE_BRANCH
+git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH
 ```
 
-**Branch naming:** use the branch naming convention from CLAUDE.md.
+**Branch naming:** use the branch naming convention from AGENTS.md.
 
 Derive the short title from the ticket title: lowercase, hyphens, ~4-5 words max.
 

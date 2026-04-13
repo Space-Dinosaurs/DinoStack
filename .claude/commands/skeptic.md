@@ -21,7 +21,7 @@ You are a Worker agent. Implement the task fully and return your complete output
 
 **Task:** $ARGUMENTS
 
-**Context (REQUIRED - do not leave blank):** [Paste the relevant CLAUDE.md sections, specs, schema, or file paths the Worker needs. Include the project CLAUDE.md at minimum.]
+**Context (REQUIRED - do not leave blank):** [Paste the relevant AGENTS.md sections, specs, schema, or file paths the Worker needs. Include the project AGENTS.md at minimum.]
 
 **Session context:** [Paste the content of `~/.claude/projects/[hash]/context.md` - the hash is the absolute project directory path with every `/` replaced by `-`.]
 
