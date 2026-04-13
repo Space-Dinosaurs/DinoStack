@@ -22,6 +22,12 @@ Before prompting for anything, silently scan the project to derive as many confi
 
 **GitHub CLI** — run `which gh`. If present, treat as a high-confidence signal and include the `gh` line in `## Tools` automatically. If absent, omit.
 
+**Release signals** — scan for any of: `release` or `deploy` scripts in `package.json`; `CHANGELOG.md` at repo root; `vercel.json`; `Dockerfile`; `.github/workflows/` files matching `release*.yml` or `deploy*.yml`; `fly.toml`; `railway.toml`. If any are found, note as a release signal and record the detected type (e.g. "vercel.json", "GitHub Actions release workflow", "Dockerfile"). No match = no signal (omit from Step 1).
+
+**Benchmark signals** — scan for: `bench` or `benchmark` or `profile` scripts in `package.json`; a `benches/` or `benchmarks/` directory at repo root; `k6` config files; `vitest bench` invocations in scripts; `pytest-benchmark` in `requirements.txt`/`pyproject.toml`. If any are found, note as a perf signal and record the detected type (e.g. "vitest bench scripts in package.json", "benchmarks/ directory"). No match = no signal (omit from Step 1).
+
+**Dep-audit command** — derived from the package manager already detected in the Web UI pass. Map: `pnpm-lock.yaml` → `pnpm audit`; `yarn.lock` → `yarn audit`; `package-lock.json` or npm detected → `npm audit`; `requirements.txt`/`pyproject.toml` (poetry or pip) → `pip-audit`; `Cargo.lock` → `cargo audit`; `go.sum` → `govulncheck`. No lockfile detected = no signal (omit). This is a pure derivation from existing package manager detection — no extra scan needed.
+
 ### 1. Present discovery results
 
 Present the results of Step 0 in a single message:
@@ -36,6 +42,9 @@ Discovery complete. Here's what I found:
   Web UI:        [command, port] ([e.g. "detected Next.js"])
   GitHub CLI:    gh               (detected on PATH)
   Tracker:       [value]         ([e.g. "from AGENTS.md ## Linear" or "detected in ~/.claude.json"])
+  Release:       [detected type]  ([e.g. "vercel.json", "GitHub Actions release workflow"])
+  Benchmarks:    [detected type]  ([e.g. "vitest bench scripts in package.json"])
+  Dep audit:     [command]        ([e.g. "npm audit", derived from package manager])
 
 Fields not shown were not detected and are optional — you can add them now or later.
 
@@ -53,6 +62,9 @@ Show only fields where a value was found. Omit fields with no detection. Annotat
 - "no gh" / "skip gh" → remove gh from Tools
 - "use Linear" / "set up Linear" / "use Jira" / "set up Jira" / "no tracker" → set tracker
 - "port is N" → override detected port
+- "no release" / "skip release" → clear release signal (suppresses `.claude/release.md` creation)
+- "no benchmarks" / "skip benchmarks" → clear benchmark signal
+- "no dep audit" / "skip dep audit" → clear dep-audit derivation
 
 Corrections patch in-memory state; they do not re-run discovery. After corrections, echo only the changed lines: "Updated: [field] → [value]. Anything else, or press Enter to continue."
 
@@ -81,6 +93,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/settings.json`
 - `.claude/settings.local.json`
 - `.claude/qa.md` (only if web UI confirmed in Step 1)
+- `.claude/release.md` (only if release signals detected in Step 0)
 - `memory/MEMORY.md` (created at `~/.claude/projects/[hash]/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
 - `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
@@ -133,13 +146,15 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - If user confirmed Linear and `## Tracker` (Jira) exists: plan to remove `## Tracker` and write `## Linear` (Linear shape).
    - If no tracker change: leave existing section untouched.
 
-3. **`## Tools` backfill** — for each new CLI tool discovered in Step 0 that is not already present in `## Tools`: plan to append it. Never touch existing entries. Match on CLI name (e.g. `psql`, `mongosh`, `gh`).
+3. **`## Tools` backfill** — for each new CLI tool discovered in Step 0 that is not already present in `## Tools`: plan to append it. Never touch existing entries. Match on CLI name (e.g. `psql`, `mongosh`, `gh`). If a dep-audit command was derived in Step 0 and no dep-audit entry exists in `## Tools`: plan to append it (e.g. `- Dependency audit: use \`npm audit --json\` for vulnerability scans`).
 
 4. **Missing sections** — if `## Docs` or `## Conventions` is absent: plan to add them (same content as greenfield template).
 
 5. **`docs/` directories** — plan to create any missing subdirectories.
 
 6. **`.claude/qa.md`** — if web UI was confirmed and file does not exist: plan to create it.
+
+7. **`.claude/release.md`** — if release signals were detected and file does not exist: plan to create it using the same template as Step 6a.
 
 **Present the diff:**
 
@@ -152,6 +167,9 @@ Here's what I'd update:
 
   .claude/qa.md:
     - Create (not found, web UI detected as [framework] on port [N])
+
+  .claude/release.md:
+    - Create (not found, release signal detected: [type])
 
   docs/research/:
     - Create .gitkeep (directory missing)
@@ -220,8 +238,9 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   ## Tools
   - GitHub operations: use `gh` CLI - do not use GitHub MCP
   - [Database CLI if applicable, e.g.: Database operations: use `psql` with `$DB_URL`]
+  - [Dep audit if applicable - use the command derived in Step 0 from the detected package manager: `npm audit --json` for npm, `pnpm audit --json` for pnpm, `yarn audit --json` for yarn, `pip-audit` for pip/poetry, `cargo audit` for cargo, `govulncheck ./...` for go. Do NOT hardcode `npm audit` for non-npm projects.]
   ```
-  Include the `gh` line only if `gh` was detected or confirmed; include the database line only if a DB CLI was specified.
+  Include the `gh` line only if `gh` was detected or confirmed; include the database line only if a DB CLI was specified; include the dep-audit line only if a dep-audit command was derived in Step 0, and use the exact command derived there.
 - `## Docs` section:
   ```markdown
   ## Docs
@@ -281,6 +300,37 @@ prefer: local
 ```
 
 The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
+
+### 6a. Create `.claude/release.md`
+
+Only create if release signals were detected in Step 0 AND the user has not suppressed the signal ("no release") AND the file does not already exist.
+
+Fill in the `command` from the detected release type where possible. Use `TODO` for values that were not detected or confirmed.
+
+Content template:
+
+```markdown
+# Release Config
+
+## Environments
+production: [detected deploy command, e.g. "vercel --prod --yes", or TODO]
+staging: <!-- optional: add staging deploy command -->
+
+## Version scheme
+[semver | calver | date-based | TODO]
+
+## Changelog
+path: CHANGELOG.md  <!-- or detected path -->
+
+## Rollback
+command: [TODO - fill in once known]
+notes: <!-- e.g. "Vercel: redeploy previous deployment from dashboard" -->
+
+## Preferences
+prefer: production
+```
+
+The `release-orchestrator` agent reads this file the same way `qa-engineer` reads `qa.md` — it uses these values as defaults for target environment, deploy command, and rollback procedure. Fill in `staging` if the project has a staging environment. Update `command` once the exact deploy command is confirmed.
 
 ### 7. Create `.claude/settings.local.json`
 
@@ -448,5 +498,6 @@ Then remind the user to:
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1
 7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created
+8a. *(If `.claude/release.md` was created)* Fill in the deploy command and rollback procedure in `.claude/release.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
 8. *(If Jira was configured)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 9. *(If Linear was configured without a QA assignee UUID)* You skipped the QA assignee UUID — `/implement` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.

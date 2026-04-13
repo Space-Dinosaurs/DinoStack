@@ -110,6 +110,9 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(7) { border-left-color: #00acc1; }
   .columns-3 .card:nth-child(8) { border-left-color: #c62828; }
   .columns-3 .card:nth-child(9) { border-left-color: #3949ab; }
+  .columns-3 .card:nth-child(10) { border-left-color: #558b2f; }
+  .columns-3 .card:nth-child(11) { border-left-color: #6d4c41; }
+  .columns-3 .card:nth-child(12) { border-left-color: #37474f; }
   h2 { margin-bottom: 0.4em; }
 </style>
 
@@ -123,6 +126,9 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.</div>
 <div class="card"><strong>security-auditor</strong><br/>OWASP-structured review. Auth, secrets, injection, privilege escalation.</div>
 <div class="card"><strong>adr-generator</strong><br/>Writes decision records. Captures the why behind architectural choices.</div>
+<div class="card"><strong>perf-analyst</strong><br/>Profiles CPU, memory, and latency hotspots. Returns a measured findings brief; does not implement fixes.</div>
+<div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing. Pre-flight gates, version bump, tag, deploy, post-deploy verification.</div>
+<div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review. CVE scanning, license compliance, lockfile analysis across all ecosystems.</div>
 </div>
 
 ---

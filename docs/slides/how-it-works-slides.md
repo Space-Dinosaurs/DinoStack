@@ -210,6 +210,9 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
   .columns-3 .card:nth-child(7) { border-left-color: #00acc1; }
   .columns-3 .card:nth-child(8) { border-left-color: #c62828; }
   .columns-3 .card:nth-child(9) { border-left-color: #3949ab; }
+  .columns-3 .card:nth-child(10) { border-left-color: #558b2f; }
+  .columns-3 .card:nth-child(11) { border-left-color: #6d4c41; }
+  .columns-3 .card:nth-child(12) { border-left-color: #37474f; }
   .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.6em; }
   h2 { margin-bottom: 0.4em; }
 </style>
@@ -224,6 +227,9 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <div class="card"><strong>qa-engineer</strong><br/>Runtime verification</div>
 <div class="card"><strong>security-auditor</strong><br/>Threat modeling</div>
 <div class="card"><strong>adr-generator</strong><br/>Decision records</div>
+<div class="card"><strong>perf-analyst</strong><br/>Performance profiling</div>
+<div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing</div>
+<div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review</div>
 </div>
 
 <div class="callout">
