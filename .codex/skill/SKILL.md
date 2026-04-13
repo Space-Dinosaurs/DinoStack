@@ -25,19 +25,18 @@ These live in `references/` alongside this skill:
 
 ## Command Templates
 
-These are prompt templates for common workflows. Two invocation paths are available:
+These are prompt templates for common workflows. In Codex, use them from `.codex/commands/<name>.md`:
 
-**Slash commands (preferred):** If the installer has been run, invoke as `/prompts:<name>`:
-- `/prompts:skeptic` - Full Skeptic Protocol orchestration (Worker -> Skeptic -> re-route loop)
-- `/prompts:implement` - Ticket-to-PR flow (Architect -> Orchestration Planner -> Engineer -> Skeptic)
-- `/prompts:wrap` - Session context enrichment and AGENTS.md updates
-- `/prompts:memory-update` - Capture a project decision to memory
-- `/prompts:init-project` - Scaffold a new project with AGENTS.md hierarchy
-- `/prompts:update-protocol` - Governs edits to methodology documents
+- `skeptic` - Full Skeptic Protocol orchestration (Worker -> Skeptic -> re-route loop)
+- `implement` - Ticket-to-PR flow (Architect -> Orchestration Planner -> Engineer -> Skeptic)
+- `wrap` - Session context enrichment and AGENTS.md updates
+- `memory-update` - Capture a project decision to memory
+- `init-project` - Scaffold a new project with AGENTS.md hierarchy
+- `update-protocol` - Governs edits to methodology documents
 
-**Manual paste (fallback):** Read `.codex/commands/<name>.md` and paste into your session.
+Use these templates manually: read the relevant `.codex/commands/<name>.md` file and paste or paraphrase it into your session. Do not assume a `/prompts:<name>` command exists in Codex.
 
-**Important:** The `/agentic-engineering` prerequisite line present in Claude Code command files does not apply here. Codex does not use a skill-loading prerequisite system. When using these templates, simply invoke or paste the content directly.
+**Important:** The `/agentic-engineering` prerequisite line present in Claude Code command files does not apply here. Codex does not use a skill-loading prerequisite system. When using these templates, read and apply the content directly.
 
 ## Named Agents
 
@@ -83,20 +82,18 @@ If the named agent TOML files are not installed (e.g., in a fresh environment be
 Codex supports lifecycle hooks behind a feature flag (`codex_hooks = true` in `~/.codex/config.toml`). The installer enables this flag automatically. Two hooks are wired:
 
 - **`UserPromptSubmit`** - Injects the risk classification reminder as developer context before every prompt. This mirrors the Claude Code `UserPromptSubmit` hook.
-- **`Stop`** - Writes a minimal session context file to `~/.codex/projects/[hash]/context.md` on session end. This is a thin port of the Claude Code `stop-context.js` (captures last assistant message, session ID, model). For richer context, run `/prompts:wrap` manually.
+- **`Stop`** - Writes a minimal session context file to `~/.codex/projects/[hash]/context.md` on session end. This is a thin port of the Claude Code `stop-context.js` (captures last assistant message, session ID, model). For richer context, use the `wrap` template from `.codex/commands/`.
 
 If hooks are not firing, verify `codex_hooks = true` is present in `~/.codex/config.toml` under `[features]`.
 
-## Slash Commands (Custom Prompts)
+## Command Templates
 
-Custom prompts are installed to `~/.codex/prompts/` and invoked as `/prompts:<name>` in the Codex CLI or IDE extension. Available prompts: `skeptic`, `implement`, `wrap`, `memory-update`, `init-project`, `update-protocol`.
-
-**Note:** Codex docs mark custom prompts as deprecated in favor of skills. They are installed for discoverability but may be removed in a future Codex version.
+Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement`, `wrap`, `memory-update`, `init-project`, or `update-protocol` flow in a Codex session.
 
 ## Remaining Limitations vs Claude Code
 
 - **Background subagent spawning** - Codex's subagent model differs from Claude Code. Adapt multi-agent flows to Codex's available spawning mechanism.
-- **Stop hook richness** - The Codex `Stop` hook context is thinner than the Claude Code version (no tool-use transcript). Use `/prompts:wrap` for richer session handoff.
+- **Stop hook richness** - The Codex `Stop` hook context is thinner than the Claude Code version (no tool-use transcript). Use the `wrap` template from `.codex/commands/` for richer session handoff.
 
 Named agents are fully supported via `~/.codex/agents/*.toml` - see the Named Agents section above.
 
