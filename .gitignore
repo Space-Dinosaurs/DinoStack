@@ -1,0 +1,14 @@
+# Claude Code - local settings contain secrets
+.claude/settings.local.json
+
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env*.local
+
+# OS
+.DS_Store
+.vercel
