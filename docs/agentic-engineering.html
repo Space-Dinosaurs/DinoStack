@@ -940,13 +940,13 @@
   <div style="margin-bottom: 8px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 7 agent roles, 4 composed flows, decision rules, and spawn instructions.</div>
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 10 agent roles, 4 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2);">
           <h4 style="color: #5a3d8a;">The Team</h4>
-          <p class="desc">7 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic). Only the engineer writes files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">10 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, perf-analyst, release-orchestrator, dependency-auditor). Only the engineer and release-orchestrator write files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1021,6 +1021,9 @@
           <li><strong>adr-drift-detector</strong> - audits codebase compliance against Architecture Decision Records</li>
           <li><strong>adr-generator</strong> - creates comprehensive ADRs with structured formatting</li>
           <li><strong>qa-engineer</strong> - verifies changes in a real browser, runs test suites, validates against acceptance criteria</li>
+          <li><strong>perf-analyst</strong> - profiles CPU, memory, and latency hotspots; produces a measured findings brief for the engineer. Does not implement fixes.</li>
+          <li><strong>release-orchestrator</strong> - sequences the full release from pre-flight gates through version bump, tag, deploy, and post-deploy verification. Enforces gates; refuses to proceed when any check fails.</li>
+          <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
         </ul>
       </div>
     </div>

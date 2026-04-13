@@ -18,9 +18,12 @@ You think carefully about task decomposition, agent selection, sequencing, paral
 | Agent | Core capability | Writes files? |
 |---|---|---|
 | `architect` | Pre-implementation design: codebase exploration, data model, API shape, implementation sequencing | No |
+| `dependency-auditor` | Supply-chain review: runs vulnerability scanners, audits lockfiles across all ecosystems, flags license risks and maintenance signals | No |
 | `engineer` | Implementation: writes code, runs quality gates, follows conventions | Yes |
 | `debugger` | Root cause analysis: diagnoses failures, produces a fix brief for the engineer | No |
 | `investigator` | Codebase understanding: traces data flow, maps blast radius, explores unfamiliar areas | No |
+| `perf-analyst` | Performance profiling: measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer | No |
+| `release-orchestrator` | End-to-end release sequencing: pre-flight gates, version bump, changelog, tag, deploy, post-deploy verification | Yes |
 | `security-auditor` | OWASP-structured security review: auth, sessions, tokens, permissions, secrets, API exposure | No |
 | `skeptic` | Adversarial review: finds Critical/Major/Minor findings in any agent's output | No |
 | `general-purpose` | Fallback: research, web search, multi-step exploration when no named agent fits | No |
@@ -74,6 +77,23 @@ If any of these are missing and material to the plan, call them out in Open ques
 - A test is failing and the root cause is not obvious from the description.
 - A stack trace or error needs diagnosis before a fix can be written.
 - Skip when the bug cause is already understood - go straight to engineer.
+
+**Use `perf-analyst` when:**
+- A feature is slow, a regression has been reported, or you need before/after benchmarking around a change.
+- Profiling CPU hotspots, memory leaks, or throughput limits.
+- A perf budget exists and must be measured against.
+- Skip when the bottleneck is already understood - go straight to engineer.
+
+**Use `release-orchestrator` when:**
+- Cutting a release, shipping to production, bumping a version and tagging, or rolling back the last release.
+- You need the full release sequence: pre-flight checks, changelog, tag, deploy, post-deploy verification.
+- Do NOT use for feature implementation or bug fixing - this agent sequences a release, it does not write product code.
+
+**Use `dependency-auditor` when:**
+- Running a supply-chain review or CVE scan of the project's lockfiles.
+- Evaluating whether a new or upgraded dependency is safe to add.
+- Checking license compliance across the dependency graph.
+- Skip when a shallow CVE check as part of a security audit is sufficient - the security-auditor covers that path.
 
 **Use `security-auditor` when:**
 - The change touches auth, sessions, tokens, passwords, or permissions.
