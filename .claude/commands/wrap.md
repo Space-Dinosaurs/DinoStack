@@ -4,7 +4,7 @@
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
 
-The Stop hook auto-writes `~/.claude/projects/[hash]/context.md` after every turn with raw session data. `/wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/init-project`: where `/init-project` scaffolds the CLAUDE.md hierarchy, `/wrap` populates it — filling in root and subdirectory CLAUDE.md files with decisions, conventions, stack details, and gotchas learned during sessions.
+The Stop hook auto-writes `~/.claude/projects/[hash]/context.md` after every turn with raw session data. `/wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/init-project`: where `/init-project` scaffolds the AGENTS.md hierarchy, `/wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
 
 ## Your job (main agent)
 
@@ -22,9 +22,9 @@ Survey the current conversation and note down:
 - Tools used during the session
 - Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into context.md only.
 - Identify the project root (absolute cwd).
-- Check for and read: the root `CLAUDE.md` (if it exists), and any `[track]/CLAUDE.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
-- Note which tracks (subdirectories) had files touched this session — these are candidates for CLAUDE.md updates.
-- **Check for missing CLAUDE.md files:** For each directory that had files touched this session, check whether a CLAUDE.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing a CLAUDE.md, note it as a **new CLAUDE.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
+- Check for and read: the root `AGENTS.md` (if it exists), and any `[track]/AGENTS.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
+- Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates.
+- **Check for missing AGENTS.md files:** For each directory that had files touched this session, check whether an AGENTS.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
@@ -35,20 +35,20 @@ This raw data is what the draft Worker will format. The Worker is a fresh agent 
 You are a Worker agent. Format the raw session data below into three outputs. Replace all placeholders with real content from the data provided. If a section genuinely has nothing to say, write the word "None" — never leave brackets or template text.
 
 **Raw session data:**
-[paste your Step 0 notes here verbatim — this covers the task, files touched, errors, next steps, tools used, and stable facts. Do NOT embed existing CLAUDE.md file contents here; those go in the dedicated field below.]
+[paste your Step 0 notes here verbatim — this covers the task, files touched, errors, next steps, tools used, and stable facts. Do NOT embed existing AGENTS.md file contents here; those go in the dedicated field below.]
 
-**Existing CLAUDE.md file contents:**
-[For each CLAUDE.md file read in Step 0, paste its full current content here, clearly labeled with its absolute path, e.g.:
+**Existing AGENTS.md file contents:**
+[For each AGENTS.md file read in Step 0, paste its full current content here, clearly labeled with its absolute path, e.g.:
 
-File: /Users/alice/myapp/CLAUDE.md
+File: /Users/alice/myapp/AGENTS.md
 Content:
 <full file content>
 
-File: /Users/alice/myapp/backend/CLAUDE.md
+File: /Users/alice/myapp/backend/AGENTS.md
 Content:
 <full file content>
 
-If no CLAUDE.md files were found, write "None."]
+If no AGENTS.md files were found, write "None."]
 
 **Output 1 — context.md draft**
 
@@ -91,13 +91,13 @@ Stable = true every session, not just this one. Temporary = only relevant right 
 
 For architectural and technology decisions especially: the entry must clearly state why the chosen approach was selected on its own merits. Alternatives considered and their rejection reasons are useful supporting context but are secondary - the positive reasoning for the choice is the primary requirement. A future session asking "should we reconsider X?" should find the answer in the entry without re-researching it.
 
-**Output 3 — CLAUDE.md updates**
+**Output 3 — AGENTS.md updates**
 
-For each CLAUDE.md file whose current content was provided in the "Existing CLAUDE.md file contents" field above, produce proposed additions only - not a full rewrite. Use that existing content as your baseline: do not propose content already present there.
+For each AGENTS.md file whose current content was provided in the "Existing AGENTS.md file contents" field above, produce proposed additions only - not a full rewrite. Use that existing content as your baseline: do not propose content already present there.
 
 Format each proposed update as:
 
-    File: [full path to CLAUDE.md]
+    File: [full path to AGENTS.md]
     Section: [section name, e.g. "## Decisions", "## Conventions", "## Stack", "## Key Conventions"]
     Add:
     - [bullet point to add]
@@ -105,30 +105,30 @@ Format each proposed update as:
 
 If a section doesn't exist in the target file yet but should be added, indicate:
 
-    File: [path]
+    File: [full path to AGENTS.md]
     New section: [section name]
     Content:
     [section content]
 
 If content in an existing entry should be corrected or superseded, indicate:
 
-    File: [path]
+    File: [full path to AGENTS.md]
     Section: [section name]
     Update: [existing text] → [replacement text]
 
 Rules:
 - Only propose content that was actually established or learned in this session. Do not hallucinate or infer.
-- Do not duplicate content already present in the existing CLAUDE.md (check against the "Existing CLAUDE.md file contents" field provided above).
+- Do not duplicate content already present in the existing AGENTS.md (check against the "Existing AGENTS.md file contents" field provided above).
 - Do not contradict existing content without flagging it as an Update.
-- For root CLAUDE.md: focus on `## Decisions` (resolved architecture decisions as brief bullets) and `## Conventions` (patterns and rules the project follows).
-- For subdir CLAUDE.md: focus on `## Stack`, `## Key Conventions`, and any new relevant categories (Commands, Schema, Flows, Gotchas) that emerged this session.
+- For root AGENTS.md: focus on `## Decisions` (resolved architecture decisions as brief bullets) and `## Conventions` (patterns and rules the project follows).
+- For subdir AGENTS.md: focus on `## Stack`, `## Key Conventions`, and any new relevant categories (Commands, Schema, Flows, Gotchas) that emerged this session.
 - Quality directive: lean and curated. No verbose rationale paragraphs, no outdated entries, no conflicting information. Brief, actionable bullets only.
 - If nothing new for a particular file, write "None" for that file.
-- If no CLAUDE.md files were found in the project, write "None."
+- If no AGENTS.md files were found in the project, write "None."
 
-**New CLAUDE.md files:** For any touched directory explicitly noted as a "new CLAUDE.md candidate" in the raw session data (i.e. the directory had files touched but has no existing CLAUDE.md), propose creating a new file. Use this format:
+**New AGENTS.md files:** For any touched directory explicitly noted as a "new AGENTS.md candidate" in the raw session data (i.e. the directory had files touched but has no existing AGENTS.md), propose creating a new file. Use this format:
 
-    File: [full path to new CLAUDE.md]
+    File: [full path to new AGENTS.md]
     New file: true
     Content:
     # [Directory name]
@@ -152,13 +152,13 @@ Return all three outputs clearly labeled. Do not write to disk.
 
 **Step 2 — When the draft Worker returns, spawn a fresh Skeptic** (background, general-purpose, never resumed).
 
-Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the CLAUDE.md updates. Its findings must only trigger context file or CLAUDE.md rewrites — never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
+Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites — never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
 
-Provide the draft, the existing CLAUDE.md file contents from Step 0, and this adversarial brief:
+Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief:
 
 > "Is this context file accurate and actionable? Check each section: Does Recent Focus correctly describe what was actually happening — or is it vague, generic, or wrong? Are the Next Steps specific enough to act on without reading the chat history (file paths, commands, branch names)? Are Key File Paths complete — is anything relevant omitted? Does Watch Out For capture real gotchas, or is it empty when it shouldn't be? Is any section still template text rather than real content?"
 >
-> "Also review the proposed CLAUDE.md updates (Output 3): Is each proposed addition actually derived from this session's work - or is it generic, hallucinated, or already present in the existing file content provided? Is any content going to the wrong file (project-wide content should go to root; track-specific content should go to the track subdir)? Are updates lean - brief bullets only, no verbose rationale? Does any proposed addition contradict or duplicate existing entries in the same file?"
+> "Also review the proposed AGENTS.md updates (Output 3): Is each proposed addition actually derived from this session's work - or is it generic, hallucinated, or already present in the existing file content provided? Is any content going to the wrong file (project-wide content should go to root; track-specific content should go to the track subdir)? Are updates lean - brief bullets only, no verbose rationale? Does any proposed addition contradict or duplicate existing entries in the same file?"
 
 Require this statement before sign-off: "Active search: I have applied the adversarial brief and actively searched for Critical and Major findings."
 
@@ -227,19 +227,19 @@ Skip Part B entirely if the memory entries input above is "None".
 
 3. **If the file exists**: read its content. For each new entry, check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded)."
 
-**Part C — Write CLAUDE.md updates**
+**Part C — Write AGENTS.md updates**
 
-Skip Part C entirely if the CLAUDE.md updates input above is "None" or all files within it are marked "None".
+Skip Part C entirely if the AGENTS.md updates input above is "None" or all files within it are marked "None".
 
 For each file listed in the updates:
 
 1. Use the Read tool to attempt to read the current file content.
 
 2. **If the file does not exist** (Read returns a file-not-found error): create a minimal stub appropriate for the file type, then continue to steps 3-6 to apply the proposed updates into it.
-   - **Subdirectory CLAUDE.md** (any path that is not the project root's CLAUDE.md - i.e. the file is not at `[cwd]/CLAUDE.md`): create a stub with `# [directory name]` as the H1 (derive from the parent directory of the file path), a `## Stack` section header, and a `## Key Conventions` section header.
-   - **Root CLAUDE.md** (the file is at `[cwd]/CLAUDE.md`): create a stub with `# [project name]` as the H1 (derive from the cwd directory name), a `## Decisions` section header, and a `## Conventions` section header.
+   - **Subdirectory AGENTS.md** (any path that is not the project root's AGENTS.md - i.e. the file is not at `[cwd]/AGENTS.md`): create a stub with `# [directory name]` as the H1 (derive from the parent directory of the file path), a `## Stack` section header, and a `## Key Conventions` section header.
+   - **Root AGENTS.md** (the file is at `[cwd]/AGENTS.md`): create a stub with `# [project name]` as the H1 (derive from the cwd directory name), a `## Decisions` section header, and a `## Conventions` section header.
    If the draft Worker proposed a complete `New file: true` block with content, use that content as the starting file instead of the minimal stub.
-   After creating the stub or new file, proceed with steps 3-6 to apply the proposed updates into it. Return: "Created and updated CLAUDE.md at [path] (N additions)."
+   After creating the stub or new file, proceed with steps 3-6 to apply the proposed updates into it. Return: "Created and updated AGENTS.md at [path] (N additions)."
 
 3. For each `Add:` update: locate the target section. Append the new bullet(s) at the end of that section, before the next `##` heading (or at end of file if it's the last section). Do not duplicate any bullet already present (check semantically, not just string match).
 
@@ -249,7 +249,7 @@ For each file listed in the updates:
 
 6. Write the updated file to disk.
 
-Return: "Updated CLAUDE.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
+Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
 
 **Step 5 — Worktree cleanup.**
 
@@ -257,4 +257,4 @@ If the project is a git repository with a `/cleanup-worktrees` skill available, 
 
 **Step 6 — Confirm completion.**
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, and any CLAUDE.md files updated or skipped). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (context.md, memory.md, and any AGENTS.md files updated or skipped). Also include the cleanup summary if Step 5 ran.

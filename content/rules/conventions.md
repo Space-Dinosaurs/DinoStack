@@ -4,10 +4,10 @@ Never use em dashes (--). Use a regular hyphen (-) instead in all generated text
 
 ## Project Structure Convention
 
-Always structure projects with a lean root `CLAUDE.md` and deeper context in subdirectory `CLAUDE.md` files co-located with the code they describe.
+`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a one-line `CLAUDE.md` containing `@AGENTS.md`. Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
 
-- **Root `CLAUDE.md`** - one-paragraph summary, resolved architecture decisions, cross-cutting conventions, repo structure map. Keep it under ~40 lines. This limit applies to project root CLAUDE.md files. The global `~/.claude/CLAUDE.md` is exempt.
-- **Subdirectory `CLAUDE.md`** (e.g. `backend/CLAUDE.md`, `contracts/CLAUDE.md`) - loaded only when working in that directory. Can be as detailed as needed without polluting other contexts.
+- **Root `AGENTS.md`** - one-paragraph summary, resolved architecture decisions, cross-cutting conventions, repo structure map. Keep it under ~40 lines. This limit applies to project root AGENTS.md files. The global `~/.claude/CLAUDE.md` is exempt.
+- **Subdirectory `AGENTS.md`** (e.g. `backend/AGENTS.md`, `contracts/AGENTS.md`) - loaded only when working in that directory. Can be as detailed as needed without polluting other contexts.
 - **`.claude/settings.json`** - project-scoped MCP servers and shared config (safe to commit).
 - **`.claude/settings.local.json`** - secrets and local env values (always gitignored).
 
@@ -22,7 +22,7 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 **MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
 - Remove entries that are no longer true
-- Do not duplicate what is already in `CLAUDE.md`
+- Do not duplicate what is already in `AGENTS.md`
 - Session-specific state (current task, next steps) belongs in `context.md`, not here
 - Entry format: `- **YYYY-MM-DD:** [what and why, in one sentence]`
 
@@ -53,7 +53,7 @@ The main working tree stays on `development` (or `develop`) at all times. All fe
 
 The rules above address one developer running multiple Claude sessions on the same machine. When two or more developers each have their own Claude session and share a repository, additional coordination is required.
 
-**Branch naming collisions:** When multiple developers work in parallel, generic branch names like `feature/auth-fix` can collide. For repos with multiple active developers, use a developer-prefix convention: `feature/<initials>/<name>` (e.g. `feature/th/auth-fix`). This makes in-flight branches unambiguous at a glance and prevents accidental pushes to a branch owned by someone else. This convention may be overridden per-project in the root `CLAUDE.md`.
+**Branch naming collisions:** When multiple developers work in parallel, generic branch names like `feature/auth-fix` can collide. For repos with multiple active developers, use a developer-prefix convention: `feature/<initials>/<name>` (e.g. `feature/th/auth-fix`). This makes in-flight branches unambiguous at a glance and prevents accidental pushes to a branch owned by someone else. This convention may be overridden per-project in the root `AGENTS.md`.
 
 **Shared `decisions.md` ownership:** `decisions.md` is a single-writer file by convention (per the Memory Protocol). When two developers' Claude sessions both want to write to it, the second write can clobber the first. Before adding a decision: pull latest, append the new entry, then push immediately. Never batch multiple decisions into one uncommitted edit session. If a conflict occurs, merge it manually - do not let an agent auto-resolve a `decisions.md` conflict.
 
@@ -63,4 +63,4 @@ The rules above address one developer running multiple Claude sessions on the sa
 
 **Visibility via draft PRs:** PRs are the coordination mechanism. When a developer starts work, they open a draft PR early so other developers can see what is in flight. This replaces ad-hoc coordination channels and lets contributors spot conflicts before merge time.
 
-**Project overrides:** Any of these rules may be overridden by the root `CLAUDE.md` file of a project.
+**Project overrides:** Any of these rules may be overridden by the root `AGENTS.md` file of a project.

@@ -100,7 +100,7 @@ The agent clones the repo, runs the installer, and walks you through optional to
 
 ## Always run `claude` from the project directory
 
-The **current working directory is the project identity**. Claude Code keys every bit of persistence - memory, CLAUDE.md, session history - to the cwd it was started from.
+The **current working directory is the project identity**. Claude Code keys every bit of persistence - memory, AGENTS.md, session history - to the cwd it was started from.
 
 ```bash
 cd ~/code/myproject

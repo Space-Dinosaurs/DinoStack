@@ -93,7 +93,7 @@ style: |
 
 <!-- _class: lead -->
 
-# The CLAUDE.md Hierarchy
+# The AGENTS.md Hierarchy
 
 How agents inherit context at the right level of detail
 
@@ -119,9 +119,39 @@ The hierarchy gives agents the right context at the right time - broad rules glo
 
 ---
 
+## AGENTS.md: the cross-tool standard
+
+<style scoped>
+  ul { font-size: 0.88em; }
+  ul li { margin: 0.25em 0; }
+  .callout { font-size: 0.84em; padding: 0.5em 1em; }
+  .columns .card { padding: 0.7em 0.9em; font-size: 0.85em; }
+</style>
+
+**`AGENTS.md` is the single source of project instructions** - the cross-tool standard supported natively by OpenAI Codex CLI and readable by Claude Code via a one-line import.
+
+<div class="columns">
+<div class="card" style="border-left-color: #1565c0;">
+<strong>Claude Code users</strong><br/><br/>
+Create <code>CLAUDE.md</code> at the repo root containing exactly one line:<br/>
+<code>@AGENTS.md</code><br/><br/>
+Claude Code imports <code>AGENTS.md</code> transparently. No duplication needed.
+</div>
+<div class="card" style="border-left-color: #2e7d32;">
+<strong>Codex CLI users</strong><br/><br/>
+Codex reads <code>AGENTS.md</code> natively. No extra setup required - just create <code>AGENTS.md</code> and it loads automatically.
+</div>
+</div>
+
+<div class="callout">
+Sources: <a href="https://code.claude.com/docs/en/memory.md#agents-md">Anthropic import-syntax docs</a> · <a href="https://developers.openai.com/codex/guides/agents-md">OpenAI AGENTS.md guide</a> · <a href="https://agents.md">agents.md</a>
+</div>
+
+---
+
 <!-- _class: highlight -->
 
-## Three tiers of CLAUDE.md
+## Three tiers of AGENTS.md
 
 <style scoped>
   .columns-3 .card { padding: 0.7em 0.9em; font-size: 0.82em; line-height: 1.35; }
@@ -134,22 +164,22 @@ The hierarchy gives agents the right context at the right time - broad rules glo
 <div class="card" style="border-left-color: #7b1fa2;">
 <strong>Global</strong><br/>
 <code>~/.claude/CLAUDE.md</code><br/>
-Always loaded in every session. Behavioral rules, skill-loading triggers, universal preferences. Under ~30 lines.
+Always loaded in every Claude Code session. Behavioral rules, skill-loading triggers, universal preferences. Under ~30 lines.
 </div>
 <div class="card" style="border-left-color: #1565c0;">
 <strong>Project root</strong><br/>
-<code>[repo]/CLAUDE.md</code><br/>
+<code>[repo]/AGENTS.md</code><br/>
 One-paragraph summary, resolved architecture decisions, repo structure, tools, conventions. Under ~40 lines.
 </div>
 <div class="card" style="border-left-color: #2e7d32;">
 <strong>Subdirectory</strong><br/>
-<code>[repo]/[track]/CLAUDE.md</code><br/>
+<code>[repo]/[track]/AGENTS.md</code><br/>
 Stack details, track-specific patterns, gotchas, schemas. Loaded only when working in that directory. Under ~60 lines.
 </div>
 </div>
 
 <div class="callout">
-Each tier inherits from the one above. An agent working in <code>api/</code> sees: global rules + project root + api/CLAUDE.md. Line limits prevent context bloat - every line in CLAUDE.md is loaded into every agent's context window, so keeping files lean directly improves accuracy and speed.
+Each tier inherits from the one above. An agent working in <code>api/</code> sees: global rules + project root + api/AGENTS.md. Line limits prevent context bloat - every line in AGENTS.md is loaded into every agent's context window, so keeping files lean directly improves accuracy and speed.
 </div>
 
 ---
@@ -169,7 +199,7 @@ Each tier inherits from the one above. An agent working in <code>api/</code> see
 | **Project root** | Project name, decisions (brief), repo map, tools, tracker config | "Base branch: develop" |
 | **Subdirectory** | Stack, key conventions, commands, schemas, gotchas | "All API routes use Zod validation" |
 
-And what does **not** go in CLAUDE.md:
+And what does **not** go in AGENTS.md:
 
 | File | Purpose |
 |---|---|
@@ -178,7 +208,7 @@ And what does **not** go in CLAUDE.md:
 | `MEMORY.md` | Stable facts learned across sessions |
 
 <div class="callout">
-CLAUDE.md holds resolved decisions as brief bullets. The <em>rationale</em> (alternatives, tradeoffs) belongs in decisions.md so root stays under 40 lines.
+AGENTS.md holds resolved decisions as brief bullets. The <em>rationale</em> (alternatives, tradeoffs) belongs in decisions.md so root stays under 40 lines.
 </div>
 
 ---
@@ -193,15 +223,16 @@ CLAUDE.md holds resolved decisions as brief bullets. The <em>rationale</em> (alt
 </style>
 
 1. **Discovery phase** - auto-detects project name, description, tracks, database, web UI, tracker
-2. **Creates root CLAUDE.md** - one-paragraph summary, decisions section, repo structure map, tools
-3. **Creates track CLAUDE.md files** - one per detected subdirectory (e.g. `api/CLAUDE.md`, `web/CLAUDE.md`)
+2. **Creates root AGENTS.md** - one-paragraph summary, decisions section, repo structure map, tools
+3. **Creates track AGENTS.md files** - one per detected subdirectory (e.g. `api/AGENTS.md`, `web/AGENTS.md`)
 4. **Creates supporting files** - `.claude/settings.json`, docs structure, MEMORY.md stub
 
 ```
 myproject/
-  CLAUDE.md              ← root (under 40 lines)
-  api/CLAUDE.md          ← backend track detail
-  web/CLAUDE.md          ← frontend track detail
+  AGENTS.md              ← root (under 40 lines)
+  CLAUDE.md              ← one line: @AGENTS.md  (Claude Code loader)
+  api/AGENTS.md          ← backend track detail
+  web/AGENTS.md          ← frontend track detail
   .claude/settings.json  ← MCP servers, shared config
 ```
 
@@ -226,20 +257,20 @@ Running /init-project is idempotent - it updates existing files and adds new tra
 
 - Files touched this session
 - Git diff and commit history
-- Existing CLAUDE.md content
+- Existing AGENTS.md content
 - Current context.md
 </div>
 <div class="card">
 <strong>What /wrap writes</strong>
 
-- Updates root CLAUDE.md with new decisions
-- Creates/updates track CLAUDE.md files
+- Updates root AGENTS.md with new decisions
+- Creates/updates track AGENTS.md files
 - Enriches context.md with session summary
 - Adds stable facts to MEMORY.md
 </div>
 </div>
 
-- If you touched a new subdirectory, /wrap creates its track CLAUDE.md automatically
+- If you touched a new subdirectory, /wrap creates its track AGENTS.md automatically
 - Stable facts (architecture, gotchas, setup commands) get extracted and persisted
 - Ephemeral details (current task, next steps) stay in context.md where they belong
 

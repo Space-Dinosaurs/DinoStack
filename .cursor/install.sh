@@ -116,7 +116,7 @@ for f in "${warned_commands[@]+"${warned_commands[@]}"}"; do echo "  ! $f"; done
 # ---------------------------------------------------------------------------
 
 echo "Running initial build..."
-bash "$REPO_DIR/.claude/build.sh"
+[[ -f "$REPO_DIR/.claude/build.sh" ]] && bash "$REPO_DIR/.claude/build.sh"
 bash "$REPO_DIR/.cursor/build.sh"
 
 # ---------------------------------------------------------------------------
@@ -187,8 +187,8 @@ echo "    7. $REPO_DIR/docs/slides/skill-creator-slides.html"
 echo "       - how agents and skills are built and evaluated with the skill creator"
 echo "    8. $REPO_DIR/docs/slides/skeptic-protocol-slides.html"
 echo "       - adversarial review methodology and the Skeptic loop"
-echo "    9. $REPO_DIR/docs/slides/claude-md-hierarchy-slides.html"
-echo "       - the three-tier CLAUDE.md context hierarchy"
+echo "    9. $REPO_DIR/docs/slides/agents-md-hierarchy-slides.html"
+echo "       - the three-tier AGENTS.md context hierarchy"
 echo "   10. $REPO_DIR/docs/slides/contributing-slides.html"
 echo "       - how to contribute to the repo"
 echo "   11. $REPO_DIR/docs/agentic-engineering.html"

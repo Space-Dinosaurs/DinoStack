@@ -2,7 +2,7 @@
 
 # /init-project
 
-Scaffold a new project with the standard CLAUDE.md hierarchy, CLI tool config, and gitignore.
+Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, and gitignore.
 
 ## Steps
 
@@ -20,7 +20,7 @@ Before prompting for anything, silently scan the project to derive as many confi
 
 **Web UI** — scan `package.json` deps and scripts. Match in order: `next` dep + `dev` script → Next.js (default port 3000); `@remix-run/react` or `@remix-run/node` → Remix (port 3000); `react-scripts` → CRA (port 3000); `vite` dep + `dev` script (check `vite.config.ts`/`vite.config.js` for `server.port`; default 5173) → Vite; `@vue/cli-service` → Vue CLI (port 8080); `svelte` + `vite` → SvelteKit (port 5173); `astro` → Astro (port 4321). Package manager: prefer `pnpm` if `pnpm-lock.yaml` exists, `yarn` if `yarn.lock`, `bun` if `bun.lock`/`bun.lockb`, else `npm`. No match = no signal (omit). Compose dev command as `[package-manager] run dev` (or `[pm] dev` for bun).
 
-**Tracker** — check in order: (1) if `## Tracker` or `## Linear` already exists in `CLAUDE.md` → tracker is already configured, stop tracker detection, annotate as "(already configured)"; (2) check `~/.claude.json` `mcpServers` for keys `linear` or `mcp-atlassian`; (3) scan `git log --oneline -50` for ticket patterns `[A-Z][A-Z0-9]{1,9}-\d+` — if a prefix appears 3+ times, flag as a signal; (4) check for `.linear/` directory. Signals: Linear MCP entry or `.linear/` dir = Linear signal; `mcp-atlassian` entry = Jira signal; commit patterns alone = low confidence. No signals = no prompt (leave tracker unconfigured).
+**Tracker** — check in order: (1) if `## Tracker` or `## Linear` already exists in `AGENTS.md` → tracker is already configured, stop tracker detection, annotate as "(already configured)"; (2) check `~/.claude.json` `mcpServers` for keys `linear` or `mcp-atlassian`; (3) scan `git log --oneline -50` for ticket patterns `[A-Z][A-Z0-9]{1,9}-\d+` — if a prefix appears 3+ times, flag as a signal; (4) check for `.linear/` directory. Signals: Linear MCP entry or `.linear/` dir = Linear signal; `mcp-atlassian` entry = Jira signal; commit patterns alone = low confidence. No signals = no prompt (leave tracker unconfigured).
 
 **GitHub CLI** — run `which gh`. If present, treat as a high-confidence signal and include the `gh` line in `## Tools` automatically. If absent, omit.
 
@@ -37,7 +37,7 @@ Discovery complete. Here's what I found:
   Database CLI:  [value]         ([e.g. "detected @prisma/client"])
   Web UI:        [command, port] ([e.g. "detected Next.js"])
   GitHub CLI:    gh               (detected on PATH)
-  Tracker:       [value]         ([e.g. "from CLAUDE.md ## Linear" or "detected in ~/.claude.json"])
+  Tracker:       [value]         ([e.g. "from AGENTS.md ## Linear" or "detected in ~/.claude.json"])
 
 Fields not shown were not detected and are optional — you can add them now or later.
 
@@ -72,14 +72,14 @@ Wait for tracker confirmation before proceeding.
 
 ### 2. File scan and mode detection
 
-**Idempotent mode trigger** — if `CLAUDE.md` already exists and contains any of the standard sections (`## Tools`, `## Docs`, `## Conventions`, `## Linear`, or `## Tracker`), this is an **update run**, not a greenfield run. Switch to the update mode algorithm (Step 2a) instead of the normal create flow.
+**Idempotent mode trigger** — if `AGENTS.md` already exists and contains any of the standard sections (`## Tools`, `## Docs`, `## Conventions`, `## Linear`, or `## Tracker`), this is an **update run**, not a greenfield run. Switch to the update mode algorithm (Step 2a) instead of the normal create flow.
 
-**Greenfield mode** — if `CLAUDE.md` does not exist, or exists but contains none of the standard sections, proceed with the normal create flow (Steps 3 onward).
+**Greenfield mode** — if `AGENTS.md` does not exist, or exists but contains none of the standard sections, proceed with the normal create flow (Steps 3 onward).
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
-- `CLAUDE.md` (root)
-- `[track]/CLAUDE.md` for each track the user named (omit if no tracks were named)
+- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a one-line `CLAUDE.md` containing `@AGENTS.md`.
+- `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
 - `.claude/qa.md` (only if web UI confirmed in Step 1)
@@ -91,8 +91,8 @@ Before writing any files, check which files already exist. The full set of files
 
 ```
 Missing (will be created):
-  - CLAUDE.md
-  - backend/CLAUDE.md
+  - AGENTS.md
+  - backend/AGENTS.md
   - ...
 
 Already exists (will be left untouched or curated in place):
@@ -105,7 +105,7 @@ Already exists (will be left untouched or curated in place):
 
 **`.claude/settings.local.json` - always skip silently if it exists.** Do not ask. Do not overwrite. Remind the user: "`.claude/settings.local.json` already exists and was left untouched - it may contain real secrets. Add any new env keys manually."
 
-**`CLAUDE.md` (root) - if it exists, curate in place.** Do not skip. Do not overwrite wholesale. Read it and reorganize it to conform to the target structure (under 40 lines). See Step 3 for the curation process.
+**`AGENTS.md` (root) - if it exists, curate in place.** Do not skip. Do not overwrite wholesale. Read it and reorganize it to conform to the target structure (under 40 lines). See Step 3 for the curation process.
 
 **All other existing files - leave untouched.** Note them in the scan output. Do not ask. Do not overwrite.
 
@@ -120,9 +120,9 @@ This check is unconditional - run it whether `.gitignore` was just created or wa
 
 ### 2a. Update mode algorithm
 
-This step runs only when Step 2 detects an existing configured `CLAUDE.md` (update run).
+This step runs only when Step 2 detects an existing configured `AGENTS.md` (update run).
 
-**Compute the diff** — compare current `CLAUDE.md` and adjacent files against what Step 1 discovery + confirmation implies:
+**Compute the diff** — compare current `AGENTS.md` and adjacent files against what Step 1 discovery + confirmation implies:
 
 1. **Legacy `## Linear` migration** — if `## Linear` exists but is missing `Workspace:` or `QA assignee ID:` fields:
    - Attempt to derive `Workspace`: scan git remote origin URL and last 50 commit messages for `linear.app/<slug>/` URL patterns. Use the slug if found.
@@ -148,7 +148,7 @@ This step runs only when Step 2 detects an existing configured `CLAUDE.md` (upda
 ```
 Here's what I'd update:
 
-  CLAUDE.md:
+  AGENTS.md:
     - Migrate ## Linear to new shape (Workspace: [value], QA assignee ID: [value or "not set"])
     - Append to ## Tools: [new entry]
 
@@ -158,37 +158,37 @@ Here's what I'd update:
   docs/research/:
     - Create .gitkeep (directory missing)
 
-No changes needed for: .gitignore, .claude/settings.json, [track] CLAUDE.md files.
+No changes needed for: .gitignore, .claude/settings.json, [track] AGENTS.md files.
 
 Proceed? [y/N]
 ```
 
 On "y": apply all planned changes. On "n" or Enter: abort with "Update cancelled. No files were modified."
 
-**Never destroy existing content.** All changes are additive or migrate-in-place. The `## Decisions` and `## Conventions` content is never overwritten — sections are only added if absent.
+**Never destroy existing content.** All changes are additive or migrate-in-place. The `## Decisions` and `## Conventions` content in `AGENTS.md` is never overwritten — sections are only added if absent.
 
 After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 through 11.
 
-### 3. Curate or create root `CLAUDE.md`
+### 3. Curate or create root `AGENTS.md`
 
-**If `CLAUDE.md` does not exist:** create from scratch using the template below. No curation needed - proceed directly.
+**If `AGENTS.md` does not exist:** create from scratch using the template below. No curation needed - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
 
-**If `CLAUDE.md` exists:** perform intelligent curation with Worker + Skeptic review:
+**If `AGENTS.md` exists:** perform intelligent curation with Worker + Skeptic review:
 
 **Main agent pre-work (inline, before spawning Worker):**
-Read the existing `CLAUDE.md` and identify two groups of content:
+Read the existing `AGENTS.md` and identify two groups of content:
 
-- **Memory candidates** - content that belongs in `MEMORY.md`, not `CLAUDE.md`: detailed rationale paragraphs, implementation details (code snippets, schema explanations), setup command sequences, decision alternatives considered, anything that reads as "what we learned" or "here is how it works" rather than "we decided X".
-- **Architecture content to keep** - content that belongs in `CLAUDE.md`: resolved decisions expressed as brief bullets (1 sentence each), cross-cutting conventions, repo structure map, tools and their usage, docs structure.
+- **Memory candidates** - content that belongs in `MEMORY.md`, not `AGENTS.md`: detailed rationale paragraphs, implementation details (code snippets, schema explanations), setup command sequences, decision alternatives considered, anything that reads as "what we learned" or "here is how it works" rather than "we decided X".
+- **Architecture content to keep** - content that belongs in `AGENTS.md`: resolved decisions expressed as brief bullets (1 sentence each), cross-cutting conventions, repo structure map, tools and their usage, docs structure.
 
-**Spawn a background Worker** (labeled "CLAUDE.md curation Worker") with:
-- The raw existing `CLAUDE.md` content
+**Spawn a background Worker** (labeled "AGENTS.md curation Worker") with:
+- The raw existing `AGENTS.md` content
 - The memory candidates identified above
 - The Step 1 answers (project name, description, tracks, tools)
-- The target `CLAUDE.md` structure below
-- Instruction to produce two artifacts: (1) the curated `CLAUDE.md` content conforming to the target structure, (2) `MEMORY.md` entries for each memory candidate using format `- **YYYY-MM-DD:** [what and why, one-two sentences]` with today's date
+- The target `AGENTS.md` structure below
+- Instruction to produce two artifacts: (1) the curated `AGENTS.md` content conforming to the target structure, (2) `MEMORY.md` entries for each memory candidate using format `- **YYYY-MM-DD:** [what and why, one-two sentences]` with today's date
 
-**Target `CLAUDE.md` structure (under 40 lines):**
+**Target `AGENTS.md` structure (under 40 lines):**
 - H1: project name
 - One-paragraph description
 - `## Decisions` - resolved architecture decisions as brief bullets, no rationale paragraphs
@@ -199,7 +199,7 @@ Read the existing `CLAUDE.md` and identify two groups of content:
 - `## Conventions`
 
 **Spawn a fresh Skeptic** after the Worker returns with this adversarial brief:
-> "Is the curated CLAUDE.md under 40 lines? Does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated CLAUDE.md preserve all architecture decisions from the original, just compressed to brief bullets?"
+> "Is the curated AGENTS.md under 40 lines? Does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
 
 Require sign-off format:
 ```
@@ -209,14 +209,14 @@ Active search: I have applied the adversarial brief and actively searched for Cr
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
-After sign-off: write the curated `CLAUDE.md`, then merge the Worker's memory entries into `MEMORY.md` using semantic dedup - skip any entry already captured, supersede if updated, append if new. Before merging, check whether `MEMORY.md` exists. If it does not exist, create it with the stub header first (same content as Step 7), then merge. This ensures Step 8's guard ("if the file already exists, leave the stub header step") remains correct.
+After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory entries into `MEMORY.md` using semantic dedup - skip any entry already captured, supersede if updated, append if new. Before merging, check whether `MEMORY.md` exists. If it does not exist, create it with the stub header first (same content as Step 7), then merge. This ensures Step 8's guard ("if the file already exists, leave the stub header step") remains correct.
 
-**`CLAUDE.md` template (use for new files, and as the structural target for curation):**
+**`AGENTS.md` template (use for new files, and as the structural target for curation):**
 - H1: project name
 - One-paragraph description. If no description was provided, use `<!-- TODO: Add one-paragraph description -->` as the placeholder.
 - `## Decisions` - resolved architecture decisions as brief bullets - fill in as the project takes shape. Use a single TODO bullet placeholder if no decisions are known yet. Label it clearly: "Resolved architecture decisions as brief bullets - fill in as the project takes shape."
 - Repo structure map listing each track directory with a one-line description (omit if no tracks were named)
-- Note: "Each track directory has its own `CLAUDE.md` with deeper context." (omit if no tracks were named)
+- Note: "Each track directory has its own `AGENTS.md` with deeper context." (omit if no tracks were named)
 - `## Tools` section - document the CLI tools confirmed in Step 1:
   ```markdown
   ## Tools
@@ -233,19 +233,15 @@ After sign-off: write the curated `CLAUDE.md`, then merge the Worker's memory en
   - `docs/overview/` - high-level summaries and onboarding docs
   ```
   Always include this section.
-- `## Conventions` - seed with one bullet, then filled in as the project evolves:
-  ```markdown
-  ## Conventions
-  - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
-  ```
+- `## Conventions` - a single TODO bullet placeholder; filled in as the project evolves.
 
 Keep it under 40 lines.
 
-### 4. Create subdirectory `CLAUDE.md` files
+### 4. Create subdirectory `AGENTS.md` files
 
 If the user provided no tracks (skipped, said "none", or "not yet"), skip this step entirely.
 
-For each track the user named, **only create `[track]/CLAUDE.md` if it does not already exist** - never overwrite an existing track `CLAUDE.md`. For missing ones, create with:
+For each track the user named, **only create `[track]/AGENTS.md` if it does not already exist** - never overwrite an existing track `AGENTS.md`. For missing ones, create with:
 - H1: `[Project Name] - [Track Name]`
 - `## Stack` section with a TODO bullet
 - `## Key Conventions` section with a TODO bullet
@@ -316,7 +312,7 @@ If the file does not already exist, create the memory directory and seed the fil
 <!-- Entry format: - **YYYY-MM-DD:** [what and why, one sentence] -->
 ```
 
-If the file already exists (e.g. because CLAUDE.md curation in Step 3 merged entries into it), leave the stub header step and proceed to Step 9.
+If the file already exists (e.g. because AGENTS.md curation in Step 3 merged entries into it), leave the stub header step and proceed to Step 9.
 
 ### 9. Create `.gitignore`
 
@@ -384,7 +380,7 @@ If `.claude/settings.local.json` already exists, merge `LINEAR_API_KEY` into the
 
 If `lc` was already installed, run `lc doctor` to verify the connection. If it fails and the user provided a key, re-init with `lc init --api-key`.
 
-**Add `## Linear` section to `CLAUDE.md`** (canonical shape):
+**Add `## Linear` section to `AGENTS.md`** (canonical shape):
 
 ```markdown
 ## Linear
@@ -421,7 +417,7 @@ Get a Cloud API token at: https://id.atlassian.com/manage-profile/security/api-t
 Find your Atlassian account ID at: https://[your-instance].atlassian.net/rest/api/3/myself
 ```
 
-**Add `## Tracker` section to `CLAUDE.md`** (canonical shape):
+**Add `## Tracker` section to `AGENTS.md`** (canonical shape):
 
 ```markdown
 ## Tracker
@@ -443,16 +439,16 @@ No tracker setup needed. Skip this step.
 After all files are processed, print a short summary with three sections:
 
 **Created:** list every file that was newly written.
-**Curated:** list `CLAUDE.md` if it was reorganized in place (with a note: "reorganized to target structure; extracted facts moved to MEMORY.md").
-**Skipped (already existed):** list every file that was left untouched and why (auto-skipped `.claude/settings.local.json`, or existing track `CLAUDE.md`, or other existing files left untouched).
+**Curated:** list `AGENTS.md` if it was reorganized in place (with a note: "reorganized to target structure; extracted facts moved to MEMORY.md").
+**Skipped (already existed):** list every file that was left untouched and why (auto-skipped `.claude/settings.local.json`, or existing track `AGENTS.md`, or other existing files left untouched).
 
 Then remind the user to:
-1. Update the `## Tools` section in root `CLAUDE.md` as new CLI tools are added to the project over time
-2. Add project-specific conventions to `## Conventions` in root `CLAUDE.md` as the project takes shape
-3. Grow each `[track]/CLAUDE.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
-4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `CLAUDE.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
+1. Update the `## Tools` section in root `AGENTS.md` as new CLI tools are added to the project over time
+2. Fill in the `## Conventions` section in root `AGENTS.md` as the project takes shape
+3. Grow each `[track]/AGENTS.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
+4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
-6. Confirm `gh` is installed and update the `## Tools` section in root `CLAUDE.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1
+6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1
 7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created
 8. *(If Jira was configured)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 9. *(If Linear was configured without a QA assignee UUID)* You skipped the QA assignee UUID — `/implement` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.

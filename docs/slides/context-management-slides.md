@@ -145,7 +145,7 @@ Small stuff stays direct and cheap. Big stuff is delegated out. Neither bloats t
 <div class="columns-3">
 <div class="card">
 <strong>/init-project</strong><br/>
-One-time per repo. Seeds CLAUDE.md, captures conventions, bootstraps memory.
+One-time per repo. Seeds AGENTS.md, captures conventions, bootstraps memory.
 </div>
 <div class="card">
 <strong>Same project dir</strong><br/>
@@ -165,7 +165,7 @@ End-of-session ritual. Commits learnings into memory so the next session reads r
 
 ## The load-bearing habit: run from the project directory
 
-The **cwd is the project directory**. Every bit of persistence - CLAUDE.md, MEMORY.md, session history, `/wrap` outputs - is keyed to the directory `claude` was started in. Nothing else matters for memory continuity.
+The **cwd is the project directory**. Every bit of persistence - AGENTS.md, MEMORY.md, session history, `/wrap` outputs - is keyed to the directory `claude` was started in. Nothing else matters for memory continuity.
 
 ```bash
 cd ~/code/myproject
@@ -192,8 +192,8 @@ Session naming (<code>-n myproject</code>) and resumption (<code>-r</code>) are 
 2. You work a focused session - one clear goal
 3. Heavy lifting is delegated so the main thread stays clean
 4. **`/wrap`** commits learnings into memory
-5. **Same cwd** next time - Claude Code reads the same memory and CLAUDE.md automatically
-6. Next session starts with richer CLAUDE.md, fuller MEMORY.md, sharper defaults
+5. **Same cwd** next time - Claude Code reads the same memory and AGENTS.md automatically
+6. Next session starts with richer AGENTS.md, fuller MEMORY.md, sharper defaults
 7. Repeat - each loop is a step up, not a reset
 
 <div class="callout">
@@ -220,7 +220,7 @@ Fires after every turn. Writes <code>context.md</code> with recent user messages
 </div>
 <div class="card">
 <strong>/wrap (on demand)</strong><br/>
-Replaces the stop hook's raw snapshot with a structured, enriched version. Captures decisions, conventions, and gotchas into CLAUDE.md and memory. Merges across sessions.
+Replaces the stop hook's raw snapshot with a structured, enriched version. Captures decisions, conventions, and gotchas into AGENTS.md and memory. Merges across sessions.
 </div>
 </div>
 
@@ -241,7 +241,7 @@ The stop hook is the safety net - you always get <em>something</em>. <code>/wrap
   .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
 
-You can run **multiple sessions in parallel** - open separate terminals, each with `claude` in the same project directory. They share the same persistent memory and CLAUDE.md.
+You can run **multiple sessions in parallel** - open separate terminals, each with `claude` in the same project directory. They share the same persistent memory and AGENTS.md.
 
 When you `/wrap` each session, they merge into a shared `context.md` using a **rolling window of five slots** (Session A through E):
 

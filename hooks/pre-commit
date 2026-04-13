@@ -16,6 +16,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
   echo "[pre-commit] content/ changes detected - running builds..."
   bash "$REPO_DIR/.claude/build.sh"
   bash "$REPO_DIR/.cursor/build.sh"
+  bash "$REPO_DIR/.codex/build.sh"
 
   # Stage generated files
   git add \
@@ -24,7 +25,11 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.claude/commands/"*.md \
     "$REPO_DIR/.cursor/rules/"*.mdc \
     "$REPO_DIR/.cursor/rules/references/"*.md \
-    "$REPO_DIR/.cursor/commands/"*.md
+    "$REPO_DIR/.cursor/commands/"*.md \
+    "$REPO_DIR/.codex/AGENTS.md" \
+    "$REPO_DIR/.codex/references/"*.md \
+    "$REPO_DIR/.codex/commands/"*.md \
+    "$REPO_DIR/.codex/skill/references/"*.md
 
   echo "[pre-commit] Generated files staged."
 else
