@@ -18,7 +18,7 @@ HOOKS_DST="$HOME/.codex/hooks.json"
 
 CONFIG_FILE="$HOME/.codex/config.toml"
 HOOKS_FLAG_MARKER="$HOME/.codex/.agentic-eng-added-codex-hooks-flag"
-LEGACY_PROMPTS_BUILD="$REPO_DIR/.codex/prompts"
+LEGACY_PROMPTS_OLD_SRC_PREFIX="$HOME/agentic-engineering/.codex/prompts"
 LEGACY_PROMPTS_DST="$HOME/.codex/prompts"
 
 # ---------------------------------------------------------------------------
@@ -208,18 +208,15 @@ fi
 
 echo "Removing legacy custom prompt symlinks..."
 
-if [[ -d "$LEGACY_PROMPTS_DST" ]] && [[ -d "$LEGACY_PROMPTS_BUILD" ]]; then
+if [[ -d "$LEGACY_PROMPTS_DST" ]]; then
   removed_count=0
-  for built in "$LEGACY_PROMPTS_BUILD/"*.md; do
-    [ -f "$built" ] || continue
-    bname="$(basename "$built")"
-    link_dst="$LEGACY_PROMPTS_DST/$bname"
-
-    if [[ -L "$link_dst" ]]; then
-      current_target="$(readlink "$link_dst")"
-      if [[ "$current_target" == "$built" ]]; then
+  for link_dst in "$LEGACY_PROMPTS_DST/"*.md; do
+    [ -L "$link_dst" ] || continue
+    current_target="$(readlink "$link_dst")"
+    case "$current_target" in
+      "$LEGACY_PROMPTS_OLD_SRC_PREFIX"/*.md)
         rm "$link_dst"
-        echo "  - Removed legacy prompt symlink: $bname"
+        echo "  - Removed legacy prompt symlink: $(basename "$link_dst")"
         removed_count=$((removed_count + 1))
 
         latest_backup="$(ls -t "${link_dst}.backup-"* 2>/dev/null | head -1 || true)"
@@ -227,16 +224,14 @@ if [[ -d "$LEGACY_PROMPTS_DST" ]] && [[ -d "$LEGACY_PROMPTS_BUILD" ]]; then
           mv "$latest_backup" "$link_dst"
           echo "    + Restored backup: $(basename "$latest_backup")"
         fi
-      fi
-    fi
+        ;;
+    esac
   done
   if [[ $removed_count -eq 0 ]]; then
     echo "  = No legacy prompt symlinks found"
   fi
-elif [[ ! -d "$LEGACY_PROMPTS_DST" ]]; then
-  echo "  = ~/.codex/prompts/ not found - nothing to do"
 else
-  echo "  = No local legacy prompt build directory found - nothing to do"
+  echo "  = ~/.codex/prompts/ not found - nothing to do"
 fi
 
 # ---------------------------------------------------------------------------

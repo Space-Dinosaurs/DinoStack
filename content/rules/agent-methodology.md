@@ -100,6 +100,10 @@ Risk: Elevated + Cleanup - [specific signal]
 Applying adversarial review with /simplify cleanup pass.
 ```
 
+## Post-sign-off finding promotion
+
+After Skeptic sign-off on any Elevated task (and after any QA gate), the conductor performs a promotion check. If any Major or Critical finding from the completed task represents a recurring pattern (seen 2+ times in this project) or is novel but has outsized blast radius (data loss, security, production outage class), add or update an entry in `.claude/findings.md`. This rule fires after every Skeptic sign-off in any context - not only inside `/implement-ticket`. Full promotion criteria, entry format, and who reads the file: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
+
 ## QA Gate
 
 **Post-Skeptic QA for UI-visible changes.** After Skeptic sign-off on any Elevated unit, check whether the project has a `.claude/qa.md` with a `## QA triggers` section containing file patterns. If the reviewed diff includes files matching any trigger pattern, spawn `qa-engineer` before declaring the unit complete. QA failure blocks completion - the conductor spawns a fix engineer, then re-runs QA.
@@ -197,6 +201,9 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/subage
 
 **Agent team composition** - which agent to use and how they compose:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
+
+**Findings flywheel** - when promoting a finding to `.claude/findings.md` or when the Skeptic checks for repeated patterns:
+Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md` for entry format, promotion criteria, who reads the file, and the regression test obligation for fixed findings.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
 Check `.claude/qa.md` for trigger patterns. If the diff matches, spawn `qa-engineer`. The qa-engineer reads `.claude/qa.md` for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.

@@ -19,6 +19,10 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
 
+## Module Manifests
+
+**Non-trivial modules must carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) requires a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a Major finding.
+
 ## Code Quality Gates
 
 **After writing or modifying code, run the project's lint, typecheck, and test commands.** All must pass with zero errors before work is complete.

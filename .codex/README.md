@@ -6,9 +6,9 @@
 - **Reference docs** (4) - skeptic protocol, subagent protocol, agent team, design goals
 - **Global skill** - `~/.agents/skills/agentic-engineering/` with SKILL.md and bundled references
 - **Global AGENTS.md** - `~/.codex/AGENTS.md` symlinked to `.codex/AGENTS.md` for global session loading
-- **Named agents** - `~/.codex/agents/` symlinked to `.codex/agents/` - 10 agent TOML files generated from `content/agents/*.md`
+- **Named agents** - `~/.codex/agents/` symlinked to `.codex/agents/` - 13 agent TOML files generated from `content/agents/*.md`
 - **Lifecycle hooks** - `~/.codex/hooks.json` symlinked to `.codex/hooks.json` - UserPromptSubmit (risk reminder) and Stop (context save)
-- **Command templates** - `.codex/commands/` contains the workflow templates for `skeptic`, `implement`, `wrap`, `memory-update`, `init-project`, and `update-protocol`
+- **Command templates** - `.codex/commands/` contains the workflow templates for `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, and `update-protocol`
 
 ## Installation
 
@@ -72,6 +72,9 @@ The following agents are installed:
 | `investigator` | Codebase exploration and blast radius mapping |
 | `qa-engineer` | Runtime verification in a browser after Skeptic sign-off |
 | `security-auditor` | OWASP-structured security audit |
+| `dependency-auditor` | Supply-chain review across lockfiles, CVEs, and licenses |
+| `perf-analyst` | Performance profiling and regression analysis |
+| `release-orchestrator` | Release sequencing, versioning, deploy, and rollback coordination |
 | `orchestration-planner` | Decompose a complex goal into a sequenced agent execution plan |
 | `skeptic` | Adversarial review of Worker output |
 | `adr-drift-detector` | Audit codebase compliance against Architecture Decision Records |
@@ -103,7 +106,7 @@ The Codex adapter keeps workflow templates in `.codex/commands/` as plain markdo
 | Command | Invocation |
 |---|---|
 | `skeptic.md` | Read or paste `.codex/commands/skeptic.md` |
-| `implement.md` | Read or paste `.codex/commands/implement.md` |
+| `implement-ticket.md` | Read or paste `.codex/commands/implement-ticket.md` |
 | `wrap.md` | Read or paste `.codex/commands/wrap.md` |
 | `memory-update.md` | Read or paste `.codex/commands/memory-update.md` |
 | `init-project.md` | Read or paste `.codex/commands/init-project.md` |
@@ -140,7 +143,7 @@ Run after `git pull` to regenerate artifacts from updated source files. The pre-
 This adapter is designed to run alongside the Claude Code adapter without collision:
 
 - **Config paths are disjoint:** Codex uses `~/.codex/`, Claude Code uses `~/.claude/`
-- **Install writes to `~/.agents/skills/` and `~/.codex/AGENTS.md`** - no other paths modified outside the repo
+- **Install writes to `~/.agents/skills/`, `~/.codex/AGENTS.md`, `~/.codex/agents/`, and `~/.codex/hooks.json`** - it may also add `codex_hooks = true` to `~/.codex/config.toml` when enabling hooks
 - **Hook scripts:** The Claude Code `hooks/stop-context.js` writes to `~/.claude/projects/`. The Codex adapter has a parallel `.codex/hooks/stop-context-codex.js` that writes to `~/.codex/projects/` instead. The two paths are disjoint and do not collide.
 - **AGENTS.md vs CLAUDE.md:** Codex reads `AGENTS.md` natively. Claude Code reads `CLAUDE.md` and supports importing `AGENTS.md` via a one-line `CLAUDE.md` containing `@AGENTS.md`. This repo treats `AGENTS.md` as the canonical source; Claude Code users should keep a thin `CLAUDE.md` that imports it. No collision risk.
 

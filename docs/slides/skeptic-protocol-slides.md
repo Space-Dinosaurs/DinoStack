@@ -233,6 +233,36 @@ Fresh context for independence. Preflight list for efficiency. The Skeptic start
 
 ---
 
+## Two new Skeptic obligations
+
+<style scoped>
+  .columns { gap: 1.2em; }
+  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns .card strong { font-size: 1.05em; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
+  ul { font-size: 0.85em; }
+  ul li { margin: 0.15em 0; }
+</style>
+
+<div class="columns">
+<div class="card">
+<strong>Module manifest check</strong><br/>
+On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file.<br/><br/>
+Missing or stale manifest = <strong>Major</strong> finding. Blocks sign-off.
+</div>
+<div class="card">
+<strong>Regression test verification</strong><br/>
+Before granting sign-off on any round where a Critical or Major finding was fixed: verify a regression test was added - a test that would have failed without the fix.<br/><br/>
+Missing test without a documented exception = <strong>Major</strong> finding.
+</div>
+</div>
+
+<div class="callout">
+Both checks are additions to the standard Skeptic pass - they run alongside the existing findings classification, not instead of it. Module manifests are a comprehension gate; regression tests are a regression gate.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Fresh. Independent. Classified.

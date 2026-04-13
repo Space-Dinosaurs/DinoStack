@@ -1,0 +1,3 @@
+description: "Module manifest conventions: how to declare, register, and document modules so the codebase stays navigable and agents can discover interfaces without reading full implementations."
+globs: ["**/*.{ts,tsx,js,jsx,py,go,rs,java,kt,rb,php}"]
+alwaysApply: false

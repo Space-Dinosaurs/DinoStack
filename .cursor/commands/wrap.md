@@ -21,9 +21,12 @@ Survey the current conversation and note down:
 - Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into context.md only.
 - Identify the project root (absolute cwd).
 - Check for and read: the root `AGENTS.md` (if it exists), and any `[track]/AGENTS.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
+- **Read `.claude/findings.md`** if it exists in the project. Record its full current content — this will be passed to the Worker as a dedicated field so it can dedupe and apply the size cap.
 - Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates.
 - **Check for missing AGENTS.md files:** For each directory that had files touched this session, check whether an AGENTS.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
+- **Note any Skeptic findings that surfaced this session** (from Worker+Skeptic cycles or inline review). For each Major or Critical finding, note whether it was already promoted to `.claude/findings.md` during the session, or not yet promoted. This feeds Output 4 below.
+- **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
 
@@ -47,6 +50,9 @@ Content:
 <full file content>
 
 If no AGENTS.md files were found, write "None."]
+
+**Existing .claude/findings.md content:**
+[Paste the full current content of `.claude/findings.md` if it was read in Step 0. If the file does not exist, write "None." This is used for deduplication and size-cap enforcement in Output 4.]
 
 **Output 1 — context.md draft**
 
@@ -144,7 +150,23 @@ Rules:
 
 This is automatic - do not ask the user. Populate sections from session context and any package.json content included in the session data.
 
-Return all three outputs clearly labeled. Do not write to disk.
+**Output 4 — findings.md entries**
+
+Review the raw session data for Skeptic findings that were NOT already promoted to `.claude/findings.md` during this session. For each unpromoted Major or Critical finding, apply the promotion criteria from `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`: promote if the pattern is recurring (2+ prior instances in this project) or is novel but high blast-radius (data loss, security, production outage class). For each entry that qualifies, produce it in this format:
+
+    ## [Category name]
+
+    **Pattern:** [One sentence describing the recurring failure mode]
+    **Where it bites:** [The type of code, phase, or scenario where this shows up]
+    **How to avoid:** [Concrete guidance for the Architect or Worker]
+    **Example:** [Brief description of the instance from this session — optional]
+
+Rules:
+- Only include findings that qualify per the promotion criteria above. If nothing qualifies, write "None."
+- Do not duplicate entries already present in the "Existing .claude/findings.md content" field above (check semantically, not just string match).
+- Check the current entry count in the existing file. If adding new entries would push the total past 15, flag which entries should be pruned or consolidated rather than blindly appending. State: "Size cap: [N] existing entries — pruning needed before appending." and identify consolidation candidates.
+
+Return all four outputs clearly labeled. Do not write to disk.
 
 ---
 
@@ -157,6 +179,8 @@ Provide the draft, the existing AGENTS.md file contents from Step 0, and this ad
 > "Is this context file accurate and actionable? Check each section: Does Recent Focus correctly describe what was actually happening — or is it vague, generic, or wrong? Are the Next Steps specific enough to act on without reading the chat history (file paths, commands, branch names)? Are Key File Paths complete — is anything relevant omitted? Does Watch Out For capture real gotchas, or is it empty when it shouldn't be? Is any section still template text rather than real content?"
 >
 > "Also review the proposed AGENTS.md updates (Output 3): Is each proposed addition actually derived from this session's work - or is it generic, hallucinated, or already present in the existing file content provided? Is any content going to the wrong file (project-wide content should go to root; track-specific content should go to the track subdir)? Are updates lean - brief bullets only, no verbose rationale? Does any proposed addition contradict or duplicate existing entries in the same file?"
+>
+> "Also verify the proposed findings.md entries (Output 4): Are they derived from actual Skeptic findings that occurred in this session - not hallucinated or speculative patterns? Does each proposed entry meaningfully differ from the existing entries in the current `.claude/findings.md` content that was provided? If Output 4 is 'None', confirm that no unpromoted Major or Critical findings from the session were overlooked."
 
 Require this statement before sign-off: "Active search: I have applied the adversarial brief and actively searched for Critical and Major findings."
 
@@ -249,10 +273,29 @@ For each file listed in the updates:
 
 Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
 
+**Part D — Write findings.md**
+
+Skip Part D entirely if Output 4 is "None".
+
+**Path:** `$PROJECT_ROOT/.claude/findings.md` — this file is project-local (inside the project's `.claude/` directory), not in `~/.claude/projects/[hash]/`.
+
+1. Use the Read tool to attempt to read the file at `$PROJECT_ROOT/.claude/findings.md`.
+
+2. **If the file does not exist**: create it with this stub header, then append the Output 4 entries below it:
+
+       # Findings
+       <!-- Auto-managed by /wrap and /implement-ticket. Target: under 15 entries. Architect reads this at plan time. -->
+
+   Return: "Created .claude/findings.md and wrote N entries."
+
+3. **If the file exists**: for each entry in Output 4, check whether the same pattern is already captured — semantically, not just string match. If an existing entry covers the same pattern, skip the new entry. If the new entry supersedes an existing one (same pattern, updated guidance), replace the existing entry in place. Otherwise append the new entry. If the Worker flagged a size-cap issue, apply the suggested consolidations or retirements before appending.
+
+   Write the updated file to disk. Return: "Updated .claude/findings.md (N entries added, M superseded)" or "Skipped .claude/findings.md (nothing to add)."
+
 **Step 5 — Worktree cleanup.**
 
 If the project is a git repository with a `/cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
 
 **Step 6 — Confirm completion.**
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, and any AGENTS.md files updated or skipped). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and `.claude/findings.md` if Part D ran). Also include the cleanup summary if Step 5 ran.

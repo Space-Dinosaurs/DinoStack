@@ -63,7 +63,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 
 **Commands** (5) - workflow shortcuts:
-skeptic, memory-update, wrap, init-project, implement
+skeptic, memory-update, wrap, init-project, implement-ticket
 
 **Hooks** - lifecycle event handlers for risk reminders and session context saving
 
