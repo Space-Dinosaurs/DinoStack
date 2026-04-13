@@ -148,28 +148,14 @@ echo "Rebuilt references/ hardlinks"
 # /agentic-engineering prerequisite blockquote is NOT present in content/
 # (it is Claude Code-specific and prepended only by .claude/build.sh),
 # so no transform is needed here.
-#
-# community-skills.md is intentionally excluded: it is a Claude Code-only
-# command that symlinks into ~/.claude/skills/ and has no equivalent in
-# Codex. See README.md for details.
 # ---------------------------------------------------------------------------
 
 mkdir -p "$COMMANDS_DST"
 
 for src in "$CONTENT/commands/"*.md; do
   name="$(basename "$src")"
-  # Skip community-skills.md - Claude Code only, not applicable to Codex
-  if [[ "$name" == "community-skills.md" ]]; then
-    continue
-  fi
   hardlink_from_content "$src" "$COMMANDS_DST/$name"
 done
-
-# Remove community-skills.md if it was previously hardlinked
-if [[ -e "$COMMANDS_DST/community-skills.md" ]]; then
-  rm "$COMMANDS_DST/community-skills.md"
-  echo "Removed stale community-skills.md from commands/"
-fi
 
 echo "Rebuilt commands/ hardlinks"
 
