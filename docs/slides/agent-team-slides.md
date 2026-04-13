@@ -127,25 +127,6 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 
 ---
 
-## The planner's planner
-
-<style scoped>
-  ul { font-size: 0.9em; }
-  ul li { margin: 0.25em 0; }
-  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.5em; }
-</style>
-
-- `orchestration-planner` is a **meta-agent** - it plans which other agents to spawn and in what order
-- Given a goal, it returns: agent roster, phased execution plan, Skeptic checkpoints, parallelization map, open questions
-- It does not implement anything - planning only
-- Output is a structured plan the conductor follows directly
-
-<div class="callout">
-Default step: after an architect plan clears Skeptic review, run the orchestration-planner before spawning any workers on a multi-unit plan. See the Orchestration Planner deck for the full protocol.
-</div>
-
----
-
 ## How they work alone
 
 - Spawned into their own **isolated worktree** - their own files, their own context
@@ -195,6 +176,25 @@ Plans get reviewed before code. Code gets reviewed before QA. Each stage hands o
 
 <div class="callout">
 The Skeptic brings the teeth. The adversarial brief aims them - at auth, at a migration, at a perf regression - so a generic reviewer produces domain-sharp findings.
+</div>
+
+---
+
+## The planner's planner
+
+<style scoped>
+  ul { font-size: 0.9em; }
+  ul li { margin: 0.25em 0; }
+  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+- `orchestration-planner` is a **meta-agent** - it plans which other agents to spawn and in what order
+- Given a goal, it returns: agent roster, phased execution plan, Skeptic checkpoints, parallelization map, open questions
+- It does not implement anything - planning only
+- Output is a structured plan the conductor follows directly
+
+<div class="callout">
+Default step: after an architect plan clears Skeptic review, run the orchestration-planner before spawning any workers on a multi-unit plan. See the Orchestration Planner deck for the full protocol.
 </div>
 
 ---
