@@ -2,7 +2,7 @@
 
 ## What this provides
 
-- **Skill** (`/engineering`) - loads the full engineering methodology on demand
+- **Skill** (`/agentic-engineering`) - loads the full engineering methodology on demand
 - **Agents** (10) - architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 - **Commands** (5) - skeptic, memory-update, wrap, init-project, implement
 - **Hooks** - UserPromptSubmit risk-classification reminder, Stop context saver
