@@ -133,12 +133,6 @@ Contributions use a branch + PR workflow. Create a feature branch, make changes,
 
 After installation, offer the user a quick orientation: present the files listed in the **Documentation** section above, ask which ones they want to see, and `open` only those. Skipping all is a valid answer.
 
-## Community Skills
-
-Optional, task-specific skills contributed by the community. Each is self-contained - works on its own, but benefits from the core methodology if agentic-engineering is also installed.
-
-Browse and install skills from the standalone repo: [github.com/Solara6/community-skills](https://github.com/Solara6/community-skills).
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
