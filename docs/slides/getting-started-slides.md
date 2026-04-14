@@ -199,6 +199,15 @@ When the goal is done - or clearly won't be done today - run `/wrap`. It does th
 
 ## Your first practice loop
 
+<style scoped>
+  p.preamble { font-size: 0.78em; font-style: italic; margin: 0.2em 0 0.5em 0; color: #555; line-height: 1.4; }
+  ol { margin: 0.3em 0; }
+  ol li { margin: 0.18em 0; line-height: 1.35; }
+  .callout { font-size: 0.82em; padding: 0.4em 0.9em; margin-top: 0.5em; }
+</style>
+
+<p class="preamble">One-time setup: in <code>~/.claude/settings.json</code> set <code>defaultMode: "bypassPermissions"</code> with a small denylist of destructive commands. See Hands-off Configuration in the docs.</p>
+
 1. Pick a **small, real** task in a repo where you've run `/init-project`
 2. Start a fresh `claude` session in that repo
 3. State the goal in one sentence - resist adding "and also..."
@@ -206,10 +215,6 @@ When the goal is done - or clearly won't be done today - run `/wrap`. It does th
 5. Read the Skeptic review, decide: ship, revise, or drop
 6. Run `/wrap` - even if the answer was "drop it"
 7. Repeat tomorrow with a new small task
-
-<div class="callout" style="font-size: 0.85em; margin-top: 0.8em;">
-Before you start: set <code>defaultMode: "bypassPermissions"</code> in <code>~/.claude/settings.json</code> with a small denylist of destructive commands. See the Hands-off Configuration section in the docs for the copy-paste snippet.
-</div>
 
 <div class="callout">
 First few sessions feel slower than "just doing it." That's the trade - raw speed for reviewable, shippable, memorable work.
