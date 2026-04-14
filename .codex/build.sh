@@ -124,19 +124,20 @@ for src in "$CONTENT/references/"*.md; do
   hardlink_from_content "$src" "$REFS_DST/$(basename "$src")"
 done
 
-# Make skill/references/ a symlink to .codex/references/ (single source of truth)
+# Make skill/references/ a symlink to ../references (single source of truth)
+# Use a RELATIVE target so the symlink stays valid regardless of repo location.
 if [[ -L "$SKILL_DST/references" ]]; then
   current_target="$(readlink "$SKILL_DST/references")"
-  if [[ "$current_target" != "$REFS_DST" ]]; then
+  if [[ "$current_target" != "../references" ]]; then
     rm "$SKILL_DST/references"
-    ln -s "$REFS_DST" "$SKILL_DST/references"
+    ln -s "../references" "$SKILL_DST/references"
   fi
 elif [[ -d "$SKILL_DST/references" ]]; then
   # Was a real directory (old hardlink set) - replace with symlink
   rm -rf "$SKILL_DST/references"
-  ln -s "$REFS_DST" "$SKILL_DST/references"
+  ln -s "../references" "$SKILL_DST/references"
 else
-  ln -s "$REFS_DST" "$SKILL_DST/references"
+  ln -s "../references" "$SKILL_DST/references"
 fi
 
 echo "Rebuilt references/ hardlinks"
