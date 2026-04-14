@@ -267,6 +267,7 @@ Running /init-project is idempotent - it updates existing files and adds new tra
 - Creates/updates track AGENTS.md files
 - Enriches context.md with session summary
 - Adds stable facts to MEMORY.md
+- Promotes recurring or high-blast-radius Skeptic findings to .claude/findings.md
 </div>
 </div>
 

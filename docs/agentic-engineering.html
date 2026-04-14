@@ -1143,7 +1143,7 @@
           <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
           <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/simplify</strong> - spawns 3 parallel review agents (code reuse, quality, efficiency) to clean up recently changed files. Used in the Elevated + Cleanup path after Skeptic sign-off.</li>
-          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, AGENTS.md updates, and findings.md promotions. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
           <li><strong>/audit-protocols</strong> - full system audit of protocol compliance. Checks whether rules are being followed across the session.</li>
         </ul>
@@ -1292,21 +1292,23 @@
     <div>
       <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: #5a3d8a; margin-bottom: 10px; letter-spacing: 0.01em;">/wrap - Session context enrichment</div>
       <div class="rel-card" style="border-color: rgba(90,61,138,0.2);">
-        <h4 style="color: var(--violet);">What it produces (3 outputs)</h4>
+        <h4 style="color: var(--violet);">What it produces (4 outputs)</h4>
         <ul>
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
           <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
           <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
+          <li><strong>findings.md promotions</strong> - recurring or high-blast-radius Skeptic findings get promoted to <code>.claude/findings.md</code> for the Architect to read at plan time</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
         <h4 style="color: var(--violet);">How it works</h4>
         <ul>
           <li>Compiles session data (files touched, errors, decisions)</li>
-          <li>Worker drafts all 3 outputs from raw session data</li>
+          <li>Worker drafts all 4 outputs from raw session data</li>
           <li>Skeptic reviews for accuracy and completeness</li>
-          <li>Writer Worker merges into existing files (rolling window for context.md, semantic dedup for memory.md)</li>
-          <li>Cleans up stale worktrees as final step</li>
+          <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for memory.md) - subagents cannot reliably get write permissions</li>
+          <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
+          <li>Cleans up stale worktrees as final step - backed by the <code>/cleanup-worktrees</code> skill</li>
         </ul>
       </div>
     </div>
