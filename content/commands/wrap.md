@@ -8,6 +8,8 @@ The Stop hook auto-writes `~/.claude/projects/[hash]/context.md` after every tur
 
 **Pre-flight check — no active Workers.** Before doing anything else, check whether any background Workers or subagents are currently running. If any are, stop and tell the user: "Cannot run /wrap while background tasks are active. Please wait for them to finish (or stop them) first." Do not proceed until confirmed.
 
+**Multi-hash-dir check:** Run `ls ~/.claude/projects/` and enumerate every subdirectory whose name matches the current project slug. The slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended (e.g. cwd `/Users/alice/myapp` → slug `-Users-alice-myapp`). Because Claude Code versions differ in whether they preserve or replace `.` in usernames, also match the variant where every `.` in the slug is replaced by `-`. List all matching subdirectory names now. If more than one matches, record them all — Step 4 Part A will apply its disambiguation rules at write time.
+
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
 
 **Step 0 — Compile session data** (inline, no subagent needed).
@@ -197,9 +199,28 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 **Project directory:** [absolute cwd]
 
-**Output path (context.md):** Do not attempt to compute the hash manually - Claude Code generates project directory hashes internally and the path cannot be derived from the project path alone. Instead, discover the correct directory by running `ls ~/.claude/projects/` and identify the subdirectory that corresponds to the current project. Once identified, the context.md path is `~/.claude/projects/[matched-hash]/context.md`.
+**Output path (context.md):** Do not attempt to compute the hash manually. Use the candidate list enumerated in the pre-flight multi-hash-dir check above (re-run `ls ~/.claude/projects/` now if that check was skipped). Apply the rules below to pick exactly one candidate directory.
 
-**Memory path (memory.md):** Same directory as context.md identified above, filename `memory.md`.
+**Slug and variant matching:** The project slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended. Also form a second variant where every `.` in the slug is replaced by `-`. A subdirectory is a candidate if its name equals either variant. Collect all candidates.
+
+**Zero candidates:** No project hash dir exists yet. Use the literal-slug variant as the write path — Claude Code will create it on next write.
+
+**One candidate:** Use it. This is the common case.
+
+**Two or more candidates:** Pick the one the live Stop hook writes to, using these rules in order:
+
+- **Rule 4a — Auto-memory split convention.** For each candidate, check whether a `MEMORY.md` exists at the candidate root or at `memory/MEMORY.md` inside it. If any such file explicitly documents which variant receives `context.md` (e.g. a line stating "context.md is written to the dot-preserved variant"), follow that documented convention. Use the `cat` or Read tool to inspect the file content and scan for the guidance.
+- **Rule 4b — Most recent context.md mtime.** If no split convention is documented, inspect each candidate's `context.md` file (if present). Select the candidate whose `context.md` has the most recent mtime. Use `stat -f "%m %N"` on macOS or `stat -c "%Y %n"` on Linux; sort descending; take the first. The Stop hook writes a new context.md after every agent turn, so the live-session dir is always the most recently touched.
+- **Rule 4c — No context.md in any candidate.** If no candidate has a context.md, select the candidate whose directory mtime is most recent (same `stat` approach, applied to the directory itself).
+- **Never** pick based on `compression-state.json`, `memory.md`, or `memory/` subdirectory presence — those files may have been written by a previous /wrap run to the wrong dir and are not a reliable signal of the live Stop hook target.
+
+**Log the decision.** When picking from multiple candidates, state in user-visible text at this step which directory was selected and which rule fired. Example: "Two project hash dirs found; picked `-Users-tyson.hummel-Documents-myapp` because its context.md mtime is 2 minutes newer than the other candidate."
+
+**Relocate stale compression-state.json if needed.** If the selected candidate differs from any `compression-state.json` target path referenced earlier in the /wrap run (from Step 0), update the target path entries in compression-state.json to point at the selected candidate's paths before writing. Remove the old stale entries.
+
+The context.md path is `~/.claude/projects/[selected-candidate]/context.md`.
+
+**Memory path (memory.md):** Same directory as context.md identified above, filename `memory.md`. Use the same candidate directory identified for context.md above — the two files must live in the same hash dir to avoid split state. Do NOT pick memory.md's dir independently.
 
 **Part A — Write context.md**
 
