@@ -32,6 +32,44 @@ Survey the current conversation and note down:
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
 
+**Step 0.5 — Route to light, zero-substance, or standard path.**
+
+Inspect what Outputs 2, 3, and 4 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet.
+
+**Zero-substance path** - triggers when ALL of the following hold:
+- Output 2 (memory entries) would be "None"
+- Output 3 (AGENTS.md updates) would be "None" for every file AND no new AGENTS.md candidates exist
+- Output 4 (findings entries) would be "None"
+- No specialist agent (`perf-analyst`, `release-orchestrator`, `dependency-auditor`) ran with session-scoped issues to capture
+- The session had effectively no file activity worth preserving in context.md: no uncommitted tracked changes, no new stashes, no files touched beyond reads, no meaningful next steps to record. The conductor should judge - if the only meaningful session output is "answered a question", it is zero-substance.
+
+Zero-substance procedure:
+- Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
+- Skip Steps 1-3 entirely (no Worker, no Skeptic)
+- Skip Step 4 Parts A, B, C, D entirely
+- Skip Part E (nothing changed, nothing to compress)
+- Still run Step 5 (worktree cleanup) - that is always useful
+- Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
+
+**Light path** - triggers when the zero-substance conditions do NOT all hold BUT ALL of the following hold:
+- Output 2 (memory entries) would be "None" - STRICT: even a single memory entry routes to standard path
+- Output 3 (AGENTS.md updates) would be "None" for every file AND no new AGENTS.md candidates exist
+- Output 4 (findings entries) would be "None"
+- No specialist agent ran with session-scoped issues to capture
+
+Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
+1. Main agent drafts context.md inline from the Step 0 raw data, following the Output 1 structure exactly. No Worker, no Skeptic.
+2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
+3. Proceed to Step 4 Part A with the inline draft.
+4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None), Part D (findings.md - input is None).
+5. Run Part E compression gate as normal. Note: Part E's own "skip if B, C, D reported no changes" rule means compression will also skip on the light path. This is intentional.
+6. Run Step 5 (worktree cleanup) as normal.
+7. Step 6 confirmation must say: "light path (no stable facts, AGENTS.md updates, or findings to review this session)".
+
+**Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
+
+**Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3/4 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
+
 **Step 1 — Spawn a draft Worker** (background, general-purpose):
 
 ---
@@ -174,9 +212,9 @@ Return all four outputs clearly labeled. Do not write to disk.
 
 **Step 2 — When the draft Worker returns, spawn a fresh Skeptic** (background, general-purpose, never resumed).
 
-Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites — never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
+Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites - never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
 
-Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief:
+Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief. **Omit any section below whose corresponding Output is "None"** - always keep the Output 1 (context.md accuracy) review as the baseline pass; drop the memory-review language if Output 2 is "None"; drop the AGENTS.md-review paragraph if Output 3 is "None"; drop the findings.md-review paragraph if Output 4 is "None". The full brief below is the "all outputs present" case:
 
 > "Is this context file accurate and actionable? Check each section: Does Recent Focus correctly describe what was actually happening — or is it vague, generic, or wrong? Are the Next Steps specific enough to act on without reading the chat history (file paths, commands, branch names)? Are Key File Paths complete — is anything relevant omitted? Does Watch Out For capture real gotchas, or is it empty when it shouldn't be? Is any section still template text rather than real content?"
 >
