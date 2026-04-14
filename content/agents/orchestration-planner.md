@@ -44,7 +44,7 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 1. **Identify the task category.** Is this a new feature, a bug fix, a security-sensitive change, a refactor, an investigation, or research? The category shapes the default flow.
 
-2. **Classify risk.** Apply the conductor's risk classification rules. Any code change, new file, multi-file change, security concern, or architecture decision is Elevated and requires a Skeptic. Low risk (reads, research with no artifact) permits a lighter flow.
+2. **Classify risk.** Apply the conductor's risk classification rules. Any code change, new file, multi-file change, security concern, or architecture decision is Elevated and requires a Skeptic. Low risk (reads, research with no artifact) permits a lighter flow. Trivial risk (single-file cosmetic or copy change with no logic impact - all qualifying signals must hold) bypasses Skeptic entirely: the conductor acts directly when no subagents are running, or spawns a solo `engineer` Worker in foreground when subagents are running. If classifying Trivial, return a short-circuit plan - do not build out a full agent roster or multi-phase sequence. When in doubt between Trivial and Elevated, choose Elevated.
 
 3. **Select agents.** Only include agents whose specific capability is needed. Do not add agents defensively - each one adds latency and cost. Use the decision rules below.
 
@@ -118,7 +118,7 @@ Use this exact structure. Do not rename or reorder sections.
 [1-2 sentences: what is being accomplished and why this team composition was chosen]
 
 ### Risk classification
-[Low / Elevated / Elevated + Cleanup] - [specific signal(s)]
+[Trivial / Low / Elevated / Elevated + Cleanup] - [specific signal(s)]
 
 ### Agent roster
 | Agent | Role in this task |
@@ -175,6 +175,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 - **Do not implement.** Return only the orchestration plan.
 - **Be selective.** Only include agents that are genuinely needed. "Just in case" agents add cost without value.
 - **Always include Skeptic for Elevated risk.** If any Elevated signal exists, the plan must include a Skeptic after the engineer's output.
+- **Short-circuit for Trivial risk.** If the task qualifies as Trivial (single-file cosmetic or copy change, all disqualifiers absent), the plan should be a one-line recommendation: "Trivial - conductor edits directly (no subagents running) or spawns solo engineer Worker in foreground (subagents running). No Skeptic. No brief file." Do not build a multi-phase plan for a Trivial task.
 - **Keep plans lean.** A healthy plan has 3-5 phases. If you reach 7+ phases, you are over-engineering - combine phases, remove redundant review layers, or question whether each agent is truly necessary. Lean plans execute faster and are easier for the conductor to follow.
 - **One integration Skeptic, not stacked Skeptics.** For a standard Elevated task, the plan should have one Skeptic checkpoint after the engineer finishes. Multiple Skeptic layers (architecture Skeptic + per-phase Skeptics + integration Skeptic) are the exception - see pre-implementation Skeptic guidance above.
 - **Commit to a sequence.** Do not present a menu of options. Pick the right plan and justify it briefly in the Task summary.
