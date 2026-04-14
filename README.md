@@ -24,6 +24,14 @@ Install agentic-engineering
 
 The agent runs the installer, walks you through optional tool setup, and keeps existing customizations intact.
 
+**Or install manually:**
+
+```
+git clone git@github.com:Solara6/agentic-engineering.git
+cd agentic-engineering
+bash .claude/install.sh
+```
+
 For other tools (Cursor, Codex), see the install instructions in each adapter's README.
 
 ## Updating
@@ -40,6 +48,22 @@ For a clean refresh that also prunes stale symlinks for files removed upstream, 
 
 ```
 Do a clean refresh of agentic-engineering - uninstall, pull, then reinstall
+```
+
+**Or update manually:**
+
+```
+cd ~/agentic-engineering
+git pull
+bash .claude/install.sh    # and/or .cursor/install.sh
+```
+
+For a clean manual refresh:
+
+```
+bash .claude/uninstall.sh
+git pull
+bash .claude/install.sh
 ```
 
 ## Adapters
@@ -107,21 +131,7 @@ agentic-engineering/
 
 Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR. The owner may push directly to main for small fixes.
 
-After installation, offer the user a quick orientation. Ask which of the following they'd like to view, then `open` each one they say yes to:
-
-- `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what agentic-engineering is and how it works (passive explainer)
-- `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
-- `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
-- `~/agentic-engineering/docs/slides/agent-team-slides.html` - the agent team and how they compose
-- `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.claude/qa.md` as project QA memory
-- `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/work-tracking.md` for project-specific tracker actions
-- `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
-- `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
-- `~/agentic-engineering/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
-- `~/agentic-engineering/docs/slides/contributing-slides.html` - how to contribute to the repo
-- `~/agentic-engineering/docs/agentic-engineering.html` - full system architecture reference
-
-Present the list, ask which ones they want to see, and open only those. Skipping all is a valid answer.
+After installation, offer the user a quick orientation: present the files listed in the **Documentation** section above, ask which ones they want to see, and `open` only those. Skipping all is a valid answer.
 
 ## Community Skills
 
