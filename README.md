@@ -4,34 +4,42 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final - treat it as a living system, not a finished product.
 
+**Live docs:** https://agentic-engineering-tyhummel.vercel.app
+
 ## Getting started
 
-Open Claude Code and ask your agent:
+Clone the repo, cd into it, and start Claude Code:
 
 ```
-Clone git@github.com:Solara6/agentic-engineering.git and run .claude/install.sh
+git clone git@github.com:Solara6/agentic-engineering.git
+cd agentic-engineering
+claude
 ```
 
-The agent handles everything - cloning the repo, running the installer, and walking you through optional tool setup. No manual steps required.
+Then ask your agent:
 
-For other tools (Cursor, etc.), see the install instructions in each adapter's README.
+```
+Install agentic-engineering
+```
+
+The agent runs the installer, walks you through optional tool setup, and keeps existing customizations intact.
+
+For other tools (Cursor, Codex), see the install instructions in each adapter's README.
 
 ## Updating
 
-Pull the latest changes and re-run the installer. It's idempotent - existing symlinks and settings are preserved, new ones added, and build artifacts regenerated.
+Ask your agent:
 
 ```
-cd ~/agentic-engineering
-git pull
-bash .claude/install.sh    # and/or .cursor/install.sh
+Pull the latest changes to agentic-engineering and re-run the installer
 ```
 
-For a clean refresh that also prunes stale symlinks for files removed upstream:
+The agent handles the git pull and runs the installer. It's idempotent - existing symlinks and settings are preserved, new ones are added, and build artifacts are regenerated.
+
+For a clean refresh that also prunes stale symlinks for files removed upstream, ask:
 
 ```
-bash .claude/uninstall.sh
-git pull
-bash .claude/install.sh
+Do a clean refresh of agentic-engineering - uninstall, pull, then reinstall
 ```
 
 ## Adapters
