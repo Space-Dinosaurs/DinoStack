@@ -207,6 +207,10 @@ When the goal is done - or clearly won't be done today - run `/wrap`. It does th
 6. Run `/wrap` - even if the answer was "drop it"
 7. Repeat tomorrow with a new small task
 
+<div class="callout" style="font-size: 0.85em; margin-top: 0.8em;">
+Before you start: set <code>defaultMode: "bypassPermissions"</code> in <code>~/.claude/settings.json</code> with a small denylist of destructive commands. See the Hands-off Configuration section in the docs for the copy-paste snippet.
+</div>
+
 <div class="callout">
 First few sessions feel slower than "just doing it." That's the trade - raw speed for reviewable, shippable, memorable work.
 </div>
