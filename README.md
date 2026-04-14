@@ -129,7 +129,7 @@ agentic-engineering/
 
 ## For agents working in this repo
 
-Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR. The owner may push directly to main for small fixes.
+Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR.
 
 After installation, offer the user a quick orientation: present the files listed in the **Documentation** section above, ask which ones they want to see, and `open` only those. Skipping all is a valid answer.
 
