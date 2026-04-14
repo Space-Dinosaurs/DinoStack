@@ -2,6 +2,9 @@
 
 Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, and gitignore.
 
+<!-- Risk-tier note: this command performs discovery, confirmation, and scaffolding only. It does not emit or classify risk-tier vocabulary (Trivial, Low, Elevated). No Trivial-tier addition is needed here. -->
+
+
 ## Steps
 
 ### 0. Run discovery
