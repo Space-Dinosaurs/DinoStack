@@ -119,6 +119,20 @@
     font-size: 12px;
     color: var(--text-muted);
     letter-spacing: 0;
+    margin-bottom: 10px;
+  }
+  .repo-link {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+  .repo-link a {
+    color: var(--cyan);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(26, 90, 122, 0.3);
+  }
+  .repo-link a:hover {
+    border-bottom-color: var(--cyan);
   }
   .epigraph {
     font-family: 'Space Grotesk', system-ui, sans-serif;
@@ -660,6 +674,7 @@
   <h1>Agentic Software Engineering</h1>
   <p class="subtitle">An opinionated architecture for doing engineering work with AI agents.</p>
   <p class="byline">by Tyson Hummel</p>
+  <p class="repo-link"><a href="https://github.com/Solara6/agentic-engineering" target="_blank" rel="noopener noreferrer">github.com/Solara6/agentic-engineering</a></p>
   <p class="epigraph">Operator attention is the scarce resource. Agents aren't. This architecture is an attempt to run as much of the process without you as possible - so the attention you do spend goes where judgment is load-bearing.</p>
   <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex reads it natively; Claude Code loads it via a one-line <code>CLAUDE.md</code> containing <code>@AGENTS.md</code>. The patterns translate to any agentic framework.</p>
 </div>
