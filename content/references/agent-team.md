@@ -81,6 +81,20 @@ direct action (no agents needed)
 self-check
 ```
 
+### Trivial change (single-file cosmetic or copy change, no logic impact)
+
+```
+[no subagents running] conductor edits directly
+    ↓
+done (commit still required)
+
+[subagents running] solo engineer Worker in foreground
+    ↓
+done (no Skeptic, no brief file, commit still required)
+```
+
+Trivial bypasses the Skeptic entirely. The conductor MUST NOT spawn a Skeptic for a Trivial task. The conductor availability rule drives the Worker/direct split: a conductor managing in-flight subagents must not block itself with direct implementation work - spawn the engineer Worker instead and remain available. If the Worker discovers mid-task that the change is not actually Trivial (e.g., the target file turns out to be a shared token file), it must stop and report; the conductor re-classifies as Elevated.
+
 ---
 
 ## Complex or ambiguous goals
@@ -146,6 +160,8 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 **When the architect returns a plan, spawn a Skeptic to review it before proceeding.** This is mandatory - do not spawn engineers, run the orchestration-planner, or take any action on the plan until the Skeptic grants sign-off. Use the "Document synthesis, architecture, and planning" adversarial brief. A flawed plan propagates errors through every downstream Worker; the plan review Skeptic is the gate that prevents this.
 
 **Skeptic is always spawned for Elevated risk.** It reviews whatever the engineer produced. The security-auditor is an additional pass, not a replacement for the Skeptic.
+
+**Trivial risk skips Skeptic entirely.** Trivial tasks - single-file cosmetic or copy changes with no logic impact, where all qualifying signals hold - do not go through the Skeptic loop. The conductor edits directly when no subagents are running; otherwise a single `engineer` Worker handles it in foreground with no Skeptic and no brief file. When in doubt between Trivial and Elevated, choose Elevated.
 
 ---
 
