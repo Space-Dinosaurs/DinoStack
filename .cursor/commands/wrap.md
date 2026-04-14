@@ -22,6 +22,7 @@ Survey the current conversation and note down:
 - Identify the project root (absolute cwd).
 - Check for and read: the root `AGENTS.md` (if it exists), and any `[track]/AGENTS.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
 - **Read `.claude/findings.md`** if it exists in the project. Record its full current content — this will be passed to the Worker as a dedicated field so it can dedupe and apply the size cap.
+- **Read `.claude/compression-state.json`** if it exists in the project. Record its full current content — this will be passed to Part E later to determine whether compression is needed for each target.
 - Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates.
 - **Check for missing AGENTS.md files:** For each directory that had files touched this session, check whether an AGENTS.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
@@ -292,6 +293,77 @@ Skip Part D entirely if Output 4 is "None".
 
    Write the updated file to disk. Return: "Updated .claude/findings.md (N entries added, M superseded)" or "Skipped .claude/findings.md (nothing to add)."
 
+**Part E — Compress always-loaded memory files**
+
+Skip Part E entirely if Parts B, C, and D all reported no changes (no new memory entries, no AGENTS.md updates, no findings entries written). Nothing changed this session - no need to recompress. Part A always writes context.md and is not a signal of session-meaningful change.
+
+**Targets:**
+- The `memory.md` file written by Part B (same absolute path computed in Step 4).
+- `[cwd]/CLAUDE.md` if it exists at the project root.
+
+Skip any target that does not exist.
+
+**State file:** `[cwd]/.claude/compression-state.json`. Schema:
+
+    {
+      "targets": {
+        "<absolute path>": {
+          "last_compressed_size_bytes": <int>,
+          "last_compressed_at": "<YYYY-MM-DD>",
+          "original_backup_path": "<absolute path to FILE.original.md>",
+          "rolling_snapshots": ["<absolute path to FILE.pre-YYYY-MM-DD-HHMMSS.md>", ...]
+        }
+      }
+    }
+
+If the file does not exist, treat all targets as never-compressed.
+
+**Gate:** For each target, compute current file size in bytes. Compress only if:
+- (a) No prior entry exists for this target AND current size > 2000 bytes, or
+- (b) A prior entry exists AND current size >= 1.5 * `last_compressed_size_bytes`.
+
+Otherwise skip that target silently.
+
+**For each target that passes the gate:**
+
+1. Spawn a dedicated background Worker (general-purpose) with this brief verbatim:
+
+   > You are a compression Worker. Rewrite the file content below into a token-dense form suitable for an LLM to read on every session start. Hard constraints, no exceptions:
+   > - Preserve every technical fact, decision, gotcha, and rationale. If you are not certain a phrase is filler, keep it.
+   > - Never alter: file paths, absolute or relative; shell commands; environment variable names; version numbers; dates; URLs; project names; person names; flag names; function/identifier names; quoted strings; code blocks; markdown links.
+   > - Never merge or collapse two bullet entries that have distinct dates, distinct timestamps, or distinct dated headings - even if their text appears similar. Each dated entry is a separate fact and must remain its own bullet.
+   > - You may: drop articles (a/an/the), drop hedging (just/really/basically), collapse multi-sentence prose into fragments, replace verbose connectors with punctuation, merge bullet sub-points when the meaning is identical AND neither bullet carries a date or timestamp.
+   > - You must: keep the markdown structure intact (headings, list nesting, code fences). Keep section headings byte-identical so future readers can locate facts.
+   > - Output the rewritten file content only. No commentary.
+   >
+   > File content:
+   > [paste full file content]
+
+2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with the original file content, the compressed draft, and this adversarial brief verbatim:
+
+   > You are reviewing a memory-file compression for fact loss. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
+   >
+   > Walk the original file section by section. For each fact, locate it in the compressed file. Classify any discrepancy:
+   > - Critical: a path/command/date/version/URL/identifier was altered, dropped, or invented.
+   > - Critical: a decision, gotcha, or rationale was dropped or its meaning changed.
+   > - Major: structural - a heading was renamed or a section was merged in a way that obscures lookup.
+   > - Minor: stylistic regressions only.
+   >
+   > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
+   >
+   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted."
+
+3. Validate sign-off format the same way Step 3 does (all four elements: "Reviewed:", "Findings:", "Active search:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+
+   If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
+
+4. On sign-off, the main agent (not a subagent - same rationale as the rest of Step 4) writes in this order:
+   - (a) If `FILE.original.md` does not already exist, create it from the current (pre-compression) file content. Never overwrite an existing `.original.md` - it is the canonical first-ever backup.
+   - (b) Write a rolling snapshot `FILE.pre-YYYY-MM-DD-HHMMSS.md` (using the current UTC timestamp at write time) from the current (pre-compression) file content. Always write; never skip.
+   - (c) Prune rolling snapshots: keep only the 3 most recent `FILE.pre-*.md` snapshots for this target (by timestamp in filename). Delete older ones.
+   - (d) Overwrite `FILE.md` with the compressed content.
+   - (e) Update `[cwd]/.claude/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file (and `.claude/` directory if needed) if it does not exist.
+
 **Step 5 — Worktree cleanup.**
 
 If the project is a git repository with a `/cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
@@ -299,3 +371,5 @@ If the project is a git repository with a `/cleanup-worktrees` skill available, 
 **Step 6 — Confirm completion.**
 
 Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and `.claude/findings.md` if Part D ran). Also include the cleanup summary if Step 5 ran.
+
+Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
