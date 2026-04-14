@@ -32,7 +32,7 @@ Survey the current conversation and note down:
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
 
-**Step 0.5 — Route to light, zero-substance, or standard path.**
+**Step 0.5 - Route to light, zero-substance, or standard path.**
 
 Inspect what Outputs 2, 3, and 4 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet.
 
@@ -62,11 +62,13 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
 3. Proceed to Step 4 Part A with the inline draft.
 4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None), Part D (findings.md - input is None).
-5. Run Part E compression gate as normal. Note: Part E's own "skip if B, C, D reported no changes" rule means compression will also skip on the light path. This is intentional.
+5. Skip Part E entirely (nothing changed, nothing to compress).
 6. Run Step 5 (worktree cleanup) as normal.
 7. Step 6 confirmation must say: "light path (no stable facts, AGENTS.md updates, or findings to review this session)".
 
 **Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
+
+**Escape hatch for zero-substance path:** If the conductor has ANY uncertainty about whether the session is truly zero-substance - for example, the user asked a question whose answer feels architecturally significant, or an implicit decision was made without writing anything down - it must abandon the zero-substance path and use the light or standard path instead. When in doubt, do not use the zero-substance path.
 
 **Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3/4 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
 
