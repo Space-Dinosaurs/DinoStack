@@ -1449,7 +1449,15 @@
         <h4><code>~/.claude/settings.json</code> snippet</h4>
 <pre style="font-size: 12px; background: rgba(0,0,0,0.04); padding: 10px; border-radius: 6px; overflow-x: auto;"><code>{
   "permissions": {
-    "allow": ["Bash(*)", "Write", "Edit"],
+    "allow": [
+      "Bash(*)", "Write", "Edit",
+      "Write(**/AGENTS.md)",   "Edit(**/AGENTS.md)",
+      "Write(**/CLAUDE*.md)",  "Edit(**/CLAUDE*.md)",
+      "Write(**/context.md)",  "Edit(**/context.md)",
+      "Write(**/memory*.md)",  "Edit(**/memory*.md)",
+      "Write(**/.claude/*.md)","Edit(**/.claude/*.md)",
+      "Write(**/.claude/*.json)","Edit(**/.claude/*.json)"
+    ],
     "deny": [
       "Bash(git push --force*)",
       "Bash(rm -rf*)",
@@ -1465,7 +1473,7 @@
     "defaultMode": "bypassPermissions"
   }
 }</code></pre>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/init-project</code> and <code>/wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, release.md, compression-state.json, plus their rolling snapshots). Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
       </div>
     </div>
   </div>
