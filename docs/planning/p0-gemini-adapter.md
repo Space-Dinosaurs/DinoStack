@@ -102,52 +102,42 @@ The remaining unknowns (exact JSON schema for Gemini hooks, named agent file for
 
 **Config directory:** `~/.gemini/` for user-scope configuration.
 
-**Settings file:** `~/.gemini/settings.json` - JSON file for tool configuration. Format is similar to Claude Code's `settings.json` but with Gemini-specific keys.
+**Settings file:** `~/.gemini/settings.json` - JSON file for tool configuration.
 
-**Hooks:** Gemini CLI supports lifecycle hooks via `~/.gemini/settings.json` under a `hooks` key. Hook events include `UserPromptSubmit` (before each prompt) and `Stop` (on session end) - matching the Claude Code convention. Hook entries are shell commands.
+**Hooks:** Configured via the `hooks` key in `~/.gemini/settings.json`. Event names are `SessionStart`, `BeforeAgent`, `BeforeToolSelection`, `BeforeTool`, `AfterModel`, `AfterAgent`, and `SessionEnd`. `BeforeAgent` fires after a user submits a prompt, before the agent begins planning; input field is `prompt` (the original user text); output field is `hookSpecificOutput.additionalContext` (text appended to the prompt for that turn only) - this is the correct event for per-prompt risk reminders. `SessionEnd` fires on session end. Both semantics differ from Claude Code's `UserPromptSubmit` / `Stop` in name but are functionally equivalent for this adapter's purposes.
 
-**Extensions (slash commands):** Gemini CLI supports user-defined extensions via markdown files in `~/.gemini/extensions/`. Each file is a markdown document with a YAML frontmatter block containing at minimum `name` and `description`. This is the mechanism for slash-command equivalents.
+**Slash commands:** Gemini CLI supports custom slash commands via TOML files at `~/.gemini/commands/` (user) or `.gemini/commands/` (project). Each TOML file has a `description` string and a `prompt` triple-quoted string. `{{args}}` interpolates invocation arguments; `@{path}` injects file contents. Commands are reloaded via `/commands reload`.
 
-**Agent format:** Gemini CLI does not have a TOML agent format like Codex. Named agents are not a first-class primitive in the same sense. The mechanism for specialist agents is: define an extension (slash command) that loads an agent persona prompt, OR use the `@agent-name` mention syntax if the CLI supports it in the target version. This is the largest unknown.
+**Named agents:** Gemini CLI supports subagents via the `/agents` slash command. Files live at `~/.gemini/agents/*.md` (user) or `.gemini/agents/*.md` (project) in markdown with YAML frontmatter (required fields: `name`, `description`; optional: `kind: local`, `tools`, `model`, `temperature`, `max_turns`). The body is the system prompt. Invocation: `@agent-name` prefix or auto-selection based on description match.
 
-### Unknown / requires research before implementation
+### Open questions - now resolved
 
-1. **Named agent format:** Does Gemini CLI support named agent definition files analogous to `~/.codex/agents/*.toml` or `~/.claude/agents/*.md`? If not, the `agents/` generation step is a no-op and named agents must be handled via persona preambles embedded in `GEMINI.md`. Research: check Gemini CLI docs at https://github.com/google-gemini/gemini-cli and the `@agent` mention syntax.
-
-2. **Exact hooks.json / settings.json schema:** The exact key names for hook configuration in `~/.gemini/settings.json` need verification. The Claude Code adapter uses `hooks.UserPromptSubmit[].hooks[].command`. Gemini may use a different nesting or key name.
-
-3. **Skill / on-demand loading:** Gemini CLI may not have a `~/.gemini/skills/` equivalent. If there is no on-demand skill loading mechanism, the adapter must include all reference docs in `GEMINI.md` directly (increasing always-loaded context) or omit the skill layer.
-
-4. **Extension directory path:** Is it `~/.gemini/extensions/`, `~/.gemini/commands/`, or another path? Needs confirmation from current CLI docs or source.
-
-5. **Stop hook support:** Whether the `Stop` lifecycle event fires a hook in the current Gemini CLI version is unconfirmed. May need to omit the stop-context hook initially.
+The prior "Unknown / requires research" questions (Q1 named agent format, Q2 hooks schema, Q3 extensions path, Q4 stop hook support) are resolved. See the "Open questions (resolved 2026-04-15)" section at the bottom of this document. Only Q5 (global config dir cross-platform) and Q7 (non-interactive worker invocation) remain open - both are non-blocking for this P0 adapter.
 
 ## Proposed `.gemini/` directory structure
 
 ```
 .gemini/
-  build.sh              Build script: generates GEMINI.md, hardlinks commands/references,
-                        generates agent definitions in Gemini-native format
+  build.sh              Build script: generates GEMINI.md, generates TOML commands, hardlinks
+                        references, generates agent definition files in Gemini-native format
   install.sh            Install script: symlinks build artifacts to ~/.gemini/
   uninstall.sh          Uninstall script: removes symlinks and reverts config changes
   README.md             Setup instructions for Gemini CLI users
   GEMINI.md             Generated always-loaded rules file (parallel to .codex/AGENTS.md)
-  commands/             Hardlinks from content/commands/ (no transform - no prerequisite prepend)
+  commands/             Generated TOML slash-command files (one per content/commands/*.md)
   references/           Hardlinks to content/references/
-  extensions/           Generated extension files (slash commands) in Gemini format
+  agents/               Generated markdown+frontmatter agent files (from content/agents/*.md)
   hooks/
     risk-reminder.sh    Echoes risk classification reminder (parallel to .codex/hooks/risk-reminder.sh)
     stop-context-gemini.js  Writes session context on stop (parallel to .codex/hooks/stop-context-codex.js)
 ```
 
-**Note on `agents/`:** Named agent support is pending resolution of Q1 (Gemini CLI agent format). The `agents/` directory is omitted from the proposed structure until Q1 is resolved. If Gemini supports named agent files, the directory is added then. If not, agent persona preambles are embedded in `GEMINI.md` as a fallback section - same approach as the Codex `SKILL.md` fallback.
-
 **File roles:**
 
 - `GEMINI.md` - generated artifact concatenating the 3 rules files from `content/rules/` with a header and footer. Parallel to `.codex/AGENTS.md`. Loaded globally by Gemini CLI from `~/.gemini/GEMINI.md` (symlinked by install.sh).
-- `commands/` - hardlinks from `content/commands/`. No prerequisite prepend - follows the Codex pattern, not the Claude Code pattern. The `/agentic-engineering` prerequisite blockquote is Claude Code-specific and never in `content/`.
+- `commands/` - generated TOML files, one per `content/commands/*.md`. Format: `description` string and `prompt` triple-quoted string. Symlinked to `~/.gemini/commands/` by install.sh. Does not follow the Codex hardlink pattern because Gemini requires TOML, not markdown.
 - `references/` - hardlinks to `content/references/`. Parallel to `.codex/references/`.
-- `extensions/` - Gemini-native slash command definitions generated from `content/commands/`. Format: markdown files with YAML frontmatter. If Gemini supports installable user extensions, these are symlinked to `~/.gemini/extensions/` by install.sh.
+- `agents/` - generated markdown+frontmatter agent files, one per `content/agents/*.md`. Build transform adds `kind: local` and removes `model` (inherit session default). Symlinked to `~/.gemini/agents/` by install.sh.
 - `hooks/risk-reminder.sh` - identical in logic to `.codex/hooks/risk-reminder.sh`. Outputs risk reminder to stdout.
 - `hooks/stop-context-gemini.js` - writes minimal session context to `~/.gemini/projects/[hash]/context.md`.
 
@@ -192,32 +182,35 @@ These live in `.gemini/references/` (local copies in this repo) or `~/.gemini/re
 
 Same logic as `.codex/build.sh`: hardlink each `content/references/*.md` to `.gemini/references/`, using the portable inode helper for macOS/Linux compat.
 
-### 3. Hardlink `commands/`
+### 3. Generate `commands/` (TOML slash-command files)
 
-Same as Codex: hardlink each `content/commands/*.md` to `.gemini/commands/`. No transform - follows the Codex pattern (not the Claude Code pattern). The prerequisite blockquote is Claude Code-specific and never in `content/`.
+For each `content/commands/*.md`, generate a Gemini TOML command file in `.gemini/commands/<name>.toml`. The build step reads the markdown source, extracts a one-line description (first non-empty line of the body, or a mapped value), and writes:
 
-### 4. Generate `extensions/`
+```toml
+description = "<extracted description>"
 
-For each `content/commands/*.md`, generate a Gemini extension file in `.gemini/extensions/`. The extension file wraps the command markdown with YAML frontmatter:
-
-```yaml
----
-name: <command-name>
-description: <first non-empty line of the command markdown body>
----
+prompt = """
+<full markdown body of the command>
+"""
 ```
 
-Followed by the full command markdown body. This makes each command invocable as a slash command if Gemini supports user extensions.
+`{{args}}` and `@{file-path}` are Gemini's interpolation primitives and may be used inside the prompt string for future command enhancements. The initial build wraps the existing command body verbatim without adding interpolation markers.
 
-**Note:** If the exact Gemini extension format differs from this, this step needs revision. The command markdown files are still usable as manual paste templates even if the extension format is wrong.
+**Note:** If the command body contains any `"""` sequences, the build script must escape them before writing into the TOML triple-quoted string. This is unlikely given the methodology docs, but flag it as a verification item.
 
-### 5. Generate `agents/` (conditional on Q1 resolution)
+### 4. Generate `agents/`
 
-**If Gemini supports named agent definition files:** Generate one file per `content/agents/*.md`, transforming the frontmatter and body into Gemini-native format. The exact format (TOML, JSON, markdown with frontmatter) depends on what Gemini supports - this step is added when Q1 is resolved.
+Generate one `.gemini/agents/<name>.md` file per `content/agents/<name>.md`. The transform:
 
-**Fallback if named agents are not natively supported:** Skip this step. The `GEMINI.md` file includes a "Quick agent preambles" section so agents can be spawned with explicit persona prompts.
+1. Reads the source file's YAML frontmatter.
+2. Adds `kind: local` if not already present.
+3. Removes the `model` field (agents inherit the session default model, matching the Codex pattern).
+4. Preserves all other frontmatter fields (`name`, `description`, `tools`, `temperature`, `max_turns`, etc.) and the body unchanged.
+5. Writes the result to `.gemini/agents/<name>.md`.
 
-### 6. Stale file cleanup
+**Verification note:** If Gemini rejects unknown frontmatter fields (e.g., fields that are not in its supported set), the build script may need to whitelist only the fields Gemini accepts. Flag as a verification item in the Verification plan.
+
+### 5. Stale file cleanup
 
 Remove stale generated files from previous builds that no longer have a source file in `content/` - same pattern as Codex's TOML stale-file cleanup loop.
 
@@ -231,11 +224,58 @@ The Gemini adapter ships its own `install.sh` at `.gemini/install.sh`. There is 
 
 2. **Symlink `~/.gemini/GEMINI.md`** to `.gemini/GEMINI.md`. Back up any existing non-symlink file (same backup pattern as Codex installer for `~/.codex/AGENTS.md`).
 
-3. **Symlink `~/.gemini/extensions/`** to `.gemini/extensions/` if Gemini supports user-scope extensions at this path. If the path is different, adjust.
+3. **Symlink `~/.gemini/commands/`** to `.gemini/commands/`. Back up any existing non-symlink directory at that path (same backup pattern as the Codex installer).
 
-4. **Symlink `~/.gemini/agents/`** to `.gemini/agents/` if Gemini supports named agent files at this path (contingent on Q1 resolution).
+4. **Symlink `~/.gemini/agents/`** to `.gemini/agents/`. Back up any existing non-symlink directory at that path (same backup pattern as the Codex installer).
 
-5. **Configure hooks in `~/.gemini/settings.json`:** Use the same Python JSON-merge pattern as `.claude/install.sh`. Add entries under `hooks.UserPromptSubmit` and `hooks.Stop` pointing to `.gemini/hooks/risk-reminder.sh` and `.gemini/hooks/stop-context-gemini.js`. Exact key names depend on Gemini's `settings.json` schema (see Open Questions, Q2).
+5. **Configure hooks in `~/.gemini/settings.json`:** Use the same Python JSON-merge pattern as `.claude/install.sh`. The install script computes the absolute path to the hooks directory at install time:
+
+```bash
+GEMINI_HOOKS_DIR="$(cd "$(dirname "$0")" && pwd)/hooks"
+```
+
+This absolute path is substituted into the hook command strings before the JSON merge is written. Using absolute paths is required because hook commands run in an arbitrary working directory (the user's project dir, not the agentic-engineering repo root) - CWD-relative paths like `bash .gemini/hooks/risk-reminder.sh` silently fail with "no such file or directory" in that context.
+
+Merge the following structure into `~/.gemini/settings.json` under the `hooks` key, using `BeforeAgent` and `SessionEnd` event keys (NOT `UserPromptSubmit` / `Stop` - those are Claude Code events). The placeholder `<ABSOLUTE_PATH_TO_HOOKS>` must be replaced with the value of `$GEMINI_HOOKS_DIR` computed above:
+
+```json
+{
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "risk-reminder",
+            "type": "command",
+            "command": "bash <ABSOLUTE_PATH_TO_HOOKS>/risk-reminder.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "exit",
+        "hooks": [
+          {
+            "name": "stop-context",
+            "type": "command",
+            "command": "node <ABSOLUTE_PATH_TO_HOOKS>/stop-context-gemini.js"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Each hook entry has: `type` (required, currently only `"command"`), `command` (required, shell string), optional `name`, optional `timeout` (ms, default 60000). The outer entry has `matcher` (regex or exact string) and optional `sequential` (bool).
+
+**Note:** `SessionEnd` matcher `"exit"` fires on clean session termination only (explicit `/exit` or graceful shutdown). Abrupt terminations (crashes, SIGKILL) do not trigger the hook. The stop-context save is best-effort and may be missed on unclean exits - same limitation as Claude's `Stop` hook.
+
+**Post-install constraint:** The absolute paths embedded in `~/.gemini/settings.json` point to the repo location at install time. If the repo is moved after install, `.gemini/install.sh` must be re-run to update the embedded paths. This is the same constraint as the Codex adapter (the realpath-through-symlink trick also resolves against the repo path at invocation time). Document this constraint in `.gemini/README.md`.
+
+**Gemini-specific adaptation - risk-reminder.sh output format:** The Codex `risk-reminder.sh` writes a plain-text risk reminder to stdout which Codex injects as developer context. Gemini's `BeforeAgent` hook uses a different mechanism: to inject context into the prompt the hook script must write JSON to stdout with the structure `{"hookSpecificOutput": {"additionalContext": "<reminder text>"}}`. Plain stdout text is not automatically appended to the prompt in Gemini. The engineer implementing `hooks/risk-reminder.sh` must output this JSON structure rather than plain text. This is a Gemini-specific adaptation from the Codex pattern.
 
 6. **Summary output:** Print what was installed and where, matching the style of the Codex installer.
 
@@ -309,16 +349,17 @@ After running `.gemini/install.sh`:
 
 1. **Build artifacts exist:**
    - `ls .gemini/GEMINI.md` - file must exist and be non-empty
-   - `ls .gemini/commands/` - should contain the same files as `content/commands/`
+   - `ls .gemini/commands/` - should contain one `.toml` file per `content/commands/*.md`
    - `ls .gemini/references/` - should contain the same files as `content/references/`
-   - `ls .gemini/extensions/` - should contain one file per command
+   - `ls .gemini/agents/` - should contain one `.md` file per `content/agents/*.md`
 
-2. **Hardlinks are valid:**
-   - Run `stat -f %i content/commands/skeptic.md .gemini/commands/skeptic.md` - inode numbers must match
+2. **Hardlinks are valid (references):**
+   - Run `stat -f %i content/references/skeptic-protocol.md .gemini/references/skeptic-protocol.md` - inode numbers must match
 
 3. **Symlinks are correct:**
    - `readlink ~/.gemini/GEMINI.md` - must point to the repo's `.gemini/GEMINI.md`
-   - `readlink ~/.gemini/extensions/` - must point to the repo's `.gemini/extensions/`
+   - `readlink ~/.gemini/commands/` - must point to the repo's `.gemini/commands/`
+   - `readlink ~/.gemini/agents/` - must point to the repo's `.gemini/agents/`
 
 4. **GEMINI.md content:**
    - Open `.gemini/GEMINI.md` and verify it contains sections from all 3 rules files
@@ -327,32 +368,38 @@ After running `.gemini/install.sh`:
 5. **Hook scripts are executable:**
    - `bash .gemini/hooks/risk-reminder.sh` - should print the risk reminder text to stdout with exit 0
 
-6. **Gemini CLI loads context (manual verification):**
+6. **Commands directory check:**
+   - `ls ~/.gemini/commands/*.toml` - should list one TOML file per `content/commands/*.md`
+   - Open one file (e.g., `skeptic.toml`) and verify the `description` and `prompt` fields are populated
+
+7. **Agents directory check:**
+   - `ls ~/.gemini/agents/*.md` - should list one markdown file per `content/agents/*.md`
+   - Open one file (e.g., `engineer.md`) and verify the frontmatter contains `kind: local` and does NOT contain a `model` field
+
+8. **Commands reload test:**
+   - After `/commands reload` in a Gemini CLI session, verify the installed commands appear in the slash-command autocomplete
+
+9. **Gemini CLI loads context (manual verification):**
    - Open Gemini CLI in a project directory
    - Ask "What risk tiers does the agentic engineering protocol define?" - answer should reference Trivial/Low/Elevated/Elevated+Cleanup
    - This confirms `~/.gemini/GEMINI.md` is loading globally
+   - Spawn a named agent via `@engineer <prompt>` and confirm Gemini discovers and activates the agent - this confirms `~/.gemini/agents/` is being read
 
-7. **Idempotency:**
-   - Run `.gemini/install.sh` twice - second run should print "already linked" for all targets, not re-create or fail
+10. **Idempotency:**
+    - Run `.gemini/install.sh` twice - second run should print "already linked" for all targets, not re-create or fail
 
-## Open questions
+## Open questions (resolved 2026-04-15)
 
-**Q1 (non-blocking): Gemini CLI named agent format**
-Does Gemini CLI support named agent definition files analogous to `~/.codex/agents/*.toml` or `~/.claude/agents/*.md`? Research: check Gemini CLI docs at https://github.com/google-gemini/gemini-cli and the `@agent` mention syntax.
+**Q1 - Gemini named agent format:** RESOLVED. Gemini CLI natively supports subagents via `/agents` slash command. Files live at `~/.gemini/agents/*.md` (user) or `.gemini/agents/*.md` (project). Format is markdown with YAML frontmatter: required fields `name`, `description`; optional `kind` (use `local`), `tools`, `model`, `temperature`, `max_turns`. Body is the system prompt. Invocation: `@agent-name` prefix or auto-selection based on description match. The adapter generates these files per the build.sh Step 4 above.
 
-This is non-blocking because the fallback is defined: if named agents are not natively supported, persona preambles are embedded in `GEMINI.md` (a "Quick agent preambles" section, same as the Codex SKILL.md fallback). The `agents/` directory and build step are deferred until this question is answered, keeping the proposed directory structure consistent with what can be implemented immediately.
+**Q2 - Hook schema:** RESOLVED. Gemini hooks live in `~/.gemini/settings.json` under the `hooks` key. Event names are `SessionStart`, `BeforeAgent`, `BeforeToolSelection`, `BeforeTool`, `AfterModel`, `AfterAgent`, `SessionEnd` (NOT `UserPromptSubmit` / `Stop` - those are Claude Code events). Mapping: `BeforeAgent` with matcher `"*"` for risk reminder; `SessionEnd` with matcher `"exit"` for stop context. Full schema is in the install.sh Step 5 JSON block above.
 
-**Q2 (blocking): hooks.json / settings.json hook schema**
-What is the exact JSON schema for hooks in `~/.gemini/settings.json`? Specifically: what are the event names, nesting structure, and command invocation format? The Claude Code format (`hooks.UserPromptSubmit[].hooks[].command`) may differ from Gemini's. Research: check `~/.gemini/settings.json` if Gemini CLI is installed locally, or read the Gemini CLI source.
+Citation for `BeforeAgent` semantic (Gemini CLI hooks reference, docs/hooks/reference.md): "BeforeAgent Hook: Fires after a user submits a prompt, but before the agent begins planning. Used for prompt validation or injecting dynamic context. Input Fields: prompt (string) - The original text submitted by the user. Output: hookSpecificOutput.additionalContext (string) - Text that is appended to the prompt for this turn only." This confirms `BeforeAgent` is the per-prompt equivalent of Claude Code's `UserPromptSubmit` and the mapping in this plan is correct.
 
-**Q3 (blocking): User-scope extensions path**
-Is the user-scope extensions/slash-commands directory `~/.gemini/extensions/`, `~/.gemini/commands/`, or something else? This determines where `install.sh` symlinks the extensions directory. Research: Gemini CLI docs or `gemini --help`.
+**Q3 - User-scope commands path:** RESOLVED. Path is `~/.gemini/commands/` (not `~/.gemini/extensions/`). Format is TOML with `description` and `prompt` fields. Commands are reloaded via `/commands reload`. Full format documented in build.sh Step 3 above.
 
-**Q4 (non-blocking): Stop hook support**
-Does the current Gemini CLI version support a `Stop` lifecycle hook? If not, omit `.gemini/hooks/stop-context-gemini.js` and the stop hook installation step. The context-save functionality can be added later when (and if) the hook event is supported.
+**Q4 - Stop hook support:** RESOLVED (side effect of Q2 research). Gemini supports `SessionEnd` with matcher `"exit"` which is functionally equivalent to Claude's `Stop` hook. Implement `hooks/stop-context-gemini.js` and wire it in the install script as documented in install.sh Step 5 above. Note: `SessionEnd` with matcher `"exit"` fires on clean session termination only (explicit `/exit` command or graceful shutdown). Abrupt terminations (crashes, SIGKILL, SIGTERM) do not trigger the hook. The stop-context save is therefore best-effort and may be missed on unclean exits - the same limitation as Claude's `Stop` hook.
 
-**Q5 (non-blocking): Gemini CLI global config directory**
-Confirm `~/.gemini/` is the correct user-scope config directory on all supported platforms (macOS, Linux). Windows path may differ. Codex uses `~/.codex/` which has the same cross-platform concern.
+**Q5 - Global config directory:** Still open (platform-dependent verification). `~/.gemini/` is the confirmed macOS/Linux path from context7 docs. Windows may use `%USERPROFILE%\.gemini\` but this adapter targets macOS/Linux like the Codex adapter. Re-classified as non-blocking.
 
-**Q7 (non-blocking): Gemini CLI worker invocation for multi-provider pools**
-When the P1 parallel fan-out primitive is implemented, Gemini workers need to be invocable non-interactively (headless, scripted). What is the Gemini CLI equivalent of `codex --non-interactive --prompt "..."` for spawning a worker process? This is out of scope for P0 but should be documented once discovered so the P1 design can reference it.
+**Q7 - Non-interactive worker invocation:** Still open. Out of scope for this P0 adapter. P1 (parallel fan-out) research needs to answer this before Gemini workers can be spawned headlessly.
