@@ -5,11 +5,11 @@ Handles the full edit-sync-build-commit-push cycle for any file under `~/agentic
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under `~/agentic-engineering/`.
 - (b) The user says "update the methodology", "change the protocol", "edit the wrap skill", "add an agent", "rename a command", or anything similar that implies changing a file in the agentic-engineering repo.
-- (c) You are about to use Edit or Write on any file whose absolute path starts with `/Users/<user>/agentic-engineering/` or `~/agentic-engineering/`.
+- (c) You are about to use Edit or Write on any file whose absolute path is within `~/agentic-engineering/` (i.e. any file under the agentic-engineering repo, regardless of how the path is spelled).
 
 **Why it matters:** Without this command's Step 0 git sync, concurrent edits from multiple machines produce push conflicts and messy rebases; without Step 4 commit+push, edits pile up uncommitted locally.
 
-**Do NOT bypass:** The main agent must NOT edit files under `~/agentic-engineering/` with direct Edit/Write calls unless it is actively inside Step 1 of this command. If you find yourself about to Edit or Write such a file without being in Step 1, stop and invoke `/update-agentic-engineering` instead.
+**Do NOT bypass:** The main agent must NOT edit files under `~/agentic-engineering/` with direct Edit/Write calls. The only exception is the permission-blocked path documented below: if a spawned Worker has returned a BLOCKED status citing Edit permission denial by the permission system, the main session may apply the edit directly per the permission-blocked path in this command. That is the sole carve-out. If you find yourself about to Edit or Write a file under `~/agentic-engineering/` without that specific trigger, stop and invoke `/update-agentic-engineering` instead.
 
 Scope: all files physically located under `~/agentic-engineering/`. This includes `content/rules/`, `content/commands/`, `content/references/`, `content/agents/`, and `.claude/commands/` within the repo. Files that live outside the repo (e.g., agent definitions in `~/.claude/agents/` that are not symlinks into this repo) are out of scope.
 
