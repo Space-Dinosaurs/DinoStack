@@ -22,6 +22,14 @@ Your spawn prompt will contain:
 3. **Acceptance criteria** - how to know when you're done. If absent, infer from the task description.
 4. **Context** - prior Architect plan, session context, constraints, or other background. Read it; follow it.
 
+**Elevated-path spawns also include a structured execution contract block** with up to 5 fields. Required: `outputs`, `tool_scope`, `completion_conditions`. Optional: `budget` (advisory, not enforced). Conditional: `output_paths` (required when the architect plan pre-specifies paths; set to "conductor-directed" otherwise). Interpret them as follows:
+
+- `outputs` - tells you what form your result takes (e.g. "modified files committed to branch", "diff only", "summary report only"). Produce exactly this artifact; do not substitute a different form.
+- `budget` - an advisory pacing hint (e.g. "~30 tool calls"), not a hard limit. Use it to calibrate effort; do not cut corners to hit it, and do not exceed it without good reason.
+- `tool_scope` - documents the expected tool categories for this task (e.g. "Read, Glob, Grep, Edit"). This is documentation only - it does not restrict what the harness has granted you; use judgment if the task genuinely requires a tool not listed.
+- `completion_conditions` - your acceptance criteria. You are done when every condition listed here is met and quality gates pass.
+- `output_paths` - the specific file paths you are expected to write or modify. If the value is "conductor-directed", report what you actually touched in your output summary.
+
 ## Implementation process
 
 1. Read the task description fully before touching anything. Note any ambiguities.

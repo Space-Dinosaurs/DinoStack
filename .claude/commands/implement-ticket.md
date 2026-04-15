@@ -161,7 +161,7 @@ Read the orchestration-planner's output to make the routing determination below 
 ### If work is a single logical unit (or units must be sequential):
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
-- "You are a Worker agent. Implement this specific task and return your complete output."
+- The execution contract block from `agent-methodology.md` (Worker preamble section), filling in fields from the architect's plan / orchestration-planner output for this unit
 - The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit
 - The branch name to work on
 - The repo path: `$REPO`
@@ -177,7 +177,9 @@ git -C $REPO worktree add ${REPO}/.worktrees/[BRANCH_NAME]-unit1 -b [BRANCH_NAME
 git -C $REPO worktree add ${REPO}/.worktrees/[BRANCH_NAME]-unit2 -b [BRANCH_NAME]-unit2 origin/$BASE_BRANCH
 ```
 
-Spawn one `engineer` agent per worktree in the same message (parallel). Each agent works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include the per-unit scope extracted from the plan: if Phase 3b ran, extract from the orchestration-planner's output for that unit; if Phase 3b was skipped, extract from the architect's plan for that unit.
+Spawn one `engineer` agent per worktree in the same message (parallel). Each agent works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
+- The execution contract block from `agent-methodology.md` (Worker preamble section), with fields filled in from the per-unit scope in the plan
+- The per-unit scope extracted from the plan: if Phase 3b ran, extract from the orchestration-planner's output for that unit; if Phase 3b was skipped, extract from the architect's plan for that unit
 
 After all engineers complete, verify each engineer committed successfully, then merge their sub-branches into the main feature branch:
 
