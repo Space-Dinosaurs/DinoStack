@@ -70,7 +70,17 @@ Then: the main session may apply the edit directly, followed immediately by spaw
 
 **Open Questions are a hard gate.** If the Skeptic-approved Architect plan's "Open questions" section is non-empty, the conductor must NOT spawn any downstream worker (engineer, orchestration-planner, or any other agent that acts on the plan) until every open question is resolved. Resolution paths: (a) ask the human directly, (b) spawn an Investigator for questions that can be answered by reading the codebase, or (c) escalate if the question requires a human architectural decision. "Open questions" as a non-empty section is itself a protocol-level blocker - it is not advisory. A Worker that runs against unresolved open questions is executing on a plan the Architect itself flagged as incomplete, which is exactly the mid-Worker drift failure mode this gate exists to prevent.
 
-**Worker preamble (when using engineer):** *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
+**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
+
+Preamble:
+*"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
+
+Execution contract template:
+- outputs: [what artifact(s) the Worker must produce - e.g. "modified files committed to branch", "diff only", "summary report only"]
+- budget: [rough max tool-call count, or omit; advisory, not enforced]
+- tool_scope: [expected tool categories - e.g. "Read, Glob, Grep, Edit"; documentation only, does not override the harness-level Agent tool grants]
+- completion_conditions: [acceptance criteria verbatim from architect plan or ticket, plus any quality-gate pass requirements]
+- output_paths: [specific file paths the Worker is expected to write or modify, or "conductor-directed" if paths emerge during implementation]
 
 ## Risk Classification
 
