@@ -85,7 +85,7 @@ A protocol for shipping software with AI agents
 - Loaded as a skill - it shapes how your agent plans, implements, and reviews code
 - Mostly **passive**: you don't drive it with commands
 - Risk-aware delegation, adversarial review, focused sessions
-- Tool-agnostic: Claude Code, Cursor, and more
+- Tool-agnostic: Claude Code, Cursor, Codex, Gemini CLI
 
 <div class="callout">
 Not a framework you call into. A living protocol that shapes every response, every task, every review - in the background.
