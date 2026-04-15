@@ -111,12 +111,32 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `cleanup` | /simplify pass running (Elevated + Cleanup path only) |
 | `cleanup-review` | Narrow Skeptic reviewing /simplify diff |
 | `qa-review` | QA engineer is verifying the change in a browser |
+| `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/implement-ticket`; include current iteration count, max cap, and open finding counts |
+| `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
 | `releasing` | Release orchestrator is executing the release sequence |
 | `dep-auditing` | Dependency auditor is scanning lockfiles and running vulnerability tools |
 | `complete` | All work done, synthesizing results |
 
 Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-review (round 1)]"
+
+**Loop breadcrumb examples:**
+- `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
+- `[loop: qa | iteration 2/3 | open failures: 1]`
+
+**Loop transition rules (BLOCKED / NEEDS_CONTEXT / DONE_WITH_CONCERNS inside a Skeptic or QA loop):**
+
+These transitions apply to fix-pass Engineer spawns inside `/implement-ticket` Phase 6 (Skeptic loop) and Phase 6b (QA loop). The iteration counter tracks only genuine fix attempts.
+
+| Engineer status | Action | Iteration counter |
+|---|---|---|
+| `DONE` or `DONE_WITH_CONCERNS` | Normal progression. `DONE_WITH_CONCERNS` concerns become additional Skeptic brief context on the next iteration. | Increments normally |
+| `BLOCKED` | Treat as immediate `cap_reached` escalation regardless of current iteration count. Emit escalation format with `termination_reason: blocked` and wait for human direction. | NOT incremented |
+| `NEEDS_CONTEXT` | Conductor re-supplies missing context and re-spawns the Engineer with the same findings brief and added context. If the conductor cannot supply the needed context, escalate to the human. | NOT incremented |
+
+**Format re-invocations:** Format-noncompliant Skeptic re-invocations (skeptic-protocol.md Section 11 permits up to 3) do NOT increment the iteration counter. They are administrative retries, not new review rounds.
+
+**Loop contract pointer:** `/implement-ticket` Phase 6 and Phase 6b define the full loop contract (state schema, max-iteration cap, findings accumulation rules, convergence failure conditions, and escalation formats). This file covers only the breadcrumb vocabulary and engineer-status transition rules. Consult `/implement-ticket` for the authoritative loop specification.
 
 ### Rule 7 — Direct actions permitted without subagent
 
