@@ -235,6 +235,70 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 
 ---
 
+## The persistence loop - Engineer -> Skeptic -> QA
+
+<style scoped>
+  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
+  ul { font-size: 0.82em; }
+  ul li { margin: 0.15em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+```
+Phase 6: Skeptic loop (max 3 fix passes)          Phase 6b: QA loop (max 3 fix passes)
+─────────────────────────────────────────         ─────────────────────────────────────
+Engineer implements                               (only runs if Phase 6 exits cleanly)
+    │
+Skeptic reviews ──> sign-off? ──> Phase 6b ──>  QA verifies ──> PASS? ──> Phase 7
+    │ Critical/Major found?                           │ failures?
+    └── Engineer fix pass ──> loop back              └── Engineer fix pass ──> loop back
+    │ cap_reached / convergence? ──> ESCALATE        │ cap / convergence? ──> ESCALATE
+```
+
+- **3 fix passes per phase** - caps are independent (Skeptic cap and QA cap are separate budgets)
+- **`findings_log` carries forward** - prior findings tracked by ID; closed findings are not re-litigated
+- **Convergence failure** - one re-raise of a **Critical** finding after a claimed fix triggers immediate escalation (does not wait for a second attempt)
+- **Escalation reasons**: `cap_reached`, `convergence_failure`, `blocked`
+
+<div class="callout">
+The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</code>
+</div>
+
+---
+
+## When the loop stalls
+
+<style scoped>
+  .columns { gap: 1em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.78em; line-height: 1.4; padding: 0.8em 1em; }
+  .columns .card strong { font-size: 1.05em; }
+  p { font-size: 0.85em; margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+<div class="columns">
+<div class="card">
+<strong>cap_reached</strong><br/>
+3 fix passes ran, Critical/Major findings still open. Loop exits. QA is skipped. Human receives the open findings list and three options: clarify, defer, or scope as follow-on.
+</div>
+<div class="card">
+<strong>convergence_failure</strong><br/>
+Skeptic re-raised a <strong>Critical</strong> finding after the Engineer claimed to fix it. One re-raise is enough - the loop does not wait for a second attempt. Signals a design conflict, not an implementation mistake.
+</div>
+<div class="card">
+<strong>blocked</strong><br/>
+Engineer returned BLOCKED - hit a design conflict that fix passes cannot resolve. Treated as immediate escalation regardless of iteration count.
+</div>
+</div>
+
+The conductor surfaces the raw finding history and waits for human direction. It does not synthesize fix suggestions.
+
+<div class="callout">
+The loop terminates cleanly or escalates. It never runs forever.
+</div>
+
+---
+
 ## The findings flywheel
 
 <style scoped>
