@@ -4,7 +4,7 @@
 
 - **Rules** (3 .mdc files) - agent methodology, code standards, conventions
 - **Reference docs** (4) - skeptic protocol, subagent protocol, agent team, design goals
-- **Commands** (6) - skeptic, memory-update, wrap, init-project, implement, update-protocol
+- **Commands** (6) - skeptic, memory-update, wrap, init-project, implement, update-agentic-engineering
 - **Hooks** - beforeSubmitPrompt risk reminder, stop context saver
 
 ## Setup
