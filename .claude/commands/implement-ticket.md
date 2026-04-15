@@ -219,6 +219,8 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 ## Phase 6: Skeptic review
 
+**Phase 6 guard (tight-fix path).** If Phase 5 spawned the engineer under the Elevated (tight-fix path) sub-path (see `agent-methodology.md`) AND the Worker returned Status: DONE with the verbatim pre-commit test output in its summary, skip the rest of Phase 6. The tight-fix path's pre-commit test verification replaces the post-impl Skeptic for this case. If the Worker returned Status: BLOCKED or DONE_WITH_CONCERNS, fall through to the standard Phase 6 Skeptic spawn on the uncommitted diff (see `skeptic-protocol.md` line 376 for the amended "no irreversible changes" rule that permits this sub-path).
+
 Spawn a `skeptic` agent with:
 - The adversarial brief type identified by the architect
 - The full diff: `git -C $REPO diff origin/$BASE_BRANCH..HEAD`
