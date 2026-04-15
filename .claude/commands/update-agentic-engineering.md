@@ -2,7 +2,16 @@
 
 # /update-agentic-engineering
 
-Governs all edits to methodology documents and protocol files within the `~/agentic-engineering/` repository. Use this command whenever a rule, convention, agent definition, or command file under `~/agentic-engineering/` needs to change.
+Handles the full edit-sync-build-commit-push cycle for any file under `~/agentic-engineering/`.
+
+**When to use - use whenever ANY of these hold:**
+- (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under `~/agentic-engineering/`.
+- (b) The user says "update the methodology", "change the protocol", "edit the wrap skill", "add an agent", "rename a command", or anything similar that implies changing a file in the agentic-engineering repo.
+- (c) You are about to use Edit or Write on any file whose absolute path starts with `/Users/<user>/agentic-engineering/` or `~/agentic-engineering/`.
+
+**Why it matters:** Without this command's Step 0 git sync, concurrent edits from multiple machines produce push conflicts and messy rebases; without Step 4 commit+push, edits pile up uncommitted locally.
+
+**Do NOT bypass:** The main agent must NOT edit files under `~/agentic-engineering/` with direct Edit/Write calls unless it is actively inside Step 1 of this command. If you find yourself about to Edit or Write such a file without being in Step 1, stop and invoke `/update-agentic-engineering` instead.
 
 Scope: all files physically located under `~/agentic-engineering/`. This includes `content/rules/`, `content/commands/`, `content/references/`, `content/agents/`, and `.claude/commands/` within the repo. Files that live outside the repo (e.g., agent definitions in `~/.claude/agents/` that are not symlinks into this repo) are out of scope.
 
@@ -34,7 +43,7 @@ Spawn a Worker subagent with instructions:
 
 ## Permission-blocked path
 
-If the Worker in Step 1 returns a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED — Edit permission was denied by the permission system"), the main session may apply the edit directly, then present the diff to the user in Step 2 as normal. The user approval gate in Step 2 is preserved without exception - the main session never applies an edit and proceeds without human review. Step 3 proceeds only after approval.
+If the Worker in Step 1 returns a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED - Edit permission was denied by the permission system"), the main session may apply the edit directly, then present the diff to the user in Step 2 as normal. The user approval gate in Step 2 is preserved without exception - the main session never applies an edit and proceeds without human review. Step 3 proceeds only after approval.
 
 ## Step 2 - Present to the user
 
