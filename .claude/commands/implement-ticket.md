@@ -215,6 +215,8 @@ git -C $REPO branch -d [BRANCH_NAME]-unit1 [BRANCH_NAME]-unit2
 
 For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `agent-methodology.md §Worktree Lifecycle`.
 
+**Merge-conflict re-route and loop iteration:** If a merge conflict re-route occurred above and the re-routed Engineer's output then goes through Skeptic review in Phase 6, the conflict re-route counts as iteration 1 of the Phase 6 loop. Do not double-count: the conflict-resolution Engineer pass is the first fix pass; Phase 6 initializes its `iteration` counter at 1 to reflect this.
+
 ---
 
 ## Phase 6: Skeptic review
@@ -229,21 +231,172 @@ Spawn a `skeptic` agent with:
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
-**Findings handling:**
-- **Critical:** Route back to a fresh `engineer` agent to fix. Re-run Skeptic after.
-- **Major:** Route back to engineer unless there's a strong reason to defer. Re-run Skeptic.
-- **Minor:** Address inline or document as known limitation. No re-run needed.
+**Findings handling - loop contract:**
+
+Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (create `.agentic/` directory if absent):
+
+```
+LOOP_STATE initialized:
+  phase: skeptic
+  iteration: 1
+  max_iterations: 3
+  findings_log: []
+  last_engineer_summary: null
+  termination_reason: null
+```
+
+Write this as JSON to `.agentic/loop-state.json`:
+
+```json
+{
+  "phase": "skeptic",
+  "iteration": 1,
+  "max_iterations": 3,
+  "findings_log": [],
+  "last_engineer_summary": null,
+  "termination_reason": null
+}
+```
+
+**Stability contract:** `.agentic/loop-state.json` is a stable contract from P0 onward. The P2 rate-limit resumer will READ this file for resume keying; any schema change post-P0 must consider P2 readers.
+
+The file is overwritten (not appended) on each iteration state update and at loop exit with `termination_reason` set. It is not deleted on clean termination - the final state is the post-mortem record until the next loop invocation overwrites it. Whether `.agentic/` is gitignored is deferred to project convention.
+
+Emit the inline breadcrumb:
+
+```
+[loop: skeptic | iteration 1/3 | open findings: -]
+```
+
+**Loop entry (repeat until termination):**
+
+**Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`.
+
+```
+## Prior iteration findings
+
+The following findings were raised in earlier iterations. For each:
+- If the current diff shows the finding was addressed: mark it CLOSED with a one-line confirmation.
+- If the current diff does NOT show the finding was addressed: re-raise it using [PREV: <id>] prefix in the finding title.
+- Do not re-raise findings that were resolved - do not invent new instances of a previously-closed finding without new evidence.
+
+[paste findings_log entries with status=open or status=addressed]
+```
+
+**Step 2.** Receive Skeptic output. Classify findings. Update `findings_log`:
+- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `severity`, `first_raised: <iteration>`, `status: open`.
+- If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry.
+- Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - escalate rather than accepting a self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval. The conductor escalates rather than accepting an Engineer's self-declared deferral.
+- Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
+
+**Step 3. Termination check:**
+- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Exit loop cleanly. Proceed to Phase 6b.
+- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human (see Escalation section below). Phase 6b does NOT run.
+- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+
+**Step 4. Engineer fix pass.** Spawn a fresh `engineer` agent with:
+- The open Critical and Major findings from `findings_log` (status=open)
+- The `last_engineer_summary` from the prior iteration
+- Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
+- The branch name and repo path
+- Instruction to run `$QUALITY_CMD` before finishing
+
+**Step 5.** Receive Engineer output.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Emit escalation format. Stop. Do NOT increment `iteration`.
+- If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
+- If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
+- Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
+
+**Escalation format (cap_reached, convergence_failure, or blocked):**
+
+```
+LOOP STALLED - [reason: cap_reached | convergence_failure | blocked]
+Iteration: [N] of 3
+
+Open findings that could not be resolved:
+[list findings_log entries with status=open]
+
+[If convergence_failure]: The following finding was re-raised after a claimed fix:
+[finding id, original raise, claimed fix, Skeptic's re-raise note]
+
+[If blocked]: Engineer returned BLOCKED with the following description:
+[Engineer's blocker description verbatim]
+
+Recommended action: review the open findings above and either:
+(a) Provide clarifying direction to the Engineer on how to address [finding id], or
+(b) Accept the finding as a known limitation and confirm deferral, or
+(c) Scope the fix as a follow-on ticket.
+```
+
+Note: the escalation format surfaces findings and history only. The conductor does not synthesize fix suggestions - that would undermine the convergence failure signal.
 
 ---
 
 ## Phase 6b: QA Gate (conditional)
 
+**Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
+
+**Cap independence:** Phase 6 and Phase 6b caps are independent - exhausting the Phase 6 Skeptic cap (3 fix passes) does not consume Phase 6b QA cap budget, and vice versa. Each phase gets its own 3-fix-pass budget evaluated separately.
+
 **Trigger:** `.claude/qa.md` exists AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
 
-- **If triggered:** spawn `qa-engineer` with the ticket context and diff. On failure, route back to `engineer` for fixes, then re-run Phase 6b. On pass, proceed to Phase 6c.
 - **If not triggered:** skip directly to Phase 6c.
+- **If triggered:** proceed with the QA loop contract below.
 
 For full QA gate rules, see `agent-methodology.md §QA Gate`.
+
+**QA loop contract:**
+
+Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (overwriting the Phase 6 state):
+
+```
+LOOP_STATE initialized:
+  phase: qa
+  iteration: 1
+  max_iterations: 3
+  qa_failures_log: []
+  last_engineer_summary: null
+  termination_reason: null
+```
+
+Write as JSON to `.agentic/loop-state.json` (same stability contract as Phase 6 - see above).
+
+Emit the inline breadcrumb:
+
+```
+[loop: qa | iteration 1/3 | open failures: -]
+```
+
+**Loop entry (repeat until termination):**
+
+**Step 1.** Spawn `qa-engineer` with ticket context, diff, and `.claude/qa.md` config. On iteration 2+, prepend the "Prior QA failures" section to the brief:
+
+```
+## Prior QA failures
+
+The following failures were identified and fix attempts were made in earlier iterations. For each:
+- If the acceptance criterion now passes: mark it CLOSED with a one-line confirmation.
+- If the criterion still fails: re-raise it using [PREV: <id>] prefix in the failure description.
+- Do not re-raise failures that are confirmed fixed.
+
+[paste qa_failures_log entries with status=open or status=addressed]
+```
+
+**Step 2.** Receive QA output. Update `qa_failures_log`:
+- Each failure gets a short slug `id`, `description`, `first_raised: <iteration>`, `status: open`.
+- If a failure carries `[PREV: <id>]`, set `re_raised: true` on the matching `qa_failures_log` entry.
+- Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
+
+**Step 3. Termination check:**
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Exit loop cleanly. Proceed to Phase 6c.
+- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 6c does NOT run.
+- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
+
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Escalate immediately. Do NOT increment `iteration`.
+- If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
+
+**Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
 
 ---
 
@@ -262,7 +415,20 @@ export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" &
 cd $REPO && $QUALITY_CMD
 ```
 
-All checks must pass (typecheck, lint, tests, knip, jscpd). If any fail, spawn a fresh `engineer` agent with the failure output and instruct it to fix - do not suppress or skip checks. Re-run `$QUALITY_CMD` after the fix.
+All checks must pass (typecheck, lint, tests, knip, jscpd). Do not suppress or skip checks.
+
+**If `$QUALITY_CMD` fails:**
+
+This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter. Instead:
+
+1. Spawn one `engineer` fix pass scoped to the quality gate failure output. The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry.
+2. Re-run `$QUALITY_CMD`.
+3. If it passes: proceed to Phase 6c (finding promotion) then Phase 8.
+4. If it still fails: escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
+
+**No unbounded loop:** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
+
+**Tight-fix path interaction:** If the tight-fix path fired (Phase 6 guard bypassed the Skeptic entirely) and the Worker committed successfully, then Phase 7 fails - this triggers the one-Engineer-pass rule above. It does NOT re-enter the Phase 6 Skeptic loop. The Skeptic already signed off on the implementation via the tight-fix path's pre-commit verification. The Phase 7 fix pass is scoped to quality gate failures only.
 
 ---
 
