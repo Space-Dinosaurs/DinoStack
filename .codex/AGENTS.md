@@ -60,7 +60,7 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 **Permission-blocked fallback (non-methodology files only)**
 
-This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents — installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/agentic-engineering/` — those are governed by `/update-protocol` (see that command for the authoritative process). The boundary is physical location — any file under `~/agentic-engineering/` is governed by /update-protocol regardless of its role; any infrastructure file outside that path is governed by this fallback.
+This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents — installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/agentic-engineering/` — those are governed by `/update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location — any file under `~/agentic-engineering/` is governed by /update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
 
 When all three conditions are met:
 

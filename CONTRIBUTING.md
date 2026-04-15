@@ -34,7 +34,7 @@
 **Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:
 - `content/rules/` - the 3 rule files (agent-methodology, code-standards, conventions)
 - `content/references/` - the 4 reference docs (skeptic-protocol, subagent-protocol, agent-team, design-goals)
-- `content/commands/` - the 6 command files (implement, init-project, memory-update, skeptic, update-protocol, wrap)
+- `content/commands/` - the 6 command files (implement, init-project, memory-update, skeptic, update-agentic-engineering, wrap)
 - `content/agents/` - the 10 agent definitions (adr-drift-detector, adr-generator, architect, debugger, engineer, investigator, orchestration-planner, qa-engineer, security-auditor, skeptic)
 
 Build scripts regenerate adapter files from `content/`:

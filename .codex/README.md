@@ -8,7 +8,7 @@
 - **Global AGENTS.md** - `~/.codex/AGENTS.md` symlinked to `.codex/AGENTS.md` for global session loading
 - **Named agents** - `~/.codex/agents/` symlinked to `.codex/agents/` - 13 agent TOML files generated from `content/agents/*.md`
 - **Lifecycle hooks** - `~/.codex/hooks.json` symlinked to `.codex/hooks.json` - UserPromptSubmit (risk reminder) and Stop (context save)
-- **Command templates** - `.codex/commands/` contains the workflow templates for `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, and `update-protocol`
+- **Command templates** - `.codex/commands/` contains the workflow templates for `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, and `update-agentic-engineering`
 
 ## Installation
 
@@ -110,7 +110,7 @@ The Codex adapter keeps workflow templates in `.codex/commands/` as plain markdo
 | `wrap.md` | Read or paste `.codex/commands/wrap.md` |
 | `memory-update.md` | Read or paste `.codex/commands/memory-update.md` |
 | `init-project.md` | Read or paste `.codex/commands/init-project.md` |
-| `update-protocol.md` | Read or paste `.codex/commands/update-protocol.md` |
+| `update-agentic-engineering.md` | Read or paste `.codex/commands/update-agentic-engineering.md` |
 
 In practice, this means you invoke the workflow by asking Codex to follow the relevant template or by pasting the template contents into the session. The agentic-engineering skill (`~/.agents/skills/agentic-engineering/`) remains the primary integration point.
 

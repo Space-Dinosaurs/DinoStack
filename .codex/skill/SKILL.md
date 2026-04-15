@@ -32,7 +32,7 @@ These are prompt templates for common workflows. In Codex, use them from `.codex
 - `wrap` - Session context enrichment and AGENTS.md updates
 - `memory-update` - Capture a project decision to memory
 - `init-project` - Scaffold a new project with AGENTS.md hierarchy
-- `update-protocol` - Governs edits to methodology documents
+- `update-agentic-engineering` - Governs edits to methodology documents
 
 Use these templates manually: read the relevant `.codex/commands/<name>.md` file and paste or paraphrase it into your session. Do not assume a `/prompts:<name>` command exists in Codex.
 
@@ -103,7 +103,7 @@ If hooks are not firing, verify `codex_hooks = true` is present in `~/.codex/con
 
 ## Command Templates
 
-Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, or `update-protocol` flow in a Codex session.
+Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, or `update-agentic-engineering` flow in a Codex session.
 
 ## Remaining Limitations vs Claude Code
 
