@@ -52,6 +52,7 @@ None of the above:
 | "The Skeptic will catch any mistakes." | The Skeptic reviews Worker output. It does not excuse skipping risk classification or spawning a Worker. |
 | "We're moving fast, we can skip review this time." | The protocol exists precisely for times when moving fast creates pressure to skip it. Speed is not a Low signal. |
 | "This change is too minor to bother with a Worker." | Delegate on risk signals, not on size. The Worker overhead is small; the cost of an unreviewed error is not. |
+| "I ran the tests myself, I don't need a Skeptic" | Valid only when the tight-fix path declaration was made with all 6 checklist items ticked AND the Worker's pre-commit test verification sequence passed. Outside that declared sub-path, tests passing is not a substitute for Skeptic review. The tight-fix path is a narrow declared opt-in, not a general permission to self-verify. |
 
 ### Approach by risk level
 
@@ -373,7 +374,7 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
-**Irreversible changes:** Workers must not apply irreversible changes before the primary agent has confirmed Skeptic sign-off. Workers that must stage irreversible changes as part of implementation must write a revert procedure in their return output before applying those changes. If the Skeptic subsequently flags Critical issues, the primary agent instructs the Worker to execute the revert procedure before further changes.
+**Irreversible changes:** Workers must not apply irreversible changes before the primary agent has confirmed Skeptic sign-off. The sole exception is the Elevated (tight-fix path) sub-path defined in `agent-methodology.md`: when a tight-fix path declaration is made with all 6 checklist items ticked AND the engineer Worker's pre-commit test verification (BASELINE -> APPLY -> VERIFY) passes, the Worker may commit without prior Skeptic sign-off. Any failure in the verification sequence reverts to the standard rule - the Worker does NOT commit, returns the uncommitted diff, and the conductor spawns a Skeptic on the uncommitted diff. Workers that must stage irreversible changes as part of implementation must write a revert procedure in their return output before applying those changes. If the Skeptic subsequently flags Critical issues, the primary agent instructs the Worker to execute the revert procedure before further changes.
 
 ---
 

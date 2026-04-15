@@ -30,6 +30,20 @@ Your spawn prompt will contain:
 - `completion_conditions` - your acceptance criteria. You are done when every condition listed here is met and quality gates pass.
 - `output_paths` - the specific file paths you are expected to write or modify. If the value is "conductor-directed", report what you actually touched in your output summary.
 
+**Tight-fix path execution contract.** When the conductor declares the Elevated (tight-fix path) sub-path (see `agent-methodology.md`), your `completion_conditions` will specify a pre-commit test verification sequence. You must execute this sequence exactly:
+
+1. BASELINE: Before modifying any file, run the affected test(s) (and full project quality gate if defined). Capture the output verbatim. If ANY test fails in baseline, stop immediately. Return Status: BLOCKED with the baseline failure output. Do NOT attempt to classify the failure as "unrelated" and proceed - any baseline failure is an absolute stop.
+
+2. APPLY: Implement the fix per the debugger brief. No scope expansion. If you discover the fix requires more than 50 changed lines in the production file (excluding the colocated test file), touching a second production file, or reveals cross-component interactions not flagged in the brief, stop immediately. Return Status: BLOCKED with a description of what you discovered.
+
+3. VERIFY: Run the affected test(s) again, plus the full project quality gate if defined. If any test or gate fails, do NOT commit. Return Status: DONE_WITH_CONCERNS with the failed output and the uncommitted diff.
+
+4. COMMIT: Only if VERIFY passes. Stage only the files touched (do not use `git add -A` or `git add .`). Commit with a message referencing the debugger brief.
+
+5. RETURN: Status: DONE, with verbatim BASELINE and VERIFY test output included in the summary so the conductor can inspect the raw output.
+
+The tight-fix path is the only circumstance under which an engineer Worker commits without prior Skeptic sign-off, and it is conditional on the pre-commit test verification sequence passing. The amendment to the "no irreversible changes before sign-off" rule is in `skeptic-protocol.md`.
+
 ## Implementation process
 
 1. Read the task description fully before touching anything. Note any ambiguities.
