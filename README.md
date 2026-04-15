@@ -32,7 +32,7 @@ cd agentic-engineering
 bash .claude/install.sh
 ```
 
-For other tools (Cursor, Codex), see the install instructions in each adapter's README.
+For other tools (Cursor, Codex, Gemini), see the install instructions in each adapter's README.
 
 ## Updating
 
@@ -75,6 +75,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | Claude Code | `.claude/` | See [.claude/README.md](.claude/README.md) |
 | Cursor | `.cursor/` | See [.cursor/README.md](.cursor/README.md) |
 | Codex CLI | `.codex/` | See [.codex/README.md](.codex/README.md) |
+| Gemini CLI | `.gemini/` | See [.gemini/README.md](.gemini/README.md) |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
@@ -106,6 +107,7 @@ agentic-engineering/
   .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
   .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
+  .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters

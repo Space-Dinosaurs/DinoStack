@@ -96,6 +96,8 @@ Clone git@github.com:Solara6/agentic-engineering.git and run .claude/install.sh
 
 The agent clones the repo, runs the installer, and walks you through optional tool setup. Idempotent - safe to re-run anytime.
 
+> **Other adapters:** Gemini CLI users run `bash .gemini/install.sh`. Cursor and Codex CLI users run `.cursor/install.sh` and `.codex/install.sh` respectively - same pattern, each tool's native format.
+
 ---
 
 ## Always run `claude` from the project directory

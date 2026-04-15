@@ -316,7 +316,7 @@ git add \
   ... \
   "$REPO_DIR/.gemini/GEMINI.md" \
   "$REPO_DIR/.gemini/references/"*.md \
-  "$REPO_DIR/.gemini/commands/"*.md
+  "$REPO_DIR/.gemini/commands/"*.toml
 ```
 
 This is a required implementation step - the pre-commit hook is the enforcement mechanism that keeps all adapter outputs in sync with `content/` on every commit. Omitting `.gemini/` means Gemini adapter files can silently fall out of sync with `content/` after any rules or command change.
