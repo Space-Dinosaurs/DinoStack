@@ -187,31 +187,31 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 ## Escalation and round limits
 
 <style scoped>
-  ul { font-size: 0.82em; }
+  ul { font-size: 0.8em; }
   ul li { margin: 0.15em 0; }
-  p { font-size: 0.85em; margin: 0.2em 0; }
-  .callout { font-size: 0.82em; padding: 0.4em 1em; }
+  p { font-size: 0.83em; margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; }
 </style>
 
-- **2 re-route limit**: same finding contested across 2+ rounds without resolution - escalate to the human with both positions
+- **2 re-route limit (default)**: same finding contested across 2+ rounds without resolution - escalate to the human with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
 - The primary agent tracks each finding by its text across all rounds
 
-When escalating, the human receives: the exact contested finding, the Worker's position, the Skeptic's position, and a request for a decision.
+**Loop-context override (inside `/implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** is enough to trigger convergence failure escalation. The loop already consumes iteration budget on each fix pass; waiting for a second re-raise wastes a pass on a finding the Engineer already failed to address. Outside a named loop, the 2-re-route rule is unchanged.
 
 <div class="callout">
-The protocol does not force resolution. Some findings are genuinely ambiguous - the escalation path exists so the loop terminates cleanly.
+The protocol does not force resolution. Inside a persistence loop, it escalates faster. Outside, the standard 2-re-route buffer applies.
 </div>
 
 ---
 
-## The resolved issues preflight
+## The resolved issues preflight + findings_log
 
 <style scoped>
-  p { font-size: 0.88em; margin: 0.3em 0; }
-  pre { font-size: 0.75em; padding: 0.5em 0.8em; line-height: 1.3; margin: 0.3em 0 0.8em 0; }
-  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.4em; }
+  p { font-size: 0.84em; margin: 0.3em 0; }
+  pre { font-size: 0.71em; padding: 0.4em 0.8em; line-height: 1.3; margin: 0.3em 0 0.6em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
 On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise already-fixed issues:
@@ -225,10 +225,12 @@ insufficient:
 [M1: No error handling on payment callback → Added try/catch with rollback]
 ```
 
-The Skeptic can still contest a resolution if it believes the fix is inadequate - the preflight list is context, not a gag order.
+**Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator that tracks every finding across all iterations (`id`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`). When the Skeptic re-raises a previously-addressed finding, it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
+
+**Auto-close rule:** when the Skeptic grants sign-off (zero new findings), ALL `findings_log` entries with `status: open` or `status: addressed` are automatically closed. The absence of re-raise is an implicit confirmation that all fixes were accepted.
 
 <div class="callout">
-Fresh context for independence. Preflight list for efficiency. The Skeptic starts clean but doesn't repeat work.
+Fresh context for independence. Preflight list for efficiency. findings_log for accountability across iterations.
 </div>
 
 ---

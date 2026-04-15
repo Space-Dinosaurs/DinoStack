@@ -219,6 +219,41 @@ Each entry was a surprise the first time. After the entry, the qa-engineer handl
 
 ---
 
+## Phase 6b QA loop - a bounded parallel to Phase 6
+
+<style scoped>
+  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
+  ul { font-size: 0.8em; }
+  ul li { margin: 0.15em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+```
+Phase 6b QA loop (independent 3-pass cap)
+─────────────────────────────────────────────────────────
+Only runs when Phase 6 exits cleanly (Skeptic sign-off)
+    │
+qa-engineer verifies acceptance criteria
+    │
+PASS? ──> Phase 7 (quality gate)
+    │
+failures? ──> update qa_failures_log ──> Engineer fix pass ──> loop back
+    │
+cap_reached (iteration == 3) or convergence_failure ──> ESCALATE to human
+```
+
+- **3-pass cap is independent**: exhausting Phase 6 Skeptic cap does not consume Phase 6b QA budget
+- **Phase 6b only runs after Phase 6 clean exit** - if Phase 6 escalates (`cap_reached`, `convergence_failure`, `blocked`), Phase 6b is skipped entirely
+- **`qa_failures_log` schema**: each failure tracked with `id`, `description`, `first_raised`, `status`, `claimed_fix`, `re_raised` - mirrors `findings_log` structure
+- **QA convergence trigger**: same failure re-raised unchanged after a claimed fix - no severity qualifier (QA failures are not Critical/Major/Minor; any re-raised failure triggers `convergence_failure`)
+- **Same BLOCKED/NEEDS_CONTEXT handling**: Engineer BLOCKED = immediate escalation; NEEDS_CONTEXT = context re-supply without incrementing iteration
+
+<div class="callout">
+Skeptic and QA test orthogonal properties - correctness vs. functional acceptance. The loop budgets reflect this: independent caps, independent state, independent escalation.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # QA that compounds
