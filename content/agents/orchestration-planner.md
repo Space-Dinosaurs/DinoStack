@@ -58,6 +58,21 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 8. **Write the plan** using the output format below. Commit to a specific sequence - do not present alternatives.
 
+9. **Validate the dependency graph.** Before outputting the plan, verify that the `depends_on` relationships form an acyclic graph (simple DFS). A cycle (task A depends on B, B depends on A) would cause the conductor to deadlock at spawn time. If a cycle is detected, report it as a plan error and do NOT output the JSONL block - stop and describe the cycle so the user can correct it.
+
+10. **Append a structured JSONL block** at the end of the plan output. Each line is one JSON object per task with the following fields: `unit_slug` (string), `depends_on` (array of unit_slug strings), `description` (string), `acceptance_criteria` (array of strings), `files_in_scope` (array of strings). The Markdown plan above the block is the human-readable primary output; the JSONL block enables deterministic task-entry creation by the conductor without prose parsing. The conductor creates `.agentic/tasks.jsonl` entries from this block following the schema in the shared task-state design. The planner is read-only - it does NOT write to the task file.
+
+    Format the block as follows (the section heading is required):
+
+    ```
+    ## Task entries (machine-readable)
+
+    {"unit_slug": "auth-middleware", "depends_on": [], "description": "...", "acceptance_criteria": ["..."], "files_in_scope": ["src/auth/middleware.ts"]}
+    {"unit_slug": "db-migrations", "depends_on": ["auth-middleware"], "description": "...", "acceptance_criteria": ["..."], "files_in_scope": ["migrations/001.sql"]}
+    ```
+
+    Single-unit plans must still include this block (one line). The conductor skips task-state initialization for single-unit plans regardless - this block is only consumed when the plan contains 2 or more tasks.
+
 ## Agent selection rules
 
 **Use `architect` when:**

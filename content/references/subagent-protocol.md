@@ -30,6 +30,8 @@ When decomposing a request into multiple subtasks, if tasks A, B, and C are inde
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
+When the conductor spawns workers for a multi-unit plan with task-state tracking, each worker receives its `task_id` in the execution contract for identification. The conductor writes all task-state updates - workers do not write to `.agentic/tasks.jsonl`.
+
 ### Rule 3 — Spawn threshold
 
 **Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action. Trivial risk → conductor edits directly if no subagents are running; spawn a single `engineer` Worker in foreground (no Skeptic, no brief file) if any subagent is running.** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
@@ -113,6 +115,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `qa-review` | QA engineer is verifying the change in a browser |
 | `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/implement-ticket`; include current iteration count, max cap, and open finding counts |
 | `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
+| `[phase: task-state-init \| N tasks written]` | Conductor initialized `.agentic/tasks.jsonl` with N pending task entries from the orchestration plan's JSONL block |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
 | `releasing` | Release orchestrator is executing the release sequence |
 | `dep-auditing` | Dependency auditor is scanning lockfiles and running vulnerability tools |

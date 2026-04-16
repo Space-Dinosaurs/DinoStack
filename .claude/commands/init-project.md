@@ -265,6 +265,8 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
 
 Keep it under 40 lines.
 
+If the project shows parallel fan-out signals (3 or more distinct modules or tracks, complex orchestration history in git log, or prior multi-unit plans visible in docs/planning/), add a note in the scaffolded root AGENTS.md under `## Conventions`: "`.agentic/tasks.jsonl` is the task coordination surface for multi-unit orchestration plans."
+
 ### 4. Create subdirectory `AGENTS.md` files
 
 If the user provided no tracks (skipped, said "none", or "not yet"), skip this step entirely.
@@ -413,6 +415,8 @@ node_modules/
 Add any framework-specific entries if the stack is already known (e.g. `.next/` for Next.js, `dist/` for Vite, `out/` for general builds).
 
 If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
+
+Regardless of whether `.gitignore` is new or existing: check whether it already contains `.agentic/`. If not, append `.agentic/` to it. If `.gitignore` does not exist, the entry above creates it - ensure `.agentic/` is included in the new file's contents.
 
 ### 10. Create `docs/` structure
 
