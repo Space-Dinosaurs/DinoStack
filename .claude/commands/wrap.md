@@ -439,3 +439,5 @@ If the project is a git repository with a `/cleanup-worktrees` skill available, 
 Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and `.claude/findings.md` if Part D ran). Also include the cleanup summary if Step 5 ran.
 
 Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
+
+**Final reminder:** After `/wrap` completes, close the session with `/exit` rather than ctrl+c, so the Stop hook can finish writing `context.md` cleanly. ctrl+c can interrupt the hook and lose session state.

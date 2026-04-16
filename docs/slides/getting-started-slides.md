@@ -197,6 +197,10 @@ When the goal is done - or clearly won't be done today - run `/wrap`. It does th
 <code>/wrap</code> is not optional ceremony. Skipping it is how memory drifts, context bloats, and sessions become unshippable.
 </div>
 
+<div class="callout">
+After <code>/wrap</code>, close the session with <code>/exit</code> rather than ctrl+c, so the Stop hook can finish writing <code>context.md</code> cleanly.
+</div>
+
 ---
 
 ## Your first practice loop
