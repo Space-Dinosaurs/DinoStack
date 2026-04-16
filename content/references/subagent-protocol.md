@@ -127,6 +127,8 @@ Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-revi
 - `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
 - `[loop: qa | iteration 2/3 | open failures: 1]`
 
+**Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to `.agentic/loop-state.json` (tmp+rename). The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
+
 **Loop transition rules (BLOCKED / NEEDS_CONTEXT / DONE_WITH_CONCERNS inside a Skeptic or QA loop):**
 
 These transitions apply to fix-pass Engineer spawns inside `/implement-ticket` Phase 6 (Skeptic loop) and Phase 6b (QA loop). The iteration counter tracks only genuine fix attempts.

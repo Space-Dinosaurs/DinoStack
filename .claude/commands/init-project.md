@@ -416,7 +416,16 @@ Add any framework-specific entries if the stack is already known (e.g. `.next/` 
 
 If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
 
-Regardless of whether `.gitignore` is new or existing: check whether it already contains `.agentic/`. If not, append `.agentic/` to it. If `.gitignore` does not exist, the entry above creates it - ensure `.agentic/` is included in the new file's contents.
+Regardless of whether `.gitignore` is new or existing: check whether it already contains `.agentic/`. If not, append the following block to it. If `.gitignore` does not exist, the entry above creates it - ensure this block is included in the new file's contents.
+
+```
+# Agentic engineering runtime artifacts (must not be committed)
+# .agentic/ covers: loop-state.json (cross-session resume state), hud/ (per-worker HUD files),
+# and tasks.jsonl (multi-unit task coordination). All are runtime data, not source.
+.agentic/
+```
+
+The `.agentic/` directory-level entry covers all runtime artifacts: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), and `tasks.jsonl` (multi-unit task coordination). None of these should be committed.
 
 ### 10. Create `docs/` structure
 
