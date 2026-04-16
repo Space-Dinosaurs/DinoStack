@@ -22,7 +22,7 @@ This document designs that file.
 - Schema for a task entry in `.agentic/tasks.jsonl`
 - Read/write protocol: who writes what, when, under what locking strategy
 - Conductor behavior when the file is absent (fresh start) vs. present (possible resume)
-- Worker behavior: what workers read from and write to the file
+- Worker behavior: workers receive `task_id` for identification only; all file reads and writes are conductor-only
 - Relationship to the P0 in-context loop state (complementary, not redundant)
 - How this file enables P2 cross-session resume without implementing it yet
 - File location, naming, gitignore status
@@ -77,7 +77,7 @@ P2 only needs to implement the resume decision logic (read file, classify task s
 
 `.agentic/tasks.jsonl` - newline-delimited JSON. One JSON object per line, one line per task. JSONL is chosen over plain JSON for:
 
-- Append-only safety: a worker can append a new line without reading and rewriting the entire file (important for concurrent writes - see locking section)
+- Append-only safety: the conductor appends one line per state update without reading and rewriting the entire file
 - Partial reads: a session can `tail -n 1` to get the latest state of any task it already has the ID for
 - Post-mortem legibility: `jq` works naturally on JSONL; a plain JSON array requires the file to be well-formed at all times
 
@@ -96,7 +96,7 @@ Tasks are never deleted from the file. Completed or abandoned tasks remain as hi
   "ticket_id": "string | null", // Source ticket (Linear issue, Jira key, or null if no tracker)
   "unit_slug": "string",        // Short human-readable label for this unit, e.g. "auth-middleware", "db-migrations"
   "created_at": "ISO8601",      // When the conductor created this entry
-  "updated_at": "ISO8601",      // Last write timestamp (conductor or worker)
+  "updated_at": "ISO8601",      // Last write timestamp (conductor only)
 
   // Status
   "status": "pending | in_progress | done | failed | blocked | abandoned",
