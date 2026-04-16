@@ -46,11 +46,11 @@ The P0 persistence loop defines a `LOOP_STATE` object the conductor maintains in
 |---|---|---|
 | Granularity | Per-finding, per-iteration within a single Engineer/Skeptic/QA loop | Per-task, per-unit across the full orchestration plan |
 | Lifetime | Current session only - lost on session exit | Durable across session boundaries |
-| Consumer | Conductor only (reads and updates inline) | Conductor + workers (workers write status; conductor reads) |
+| Consumer | Conductor only (reads and updates inline) | Conductor only (workers return summaries; conductor reads and writes) |
 | Purpose | Prevent re-litigation of closed findings; bound the loop | Track which tasks exist, who owns them, what state they are in |
 | Scope | Phase 6 and 6b of `/implement-ticket` | Any multi-unit orchestration plan |
 
-The P0 state is fine-grained review bookkeeping; the P1 state is coarse-grained execution tracking. In a full P1+P0 execution: the conductor writes tasks to `.agentic/tasks.jsonl` before spawning workers; workers update their task entries as they run; the conductor reads task entries to determine when to advance; when Phase 6 begins for a given task, the P0 LOOP_STATE object is initialized in-context for that task's Skeptic loop. The two are composable - P0 state is ephemeral and nested inside a single task's review phase; P1 state is durable and spans the full task lifecycle.
+The P0 state is fine-grained review bookkeeping; the P1 state is coarse-grained execution tracking. In a full P1+P0 execution: the conductor writes tasks to `.agentic/tasks.jsonl` before spawning workers; workers execute and return their summaries to the conductor; the conductor updates task entries from the return summaries and reads them to determine when to advance; when Phase 6 begins for a given task, the P0 LOOP_STATE object is initialized in-context for that task's Skeptic loop. The two are composable - P0 state is ephemeral and nested inside a single task's review phase; P1 state is durable and spans the full task lifecycle.
 
 **Open question OQ-4 from the P0 plan** asked whether loop state should be written to a file for observability, noting it would be "a step toward the P2 cross-session resume feature." This P1 design answers that: yes, but as part of the task-state entry rather than a separate loop-state file. Each task entry in `.agentic/tasks.jsonl` carries a `loop_state` field that the conductor populates when Phase 6 begins. This provides the post-mortem visibility OQ-4 was asking for and positions P2 to read it for resume.
 
@@ -185,57 +185,18 @@ A task never moves backward past `pending`. A `done` task is terminal - it is ne
 - Updates status to `done`, `failed`, or `blocked` based on final loop outcomes
 - Writes the `notes` field when a human decision is pending or a blocker is logged
 
-**Workers write:**
-- Update status from `in_progress` -> (remains `in_progress`) and write `outputs.worker_summary`, `outputs.commit_sha`, `outputs.files_modified`, `outputs.quality_gate_passed` when they return their result
-- Workers do NOT update `skeptic_status`, `loop_state`, or dependency relationships - those are conductor concerns
+**Workers do NOT write:**
+- Workers return their result summary to the conductor in the normal return path. The conductor reads the worker's return summary, extracts the result fields, and appends the update entry to the file. Workers have no write access requirement and are fully stateless with respect to the file.
+- Workers do NOT update `outputs`, `skeptic_status`, `loop_state`, or any other field - all writes are conductor-only.
 
 **Workers do NOT read:**
 - Workers are given their complete brief in the spawn prompt. They do not read the task file to get their instructions. This keeps workers stateless with respect to the file - they can run in environments where the file is not accessible.
 
-**Why workers write but don't read:** The file is a coordination surface for the conductor, not a shared blackboard. Workers write their results so the conductor can read them without carrying all return values in context (particularly useful for long-running parallel tasks where context pressure is real). Workers reading the file would create coupling between worker execution and file structure, making workers harder to reason about and test.
+**Why workers neither read nor write:** The file is a coordination surface for the conductor, not a shared blackboard. Since only the conductor writes, no lock protocol is needed - the conductor is single-threaded and processes worker returns sequentially. This eliminates concurrent-write race conditions and the write-permission requirement entirely.
 
-### Locking strategy for concurrent writes
+### Locking strategy
 
-Multiple workers running in parallel against different worktrees may try to write to the file simultaneously. JSONL's append-only nature mitigates most of the risk: each write is a single line append. POSIX O_APPEND semantics ensure each `write()` call is positioned at end-of-file, but byte-level atomicity for concurrent writes from multiple processes is not guaranteed on regular files on macOS (APFS). The lock protocol is therefore required for correctness, not merely as a precaution.
-
-Workers use a write protocol with a lock file:
-
-**Lock file:** `.agentic/tasks.lock`
-
-**Write protocol for workers:**
-
-```bash
-# Acquire lock (spin with backoff, max 30 seconds)
-# TASK_STATE_FILE must be an absolute path passed by the conductor in the spawn prompt.
-# Using an absolute path is required because workers run from the worktree root, not the
-# parent repo root, and .agentic/ does not exist relative to the worktree.
-TASKS_FILE="${TASK_STATE_FILE:-.agentic/tasks.jsonl}"  # absolute path from spawn prompt
-LOCK="${TASKS_FILE%.jsonl}.lock"
-TIMEOUT=30  # seconds
-ELAPSED=0
-while ! mkdir "$LOCK" 2>/dev/null; do
-  sleep 1
-  ELAPSED=$((ELAPSED + 1))
-  if [ $ELAPSED -ge $TIMEOUT ]; then
-    echo "WARN: tasks.lock acquire timeout after ${TIMEOUT}s - writing without lock" >&2
-    break
-  fi
-done
-
-# Write (append a single line)
-echo '<json-object>' >> "$TASKS_FILE"
-
-# Release lock
-rmdir "$LOCK" 2>/dev/null || true
-```
-
-**Note on lock timeout and race conditions:** The 30-second timeout addresses stale locks from dead workers (session killed mid-write). It also fires if a legitimate holder takes more than 30 seconds - this is a true concurrent-write race condition. To minimize this risk, task entries should be kept compact (single-line JSON, well under 1 KB), so writes complete in milliseconds. The conductor detects any resulting corruption at session start (see malformed-line handling below).
-
-`mkdir` is atomic on all POSIX filesystems - it either creates the directory (lock acquired) or fails (lock held). This is simpler and more portable than `flock` (which requires a file descriptor, not available in all agent execution environments).
-
-**Conductor writes are always single-threaded** (the conductor is a single agent that does not run concurrent tool calls against the same file). The conductor does not need the lock protocol. It should still check for the presence of the lock before writing and wait if a worker is holding it, but in practice conductor writes happen after workers return, not concurrently.
-
-**Lock timeout policy:** A lock held for more than 30 seconds indicates a dead worker (session killed mid-write) or a legitimate holder that is running slowly. Either way, the writer proceeds without the lock and logs a warning. The conductor, at session start, reads all lines in the file. Lines that are not valid JSON are skipped with a warning, and their corresponding tasks are treated as orphaned (status unknown). After loading the file, the conductor logs the count of skipped malformed lines. If any malformed lines are found, the conductor surfaces a message to the human: "N malformed task entries found (likely from a concurrent write race). Corresponding tasks are treated as orphaned." This is a degraded-mode fallback, not a normal path.
+Since all writes are conductor-only (single-threaded), no lock file is needed. The `.agentic/tasks.lock` mechanism described in earlier drafts of this design is removed entirely. Each conductor write is a single-line JSONL append performed sequentially as worker returns are processed.
 
 ---
 
@@ -288,36 +249,19 @@ If the file contains only entries for a different `session_id` (and/or different
 
 ## Worker behavior
 
-Workers in this design are largely unaware of the task-state file. Their behavior changes in two ways:
+Workers in this design are fully unaware of the task-state file. Their behavior changes in one way only: they receive a `task_id` in the spawn prompt for identification purposes.
 
-### At task completion, workers write their result entry
+### Workers do NOT write to the task file
 
-Before returning their final summary to the conductor, workers write a result record. This is a single append to `.agentic/tasks.jsonl` with the worker's `task_id`, `status` set to `in_progress` (the conductor will update the terminal status after Skeptic review), and the populated `outputs` fields.
+Workers return their result summary to the conductor in the normal return path. The conductor extracts the result fields (`worker_summary`, `commit_sha`, `files_modified`, `quality_gate_passed`, and terminal `status`) and appends the update entry to the file itself. This eliminates the lock protocol, the concurrent-write race conditions, and the worker write-permission requirement.
 
-Workers receive their `task_id` and the absolute path to the task file in the spawn prompt. The conductor MUST include both as fields in the execution contract block. The absolute path is required because workers run from the worktree root (not the parent repo root), and `.agentic/` exists only at the parent repo root - a relative path would silently create a disconnected file in the worktree:
+Workers receive `task_id` in the execution contract block of the spawn prompt. The `task_id` allows the conductor to correlate the worker's return summary with the correct task entry when writing the update. Workers do NOT receive `task_state_file` in the spawn prompt - the conductor handles all file writes using its own knowledge of the file path.
 
 ```
-- task_id: ENG-42-auth-middleware  (write this to the task_state_file on completion)
-- task_state_file: /absolute/path/to/repo/.agentic/tasks.jsonl  (absolute path - required for worktree isolation)
+- task_id: ENG-42-auth-middleware  (included for conductor correlation on return; worker does not write to any file)
 ```
 
-Workers that complete without errors write:
-```json
-{"task_id": "ENG-42-auth-middleware", "updated_at": "...", "status": "in_progress",
- "outputs": {"worker_summary": "...", "commit_sha": "abc1234", "files_modified": [...],
-              "quality_gate_passed": true, "skeptic_status": null}}
-```
-
-Workers that return BLOCKED write:
-```json
-{"task_id": "ENG-42-auth-middleware", "updated_at": "...", "status": "blocked",
- "outputs": {"worker_summary": "BLOCKED: ...", "commit_sha": null, "files_modified": [],
-              "quality_gate_passed": null, "skeptic_status": null}}
-```
-
-**Workers write a partial entry, not the full entry.** The conductor holds the full entry (including `inputs`, `depends_on`, `orchestration_plan_ref`, etc.) from when it created the task. Workers only write the fields they know: identity fields (`task_id`, `updated_at`, `status`) and `outputs`. The conductor reads all entries for each `task_id` and merges them field-by-field to produce the authoritative in-memory record. A worker's partial entry (containing only outputs) is merged with the conductor's initial entry (containing inputs and identity) - neither entry alone is complete or authoritative.
-
-**Field-level merge algorithm:** When building the in-memory index, the conductor does NOT simply take the last entry per `task_id` as a complete replacement. Instead: for each `task_id`, the conductor iterates all entries in file order, starting with an empty record. For each entry, it merges field-by-field into the record: for each field present in the entry, if the entry's value is non-null, it overwrites the record's value; null or missing fields are skipped (carry forward the prior value). This yields a merged record that combines the conductor's initial identity/input fields with the worker's latest output fields.
+**Field-level merge algorithm:** When building the in-memory index, the conductor does NOT simply take the last entry per `task_id` as a complete replacement. Instead: for each `task_id`, the conductor iterates all entries in file order, starting with an empty record. For each entry, it merges field-by-field into the record: for each field present in the entry, if the entry's value is non-null, it overwrites the record's value; null or missing fields are skipped (carry forward the prior value). This yields a merged record that combines the conductor's initial `pending` entry (identity and input fields), the `in_progress` update (spawn timestamp, `assigned_agent`), and the terminal update (outputs and final status). All three entries are conductor-written.
 
 ### Workers do not consult the file for their brief
 
@@ -349,10 +293,6 @@ The `.agentic/` directory itself should be added to `.gitignore`. If the project
 
 Exception: teams that want shared task history across machines may choose to commit the file. The design supports this - the format is stable and human-readable. The default is gitignored; opt-in to commit is a team decision, not a methodology decision.
 
-### Lock file
-
-`.agentic/tasks.lock` is a directory (created by `mkdir`, removed by `rmdir` after write). It is transient - it should not exist for more than a few seconds during any write. It is also gitignored via the `.agentic/` entry.
-
 ### Backup files
 
 `.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak` - created when the conductor renames a prior session's file on user-directed restart. Also gitignored via the `.agentic/` entry.
@@ -365,13 +305,13 @@ Using the 7-surface audit pattern from MEMORY.md:
 
 1. **`content/commands/implement-ticket.md`** - UPDATE REQUIRED. Phase 3b (orchestration plan) must add a step: after the orchestration plan is received, create `.agentic/tasks.jsonl` entries for each planned task before spawning any workers. Phase 5 must add task-state reads to the parallel worker spawn/join flow. Phase 5's post-merge verification step should read task entries rather than only checking `git status --porcelain`. Introduce conductor behavior rules for "file absent" and "file present" per the Conductor Behavior section above.
 
-2. **`content/rules/agent-methodology.md`** - UPDATE REQUIRED. The Worker preamble section must add `task_id` and `task_state_file` as new fields in the execution contract block template. Add a sentence to the Worker preamble rule: "Workers that complete a task write their result to the file at `task_state_file` (absolute path) before returning their final summary. The `task_id` and `task_state_file` fields are provided in the spawn prompt." Add a brief "Task-state file" subsection cross-referencing this design for when it applies (Elevated, multi-unit only - not for Trivial or single-unit spawns). Note that the `task_state_file` field must be an absolute path - a relative path would resolve to the worktree root and silently create a disconnected file.
+2. **`content/rules/agent-methodology.md`** - UPDATE REQUIRED. The Worker preamble section must add `task_id` as a new field in the execution contract block template (multi-unit Elevated spawns only - not for Trivial or single-unit spawns). The `task_state_file` field is NOT included in the worker spawn prompt - the conductor handles all file writes using its own knowledge of the file path. Add a sentence to the Worker preamble rule: "Workers receive `task_id` in the spawn prompt for identification; the conductor correlates the worker's return summary with the task entry and handles all writes to the task-state file." Add a brief "Task-state file" subsection cross-referencing this design for when it applies (Elevated, multi-unit only).
 
-3. **`content/agents/orchestration-planner.md`** - UPDATE REQUIRED. Add a step 7.5 to the Planning Process: "If the plan includes 2 or more independent tasks (parallelization opportunities exist), note the `.agentic/tasks.jsonl` entry shape for each task in the Conductor Actions section - the conductor will create these entries before spawning." The planner does not write the file itself (it is read-only), but it should produce enough structure in its output that the conductor can create entries without inferring fields. Also add cycle validation: the orchestration-planner must validate that the plan's `depends_on` graph is acyclic before outputting the plan. A cycle in the plan (task A depends on task B, task B depends on task A) would cause the conductor to deadlock. The planner is the earlier, cheaper gate; conductor-side cycle detection (edge case 6) is a safety net, not the primary check.
+3. **`content/agents/orchestration-planner.md`** - UPDATE REQUIRED. The planner now outputs a machine-readable JSONL block at the end of its plan output, containing one JSON object per task with fields: `unit_slug`, `depends_on`, `description`, `acceptance_criteria`, `files_in_scope`. The Markdown plan remains the primary human-readable output; the JSONL block is supplementary and enables deterministic task-entry creation by the conductor (no prose parsing required). Add this as a step in the Planning Process: "Append a structured JSONL block at the end of the plan with one object per task. Fields: `unit_slug`, `depends_on`, `description`, `acceptance_criteria`, `files_in_scope`." Also add cycle validation: the orchestration-planner must validate that the plan's `depends_on` graph is acyclic before outputting the plan. A cycle in the plan (task A depends on task B, task B depends on task A) would cause the conductor to deadlock. The planner is the earlier, cheaper gate; conductor-side cycle detection (edge case 6) is a safety net, not the primary check.
 
-4. **`content/references/subagent-protocol.md`** - UPDATE REQUIRED. Add a new phase breadcrumb: `[phase: task-state-init | N tasks written]` emitted by the conductor after writing initial task entries. Add a note to the parallel spawn section (Section 2 or 5) that workers receive their `task_id` in the spawn prompt and are expected to write their result entry before returning.
+4. **`content/references/subagent-protocol.md`** - UPDATE REQUIRED. Add a new phase breadcrumb: `[phase: task-state-init | N tasks written]` emitted by the conductor after writing initial task entries. Add a note to the parallel spawn section (Section 2 or 5) that workers receive their `task_id` in the spawn prompt for identification; the conductor (not the worker) writes the result entry after processing the worker's return summary.
 
-5. **`content/references/agent-team.md`** - Minor update. Add a row to the agent table for the task-state write responsibility: "Engineer, when spawned via `/implement-ticket` Phase 5 with a `task_id`, writes a result entry to `.agentic/tasks.jsonl` on completion." This is documentation-only; no behavior change.
+5. **`content/references/agent-team.md`** - Minor update. Add a note to the engineer agent row: "When spawned via `/implement-ticket` Phase 5 with a `task_id`, the engineer receives the ID for identification purposes only. The conductor writes the result entry to `.agentic/tasks.jsonl` after processing the engineer's return summary." This is documentation-only; no behavior change.
 
 6. **`content/commands/init-project.md`** - UPDATE REQUIRED. The scaffold step should add `.agentic/` to `.gitignore` if not already present. If the project shows parallel fan-out signals (3+ distinct modules, complex orchestration history), add a note in the scaffolded `AGENTS.md` that `.agentic/tasks.jsonl` is the task coordination surface.
 
@@ -382,17 +322,13 @@ Using the 7-surface audit pattern from MEMORY.md:
    - **`docs/slides/how-it-works-slides.md`** - If a parallel fan-out slide is added (per P1 fan-out plan), the task-state file is best documented there as the coordination layer rather than as a standalone slide. No independent update needed unless the fan-out deck is not created.
    - **New deck:** No standalone deck warranted for the task-state file itself. It is supporting infrastructure for fan-out - document it within the fan-out deck (`parallel-fanout-slides.md` if created).
 
-8. **`content/agents/engineer.md`** - UPDATE REQUIRED. The engineer agent definition must be updated to describe the task-state write responsibility: when spawned via `/implement-ticket` Phase 5 with a `task_id` and `task_state_file` in the execution contract block, the engineer writes its result entry to the task-state file before returning its final summary. The write protocol (lock acquire, append, lock release) and the partial entry schema (`task_id`, `session_id`, `updated_at`, `status`, `outputs` fields) must be included in or referenced from the engineer agent definition so that an engineer spawned from its definition knows to perform this step. The `task_state_file` value in the execution contract block is an absolute path - the engineer must use it verbatim (not a relative path) because the engineer runs from the worktree root where `.agentic/` does not exist.
+8. **`content/agents/engineer.md`** - UPDATE REQUIRED. The engineer agent definition mentions `task_id` as a field in the execution contract block for identification when spawned in a multi-unit Elevated context. It does NOT describe a task-state write responsibility - the conductor handles all writes. Remove any prior draft language about the engineer writing to `task_state_file`, appending JSONL entries, or using the lock protocol. The engineer's only task-state obligation is to include its `task_id` in its return summary so the conductor can correlate it with the correct file entry.
 
 ---
 
 ## Edge cases and failure modes
 
-**1. Worker dies mid-write (partial JSONL line).** The conductor reads all lines at session start. If a line is not valid JSON, it is skipped with a warning. The task it represents remains in its last-known conductor-written state (typically `in_progress`). The conductor treats it as an orphaned task per the "file present, different session" rules - surfaces to the human for direction. No data loss: the conductor's initial `pending` entry for that task is still in the file.
-
-**2. Two workers race to write for the same `task_id`.** Should not happen in a correct implementation (one worker per task), but if it does, both entries are appended. The conductor's field-level merge algorithm applies normally: fields from both entries are merged in file order, with later non-null values overwriting earlier ones. The conductor logs a warning if it detects multiple worker-written entries for the same `task_id` (i.e., two entries each containing `outputs` fields).
-
-**3. Lock held by a dead worker (session killed during write).** The lock directory `.agentic/tasks.lock` persists after the write fails. The next writer detects the lock directory, hits the 30-second timeout, writes without the lock (with a warning), and continues. The conductor, at session start, checks for a stale lock (created more than 5 minutes ago based on filesystem mtime) and removes it before any writes. Stale lock detection (portable, works on macOS and Linux via GNU/BSD find): `find .agentic/tasks.lock -maxdepth 0 -type d -mmin +5 -exec rmdir {} \; 2>/dev/null`. Note: `stat -f %m` (macOS) and `stat -c %Y` (Linux) are platform-specific alternatives; the `find -mmin` form above is portable and preferred.
+**1. Worker dies mid-execution (no return).** The task remains `in_progress` with no outputs - exactly as the conductor last wrote it before spawning the worker. Since workers do not write to the file, there is no partial JSONL line risk. The conductor detects this at session start as an orphaned `in_progress` entry from a prior session (per the "file present, different session" rules) and surfaces it to the human for direction.
 
 **4. File exists but is from a completely different project.** The conductor checks that the first entry's `ticket_id` (or `task_id` prefix) is plausibly related to the current context. If not, it warns and asks the human whether to archive it. It does not silently overwrite or ignore it. In practice, since `.agentic/` is at the repo root and gitignored, this can only happen if someone manually copied the file - a rare scenario.
 
@@ -406,14 +342,24 @@ Using the 7-surface audit pattern from MEMORY.md:
 
 ---
 
-## Open questions
+## Open questions (resolved 2026-04-15)
 
-1. **Should workers write to the task file directly, or return a structured result that the conductor writes?** The current design has workers write directly (with the lock protocol). An alternative is workers return structured JSON in their summary text, and the conductor parses and writes it. Worker-writes are lower conductor context pressure (results are durable even if the conductor is context-heavy); conductor-writes are simpler and eliminate the lock entirely. Tradeoff: worker-writes require workers to have write access to `.agentic/` (a permission grant), which may not hold in all execution environments. **Needs human decision before implementation.**
+**OQ-1: Who writes - workers or conductor?**
+Decision: **CONDUCTOR WRITES.** Workers do NOT write to the task file. The conductor parses the worker's return summary and writes the result entry itself. This eliminates the lock protocol, the concurrent-write race conditions, and the worker write-permission requirement. Workers remain fully stateless and file-unaware.
+Rationale: conductor-writes are simpler, require no lock mechanism, and impose no file-system access requirement on workers (which may run in isolated worktrees or constrained environments). The risk of higher conductor context pressure from accumulating worker returns is acceptable at P1 scale.
+Cascading effects applied: Read/write protocol section rewritten to remove worker-write subsection and lock protocol; Worker behavior section rewritten to remove write responsibility; Edge cases 2 and 3 removed (race condition and lock-held cases can't occur); Lock file subsection removed from File location section; Changes Required items 2, 4, 5, 8 updated to reflect conductor-only writes; `task_state_file` removed from worker spawn prompt template.
 
-2. **Should the task file be per-ticket or a single project-wide accumulator?** The current design uses a single accumulator (all tickets append to one file). An alternative is one file per ticket invocation: `.agentic/tasks-ENG-42.jsonl`. Per-ticket files eliminate the need for `ticket_id` filtering and make resume unambiguous. Single-file accumulates history naturally. The multi-file approach also interacts better with P2 resume (no need to search for the right file). **Needs human decision.**
+**OQ-2: Single accumulator or per-ticket files?**
+Decision: **SINGLE ACCUMULATOR.** The file remains `.agentic/tasks.jsonl` (one file, all tickets append). No per-ticket files.
+Rationale: simpler tooling (one path to check, one file to read); easier history inspection; `session_id` handles scoping and correctly handles null-ticket projects where `ticket_id` would be null for all entries; the resume use case (P2) benefits from one file to inspect rather than searching for the right per-ticket file.
 
-3. **Should the orchestration-planner output a structured task list (JSON) in addition to its current prose plan, to make conductor task-entry creation deterministic?** Currently the planner outputs a Markdown plan; the conductor must parse it to extract task IDs, scopes, and dependencies. Adding a machine-readable section (e.g., a JSONL block at the end of the plan) would make task-entry creation reliable. This is a planner output format change. **Needs human decision.**
+**OQ-3: Structured planner output?**
+Decision: **STRUCTURED BLOCK IN ORCHESTRATION-PLANNER OUTPUT.** The orchestration-planner appends a machine-readable JSONL block at the end of its plan output containing one JSON object per task with fields: `unit_slug`, `depends_on`, `description`, `acceptance_criteria`, `files_in_scope`. The Markdown plan remains the primary human-readable output; the JSONL block is supplementary and enables deterministic task-entry creation by the conductor without prose parsing.
+Cascading effects applied: Changes Required item 3 updated to describe the structured block output format.
 
-4. **Should the task file be the source of truth for Phase 5 parallelism decisions, or remain advisory?** In this design, `depends_on` is the coordinator, but the conductor still makes the final spawn decision. An alternative model (closer to OMC's `team-plan -> team-exec`) would have the conductor always consult the file for which tasks are ready to spawn. This is a more autonomous model. The current design keeps the conductor in control; the file is an audit trail, not a scheduler. **Architectural decision - recommend conservative (conductor-in-control) for P1, revisit at P2.**
+**OQ-4: Task file as scheduler or advisory?**
+Decision: **ADVISORY (conservative).** The file is an audit trail and coordination surface, not a scheduler. The conductor makes all spawn decisions by consulting `depends_on` at spawn time; the file does not drive autonomous task dispatch.
+Rationale: conservative for P1. The current design already achieves the core coordination benefit. Autonomous scheduling (closer to OMC's `team-exec` model) is a meaningful behavioral change that should be designed explicitly. Revisit at P2.
 
-5. **How should the file behave in a team setting (multiple humans sharing a repo)?** If two humans are each running conductors against the same repo simultaneously, their workers could both write to the same file. The lock protocol handles the write atomicity, but the `ticket_id` scoping does not prevent one conductor from reading the other's entries. This is a team coordination problem outside the scope of P1 (which assumes solo/pair workflow per the repo's stated target audience). **Defer to P2 or beyond.**
+**OQ-5: Team setting (multiple concurrent conductors)?**
+Decision: **DEFERRED TO P2.** The lock protocol has been removed (conductor-only writes), but multi-conductor scenarios (two humans running concurrent conductors against the same repo) remain out of scope for P1. P1 assumes solo/pair workflow. P2 may address team coordination if the target audience expands.
