@@ -692,6 +692,7 @@
   <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">09</span> Work Tracking</a>
   <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">10</span> Skill Creator</a>
   <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Contributing</a>
+  <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Parallel Fan-out</a>
 </nav>
 
 <div class="diagram">
@@ -870,6 +871,17 @@
             <li><strong>Explicit escalation contract</strong> - the loop exits with a structured stall report (<code>cap_reached</code>, <code>convergence_failure</code>, or <code>blocked</code>) listing open findings and recommended actions.</li>
             <li><strong>Observable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> on each iteration for post-mortem visibility and future cross-session resume (P2).</li>
             <li><strong>Task coordination surface</strong> - multi-unit orchestration plans use <code>.agentic/tasks.jsonl</code> as a durable task coordination surface; the conductor tracks task status, dependencies, and loop state across the plan lifecycle. Applies to plans with 2+ tasks; single-unit spawns use in-context state only.</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+          <h4 style="color: #5a3d8a;">Parallel Fan-out <a class="slide-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer">slides</a></h4>
+          <ul>
+            <li><strong>N engineers in one message</strong> - when <code>orchestration-planner</code> returns 2+ independent units, <code>/implement-ticket</code> Phase 5 fans out: one worktree-isolated engineer per unit, all spawned in a single message (parallel). N=1 falls through to the standard path.</li>
+            <li><strong>Per-unit P0 loops</strong> - each unit runs its own Engineer &rarr; Skeptic persistence loop inside its worktree. "Done" means Skeptic signed off, not first commit. The conductor joins only after every unit reaches a terminal state.</li>
+            <li><strong>Skeptic strategy driven by planner</strong> - <code>skeptic_strategy: per-unit</code>: independent units each get their own Skeptic (can run in parallel). <code>skeptic_strategy: integration</code>: interdependent units share one Skeptic reviewing the combined diff - replaces Phase 6, not layers on top.</li>
+            <li><strong>Join conditions</strong> - all-done (merge in <code>merge_order</code>), partial success (merge green units, retry failed once at depth=1), total failure (escalate), blocked (escalate immediately).</li>
+            <li><strong>Sequential <code>--no-ff</code> merge</strong> - unit branches merged in planner-specified <code>merge_order</code>. Conflict at any step: abort, stop remaining merges, spawn single engineer for sequential re-implementation. Post-merge integration quality check catches cross-unit failures.</li>
+            <li><strong>Task state in <code>.agentic/tasks.jsonl</code></strong> - conductor writes all entries (pending &rarr; in_progress &rarr; done/failed/blocked). Workers return summaries only. Crash recovery: <code>in_progress</code> entries on resume treated as failed, re-spawned with original brief from <code>inputs</code> field.</li>
           </ul>
         </div>
       </div>

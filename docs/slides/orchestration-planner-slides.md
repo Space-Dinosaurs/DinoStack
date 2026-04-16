@@ -253,12 +253,39 @@ Standard sequence: architect → skeptic-of-architect → orchestration-planner 
 - Identify dependencies first - parallelization is the residual, not the default
 
 **Skeptic placement rules:**
-- Independent elevated units - each gets its own Skeptic
+- Independent elevated units - each gets its own Skeptic (can themselves run in parallel)
 - Interdependent elevated units - one integration Skeptic reviews the combined diff
 - Stacked per-unit Skeptics on interdependent changes produce false signal
 
 <div class="callout">
 One integration Skeptic, not stacked Skeptics. The planner identifies unit boundaries so the conductor applies the right rule.
+</div>
+
+---
+
+## Structured JSONL output - parallel fan-out fields
+
+<style scoped>
+  pre { font-size: 0.72em; padding: 0.5em 0.8em; line-height: 1.35; margin: 0.4em 0 0.6em 0; }
+  ul { font-size: 0.85em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+When a plan contains 2+ independent units, the planner emits a JSONL block. Each line is one unit:
+
+```json
+{"unit_slug":"auth-middleware","merge_order":1,"skeptic_strategy":"per-unit","depends_on":[],"description":"Add JWT validation middleware","acceptance_criteria":"...","files_in_scope":["src/middleware/auth.ts"]}
+{"unit_slug":"user-profile-api","merge_order":2,"skeptic_strategy":"per-unit","depends_on":[],"description":"Add /users/:id endpoint","acceptance_criteria":"...","files_in_scope":["src/routes/users.ts"]}
+```
+
+Key fields added for fan-out:
+- **`skeptic_strategy`** - `"per-unit"` (independent units, parallel Skeptics) or `"integration"` (interdependent units, one combined Skeptic)
+- **`merge_order`** - integer; conductor merges unit branches in this order for conflict locality
+- **`unit_slug`** - the canonical unit identifier used in `.agentic/tasks.jsonl` task entries
+
+<div class="callout">
+N=1 falls through to the standard single-engineer path. Fan-out only activates for N&ge;2 independent units.
 </div>
 
 ---
