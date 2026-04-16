@@ -113,6 +113,8 @@ Ask the architect for:
 
 **Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `agent-methodology.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in agent-methodology.md). Default is Tier 2 (omit the model param).
+
 ---
 
 ## Phase 3b: Orchestration plan (conditional)
@@ -193,6 +195,8 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The branch name to work on
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
+
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in agent-methodology.md). Default is Tier 2 (omit the model param).
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
@@ -313,6 +317,8 @@ Spawn a `skeptic` agent with:
 - The QA section from the ticket as acceptance tests
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in agent-methodology.md). Default is Tier 2 (omit the model param).
 
 **Findings handling - loop contract:**
 

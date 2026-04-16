@@ -12,3 +12,6 @@ node_modules/
 # OS
 .DS_Store
 .vercel
+
+# Local agent config (project-level tier-map and task state)
+.agentic/

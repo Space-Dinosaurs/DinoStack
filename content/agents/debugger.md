@@ -2,7 +2,6 @@
 name: debugger
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
-model: claude-sonnet-4-6
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
