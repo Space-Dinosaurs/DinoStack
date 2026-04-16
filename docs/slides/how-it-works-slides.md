@@ -299,6 +299,80 @@ The loop terminates cleanly or escalates. It never runs forever.
 
 ---
 
+## Parallel fan-out - N engineers in one message
+
+<style scoped>
+  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
+  ul { font-size: 0.82em; }
+  ul li { margin: 0.15em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+When `orchestration-planner` returns 2+ independent units, `/implement-ticket` Phase 5 fans out:
+
+```
+orchestration-planner
+  unit A (merge_order:1, skeptic_strategy:per-unit)
+  unit B (merge_order:2, skeptic_strategy:per-unit)
+         │
+         ▼  single message (parallel)
+  ┌──────────────┐    ┌──────────────┐
+  │ worktree A   │    │ worktree B   │
+  │ engineer A   │    │ engineer B   │
+  │ → skeptic A  │    │ → skeptic B  │
+  │ (P0 loop)    │    │ (P0 loop)    │
+  └──────┬───────┘    └──────┬───────┘
+         └────── join ───────┘
+               │
+         sequential --no-ff merge
+         (merge_order: A then B)
+               │
+         post-merge quality check
+```
+
+<div class="callout">
+Each unit runs its own P0 persistence loop. "Done" = Skeptic signed off, not first commit.
+</div>
+
+---
+
+## Fan-out join conditions
+
+<style scoped>
+  .columns { gap: 1em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.78em; line-height: 1.4; padding: 0.8em 1em; }
+  .columns .card strong { font-size: 1.05em; }
+  p { font-size: 0.85em; margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+After all N engineers return, conductor evaluates the join:
+
+<div class="columns">
+<div class="card">
+<strong>All-done</strong><br/>
+All units reach <code>status: done</code> (Skeptic signed off). Proceed to sequential merge in <code>merge_order</code>.
+</div>
+<div class="card">
+<strong>Partial success</strong><br/>
+Some done, some failed. Merge green units. Retry failed unit once (depth=1) with preserved worktree. Second failure escalates.
+</div>
+<div class="card">
+<strong>Total failure</strong><br/>
+All units failed. Clean up worktrees. Escalate with full failure outputs - recommend sequential fallback.
+</div>
+<div class="card">
+<strong>Blocked</strong><br/>
+Any unit returned <code>Status: BLOCKED</code>. Treat as failed. Conductor cannot resolve - escalate immediately.
+</div>
+</div>
+
+<div class="callout">
+Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor writes all entries - workers return summaries only.
+</div>
+
+---
+
 ## The findings flywheel
 
 <style scoped>
