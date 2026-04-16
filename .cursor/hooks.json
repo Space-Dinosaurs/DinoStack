@@ -3,12 +3,12 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "echo '{\"result\": \"info\", \"message\": \"BEFORE ANY ACTION: classify risk first. Elevated = spawn Worker + Skeptic in background. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing subagent results, diagnostic-only logging. When in doubt, classify Elevated.\"}'"
+        "command": "bash .cursor/hooks/risk-reminder.sh"
       }
     ],
     "stop": [
       {
-        "command": "node hooks/stop-context.js"
+        "command": "node .cursor/hooks/stop-context-cursor.js"
       }
     ]
   }

@@ -21,7 +21,7 @@ You are a Worker agent. Implement the task fully and return your complete output
 
 **Context (REQUIRED - do not leave blank):** [Paste the relevant AGENTS.md sections, specs, schema, or file paths the Worker needs. Include the project AGENTS.md at minimum.]
 
-**Session context:** [Paste the content of `~/.claude/projects/[hash]/context.md` - the hash is the absolute project directory path with every `/` replaced by `-`.]
+**Session context:** [Paste the content of `~/.cursor/projects/[hash]/context.md` - the hash is the absolute project directory path with every `/` replaced by `-`.]
 
 The adversarial brief below will be used by the Skeptic reviewing your output. Write your implementation knowing you will be evaluated against it.
 
@@ -35,7 +35,7 @@ Implement the task fully. Return your complete output. If your output is large, 
 When the Worker returns, spawn a **background general-purpose Task** (`run_in_background: true`) using the `skeptic` agent with this prompt (fill in bracketed sections):
 
 ---
-You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
+You are a Skeptic agent. Read your evaluation framework from `subagent_type: "skeptic"` first - it contains your classification rules, evaluation process, and required sign-off format.
 
 **What to review:** [Worker's complete output - paste inline or give file paths]
 

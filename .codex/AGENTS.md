@@ -112,7 +112,7 @@ Applying adversarial review with /simplify cleanup pass.
 
 ## Post-sign-off finding promotion
 
-After Skeptic sign-off on any Elevated task (and after any QA gate), the conductor performs a promotion check. If any Major or Critical finding from the completed task represents a recurring pattern (seen 2+ times in this project) or is novel but has outsized blast radius (data loss, security, production outage class), add or update an entry in `.claude/findings.md`. This rule fires after every Skeptic sign-off in any context - not only inside `/implement-ticket`. Full promotion criteria, entry format, and who reads the file: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
+After Skeptic sign-off on any Elevated task (and after any QA gate), the conductor performs a promotion check. If any Major or Critical finding from the completed task represents a recurring pattern (seen 2+ times in this project) or is novel but has outsized blast radius (data loss, security, production outage class), add or update an entry in `.claude/findings.md`. This rule fires after every Skeptic sign-off in any context - not only inside `/implement-ticket`. Full promotion criteria, entry format, and who reads the file: `references/findings-flywheel.md`.
 
 ## QA Gate
 
@@ -189,31 +189,31 @@ done
 ## Protocol Details (read on trigger)
 
 **Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
-Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/agentic-engineering/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
+Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `references/subagent-protocol.md` Rule 6.
 
 **Skeptic loop orchestration** - when Elevated risk is declared:
-Run `/skeptic` for the full orchestration template, or read `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Sections 2-5) for loop steps, state management, re-route limits, and escalation.
+Run `/skeptic` for the full orchestration template, or read `references/skeptic-protocol.md` (Sections 2-5) for loop steps, state management, re-route limits, and escalation.
 
 **Findings classification and sign-off** - when reviewing Skeptic output:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Sections 6, 11) for Critical/Major/Minor definitions, required sign-off format, and validation rules.
+Read `references/skeptic-protocol.md` (Sections 6, 11) for Critical/Major/Minor definitions, required sign-off format, and validation rules.
 
 **Elevated + Cleanup path** - when declaring Elevated + Cleanup:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 12) for the /simplify integration workflow and second Skeptic narrow-scope review.
+Read `references/skeptic-protocol.md` (Section 12) for the /simplify integration workflow and second Skeptic narrow-scope review.
 
 **Adversarial briefs** - when writing the brief for a Skeptic:
-Run `/skeptic` (includes brief selection table) or read `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 8) for domain-specific templates.
+Run `/skeptic` (includes brief selection table) or read `references/skeptic-protocol.md` (Section 8) for domain-specific templates.
 
 **Parallel spawning and worktrees** - when decomposing work into multiple agents:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/subagent-protocol.md` (Sections 2, 5, 7) for parallel-by-default, worktree isolation rules, and check-in behavior.
+Read `references/subagent-protocol.md` (Sections 2, 5, 7) for parallel-by-default, worktree isolation rules, and check-in behavior.
 
 **Task decomposition and review scope** - when breaking work into multiple Workers:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/subagent-protocol.md` (Section 6) for decomposition rules and `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 9) for review scope guidance.
+Read `references/subagent-protocol.md` (Section 6) for decomposition rules and `references/skeptic-protocol.md` (Section 9) for review scope guidance.
 
 **Agent team composition** - which agent to use and how they compose:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
+Read `references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
 
 **Findings flywheel** - when promoting a finding to `.claude/findings.md` or when the Skeptic checks for repeated patterns:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md` for entry format, promotion criteria, who reads the file, and the regression test obligation for fixed findings.
+Read `references/findings-flywheel.md` for entry format, promotion criteria, who reads the file, and the regression test obligation for fixed findings.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
 Check `.claude/qa.md` for trigger patterns. If the diff matches, spawn `qa-engineer`. The qa-engineer reads `.claude/qa.md` for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.

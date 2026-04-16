@@ -2,7 +2,7 @@
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
 
-The Stop hook auto-writes `~/.claude/projects/[hash]/context.md` after every turn with raw session data. `/wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/init-project`: where `/init-project` scaffolds the AGENTS.md hierarchy, `/wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
+The Stop hook auto-writes `~/.cursor/projects/[hash]/context.md` after every turn with raw session data. `/wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/init-project`: where `/init-project` scaffolds the AGENTS.md hierarchy, `/wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
 
 ## Your job (main agent)
 
@@ -153,7 +153,7 @@ This is automatic - do not ask the user. Populate sections from session context 
 
 **Output 4 — findings.md entries**
 
-Review the raw session data for Skeptic findings that were NOT already promoted to `.claude/findings.md` during this session. For each unpromoted Major or Critical finding, apply the promotion criteria from `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`: promote if the pattern is recurring (2+ prior instances in this project) or is novel but high blast-radius (data loss, security, production outage class). For each entry that qualifies, produce it in this format:
+Review the raw session data for Skeptic findings that were NOT already promoted to `.claude/findings.md` during this session. For each unpromoted Major or Critical finding, apply the promotion criteria from `.cursor/rules/references/findings-flywheel.md`: promote if the pattern is recurring (2+ prior instances in this project) or is novel but high blast-radius (data loss, security, production outage class). For each entry that qualifies, produce it in this format:
 
     ## [Category name]
 
@@ -197,7 +197,7 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 **Project directory:** [absolute cwd]
 
-**Output path (context.md):** Do not attempt to compute the hash manually - Claude Code generates project directory hashes internally and the path cannot be derived from the project path alone. Instead, discover the correct directory by running `ls ~/.claude/projects/` and identify the subdirectory that corresponds to the current project. Once identified, the context.md path is `~/.claude/projects/[matched-hash]/context.md`.
+**Output path (context.md):** Do not attempt to compute the hash manually - Claude Code generates project directory hashes internally and the path cannot be derived from the project path alone. Instead, discover the correct directory by running `ls ~/.cursor/projects/` and identify the subdirectory that corresponds to the current project. Once identified, the context.md path is `~/.cursor/projects/[matched-hash]/context.md`.
 
 **Memory path (memory.md):** Same directory as context.md identified above, filename `memory.md`.
 
@@ -278,7 +278,7 @@ Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file wri
 
 Skip Part D entirely if Output 4 is "None".
 
-**Path:** `$PROJECT_ROOT/.claude/findings.md` — this file is project-local (inside the project's `.claude/` directory), not in `~/.claude/projects/[hash]/`.
+**Path:** `$PROJECT_ROOT/.claude/findings.md` — this file is project-local (inside the project's `.claude/` directory), not in `~/.cursor/projects/[hash]/`.
 
 1. Use the Read tool to attempt to read the file at `$PROJECT_ROOT/.claude/findings.md`.
 

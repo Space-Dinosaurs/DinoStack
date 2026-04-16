@@ -70,7 +70,7 @@ The Worker's responsibility:
 - Implement the specific assigned change and return the complete output
 - Return output for main-agent-orchestrated Skeptic review - Workers do not self-review for Elevated tasks
 
-Full specification of The Skeptic Protocol: `references/skeptic-protocol.md`.
+Full specification of The Skeptic Protocol: `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 ### Rule 6 — Check in, don't disappear
 
@@ -141,7 +141,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
-**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `references/skeptic-protocol.md` Section 0 when the two differ.
+**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` Section 0 when the two differ.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -354,8 +354,8 @@ This document is the canonical source for The Subagent Protocol. **When this doc
 **Document hierarchy:**
 - **This document** - canonical specification; governs all conflicts
 - **`~/.claude/CLAUDE.md`** - inline risk classification and delegation decision table; procedural details read from this document via trigger-condition pointers
-- **`references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
+- **`~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
 1. If the change affects the risk signal list or delegation decision table, update `~/.claude/CLAUDE.md` to match. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
-2. Check `references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
+2. Check `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).

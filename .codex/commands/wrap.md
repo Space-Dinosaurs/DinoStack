@@ -153,7 +153,7 @@ This is automatic - do not ask the user. Populate sections from session context 
 
 **Output 4 — findings.md entries**
 
-Review the raw session data for Skeptic findings that were NOT already promoted to `.claude/findings.md` during this session. For each unpromoted Major or Critical finding, apply the promotion criteria from `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`: promote if the pattern is recurring (2+ prior instances in this project) or is novel but high blast-radius (data loss, security, production outage class). For each entry that qualifies, produce it in this format:
+Review the raw session data for Skeptic findings that were NOT already promoted to `.claude/findings.md` during this session. For each unpromoted Major or Critical finding, apply the promotion criteria from `references/findings-flywheel.md`: promote if the pattern is recurring (2+ prior instances in this project) or is novel but high blast-radius (data loss, security, production outage class). For each entry that qualifies, produce it in this format:
 
     ## [Category name]
 

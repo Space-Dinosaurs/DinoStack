@@ -95,7 +95,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/qa.md` (only if web UI confirmed in Step 1)
 - `.claude/release.md` (only if release signals detected in Step 0)
 - `.claude/findings.md` - the findings flywheel's project-local anti-pattern log - always created empty, populated by `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle over time
-- `memory/MEMORY.md` (created at `~/.claude/projects/[hash]/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
+- `memory/MEMORY.md` (created at `.claude/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
 - `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
 
@@ -354,7 +354,7 @@ Content template:
 
 Architect reads this file at plan time to surface prior lessons and cites applicable entries in the plan's "Trade-offs and constraints" section. Skeptic reads it at review time and raises a Major finding if the diff repeats a documented anti-pattern. Promotion happens in `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle - after the QA gate passes.
 
-Full spec: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`
+Full spec: `.cursor/rules/references/findings-flywheel.md`
 
 ### 7. Create `.claude/settings.local.json`
 
@@ -370,10 +370,10 @@ Add any project-specific env vars here (e.g. database connection strings, API ke
 
 ### 8. Seed `MEMORY.md`
 
-The project MEMORY.md lives outside the project directory at `~/.claude/projects/[hash]/memory/MEMORY.md` and is auto-injected by Claude Code at startup.
+The project MEMORY.md lives outside the project directory at `.claude/memory/MEMORY.md` and is auto-injected by Claude Code at startup.
 
 If the file does not already exist, create the memory directory and seed the file:
-- Resolve the memory directory path from the Claude Code auto-injected context (look for "You have a persistent auto memory directory at `~/.claude/projects/[hash]/memory/`")
+- Resolve the memory directory path from the Claude Code auto-injected context (look for "You have a persistent auto memory directory at `.claude/memory/`")
 - Create the file at `[memory_dir]/MEMORY.md` with:
 
 ```

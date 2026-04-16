@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# manifest: .codex/build.sh
+# purpose: Build all Codex adapter output files from content/ source
+# outputs: .codex/AGENTS.md, .codex/references/*.md, .codex/commands/*.md,
+#          .codex/skill/references/*.md (hardlinks), .codex/agents/*.toml
+# reads-from: content/rules/*.md, content/references/*.md,
+#             content/commands/*.md, content/agents/*.md
+# side-effects: creates/overwrites files under .codex/; removes stale agent
+#               TOML files from prior runs; replaces .codex/skill/references/
+#               symlink if its target has changed
+# failure-modes: set -euo pipefail — any missing source file or failed write
+#                aborts the script; safe to re-run (idempotent writes)
 set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
@@ -16,6 +27,18 @@ get_inode() {
     stat -c %i "$1"
   else
     stat -f %i "$1"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Portable sed -i helper (macOS BSD sed requires '' argument, GNU does not)
+# ---------------------------------------------------------------------------
+
+sed_inplace() {
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$@"
+  else
+    sed -i '' "$@"
   fi
 }
 
@@ -82,10 +105,8 @@ echo "Built AGENTS.md"
 # The Codex skill lives at .codex/skill/ (staging) and gets symlinked to
 # ~/.agents/skills/agentic-engineering/ by install.sh. It contains:
 #   - SKILL.md          (trigger metadata + methodology summary)
-#   - references/       (hardlinks to content/references/)
+#   - references/       (symlink to .codex/references/)
 # ---------------------------------------------------------------------------
-
-mkdir -p "$SKILL_DST/references"
 
 # References: hardlink from content/ so edits stay in sync
 hardlink_from_content() {
@@ -97,6 +118,13 @@ hardlink_from_content() {
   rm -f "$dst"
   ln "$src" "$dst"
 }
+
+# Remove stale skill/references symlink before mkdir -p to avoid
+# "No such file or directory" when the symlink target no longer exists.
+if [[ -L "$SKILL_DST/references" ]] && [[ ! -e "$SKILL_DST/references" ]]; then
+  rm "$SKILL_DST/references"
+fi
+mkdir -p "$SKILL_DST/references"
 
 for src in "$CONTENT/references/"*.md; do
   hardlink_from_content "$src" "$SKILL_DST/references/$(basename "$src")"
@@ -113,15 +141,24 @@ fi
 # ---------------------------------------------------------------------------
 # Build .codex/references/ (local project copies)
 #
-# .codex/references/ contains hardlinks to content/references/ for users
-# browsing the repo without installing. .codex/skill/references/ is a
-# symlink to .codex/references/ so there is one source of truth.
+# .codex/references/ contains copies of content/references/ with relative
+# paths expanded to Codex-specific absolute paths. .codex/skill/references/
+# is a symlink to .codex/references/ so there is one source of truth.
 # ---------------------------------------------------------------------------
 
 mkdir -p "$REFS_DST"
 
 for src in "$CONTENT/references/"*.md; do
-  hardlink_from_content "$src" "$REFS_DST/$(basename "$src")"
+  rm -f "$REFS_DST/$(basename "$src")"
+  cp "$src" "$REFS_DST/$(basename "$src")"
+done
+
+# Expand relative reference/rule paths for Codex
+for dst in "$REFS_DST"/*.md; do
+  sed_inplace \
+    -e 's|`references/|`.codex/references/|g' \
+    -e 's|`rules/|`.codex/rules/|g' \
+    "$dst"
 done
 
 # Make skill/references/ a symlink to .codex/references/ (single source of truth)

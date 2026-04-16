@@ -1,0 +1,58 @@
+---
+description: "Cursor orchestration addendum: maps agentic engineering methodology concepts to Cursor's Task API, subagent_type mapping, parallel spawning, and Cursor-specific limitations."
+alwaysApply: false
+---
+
+# Cursor Orchestration Addendum
+
+This document maps the agentic engineering methodology's orchestration concepts to Cursor's Task API.
+
+## Spawning Named Agents
+
+Use the Task tool with `subagent_type` to spawn named agents:
+
+```
+Task(subagent_type="engineer", run_in_background=true, prompt="...")
+```
+
+Before spawning, read the agent's instruction file at `.cursor/agents/<name>.md` and include the instructions in the Task prompt.
+
+## Subagent Type Mapping
+
+| Methodology Agent | Cursor subagent_type |
+|---|---|
+| engineer | `engineer` |
+| architect | `architect` |
+| investigator | `investigator` |
+| debugger | `debugger` |
+| skeptic | `skeptic` |
+| orchestration-planner | `orchestration-planner` |
+| security-auditor | `security-auditor` |
+| qa-engineer | `qa-engineer` |
+| perf-analyst | `perf-analyst` |
+| release-orchestrator | `release-orchestrator` |
+| dependency-auditor | `dependency-auditor` |
+| adr-drift-detector | `adr-drift-detector` |
+| adr-generator | `adr-generator` |
+| general-purpose Worker | `generalPurpose` |
+
+## Lightweight Tasks
+
+Use `model: "fast"` for lightweight operations: file reads, simple fixes, diagnostic checks.
+
+## Parallel Spawning
+
+Issue multiple `Task()` calls in a single message to run agents in parallel. Same principle as the methodology's "parallel by default" rule.
+
+## Isolation
+
+Cursor's Task API does not support `isolation: "worktree"`. For isolated work, either:
+- Set up a manual git worktree before spawning the task
+- Use the `best-of-n-runner` subagent_type for comparative work
+
+## Known Cursor-Specific Limitations
+
+- **No `/simplify` skill** — the Elevated + Cleanup tier's `/simplify` integration is not available in Cursor. Run code quality review manually or skip.
+- **No permission-based fallbacks** — the methodology's BLOCKED status fallback for Edit permission denial does not apply in Cursor.
+- **No auto-injected memory** — `.claude/memory/MEMORY.md` is a Claude Code feature. Use project-local memory files instead.
+- **Session context path** — Cursor's stop hook writes to `~/.cursor/projects/[hash]/context.md` (not `~/.claude/`).

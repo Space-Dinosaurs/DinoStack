@@ -33,15 +33,20 @@
 
 **Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:
 - `content/rules/` - the 3 rule files (agent-methodology, code-standards, conventions)
-- `content/references/` - the 4 reference docs (skeptic-protocol, subagent-protocol, agent-team, design-goals)
-- `content/commands/` - the 6 command files (implement, init-project, memory-update, skeptic, update-protocol, wrap)
-- `content/agents/` - the 10 agent definitions (adr-drift-detector, adr-generator, architect, debugger, engineer, investigator, orchestration-planner, qa-engineer, security-auditor, skeptic)
+- `content/references/` - the 5 reference docs (skeptic-protocol, subagent-protocol, agent-team, design-goals, findings-flywheel)
+- `content/commands/` - the 7 command files (implement, init-project, memory-update, skeptic, update-protocol, wrap, cleanup-worktrees)
+- `content/agents/` - the 13 agent definitions (adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, orchestration-planner, perf-analyst, qa-engineer, release-orchestrator, security-auditor, skeptic)
 
-Build scripts regenerate adapter files from `content/`:
+When writing paths inside `content/` files, always use the relative forms `references/<file>` and `rules/<file>` — never absolute paths. Each adapter's build script resolves relative paths to the platform-specific locations during the build.
+
+Build scripts regenerate adapter files from `content/`. After any content change, run all three:
 - `.claude/build.sh` - rebuilds `.claude/commands/*.md` by prepending the `/agentic-engineering` prerequisite blockquote to each `content/commands/*.md` source. Rules, references, and agents need no copy step - `.claude/skills/agentic-engineering/rules`, `.claude/skills/agentic-engineering/references`, and `.claude/agents/` are all symlinks pointing directly into `content/`.
-- `.cursor/build.sh` - combines frontmatter sidecars with rules to produce .mdc files, copies references and commands
+- `.cursor/build.sh` - combines frontmatter sidecars with rules to produce .mdc files; copies (not hardlinks) references, commands, and agents to `.cursor/` with `sed` path transforms applied.
+- `.codex/build.sh` - generates `.codex/AGENTS.md` and copies references and commands into the Codex layout.
 
-The pre-commit hook runs both build scripts automatically when `content/` files are staged. If you bypass the hook, run the build scripts manually before committing.
+Because Cursor and Codex outputs are copies (not hardlinks), edits made directly to `.cursor/` or `.codex/` files will be overwritten on the next build. Always edit in `content/`.
+
+The pre-commit hook runs all three build scripts automatically when `content/` files are staged. If you bypass the hook, run the build scripts manually before committing.
 
 **Frontmatter sidecars.** Cursor rules require YAML frontmatter. This metadata lives in `.cursor/rules/frontmatter/*.yaml` (one file per rule). The cursor build script combines the sidecar with the rule content to produce the `.mdc` file. Edit the sidecar to change frontmatter; edit `content/rules/` to change rule content.
 

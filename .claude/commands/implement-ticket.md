@@ -113,7 +113,7 @@ Ask the architect for:
 3. Any risks, gotchas, or ambiguities that need resolution before coding
 4. The appropriate adversarial brief type for Skeptic review (security, logic, performance, data integrity, etc.)
 
-**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `agent-methodology.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `agent-methodology.md` for resolution paths. For the full adversarial brief menu, see `references/skeptic-protocol.md`.
 
 ---
 
@@ -156,7 +156,7 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified must carry module manifests per `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic will flag missing or stale manifests as Major findings in Phase 6.
+**Module manifests:** Files modified must carry module manifests per `rules/module-manifest.md` when non-trivial. Skeptic will flag missing or stale manifests as Major findings in Phase 6.
 
 ### If work is a single logical unit (or units must be sequential):
 
@@ -223,7 +223,7 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 
-For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `references/skeptic-protocol.md`.
 
 **Findings handling:**
 - **Critical:** Route back to a fresh `engineer` agent to fix. Re-run Skeptic after.
@@ -245,7 +245,7 @@ For full QA gate rules, see `agent-methodology.md §QA Gate`.
 
 ## Phase 6c: Promote findings
 
-Apply the post-sign-off finding promotion rule from `agent-methodology.md` §Post-sign-off finding promotion. The rule is not `/implement-ticket`-specific - it fires after every Skeptic sign-off in any context. Full promotion criteria, entry format, and size-cap rules: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
+Apply the post-sign-off finding promotion rule from `agent-methodology.md` §Post-sign-off finding promotion. The rule is not `/implement-ticket`-specific - it fires after every Skeptic sign-off in any context. Full promotion criteria, entry format, and size-cap rules: `references/findings-flywheel.md`.
 
 ---
 

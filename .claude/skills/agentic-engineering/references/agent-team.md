@@ -157,7 +157,7 @@ When spawning `engineer`, include:
 - The Architect's plan (if one was produced)
 - Relevant file paths or codebase root
 - Acceptance criteria
-- Session context (`~/.cursor/projects/[hash]/context.md`)
+- Session context (`~/.claude/projects/[hash]/context.md`)
 
 When spawning `skeptic` for architect plan review, include:
 - The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?"

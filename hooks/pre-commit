@@ -20,7 +20,6 @@ if git diff --cached --name-only | grep -q "^content/"; then
 
   # Stage generated files
   git add \
-    "$REPO_DIR/.claude/skills/agentic-engineering/rules/"*.md \
     "$REPO_DIR/.claude/skills/agentic-engineering/references/"*.md \
     "$REPO_DIR/.claude/commands/"*.md \
     "$REPO_DIR/.cursor/rules/"*.mdc \
@@ -28,8 +27,10 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.cursor/commands/"*.md \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/references/"*.md \
-    "$REPO_DIR/.codex/commands/"*.md \
-    "$REPO_DIR/.codex/skill/references/"*.md
+    "$REPO_DIR/.codex/commands/"*.md
+  git add "$REPO_DIR/.cursor/agents/"*.md 2>/dev/null || true
+  git add "$REPO_DIR/.cursor/hooks/"*.js 2>/dev/null || true
+  git add "$REPO_DIR/.cursor/hooks/"*.sh 2>/dev/null || true
 
   echo "[pre-commit] Generated files staged."
 else

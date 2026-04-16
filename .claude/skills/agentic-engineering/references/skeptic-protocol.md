@@ -103,7 +103,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
    - `BLOCKED`: the Worker hit a hard blocker requiring an architecture decision or human judgment. Escalate immediately to the human with the Worker's blocker description. Do not spawn a Skeptic on incomplete work.
    - `DONE_WITH_CONCERNS`: proceed with Skeptic review as normal. The Worker's stated concerns become additional context for the Skeptic - surface them in the spawn prompt alongside the adversarial brief.
 
-3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `subagent_type: "skeptic"`) with:
+3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `~/.claude/agents/skeptic.md`) with:
    - The adversarial brief verbatim
    - The Worker's complete output (inline or as file paths)
    - The resolved issues preflight list (empty on round 1; see Section 4)

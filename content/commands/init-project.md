@@ -354,7 +354,7 @@ Content template:
 
 Architect reads this file at plan time to surface prior lessons and cites applicable entries in the plan's "Trade-offs and constraints" section. Skeptic reads it at review time and raises a Major finding if the diff repeats a documented anti-pattern. Promotion happens in `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle - after the QA gate passes.
 
-Full spec: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`
+Full spec: `references/findings-flywheel.md`
 
 ### 7. Create `.claude/settings.local.json`
 

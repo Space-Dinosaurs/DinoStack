@@ -49,7 +49,7 @@ The Skeptic Protocol (`agent-methodology/skeptic-protocol.md`) operationalizes t
 
 Context is managed in three complementary tiers, each with different characteristics:
 
-1. **Ephemeral turn-level context** (`~/.cursor/projects/[hash]/context.md`) — written automatically by the Stop hook after every agent turn. Contains: recent user messages, files touched, tools used. No LLM call; pure text extraction from the session payload. Always current because it is overwritten on every turn — never stale. Workers read this at task start to orient without needing the full session history in their prompt.
+1. **Ephemeral turn-level context** (`~/.claude/projects/[hash]/context.md`) — written automatically by the Stop hook after every agent turn. Contains: recent user messages, files touched, tools used. No LLM call; pure text extraction from the session payload. Always current because it is overwritten on every turn — never stale. Workers read this at task start to orient without needing the full session history in their prompt.
 
 2. **Decision log** (`.claude/rules/decisions.md`) — persistent, version-controlled, auto-loaded by Claude Code at startup. Contains architectural choices, technology decisions, scope resolutions, and deliberate tradeoffs. Updated via `/memory-update`, which spawns a background Worker with its own Skeptic loop to ensure accuracy before writing. Decisions are curated: a new entry that contradicts a prior one updates the prior one rather than appending a conflicting record.
 
