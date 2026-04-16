@@ -85,7 +85,7 @@ A protocol for shipping software with AI agents
 - Loaded as a skill - it shapes how your agent plans, implements, and reviews code
 - Mostly **passive**: you don't drive it with commands
 - Risk-aware delegation, adversarial review, focused sessions
-- Tool-agnostic: Claude Code, Cursor, and more
+- Tool-agnostic: Claude Code, Cursor, Codex, Gemini CLI
 
 <div class="callout">
 Not a framework you call into. A living protocol that shapes every response, every task, every review - in the background.
@@ -193,6 +193,10 @@ The main session agent decides for each task: handle it directly, or delegate to
 When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a review is cheap; the cost of a bad change is not.
 </div>
 
+<div class="callout">
+<strong>Tier declaration:</strong> Conductors declare <code>Tier: 1/2/3</code> when spawning. Tier 2 is the default - no change to existing spawns. Tier 1 = cheap/fast (Haiku). Tier 3 = max capability (Opus). Declaration is documentation; the <code>model</code> param in the Agent tool call is enforcement.
+</div>
+
 ---
 
 ## Under the hood - the agent team
@@ -231,6 +235,148 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <div class="card"><strong>perf-analyst</strong><br/>Performance profiling</div>
 <div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing</div>
 <div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review</div>
+</div>
+
+---
+
+## The persistence loop - Engineer -> Skeptic -> QA
+
+<style scoped>
+  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
+  ul { font-size: 0.82em; }
+  ul li { margin: 0.15em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+```
+Phase 6: Skeptic loop (max 3 fix passes)          Phase 6b: QA loop (max 3 fix passes)
+─────────────────────────────────────────         ─────────────────────────────────────
+Engineer implements                               (only runs if Phase 6 exits cleanly)
+    │
+Skeptic reviews ──> sign-off? ──> Phase 6b ──>  QA verifies ──> PASS? ──> Phase 7
+    │ Critical/Major found?                           │ failures?
+    └── Engineer fix pass ──> loop back              └── Engineer fix pass ──> loop back
+    │ cap_reached / convergence? ──> ESCALATE        │ cap / convergence? ──> ESCALATE
+```
+
+- **3 fix passes per phase** - caps are independent (Skeptic cap and QA cap are separate budgets)
+- **`findings_log` carries forward** - prior findings tracked by ID; closed findings are not re-litigated
+- **Convergence failure** - one re-raise of a **Critical** finding after a claimed fix triggers immediate escalation (does not wait for a second attempt)
+- **Escalation reasons**: `cap_reached`, `convergence_failure`, `blocked`
+
+<div class="callout">
+The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</code>
+</div>
+
+<div class="callout">
+<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/implement-ticket</code>'s built-in resume check.
+</div>
+
+---
+
+## When the loop stalls
+
+<style scoped>
+  .columns { gap: 1em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.78em; line-height: 1.4; padding: 0.8em 1em; }
+  .columns .card strong { font-size: 1.05em; }
+  p { font-size: 0.85em; margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+<div class="columns">
+<div class="card">
+<strong>cap_reached</strong><br/>
+3 fix passes ran, Critical/Major findings still open. Loop exits. QA is skipped. Human receives the open findings list and three options: clarify, defer, or scope as follow-on.
+</div>
+<div class="card">
+<strong>convergence_failure</strong><br/>
+Skeptic re-raised a <strong>Critical</strong> finding after the Engineer claimed to fix it. One re-raise is enough - the loop does not wait for a second attempt. Signals a design conflict, not an implementation mistake.
+</div>
+<div class="card">
+<strong>blocked</strong><br/>
+Engineer returned BLOCKED - hit a design conflict that fix passes cannot resolve. Treated as immediate escalation regardless of iteration count.
+</div>
+</div>
+
+The conductor surfaces the raw finding history and waits for human direction. It does not synthesize fix suggestions.
+
+<div class="callout">
+The loop terminates cleanly or escalates. It never runs forever.
+</div>
+
+---
+
+## Parallel fan-out - N engineers in one message
+
+<style scoped>
+  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
+  ul { font-size: 0.82em; }
+  ul li { margin: 0.15em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+When `orchestration-planner` returns 2+ independent units, `/implement-ticket` Phase 5 fans out:
+
+```
+orchestration-planner
+  unit A (merge_order:1, skeptic_strategy:per-unit)
+  unit B (merge_order:2, skeptic_strategy:per-unit)
+         │
+         ▼  single message (parallel)
+  ┌──────────────┐    ┌──────────────┐
+  │ worktree A   │    │ worktree B   │
+  │ engineer A   │    │ engineer B   │
+  │ → skeptic A  │    │ → skeptic B  │
+  │ (P0 loop)    │    │ (P0 loop)    │
+  └──────┬───────┘    └──────┬───────┘
+         └────── join ───────┘
+               │
+         sequential --no-ff merge
+         (merge_order: A then B)
+               │
+         post-merge quality check
+```
+
+<div class="callout">
+Each unit runs its own P0 persistence loop. "Done" = Skeptic signed off, not first commit.
+</div>
+
+---
+
+## Fan-out join conditions
+
+<style scoped>
+  .columns { gap: 1em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.78em; line-height: 1.4; padding: 0.8em 1em; }
+  .columns .card strong { font-size: 1.05em; }
+  p { font-size: 0.85em; margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+After all N engineers return, conductor evaluates the join:
+
+<div class="columns">
+<div class="card">
+<strong>All-done</strong><br/>
+All units reach <code>status: done</code> (Skeptic signed off). Proceed to sequential merge in <code>merge_order</code>.
+</div>
+<div class="card">
+<strong>Partial success</strong><br/>
+Some done, some failed. Merge green units. Retry failed unit once (depth=1) with preserved worktree. Second failure escalates.
+</div>
+<div class="card">
+<strong>Total failure</strong><br/>
+All units failed. Clean up worktrees. Escalate with full failure outputs - recommend sequential fallback.
+</div>
+<div class="card">
+<strong>Blocked</strong><br/>
+Any unit returned <code>Status: BLOCKED</code>. Treat as failed. Conductor cannot resolve - escalate immediately.
+</div>
+</div>
+
+<div class="callout">
+Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor writes all entries - workers return summaries only.
 </div>
 
 ---

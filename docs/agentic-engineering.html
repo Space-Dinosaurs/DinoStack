@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agentic Software Engineering</title>
+<title>Agentic Engineering</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@700&family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -119,6 +119,20 @@
     font-size: 12px;
     color: var(--text-muted);
     letter-spacing: 0;
+    margin-bottom: 10px;
+  }
+  .repo-link {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+  .repo-link a {
+    color: var(--cyan);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(26, 90, 122, 0.3);
+  }
+  .repo-link a:hover {
+    border-bottom-color: var(--cyan);
   }
   .epigraph {
     font-family: 'Space Grotesk', system-ui, sans-serif;
@@ -634,7 +648,8 @@
 
 <!-- ═══ Side Navigation ═══ -->
 <nav class="side-nav">
-  <div class="side-nav-brand">ASE</div>
+  <div class="side-nav-brand">AE</div>
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 0 6px;">Last updated: Apr 16, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#config"><span class="nav-dot" style="background: var(--cyan);"></span> Configuration</a>
@@ -657,9 +672,10 @@
 </nav>
 
 <div class="doc-header">
-  <h1>Agentic Software Engineering</h1>
-  <p class="subtitle">An opinionated architecture for doing engineering work with AI agents.</p>
+  <h1>Agentic Engineering</h1>
+  <p class="subtitle">An opinionated architecture for doing software engineering work with AI agents.</p>
   <p class="byline">by Tyson Hummel</p>
+  <p class="repo-link"><a href="https://github.com/Solara6/agentic-engineering" target="_blank" rel="noopener noreferrer">github.com/Solara6/agentic-engineering</a></p>
   <p class="epigraph">Operator attention is the scarce resource. Agents aren't. This architecture is an attempt to run as much of the process without you as possible - so the attention you do spend goes where judgment is load-bearing.</p>
   <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex reads it natively; Claude Code loads it via a one-line <code>CLAUDE.md</code> containing <code>@AGENTS.md</code>. The patterns translate to any agentic framework.</p>
 </div>
@@ -677,6 +693,7 @@
   <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">09</span> Work Tracking</a>
   <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">10</span> Skill Creator</a>
   <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Contributing</a>
+  <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Parallel Fan-out</a>
 </nav>
 
 <div class="diagram">
@@ -684,11 +701,11 @@
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
 <div id="config" class="section config-layer">
   <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: AGENTS.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/CLAUDE.md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
+  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--cyan);">~/.claude/CLAUDE.md <span class="load-badge always">always loaded</span></h4>
+        <h4 style="color: var(--cyan);">~/.claude/[AGENTS|CLAUDE].md <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li>Minimal global file - personal preferences and a list of available domain skills.</li>
           <li>Does not contain the full methodology. Keeps always-loaded context small.</li>
@@ -706,14 +723,14 @@
   </div>
   <div class="note">
     <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, findings-flywheel.md)<br>
-    <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships both a <code>.claude/</code> adapter (Claude Code) and a <code>.cursor/</code> adapter (Cursor IDE) - the same methodology in each tool's native format.<br>
+    <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), and Gemini CLI (<code>.gemini/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and importable by Claude Code via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
     <strong>Claude Code users:</strong> create a <code>CLAUDE.md</code> at the repo root containing exactly one line - <code>@AGENTS.md</code> - and Claude Code will import <code>AGENTS.md</code> transparently.<br>
     <strong>Codex CLI users:</strong> Codex reads <code>AGENTS.md</code> natively with no extra setup.<br>
-    <strong>Result:</strong> one file drives both tools. No duplication.
+    <strong>Result:</strong> one content source drives all adapters. No duplication.
   </div>
 </div>
 
@@ -843,6 +860,40 @@
             <li><strong style="color: var(--gold);">Major</strong> - blocks sign-off unless Worker provides compelling documented reason to defer. Missing error handling, edge cases, design issues</li>
             <li><strong style="color: var(--green);">Minor</strong> - never blocks sign-off. Applied by a separate Worker after sign-off, no follow-up Skeptic needed</li>
             <li>Unclassified findings default to Major</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+          <h4 style="color: #5a3d8a;">Persistence Loop (inside <code>/implement-ticket</code>)</h4>
+          <ul>
+            <li><strong>Loop-aware, not one-shot</strong> - <code>/implement-ticket</code> runs Engineer &rarr; Skeptic &rarr; QA as a bounded loop, not a single pass. Re-routes are a named primitive, not ad-hoc conductor judgment.</li>
+            <li><strong>Max 3 fix passes per phase</strong> - Skeptic loop (Phase 6) and QA loop (Phase 6b) each have an independent 3-pass cap. Hitting the cap escalates to the human; the conductor does not spawn a fourth pass.</li>
+            <li><strong>Findings accumulate</strong> - the <code>findings_log</code> carries forward across iterations. A finding closed in iteration 1 cannot be silently re-raised as new in iteration 2; the Skeptic must explicitly contest the claimed fix using a <code>[PREV: id]</code> tag.</li>
+            <li><strong>Convergence failure</strong> - one re-raise of a Critical finding after a claimed fix triggers immediate escalation (does not consume remaining iteration budget). Signals a design-level conflict requiring human arbitration.</li>
+            <li><strong>Explicit escalation contract</strong> - the loop exits with a structured stall report (<code>cap_reached</code>, <code>convergence_failure</code>, or <code>blocked</code>) listing open findings and recommended actions.</li>
+            <li><strong>Durable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> at every phase transition (atomic write). Long-running loops survive rate limits and session exits: on the next <code>/implement-ticket</code> invocation the conductor detects the interrupted state, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. No work is lost.</li>
+            <li><strong>Task coordination surface</strong> - multi-unit orchestration plans use <code>.agentic/tasks.jsonl</code> as a durable task coordination surface; the conductor tracks task status, dependencies, and loop state across the plan lifecycle. Applies to plans with 2+ tasks; single-unit spawns use in-context state only.</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+          <h4 style="color: #5a3d8a;">Parallel Fan-out <a class="slide-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer">slides</a></h4>
+          <ul>
+            <li><strong>N engineers in one message</strong> - when <code>orchestration-planner</code> returns 2+ independent units, <code>/implement-ticket</code> Phase 5 fans out: one worktree-isolated engineer per unit, all spawned in a single message (parallel). N=1 falls through to the standard path.</li>
+            <li><strong>Per-unit P0 loops</strong> - each unit runs its own Engineer &rarr; Skeptic persistence loop inside its worktree. "Done" means Skeptic signed off, not first commit. The conductor joins only after every unit reaches a terminal state.</li>
+            <li><strong>Skeptic strategy driven by planner</strong> - <code>skeptic_strategy: per-unit</code>: independent units each get their own Skeptic (can run in parallel). <code>skeptic_strategy: integration</code>: interdependent units share one Skeptic reviewing the combined diff - replaces Phase 6, not layers on top.</li>
+            <li><strong>Join conditions</strong> - all-done (merge in <code>merge_order</code>), partial success (merge green units, retry failed once at depth=1), total failure (escalate), blocked (escalate immediately).</li>
+            <li><strong>Sequential <code>--no-ff</code> merge</strong> - unit branches merged in planner-specified <code>merge_order</code>. Conflict at any step: abort, stop remaining merges, spawn single engineer for sequential re-implementation. Post-merge integration quality check catches cross-unit failures.</li>
+            <li><strong>Task state in <code>.agentic/tasks.jsonl</code></strong> - conductor writes all entries (pending &rarr; in_progress &rarr; done/failed/blocked). Workers return summaries only. Crash recovery: <code>in_progress</code> entries on resume treated as failed, re-spawned with original brief from <code>inputs</code> field.</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+          <h4 style="color: #5a3d8a;">Cost-Aware Tier Routing</h4>
+          <ul>
+            <li><strong>Conductors declare Tier 1/2/3 at spawn time</strong> - routes lightweight tasks to faster models and critical reviews to max-capability models</li>
+            <li><strong>Tier 1</strong> - cheap/fast (Haiku). Declare explicitly for shallow reads, existence checks, format-only tasks, and mechanical transformations</li>
+            <li><strong>Tier 2</strong> - default (session model, Sonnet-equivalent). No declaration needed. Most spawns land here</li>
+            <li><strong>Tier 3</strong> - max capability (Opus). Declare explicitly for security adversarial review, novel architecture design, full blast-radius analysis across an unknown codebase</li>
+            <li><strong>Declaration is documentation; the model param is enforcement</strong> - writing <code>Tier: 3</code> in the status block does not self-execute. The conductor must also pass <code>model: "opus"</code> in the <code>Agent</code> tool call. Declaration without the param produces Tier 2 behavior</li>
+            <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
           </ul>
         </div>
       </div>
@@ -1434,7 +1485,15 @@
         <h4><code>~/.claude/settings.json</code> snippet</h4>
 <pre style="font-size: 12px; background: rgba(0,0,0,0.04); padding: 10px; border-radius: 6px; overflow-x: auto;"><code>{
   "permissions": {
-    "allow": ["Bash(*)", "Write", "Edit"],
+    "allow": [
+      "Bash(*)", "Write", "Edit",
+      "Write(**/AGENTS.md)",   "Edit(**/AGENTS.md)",
+      "Write(**/CLAUDE*.md)",  "Edit(**/CLAUDE*.md)",
+      "Write(**/context.md)",  "Edit(**/context.md)",
+      "Write(**/memory*.md)",  "Edit(**/memory*.md)",
+      "Write(**/.claude/*.md)","Edit(**/.claude/*.md)",
+      "Write(**/.claude/*.json)","Edit(**/.claude/*.json)"
+    ],
     "deny": [
       "Bash(git push --force*)",
       "Bash(rm -rf*)",
@@ -1450,7 +1509,7 @@
     "defaultMode": "bypassPermissions"
   }
 }</code></pre>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/init-project</code> and <code>/wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, release.md, compression-state.json, plus their rolling snapshots). Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
       </div>
     </div>
   </div>

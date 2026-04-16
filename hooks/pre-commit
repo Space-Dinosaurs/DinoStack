@@ -17,6 +17,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
   bash "$REPO_DIR/.claude/build.sh"
   bash "$REPO_DIR/.cursor/build.sh"
   bash "$REPO_DIR/.codex/build.sh"
+  bash "$REPO_DIR/.gemini/build.sh"
 
   # Stage generated files
   git add \
@@ -28,11 +29,35 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/references/"*.md \
     "$REPO_DIR/.codex/commands/"*.md
+  git add \
+    "$REPO_DIR/.gemini/GEMINI.md" \
+    "$REPO_DIR/.gemini/references/"*.md \
+    "$REPO_DIR/.gemini/commands/"*.toml \
+    "$REPO_DIR/.gemini/agents/"*.md
   git add "$REPO_DIR/.cursor/agents/"*.md 2>/dev/null || true
   git add "$REPO_DIR/.cursor/hooks/"*.js 2>/dev/null || true
   git add "$REPO_DIR/.cursor/hooks/"*.sh 2>/dev/null || true
 
   echo "[pre-commit] Generated files staged."
-else
-  echo "[pre-commit] No content/ changes - skipping builds."
+fi
+
+# Update last-updated date on hub page if docs/ or content/ changed
+if git diff --cached --name-only | grep -qE '^(docs/|content/)'; then
+  sed -i '' "s/Last updated: .*/Last updated: $(date +'%b %d, %Y')/" \
+    "$REPO_DIR/docs/agentic-engineering.html"
+  git add "$REPO_DIR/docs/agentic-engineering.html"
+  echo "[pre-commit] Hub page last-updated date stamped."
+fi
+
+# Remind about docs updates when content/ changes without docs/ changes
+if git diff --cached --name-only | grep -q "^content/"; then
+  if ! git diff --cached --name-only | grep -q "^docs/"; then
+    CHANGED=$(git diff --cached --name-only | grep "^content/" | sed 's|content/||' | head -5)
+    echo ""
+    echo "[pre-commit] NOTE: content/ changed but no docs/ files are staged."
+    echo "  Changed: $CHANGED"
+    echo "  Consider whether docs/agentic-engineering.html or docs/slides/ need updating."
+    echo "  (This is a reminder, not a blocker.)"
+    echo ""
+  fi
 fi

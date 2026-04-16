@@ -2,7 +2,6 @@
 name: qa-engineer
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .claude/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
-model: claude-sonnet-4-6
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.

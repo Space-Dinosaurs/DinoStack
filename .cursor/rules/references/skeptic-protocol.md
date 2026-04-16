@@ -52,6 +52,7 @@ None of the above:
 | "The Skeptic will catch any mistakes." | The Skeptic reviews Worker output. It does not excuse skipping risk classification or spawning a Worker. |
 | "We're moving fast, we can skip review this time." | The protocol exists precisely for times when moving fast creates pressure to skip it. Speed is not a Low signal. |
 | "This change is too minor to bother with a Worker." | Delegate on risk signals, not on size. The Worker overhead is small; the cost of an unreviewed error is not. |
+| "I ran the tests myself, I don't need a Skeptic" | Valid only when the tight-fix path declaration was made with all 6 checklist items ticked AND the Worker's pre-commit test verification sequence passed. Outside that declared sub-path, tests passing is not a substitute for Skeptic review. The tight-fix path is a narrow declared opt-in, not a general permission to self-verify. |
 
 ### Approach by risk level
 
@@ -172,6 +173,8 @@ re-raise them unless you believe the resolution is genuinely insufficient:
 
 The preflight list prevents the Skeptic from re-raising already-addressed findings as new Critical or Major items. It does not prevent the Skeptic from contesting a resolution — if the Skeptic believes a stated resolution is insufficient, it may re-raise the finding with an explicit explanation of why.
 
+**Loop context extension:** When the Skeptic is invoked inside the `/implement-ticket` persistence loop, the conductor passes the findings_log entries (status=open or status=addressed) as the preflight list. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
+
 ---
 
 ## 5. Escalation Protocol
@@ -197,6 +200,8 @@ The number of permitted Skeptic rounds scales with task complexity:
 - **Standard Elevated changes**: the 2-re-route rule above applies - if the same finding appears in 2 or more Skeptic responses without resolution, escalate to the human.
 
 **Uncertainty rule for categorization:** When the scope of a change is ambiguous - i.e., it is not obviously a single narrow edit - apply the standard Elevated round limit (the 2-re-route rule). "Looks simple" is not a sufficient basis for the simple/targeted category. This mirrors the Low/Elevated uncertainty rule above.
+
+**Loop contract override:** When operating inside the `/implement-ticket` persistence loop (Phase 6), the loop contract overrides this rule. One re-raise after a claimed fix (convergence failure as defined in the loop contract) is sufficient to trigger escalation. The loop already consumes iteration budget on each fix pass; requiring a second re-raise would waste an additional pass on a finding the Engineer has already failed to address. Outside the loop context (ad-hoc Skeptic re-routes not inside a named loop), the 2-re-route rule applies unchanged.
 
 ### Worker decomposition rule
 
@@ -373,7 +378,7 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
-**Irreversible changes:** Workers must not apply irreversible changes before the primary agent has confirmed Skeptic sign-off. Workers that must stage irreversible changes as part of implementation must write a revert procedure in their return output before applying those changes. If the Skeptic subsequently flags Critical issues, the primary agent instructs the Worker to execute the revert procedure before further changes.
+**Irreversible changes:** Workers must not apply irreversible changes before the primary agent has confirmed Skeptic sign-off. The sole exception is the Elevated (tight-fix path) sub-path defined in `agent-methodology.md`: when a tight-fix path declaration is made with all 6 checklist items ticked AND the engineer Worker's pre-commit test verification (BASELINE -> APPLY -> VERIFY) passes, the Worker may commit without prior Skeptic sign-off. Any failure in the verification sequence reverts to the standard rule - the Worker does NOT commit, returns the uncommitted diff, and the conductor spawns a Skeptic on the uncommitted diff. Workers that must stage irreversible changes as part of implementation must write a revert procedure in their return output before applying those changes. If the Skeptic subsequently flags Critical issues, the primary agent instructs the Worker to execute the revert procedure before further changes.
 
 ---
 

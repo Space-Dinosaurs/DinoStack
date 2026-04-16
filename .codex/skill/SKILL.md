@@ -32,11 +32,26 @@ These are prompt templates for common workflows. In Codex, use them from `.codex
 - `wrap` - Session context enrichment and AGENTS.md updates
 - `memory-update` - Capture a project decision to memory
 - `init-project` - Scaffold a new project with AGENTS.md hierarchy
-- `update-protocol` - Governs edits to methodology documents
+- `update-agentic-engineering` - Governs edits to methodology documents
 
 Use these templates manually: read the relevant `.codex/commands/<name>.md` file and paste or paraphrase it into your session. Do not assume a `/prompts:<name>` command exists in Codex.
 
 **Important:** The `/agentic-engineering` prerequisite line present in Claude Code command files does not apply here. Codex does not use a skill-loading prerequisite system. When using these templates, read and apply the content directly.
+
+## Risk Tiers
+
+Four risk tiers govern delegation and review. Apply them before starting any task:
+
+| Tier | Delegation | Review | When to use |
+|---|---|---|---|
+| Trivial | Conductor direct (no subagents running) or solo `engineer` Worker in foreground (subagents running) | None - no Skeptic, no brief file | Single-file cosmetic or copy change, no logic impact, all qualifying signals hold (see below) |
+| Low | Direct action | Brief inline self-check | Reads, research with no artifact, diagnostic logging |
+| Elevated | Worker + Skeptic | Fresh independent Skeptic | Any code edit, multi-file change, new file, security concern, architecture decision |
+| Elevated + Cleanup | Worker + Skeptic + /simplify + narrow Skeptic | Two Skeptic passes | Elevated task with significant new code volume |
+
+**Trivial qualifying signals (ALL must hold):** touches exactly one file (or one file plus its colocated test/snapshot); no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports; reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved. When in doubt between Trivial and Elevated, choose Elevated.
+
+**Trivial conductor rule:** If no subagents are currently running, the conductor edits directly (no Worker, no Skeptic). If any subagent is currently running, spawn a single `engineer` Worker in foreground (no Skeptic) - the conductor must stay available to manage in-flight work. A commit message is still required. If a Worker discovers the change is not actually Trivial, it must stop, report, and the conductor re-classifies as Elevated.
 
 ## Named Agents
 
@@ -88,7 +103,7 @@ If hooks are not firing, verify `codex_hooks = true` is present in `~/.codex/con
 
 ## Command Templates
 
-Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, or `update-protocol` flow in a Codex session.
+Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, or `update-agentic-engineering` flow in a Codex session.
 
 ## Remaining Limitations vs Claude Code
 

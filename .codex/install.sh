@@ -223,6 +223,37 @@ if [[ $ADDED_CODEX_HOOKS_FLAG -eq 1 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Write tier-map defaults for Codex if not already present
+# ---------------------------------------------------------------------------
+
+mkdir -p "$HOME/.agentic"
+TIER_MAP="$HOME/.agentic/tier-map.yml"
+if [ ! -f "$TIER_MAP" ]; then
+  cat > "$TIER_MAP" << 'TIEREOF'
+# Provider tier maps for cost-aware routing
+# Tier 1 = cheap/fast, Tier 2 = balanced, Tier 3 = max capability
+codex:
+  tiers:
+    1: gpt-4o-mini
+    2: gpt-4o
+    3: o3
+TIEREOF
+  echo "Created $TIER_MAP with Codex defaults"
+elif ! grep -q "^codex:" "$TIER_MAP"; then
+  cat >> "$TIER_MAP" << 'TIEREOF'
+
+codex:
+  tiers:
+    1: gpt-4o-mini
+    2: gpt-4o
+    3: o3
+TIEREOF
+  echo "Added Codex section to $TIER_MAP"
+else
+  echo "Codex section already present in $TIER_MAP"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

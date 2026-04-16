@@ -30,13 +30,17 @@ When decomposing a request into multiple subtasks, if tasks A, B, and C are inde
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
+When the conductor spawns workers for a multi-unit plan with task-state tracking, each worker receives its `task_id` in the execution contract for identification. The conductor writes all task-state updates - workers do not write to `.agentic/tasks.jsonl`.
+
 ### Rule 3 — Spawn threshold
 
-**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action.** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
+**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action. Trivial risk → conductor edits directly if no subagents are running; spawn a single `engineer` Worker in foreground (no Skeptic, no brief file) if any subagent is running.** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
 
-The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate.
+The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
 
-"Looks simple" is not a Low signal. The uncertainty rule applies: when in doubt, classify as Elevated and spawn a Worker.
+"Looks simple" is not a Low signal. The uncertainty rule applies: when in doubt, classify as Elevated and spawn a Worker. When in doubt between Trivial and Elevated, choose Elevated.
+
+**Trivial escape hatch:** If a Worker spawned for a Trivial task discovers mid-execution that the change is not actually Trivial (e.g., the target file turns out to be a shared token file, or the change requires touching a second file), it must stop immediately, report the finding to the conductor, and the conductor re-classifies the task as Elevated and applies the full Worker + Skeptic flow from that point.
 
 ### Rule 4 — Agent type discipline
 
@@ -109,12 +113,35 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `cleanup` | /simplify pass running (Elevated + Cleanup path only) |
 | `cleanup-review` | Narrow Skeptic reviewing /simplify diff |
 | `qa-review` | QA engineer is verifying the change in a browser |
+| `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/implement-ticket`; include current iteration count, max cap, and open finding counts |
+| `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
+| `[phase: task-state-init \| N tasks written]` | Conductor initialized `.agentic/tasks.jsonl` with N pending task entries from the orchestration plan's JSONL block |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
 | `releasing` | Release orchestrator is executing the release sequence |
 | `dep-auditing` | Dependency auditor is scanning lockfiles and running vulnerability tools |
 | `complete` | All work done, synthesizing results |
 
 Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-review (round 1)]"
+
+**Loop breadcrumb examples:**
+- `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
+- `[loop: qa | iteration 2/3 | open failures: 1]`
+
+**Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to `.agentic/loop-state.json` (tmp+rename). The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
+
+**Loop transition rules (BLOCKED / NEEDS_CONTEXT / DONE_WITH_CONCERNS inside a Skeptic or QA loop):**
+
+These transitions apply to fix-pass Engineer spawns inside `/implement-ticket` Phase 6 (Skeptic loop) and Phase 6b (QA loop). The iteration counter tracks only genuine fix attempts.
+
+| Engineer status | Action | Iteration counter |
+|---|---|---|
+| `DONE` or `DONE_WITH_CONCERNS` | Normal progression. `DONE_WITH_CONCERNS` concerns become additional Skeptic brief context on the next iteration. | Increments normally |
+| `BLOCKED` | Treat as immediate `cap_reached` escalation regardless of current iteration count. Emit escalation format with `termination_reason: blocked` and wait for human direction. | NOT incremented |
+| `NEEDS_CONTEXT` | Conductor re-supplies missing context and re-spawns the Engineer with the same findings brief and added context. If the conductor cannot supply the needed context, escalate to the human. | NOT incremented |
+
+**Format re-invocations:** Format-noncompliant Skeptic re-invocations (skeptic-protocol.md Section 11 permits up to 3) do NOT increment the iteration counter. They are administrative retries, not new review rounds.
+
+**Loop contract pointer:** `/implement-ticket` Phase 6 and Phase 6b define the full loop contract (state schema, max-iteration cap, findings accumulation rules, convergence failure conditions, and escalation formats). This file covers only the breadcrumb vocabulary and engineer-status transition rules. Consult `/implement-ticket` for the authoritative loop specification.
 
 ### Rule 7 — Direct actions permitted without subagent
 
@@ -151,6 +178,8 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Take a screenshot or snapshot | Yes | No |
 | Synthesize already-returned subagent results | Yes | No |
 | 1–2 line edit, single file, correct output apparent, no Elevated signals | Yes | No |
+| Trivial risk (ALL qualifying signals hold) - no subagents currently running | Yes (direct edit, no Skeptic) | No |
+| Trivial risk (ALL qualifying signals hold) - one or more subagents currently running | No (spawn solo `engineer` Worker in foreground; no Skeptic) | No |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
 | Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
 | Architecture decision that constrains future choices | No | **Yes** |
@@ -168,6 +197,8 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Document synthesis, architecture, or planning | No | **Yes** |
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
+
+**Clarification - Trivial vs. the "1-2 line edit" row:** For cosmetic, copy, or Tailwind-class edits, the Trivial disqualifier checklist (ALL signals must hold) takes precedence over the older "1-2 line edit" row. A conductor must not bypass the Trivial disqualifier gate by invoking the "1-2 line" row - if an edit looks cosmetic, run the Trivial checklist first. Only if ALL Trivial signals hold does the Trivial path apply. If any disqualifier is present (e.g., the file is a shared token file, or the change touches 2+ files), the task is Elevated regardless of line count.
 
 **Default rule:** when in doubt, classify as Elevated and spawn a Worker. Direct action is the narrow exception.
 
@@ -227,6 +258,13 @@ Workers are decomposed for focus. Skeptic review is scoped for effectiveness:
 
 **Heuristic for interdependence:** if a bug in unit A would only be detectable by examining unit B's implementation, or if unit A's correctness depends on assumptions about unit B's interface, the units are interdependent and need an integration Skeptic.
 
+**Fan-out Skeptic strategy mapping.** When the parallel fan-out primitive is active (N >= 2 independent units from the orchestration-planner), the planner's `skeptic_strategy` field is the authoritative source for which review mode applies:
+
+- **`per-unit`**: each unit gets its own Skeptic reviewing that unit's individual diff (against `BASE_BRANCH`). Skeptics for independent units can be spawned in a single message (parallel) - they are reviewing non-overlapping diffs and there is no interference. This is the strategy when all units in the group are fully independent per the heuristic above.
+- **`integration`**: one Skeptic reviews the combined diff from `BASE_BRANCH` after all units are merged onto a scratch integration branch. This replaces per-unit Skeptics - do not layer integration on top of per-unit. This strategy applies when units share an interface contract, shared data model, or cross-cutting concern. The integration Skeptic also serves as the Phase 6 gate (see `/implement-ticket` Phase 6 guard).
+
+The orchestration-planner's classification (written into the JSONL block at planning time) governs which strategy the conductor applies at Phase 5. The conductor reads `skeptic_strategy` from the planner's JSONL block - it does not re-derive the strategy from plan prose or apply the heuristic itself at execution time.
+
 The principle: overusing Skeptics dilutes their value. Narrow Workers improve implementation correctness. Broad Skeptic scope (where warranted) catches interaction bugs that per-unit review would miss.
 
 **Mid-task re-decomposition:** If a Worker discovers its scope is still too broad during execution, it returns partial output with a decomposition request. The conductor then decomposes further and re-spawns focused Workers. See Skeptic Protocol Section 5.
@@ -277,6 +315,24 @@ The Task tool creates a temporary git worktree for the agent to work in — an i
 echo "Documents/Development/authentic8/" >> ~/.gitignore
 ```
 
+### Manually-managed named worktrees (fan-out primitive)
+
+The fan-out primitive in `/implement-ticket` Phase 5 uses a different worktree model from the Agent tool's `isolation: "worktree"`. Both are valid; the choice depends on whether merge order and branch naming matter.
+
+| Mode | Branch naming | Cleanup | Use when |
+|---|---|---|---|
+| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Auto-cleaned by the tool if no changes; conductor removes after PR | Single-agent isolation; merge order does not matter |
+| Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Conductor removes explicitly after all merges or escalation | Multi-branch fan-out; merge order and branch naming matter for history attribution |
+
+Manually-managed worktrees are created with:
+
+```bash
+git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
+  -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
+```
+
+The `unit_slug` comes from the orchestration-planner's JSONL block. The conductor controls merge ordering (via `merge_order` from the planner) and removes worktrees and sub-branches explicitly after the merge phase. This model preserves attributable merge history in the git graph - each unit's sub-branch is visible in `git log --graph`, making conflict locality traceable.
+
 ### When NOT needed
 
 - A single agent working alone — no parallel agent to collide with
@@ -318,14 +374,26 @@ The two protocols are complementary and operate at different levels of the agent
 | Scope | Main agent → subagent delegation | Main agent → Worker/Skeptic review loop |
 | Question it answers | Should this be delegated, and how? | Is this implementation correct and safe? |
 | Who applies it | Main agent (orchestration decisions) | Main agent (review orchestration after Worker returns) |
-| When it activates | On every non-trivial task | On Elevated-risk tasks: code, file changes, or synthesis producing an artifact that drives decisions or action. Two Elevated tiers exist (Elevated and Elevated + Cleanup); the main agent selects based on implementation scope (see Skeptic Protocol Sections 0 and 12). |
+| When it activates | On every non-trivial task | On Elevated-risk tasks: code, file changes, or synthesis producing an artifact that drives decisions or action. Two Elevated tiers exist (Elevated and Elevated + Cleanup); the main agent selects based on implementation scope (see Skeptic Protocol Sections 0 and 12). Trivial-risk tasks bypass the Skeptic Protocol entirely. |
 | Relationship | Outer frame | Inner review loop, orchestrated by main agent |
+
+**Risk vocabulary recognized by this protocol:** Trivial (single-file cosmetic or copy change, no logic impact, no Skeptic), Low (direct action with self-check, no Skeptic), Elevated (Worker + Skeptic), Elevated + Cleanup (Worker + Skeptic + /simplify + narrow Skeptic). When in doubt between any two tiers, choose the higher tier.
 
 The Subagent Protocol does not replace The Skeptic Protocol — it provides the orchestration context in which The Skeptic Protocol is invoked. After a Worker returns, the main agent drives the Skeptic loop: spawning fresh Skeptics, routing findings, and iterating until sign-off. Workers cannot spawn subagents (platform constraint) — the main agent is the sole orchestrator of both protocols.
 
 ---
 
-## 10. Output Expectations
+## 10. Input Contract
+
+When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `agent-methodology.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
+
+For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (`haiku` for Tier 1, `opus` for Tier 3). This param is omitted for Tier 2 (default). Codex/Gemini: pass `--model <resolved-name>` from tier-map.yml. The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
+
+Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
+
+---
+
+## 11. Output Expectations
 
 When a Worker returns to the main agent under this protocol, the main agent expects:
 
@@ -347,7 +415,7 @@ When a Worker returns to the main agent under this protocol, the main agent expe
 
 ---
 
-## 11. Sync with Related Documents
+## 12. Sync with Related Documents
 
 This document is the canonical source for The Subagent Protocol. **When this document and any condensed form diverge, this document governs.**
 

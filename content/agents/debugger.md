@@ -2,7 +2,6 @@
 name: debugger
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
-model: claude-sonnet-4-6
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
@@ -78,6 +77,8 @@ Use this exact structure:
 - **Low** - you have a plausible candidate but insufficient evidence. Describe what you found, what remains unclear, and what additional information (logs, env values, reproduction steps) would resolve the ambiguity.
 
 ## Rules
+
+**Tight-fix path consumption.** A fix brief produced in the current session may be consumed directly by an engineer Worker under the Elevated (tight-fix path) sub-path defined in `agent-methodology.md`, without a separate Architect plan. The existing fix brief format (file, symbol, rationale, confidence) is sufficient for this use. No new fields are required. If your diagnosis confidence is Low, the tight-fix path does not apply - the conductor will route through standard Elevated with a Skeptic regardless.
 
 - Diagnose only. Do not implement the fix. Do not write code to disk.
 - Do not speculate without evidence. If you have not found the root cause, say "Confidence: Low" and describe what you found and what is still unclear.

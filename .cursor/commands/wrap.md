@@ -8,6 +8,8 @@ The Stop hook auto-writes `~/.cursor/projects/[hash]/context.md` after every tur
 
 **Pre-flight check — no active Workers.** Before doing anything else, check whether any background Workers or subagents are currently running. If any are, stop and tell the user: "Cannot run /wrap while background tasks are active. Please wait for them to finish (or stop them) first." Do not proceed until confirmed.
 
+**Multi-hash-dir check:** Run `ls ~/.cursor/projects/` and enumerate every subdirectory whose name matches the current project slug. The slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended (e.g. cwd `/Users/alice/myapp` → slug `-Users-alice-myapp`). Because Claude Code versions differ in whether they preserve or replace `.` in usernames, also match the variant where every `.` in the slug is replaced by `-`. List all matching subdirectory names now. If more than one matches, record them all — Step 4 Part A will apply its disambiguation rules at write time.
+
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
 
 **Step 0 — Compile session data** (inline, no subagent needed).
@@ -28,8 +30,51 @@ Survey the current conversation and note down:
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
 - **Note any Skeptic findings that surfaced this session** (from Worker+Skeptic cycles or inline review). For each Major or Critical finding, note whether it was already promoted to `.claude/findings.md` during the session, or not yet promoted. This feeds Output 4 below.
 - **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
+- **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
+- **Note task-state summary** - if `.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
+- **Note loop-state summary** — if `.agentic/loop-state.json` exists: if `status=active`, note in the wrap summary that an incomplete loop was active when `/wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/implement-ticket` invocation will offer to resume). The wrap command does NOT delete or modify `loop-state.json` - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
+
+**Step 0.5 - Route to light, zero-substance, or standard path.**
+
+Inspect what Outputs 2, 3, and 4 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet.
+
+**Zero-substance path** - triggers when ALL of the following hold:
+- Output 2 (memory entries) would be "None"
+- Output 3 (AGENTS.md updates) would be "None" for every file AND no new AGENTS.md candidates exist
+- Output 4 (findings entries) would be "None"
+- No specialist agent (`perf-analyst`, `release-orchestrator`, `dependency-auditor`) ran with session-scoped issues to capture
+- The session had effectively no file activity worth preserving in context.md: no uncommitted tracked changes, no new stashes, no files touched beyond reads, no meaningful next steps to record. The conductor should judge - if the only meaningful session output is "answered a question", it is zero-substance.
+
+Zero-substance procedure:
+- Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
+- Skip Steps 1-3 entirely (no Worker, no Skeptic)
+- Skip Step 4 Parts A, B, C, D entirely
+- Skip Part E (nothing changed, nothing to compress)
+- Still run Step 5 (worktree cleanup) - that is always useful
+- Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
+
+**Light path** - triggers when the zero-substance conditions do NOT all hold BUT ALL of the following hold:
+- Output 2 (memory entries) would be "None" - STRICT: even a single memory entry routes to standard path
+- Output 3 (AGENTS.md updates) would be "None" for every file AND no new AGENTS.md candidates exist
+- Output 4 (findings entries) would be "None"
+- No specialist agent ran with session-scoped issues to capture
+
+Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
+1. Main agent drafts context.md inline from the Step 0 raw data, following the Output 1 structure exactly. No Worker, no Skeptic.
+2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
+3. Proceed to Step 4 Part A with the inline draft.
+4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None), Part D (findings.md - input is None).
+5. Skip Part E entirely (nothing changed, nothing to compress).
+6. Run Step 5 (worktree cleanup) as normal.
+7. Step 6 confirmation must say: "light path (no stable facts, AGENTS.md updates, or findings to review this session)".
+
+**Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
+
+**Escape hatch for zero-substance path:** If the conductor has ANY uncertainty about whether the session is truly zero-substance - for example, the user asked a question whose answer feels architecturally significant, or an implicit decision was made without writing anything down - it must abandon the zero-substance path and use the light or standard path instead. When in doubt, do not use the zero-substance path.
+
+**Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3/4 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
 
 **Step 1 — Spawn a draft Worker** (background, general-purpose):
 
@@ -173,9 +218,9 @@ Return all four outputs clearly labeled. Do not write to disk.
 
 **Step 2 — When the draft Worker returns, spawn a fresh Skeptic** (background, general-purpose, never resumed).
 
-Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites — never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
+Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites - never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
 
-Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief:
+Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief. **Omit any section below whose corresponding Output is "None"** - always keep the Output 1 (context.md accuracy) review as the baseline pass; drop the memory-review language if Output 2 is "None"; drop the AGENTS.md-review paragraph if Output 3 is "None"; drop the findings.md-review paragraph if Output 4 is "None". The full brief below is the "all outputs present" case:
 
 > "Is this context file accurate and actionable? Check each section: Does Recent Focus correctly describe what was actually happening — or is it vague, generic, or wrong? Are the Next Steps specific enough to act on without reading the chat history (file paths, commands, branch names)? Are Key File Paths complete — is anything relevant omitted? Does Watch Out For capture real gotchas, or is it empty when it shouldn't be? Is any section still template text rather than real content?"
 >
@@ -197,9 +242,28 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 **Project directory:** [absolute cwd]
 
-**Output path (context.md):** Do not attempt to compute the hash manually - Claude Code generates project directory hashes internally and the path cannot be derived from the project path alone. Instead, discover the correct directory by running `ls ~/.cursor/projects/` and identify the subdirectory that corresponds to the current project. Once identified, the context.md path is `~/.cursor/projects/[matched-hash]/context.md`.
+**Output path (context.md):** Do not attempt to compute the hash manually. Use the candidate list enumerated in the pre-flight multi-hash-dir check above (re-run `ls ~/.cursor/projects/` now if that check was skipped). Apply the rules below to pick exactly one candidate directory.
 
-**Memory path (memory.md):** Same directory as context.md identified above, filename `memory.md`.
+**Slug and variant matching:** The project slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended. Also form a second variant where every `.` in the slug is replaced by `-`. A subdirectory is a candidate if its name equals either variant. Collect all candidates.
+
+**Zero candidates:** No project hash dir exists yet. Use the literal-slug variant as the write path — Claude Code will create it on next write.
+
+**One candidate:** Use it. This is the common case.
+
+**Two or more candidates:** Pick the one the live Stop hook writes to, using these rules in order:
+
+- **Rule 4a — Auto-memory split convention.** For each candidate, check whether a `MEMORY.md` exists at the candidate root or at `memory/MEMORY.md` inside it. If any such file explicitly documents which variant receives `context.md` (e.g. a line stating "context.md is written to the dot-preserved variant"), follow that documented convention. Use the `cat` or Read tool to inspect the file content and scan for the guidance.
+- **Rule 4b — Most recent context.md mtime.** If no split convention is documented, inspect each candidate's `context.md` file (if present). Select the candidate whose `context.md` has the most recent mtime. Use `stat -f "%m %N"` on macOS or `stat -c "%Y %n"` on Linux; sort descending; take the first. The Stop hook writes a new context.md after every agent turn, so the live-session dir is always the most recently touched.
+- **Rule 4c — No context.md in any candidate.** If no candidate has a context.md, select the candidate whose directory mtime is most recent (same `stat` approach, applied to the directory itself).
+- **Never** pick based on `compression-state.json`, `memory.md`, or `memory/` subdirectory presence — those files may have been written by a previous /wrap run to the wrong dir and are not a reliable signal of the live Stop hook target.
+
+**Log the decision.** When picking from multiple candidates, state in user-visible text at this step which directory was selected and which rule fired. Example: "Two project hash dirs found; picked `-Users-tyson.hummel-Documents-myapp` because its context.md mtime is 2 minutes newer than the other candidate."
+
+**Relocate stale compression-state.json if needed.** If the selected candidate differs from any `compression-state.json` target path referenced earlier in the /wrap run (from Step 0), update the target path entries in compression-state.json to point at the selected candidate's paths before writing. Remove the old stale entries.
+
+The context.md path is `~/.cursor/projects/[selected-candidate]/context.md`.
+
+**Memory path (memory.md):** Same directory as context.md identified above, filename `memory.md`. Use the same candidate directory identified for context.md above — the two files must live in the same hash dir to avoid split state. Do NOT pick memory.md's dir independently.
 
 **Part A — Write context.md**
 

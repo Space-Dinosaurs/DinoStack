@@ -2,7 +2,6 @@
 name: skeptic
 description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt provides the adversarial brief and Worker output to review.
 tools: Read, Grep, Glob, Bash
-model: claude-sonnet-4-6
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.

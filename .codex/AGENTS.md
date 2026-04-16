@@ -14,7 +14,7 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 **All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification.
 
-**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. When in doubt, classify as Elevated.
+**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> conductor edits directly if no subagents are running; otherwise spawn a single `engineer` Worker in foreground with no Skeptic. When in doubt, classify as Elevated.
 
 **Common rationalizations to reject:**
 - "Looks simple" - not a Low signal
@@ -25,6 +25,7 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 - "The Skeptic will catch any mistakes" - the Skeptic reviews Worker output; it does not excuse skipping risk classification or spawning a Worker
 - "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
+- "This qualifies as the tight-fix path, so I can skip Skeptic" - Valid only when every checklist item is explicitly satisfied AND declared. An incomplete declaration, a stale debugger brief, Low debugger confidence, or any disqualifier reverts to standard Elevated. The default when uncertain is standard Elevated.
 
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -37,6 +38,8 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 | Targeted wording fix to already-reviewed content (phrasing adjustment only, substance Skeptic-approved in the current or a recent session; does not apply to new decisions, new recommendations, new content not previously reviewed, or protocol/infrastructure files; overrides the single-file edit and new file Elevated signals for this case only) | Yes | No |
 | UI-only copy changes (rewording display strings, labels, tooltips, or placeholder text with no logic, structural, or behavioral effect; does not apply to error messages that drive control flow, strings matched by tests, or protocol/infrastructure files; overrides "Any code edit with behavioral effect" for this case only) | Yes | No |
 | File renaming (rename/move files with no content changes to any file - neither the renamed file nor any other file; does not apply to protocol/infrastructure files; does not apply if any other files reference the renamed path - those reference updates are content changes making the operation Elevated; does not apply if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the rename changes behavior without changing file contents; overrides "New file creation", "Multi-file change", and "Bash with side effects" signals for this case only) | Yes | No |
+| Trivial risk (see Risk Classification) - conductor has no subagents running | Yes (direct edit, no Skeptic) | No |
+| Trivial risk (see Risk Classification) - one or more subagents currently running | No (spawn solo `engineer` Worker in foreground; no Skeptic; no brief file) | No |
 | Any code edit with behavioral effect (write/modify/delete, excluding diagnostic-only logging) | No | **Yes** |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
 | Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
@@ -58,25 +61,40 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 **Permission-blocked fallback (non-methodology files only)**
 
-This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents — installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/agentic-engineering/` — those are governed by `/update-protocol` (see that command for the authoritative process). The boundary is physical location — any file under `~/agentic-engineering/` is governed by /update-protocol regardless of its role; any infrastructure file outside that path is governed by this fallback.
+This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents - installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/agentic-engineering/` - those are governed by `/update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location - any file under `~/agentic-engineering/` is governed by /update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
 
 When all three conditions are met:
 
 1. A Worker was spawned to apply an Edit to an infrastructure file outside `~/agentic-engineering/`.
-2. The Worker's return output begins with or contains a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED — Edit permission was denied by the permission system").
+2. The Worker's return output begins with or contains a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED - Edit permission was denied by the permission system").
 3. No other unblocked edit path is available.
 
 Then: the main session may apply the edit directly, followed immediately by spawning a Skeptic on the applied diff before any further action.
 
+**Editing methodology files under `~/agentic-engineering/`:** Always route through `/update-agentic-engineering` for edits to `content/**`, `.codex/skill/**`, the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/update-agentic-engineering` instead.
+
 **Investigator-before-Architect for unfamiliar territory.** When the task touches a codebase area the main session has not recently investigated - i.e., the "Unfamiliar codebase area" Elevated signal is present - the conductor must spawn the `investigator` agent first and pass its brief as input to the `architect` agent. The Architect consumes "what exists" from the Investigator and produces "what to build". This separates concerns: the Investigator maps the terrain and blast radius, the Architect makes design decisions on top of that map. The only exception is when the relevant files have been Read within the current conversation AND no substantive changes have been made to those files since they were read - i.e., the conductor has the current file contents in context as a direct tool-result, not a summary or recollection. "Relevant files" means the specific files the Architect would need to reason about the change, not the directory or the project generally. If this test is not met in full, spawn the Investigator - "I know this area" is not a valid skip reason, and neither is "I read something nearby". When in doubt, spawn the Investigator.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Use `engineer` for implementation, `architect` for pre-implementation design, `investigator` for codebase exploration and blast radius mapping, `debugger` for root cause analysis, `security-auditor` for security review, `qa-engineer` for post-Skeptic browser verification of UI-visible changes, `perf-analyst` for profiling, benchmarking, and performance regression hunting, `release-orchestrator` for version bump, tag, deploy sequencing, and rollback decisions, `dependency-auditor` for lockfile CVE triage and license compliance review. Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator.
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Use `engineer` for implementation, `architect` for pre-implementation design, `investigator` for codebase exploration and blast radius mapping, `debugger` for root cause analysis, `security-auditor` for security review, `qa-engineer` for post-Skeptic browser verification of UI-visible changes, `perf-analyst` for profiling, benchmarking, and performance regression hunting, `release-orchestrator` for version bump, tag, deploy sequencing, and rollback decisions, `dependency-auditor` for lockfile CVE triage and license compliance review. Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator. For Trivial-classified tasks, the conductor acts directly when no subagents are running; when subagents are running, spawn a single `engineer` Worker in foreground with no Skeptic and no brief file - the conductor must remain available to manage in-flight work. **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"` or `"integration"` - is the authoritative source; do not re-derive this from the plan prose.**
 
 **Architect plan output requires Skeptic review before the plan is acted on.** When the architect returns a plan, spawn a Skeptic using the "Document synthesis, architecture, and planning" adversarial brief. Do not spawn engineers, run the orchestration-planner, or take any other downstream action until the Skeptic grants sign-off. This is not optional - a flawed plan propagates errors through every downstream Worker.
 
 **Open Questions are a hard gate.** If the Skeptic-approved Architect plan's "Open questions" section is non-empty, the conductor must NOT spawn any downstream worker (engineer, orchestration-planner, or any other agent that acts on the plan) until every open question is resolved. Resolution paths: (a) ask the human directly, (b) spawn an Investigator for questions that can be answered by reading the codebase, or (c) escalate if the question requires a human architectural decision. "Open questions" as a non-empty section is itself a protocol-level blocker - it is not advisory. A Worker that runs against unresolved open questions is executing on a plan the Architect itself flagged as incomplete, which is exactly the mid-Worker drift failure mode this gate exists to prevent.
 
-**Worker preamble (when using engineer):** *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
+**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
+
+Preamble:
+*"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
+
+Execution contract template:
+- outputs: [what artifact(s) the Worker must produce - e.g. "modified files committed to branch", "diff only", "summary report only"]
+- budget: [rough max tool-call count, or omit; advisory, not enforced]
+- tool_scope: [expected tool categories - e.g. "Read, Glob, Grep, Edit"; documentation only, does not override the harness-level Agent tool grants]
+- completion_conditions: [acceptance criteria verbatim from architect plan or ticket, plus any quality-gate pass requirements]
+- output_paths: [specific file paths the Worker is expected to write or modify, or "conductor-directed" if paths emerge during implementation]
+- task_id: [unique task identifier for multi-unit correlation, or omit for single-unit]
+
+The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
 
 ## Risk Classification
 
@@ -88,11 +106,52 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
+| Trivial | Direct (conductor) if no subagents running; solo `engineer` Worker (foreground) if any subagent is running | None (no Skeptic, no brief file) | Silent |
 | Low | Direct action | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
 **Elevated signals (any single one triggers adversarial review):** any code edit to file contents (excluding diagnostic-only logging); security / auth / crypto / payments / secrets; irreversible operations; architecture decisions that constrain future choices; modifies protocol or infrastructure files; production or shared state; multi-file changes; new file creation; external APIs or services; unfamiliar codebase area; logic with emergent cross-component interactions; user signals high stakes; configuration changes; research that produces a document, recommendation, or plan to be acted on; changes to shared utilities used across many call sites (single-file but high blast radius); anything where a mistake costs time or data.
+
+**Trivial signals (ALL must hold - any single disqualifier pushes to Elevated):** touches exactly one file (or one file plus its colocated test/snapshot); no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports (exported symbols, public CSS classes, route paths); reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved. Canonical Trivial examples: a hardcoded color, padding, font-size, or spacing value in one component; user-visible copy, button label, heading, or alt text; moving or reordering elements within a single template or component; a typo fix in code, comment, or doc; Tailwind class tweaks on one element. NOT Trivial even if it feels small: edits to `tailwind.config.*`, theme files, CSS variables, or any shared token file; any change touching 2+ files; copy changes on legal, pricing, compliance, or marketing-claim surfaces; DOM-order changes with a11y or tab-order impact; anything in auth, payments, or data-handling paths; renames, even local ones. When in doubt between Trivial and Elevated, choose Elevated.
+
+**Conductor rule for Trivial:** If no subagents are currently running, the conductor edits directly (no Worker, no Skeptic, no brief file). If any subagent is currently running, spawn a single `engineer` Worker in foreground (no Skeptic, no brief file) - the conductor must stay available to manage in-flight work. A commit message is still required. If a Worker discovers mid-task that the change is not actually Trivial (e.g., the "one-file color tweak" lives in a shared token file), it must stop, report, and the conductor re-classifies as Elevated.
+
+**Elevated (tight-fix path) - Skeptic skip.** A narrow sub-path within Elevated that lets the conductor spawn a single engineer Worker with pre-commit test verification and skip the post-implementation Skeptic on tight debugger-brief-backed bug fixes. Motivated by the finding that verifiers hurt on tight, well-specified tasks. The path applies only when ALL 6 checklist items hold simultaneously; any single disqualifier reverts to standard Elevated.
+
+**Checklist (every item must be explicitly declared):**
+1. Task is a bug fix, not a new feature or refactor.
+2. A debugger agent produced a fix brief for this bug in the current session. Stale briefs from prior sessions disqualify.
+3. Debugger confidence is High or Medium. Low confidence disqualifies.
+4. Fix touches at most one file, or one file plus its colocated test file (colocated = same directory, test file for the same symbol).
+5. At least one existing test already exercises the fix path. Direct unit test or integration test both acceptable. The test must exist before the fix - new test file creation disqualifies; test additions to the pre-existing colocated test file are allowed.
+6. No security, auth, crypto, payments, secrets, or data-loss surface involved.
+
+**Declaration format:**
+
+```
+Risk: Elevated (tight-fix path)
+Debugger brief: [session reference]
+Checklist:
+  [x] Bug fix, not a new feature
+  [x] Debugger brief from current session
+  [x] Debugger confidence: High | Medium
+  [x] Single file (+ colocated test file if applicable)
+  [x] Existing test exercises the fix path
+  [x] No security/auth/crypto/payments/secrets/data-loss surface
+Skipping post-implementation Skeptic. Engineer Worker performs pre-commit test verification.
+If pre-commit tests fail, standard Elevated loop applies.
+```
+
+**Pre-commit test verification protocol.** The engineer Worker on this path runs the sequence: BASELINE (run affected tests before touching anything; ANY failure is an absolute stop, no "unrelated failure" escape - return BLOCKED with output) -> APPLY (implement the fix per debugger brief, no scope expansion) -> VERIFY (run affected tests + project quality gate) -> COMMIT (only if VERIFY passes) -> RETURN (include verbatim test output in summary).
+
+**Scope-expansion stop.** If the Worker discovers the fix requires more than 50 changed lines in the production file (excluding the colocated test file), OR requires touching a second production file, OR exposes cross-component interactions not flagged in the debugger brief, the Worker stops immediately with Status: BLOCKED. The 50-line threshold is measured against the production file's diff, not including test file changes. The Worker counts by estimating scope from the debugger brief BEFORE starting implementation; if the brief's scope is unclear, the Worker stops and the conductor reclassifies as standard Elevated.
+
+**Failure path.** If VERIFY fails, the Worker does NOT commit. Worker returns Status: DONE_WITH_CONCERNS with the failed test output and the uncommitted diff. Conductor spawns a standard Skeptic with the uncommitted diff. Skeptic reviews, conductor routes any further fix through a normal Elevated loop.
+
+**Rollback for latent bugs.** If tests pass but a defect is later discovered (the tests did not cover the actual failure scenario), standard `git revert [commit-sha]` applies. No special rollback.
+
+**Fallback is automatic.** Any BLOCKED status, failed baseline, failed verify, or disqualifier reverts the task to standard Elevated with a Skeptic. This is not an escape hatch - it is the safe default that fires on any deviation.
 
 **Low signals:** clearly reversible reads (reads with no writes); exploration / research / draft work - only when the output is understanding, not a decision-driving artifact; **diagnostic-only changes** (pure logging additions - console.log, .catch() for error visibility, test interceptors) across any number of files, where every change has zero behavioral effect; **documentation-only file creation** (new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the "new file creation" Elevated signal for this case only); **targeted wording fixes to already-reviewed content** (phrasing adjustments where the substance was already Skeptic-approved in the current or a recent session - e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration; does not apply to new decisions, new recommendations, or new content not previously reviewed; does not override the "modifies protocol or infrastructure files" Elevated signal; overrides the single-file edit and new file Elevated signals for this case only); **file renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the operation is Elevated because the rename changes behavior without changing file contents); **UI-only copy changes** (rewording display strings, labels, tooltips, or placeholder text where the change has no logic, structural, or behavioral effect - e.g., "The path is clear" to "The path seems clear"; does not apply to strings matched by tests, error messages that drive control flow, or protocol/infrastructure files; overrides the "any code edit with behavioral effect" Elevated signal for this case only).
 
@@ -109,6 +168,37 @@ Applying adversarial review.
 Risk: Elevated + Cleanup - [specific signal]
 Applying adversarial review with /simplify cleanup pass.
 ```
+
+### Tier declaration
+
+Conductors declare the model tier at spawn time to route lightweight tasks to faster models and critical reviews to max-capability models. Tier is declared in the same block as Risk, immediately below the Risk line.
+
+**Declaration format:**
+```
+Risk: Elevated - security adversarial brief
+Tier: 3  (max capability - security audit needs Opus)
+Spawning security-auditor.
+```
+
+**Default:** Tier 2. When no tier is declared, no model override is passed and the agent inherits the session model (Sonnet-equivalent). Most spawns are Tier 2 - omit the declaration entirely.
+
+**Model param mapping (Claude Code):**
+
+| Tier | Claude Code `model` param | Use when |
+|---|---|---|
+| 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
+| 2 | omit (session default) | Standard work - engineer, investigator, skeptic at normal depth |
+| 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
+
+**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
+
+**When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
+
+**When to declare Tier 3:** task demands maximum capability - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Tier 3 costs significantly more; include a justification parenthetical.
+
+**Codex/Gemini:** Conductor resolves tier from `~/.agentic/tier-map.yml` and passes `--model <name>` on the CLI invocation. See `content/references/tier-map-example.yml` for the tier-map format.
+
+For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
 
 ## Post-sign-off finding promotion
 
@@ -133,6 +223,36 @@ After Skeptic sign-off on any Elevated task (and after any QA gate), the conduct
 6. On FAIL: spawn fix engineer for each bug, then re-run QA
 
 **Phase breadcrumb:** `[phase: qa-review]`
+
+### Re-route limits
+
+**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes before escalating to the human. This applies to loops inside `/implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context. When the cap is reached with open findings, the conductor does not spawn another Engineer - it surfaces the stall with the open findings list and waits for human direction.
+
+**Convergence failure.** A convergence failure occurs when a Skeptic raises the same finding unchanged after the Engineer claimed to have addressed it. Convergence failures bypass the remaining iteration budget and escalate immediately. They indicate either a misunderstanding between the Engineer and the finding, or a design-level conflict that requires human arbitration. Within the persistence loop, one re-raise after a claimed fix is sufficient (overrides the 2-re-route rule in skeptic-protocol.md Section 5 - see that section for the override note).
+
+## Cross-session loop resume
+
+Long-running `/implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`:
+
+- **Disk writes at every phase transition.** The conductor writes `.agentic/loop-state.json` (atomic: tmp+rename) at initialization and at every phase transition (Skeptic spawn, Skeptic return, Engineer spawn, Engineer return, QA spawn, QA return, quality gate steps). The `last_phase` and `last_phase_action` fields are the authoritative resume keys.
+
+- **Resume check on session start.** When `/implement-ticket` is invoked, it checks for `.agentic/loop-state.json` before reading AGENTS.md. If `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. See `/implement-ticket` Resume check section for the full protocol.
+
+- **Stop hook writes interrupted status.** The Stop hook writes `status: "interrupted"` to `.agentic/loop-state.json` on session exit if the file exists and `status == "active"`. Silent failure is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
+
+- **Resumable phases (automatic):** Phase 6/6b Skeptic/QA loop at iteration boundaries (committed Engineer output, clean branch); Phase 7 quality gate when engineer committed (`engineer_returned` / `rerun_pending`).
+
+- **Resumable with human confirmation:** Mid-Engineer (dirty branch) - conductor asks human to discard or commit the partial work.
+
+- **Restart required:** Phases 1-4 (cheap to re-run, no branch side effects). State file is not written until Phase 6 loop initialization.
+
+- **Full Skeptic re-run on interruption.** If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch (last_phase=skeptic, last_phase_action=spawned). Skeptic is read-only and idempotent.
+
+- **File hygiene:** `.agentic/loop-state.json` must not be committed to git (gitignored). It is set to `status: "complete"` or deleted after the PR is opened.
+
+## Task-state file
+
+When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
 
 ## Task Decomposition
 
@@ -192,7 +312,7 @@ done
 Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `references/subagent-protocol.md` Rule 6.
 
 **Skeptic loop orchestration** - when Elevated risk is declared:
-Run `/skeptic` for the full orchestration template, or read `references/skeptic-protocol.md` (Sections 2-5) for loop steps, state management, re-route limits, and escalation.
+Run `/skeptic` for the full orchestration template, or read `references/skeptic-protocol.md` (Sections 2-5) for loop steps, state management, re-route limits, and escalation. For findings accumulation rules across loop iterations (findings_log schema, re-raise detection, auto-close rule), see `/implement-ticket` Phase 6.
 
 **Findings classification and sign-off** - when reviewing Skeptic output:
 Read `references/skeptic-protocol.md` (Sections 6, 11) for Critical/Major/Minor definitions, required sign-off format, and validation rules.
