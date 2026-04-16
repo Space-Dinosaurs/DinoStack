@@ -230,6 +230,10 @@ Replaces the stop hook's raw snapshot with a structured, enriched version. Captu
 The stop hook is the safety net - you always get <em>something</em>. <code>/wrap</code> is the upgrade - you get structured, compounding context.
 </div>
 
+<div class="callout">
+Close the session with <code>/exit</code> rather than ctrl+c, so the Stop hook can finish writing <code>context.md</code> cleanly. ctrl+c can interrupt the hook and lose session state.
+</div>
+
 ---
 
 ## Multiple sessions and the rolling window
