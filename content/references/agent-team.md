@@ -176,6 +176,8 @@ When spawning `engineer`, include:
 - Session context (`~/.claude/projects/[hash]/context.md`)
 - For Elevated-path spawns: the execution contract block from `agent-methodology.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
+When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
+
 When spawning `skeptic` for architect plan review, include:
 - The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?"
 - The architect's complete plan output
