@@ -178,6 +178,8 @@ When spawning `engineer`, include:
 
 When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
 
+**Fan-out spawning.** When fan-out is active (N >= 2 parallel units), the conductor reads `unit_slug`, `merge_order`, and `skeptic_strategy` from the orchestration-planner's JSONL block at Phase 5 to determine worktree naming (`${FEATURE_BRANCH}-${unit_slug}`), merge ordering (sequential by `merge_order` value), and Skeptic review strategy (`per-unit` spawns one Skeptic per unit in parallel; `integration` defers to a single Skeptic after all units merge onto a scratch integration branch). All N engineers are spawned in a single message (parallel, background). The `task_id` field in each engineer's execution contract uses the format `<ticket_id>-<unit_slug>` for multi-unit correlation.
+
 When spawning `skeptic` for architect plan review, include:
 - The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?"
 - The architect's complete plan output

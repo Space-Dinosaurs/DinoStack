@@ -256,6 +256,13 @@ Workers are decomposed for focus. Skeptic review is scoped for effectiveness:
 
 **Heuristic for interdependence:** if a bug in unit A would only be detectable by examining unit B's implementation, or if unit A's correctness depends on assumptions about unit B's interface, the units are interdependent and need an integration Skeptic.
 
+**Fan-out Skeptic strategy mapping.** When the parallel fan-out primitive is active (N >= 2 independent units from the orchestration-planner), the planner's `skeptic_strategy` field is the authoritative source for which review mode applies:
+
+- **`per-unit`**: each unit gets its own Skeptic reviewing that unit's individual diff (against `BASE_BRANCH`). Skeptics for independent units can be spawned in a single message (parallel) - they are reviewing non-overlapping diffs and there is no interference. This is the strategy when all units in the group are fully independent per the heuristic above.
+- **`integration`**: one Skeptic reviews the combined diff from `BASE_BRANCH` after all units are merged onto a scratch integration branch. This replaces per-unit Skeptics - do not layer integration on top of per-unit. This strategy applies when units share an interface contract, shared data model, or cross-cutting concern. The integration Skeptic also serves as the Phase 6 gate (see `/implement-ticket` Phase 6 guard).
+
+The orchestration-planner's classification (written into the JSONL block at planning time) governs which strategy the conductor applies at Phase 5. The conductor reads `skeptic_strategy` from the planner's JSONL block - it does not re-derive the strategy from plan prose or apply the heuristic itself at execution time.
+
 The principle: overusing Skeptics dilutes their value. Narrow Workers improve implementation correctness. Broad Skeptic scope (where warranted) catches interaction bugs that per-unit review would miss.
 
 **Mid-task re-decomposition:** If a Worker discovers its scope is still too broad during execution, it returns partial output with a decomposition request. The conductor then decomposes further and re-spawns focused Workers. See Skeptic Protocol Section 5.
@@ -305,6 +312,24 @@ The Task tool creates a temporary git worktree for the agent to work in — an i
 # Example: authentic8/ nested inside ~/
 echo "Documents/Development/authentic8/" >> ~/.gitignore
 ```
+
+### Manually-managed named worktrees (fan-out primitive)
+
+The fan-out primitive in `/implement-ticket` Phase 5 uses a different worktree model from the Agent tool's `isolation: "worktree"`. Both are valid; the choice depends on whether merge order and branch naming matter.
+
+| Mode | Branch naming | Cleanup | Use when |
+|---|---|---|---|
+| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Auto-cleaned by the tool if no changes; conductor removes after PR | Single-agent isolation; merge order does not matter |
+| Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Conductor removes explicitly after all merges or escalation | Multi-branch fan-out; merge order and branch naming matter for history attribution |
+
+Manually-managed worktrees are created with:
+
+```bash
+git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
+  -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
+```
+
+The `unit_slug` comes from the orchestration-planner's JSONL block. The conductor controls merge ordering (via `merge_order` from the planner) and removes worktrees and sub-branches explicitly after the merge phase. This model preserves attributable merge history in the git graph - each unit's sub-branch is visible in `git log --graph`, making conflict locality traceable.
 
 ### When NOT needed
 

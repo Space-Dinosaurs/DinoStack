@@ -206,50 +206,94 @@ After the Skeptic/QA loop resolves: update the task entry to its terminal status
 
 ### If parallel independent units were identified:
 
-Use git worktrees to give each engineer an isolated copy. Each worktree gets its own branch (a sub-branch of the feature branch):
+**N=1 degenerate case:** If the orchestration-planner returned exactly 1 unit, do NOT invoke the fan-out primitive. Fall through to the standard single-engineer path above.
+
+Use git worktrees to give each engineer an isolated copy. The orchestration-planner's JSONL block provides `unit_slug`, `merge_order`, and `skeptic_strategy` for each unit - read these fields to drive worktree naming, merge ordering, and Skeptic strategy. Before creating worktrees, prune stale state from any prior fan-out:
 
 ```bash
-# Create one worktree per parallel unit, each on its own sub-branch
-git -C $REPO worktree add ${REPO}/.worktrees/[BRANCH_NAME]-unit1 -b [BRANCH_NAME]-unit1 origin/$BASE_BRANCH
-git -C $REPO worktree add ${REPO}/.worktrees/[BRANCH_NAME]-unit2 -b [BRANCH_NAME]-unit2 origin/$BASE_BRANCH
+# Prune stale worktree metadata and remove any leftover sub-branches from prior runs:
+git -C $REPO worktree prune
+# If any ${FEATURE_BRANCH}-${unit_slug} branches exist from a prior run, delete them before proceeding.
 ```
 
-Spawn one `engineer` agent per worktree in the same message (parallel). Each agent works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
-- The execution contract block from `agent-methodology.md` (Worker preamble section), with fields filled in from the per-unit scope in the plan
-- The per-unit scope extracted from the plan: if Phase 3b ran, extract from the orchestration-planner's output for that unit; if Phase 3b was skipped, extract from the architect's plan for that unit
-
-**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, verify all `depends_on` task_ids are `done` in the file and update each task entry from `pending` -> `in_progress`. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), and `branch_name` (the branch the worker will operate on). After all engineers return, write the output fields (`worker_summary`, `commit_sha`, `files_modified`, `quality_gate_passed`) to each task's entry. After Skeptic/QA loops resolve, update each entry to its terminal status and populate `loop_state`. Include `outputs.skeptic_status` and `outputs.skeptic_findings_count` from the completed Skeptic review (or `skipped`/null if Skeptic was not required).
-
-After all engineers complete, verify each engineer committed successfully, then merge their sub-branches into the main feature branch:
+Create one worktree per unit, each rooted from `BASE_BRANCH` (loop over all N units from the planner's JSONL block in `merge_order` sequence):
 
 ```bash
-# Verify each engineer committed successfully before merging.
-# Run the following for each worktree and abort if output is non-empty (uncommitted changes present):
-# git -C ${REPO}/.worktrees/[BRANCH_NAME]-unit1 status --porcelain
-# git -C ${REPO}/.worktrees/[BRANCH_NAME]-unit2 status --porcelain
+# For each unit (unit_slug from planner JSONL block):
+git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
+  -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
+```
 
-git -C $REPO checkout [BRANCH_NAME]
-git -C $REPO merge --no-ff [BRANCH_NAME]-unit1
+**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, verify all `depends_on` task_ids are `done` in the file and update each task entry from `pending` -> `in_progress`. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
+
+Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
+- The execution contract block from `agent-methodology.md` (Worker preamble section), with fields filled in from the per-unit scope in the planner's JSONL block
+- The unit's `task_id`, acceptance criteria, `files_in_scope`, `quality_cmd`, and worktree path
+- The per-unit scope: extracted from the orchestration-planner's JSONL block for that unit
+
+**Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, evaluate the join:
+
+- **All-done join:** all N units reach `status: done` (Skeptic signed off per P0 loop where applicable). Proceed to merge phase.
+- **Partial success:** one or more units reach `status: failed` or `status: blocked`, and one or more reach `status: done`. Do NOT merge any branch. Apply partial success path (see below).
+- **Total failure:** all units failed or blocked. Clean up all worktrees, escalate to human with the orchestration-planner's original plan and all failure outputs. Recommend sequential implementation as fallback.
+- **Blocked:** any unit with `status: blocked` is treated as failed for join evaluation. A worker returns `Status: BLOCKED` when it encounters a scope conflict, design ambiguity, or permission issue requiring human input.
+
+**Join timeout.** The join phase has a 30-minute total deadline. If the deadline elapses before all engineers have returned, units with no completion entry are treated as timed out (failed) and handled via the partial success path. Units that completed `status: done` before the deadline are still eligible for merge.
+
+**Fallback: no task-state file.** If `.agentic/tasks.jsonl` is not in use, derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
+
+After all engineers return, update task-state output fields for each unit: write `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed` to each task's entry. Status remains `in_progress` until Skeptic sign-off or final determination.
+
+**Partial success path.** When one or more units fail and one or more succeed:
+1. Record which units are `done` vs `failed`/`blocked`.
+2. If done units are truly independent (no shared interface with failed units): merge done units into `FEATURE_BRANCH` sequentially in `merge_order`. Leave failed units' worktrees in place.
+3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. The retry brief must include: (a) the original task brief from the task-state `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
+4. If the retry succeeds, merge and proceed to the Skeptic phase.
+5. If the retry fails a second time, escalate to human with the full failure history.
+6. Maximum retry depth: 1 automatic retry per unit.
+
+**Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`). Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
+
+**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch. The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
+
+**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`:
+
+```bash
+git -C $REPO checkout $FEATURE_BRANCH
+
+# For each unit in merge_order sequence:
+git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 # After each merge, check for conflicts before continuing:
 # git -C $REPO diff --name-only --diff-filter=U
-# If that command outputs any file names, conflicts are present. Run:
-#   git -C $REPO merge --abort
-# Then route back to a fresh engineer with: the original ticket title and description;
-# the plan for both units (from orchestration-planner output if Phase 3b ran, from architect
-# if skipped); both units' full changes (diffs or file contents from their worktrees);
-# the target branch ([BRANCH_NAME] on the main repo, not a worktree); and explicit
-# instruction to implement the two units sequentially (not in parallel) to resolve the conflict.
-# Do not continue to the next merge or clean up worktrees until the conflict-free merge succeeds.
+# If that command outputs any file names, conflicts are present - apply N>2 conflict recovery below.
+```
 
-git -C $REPO merge --no-ff [BRANCH_NAME]-unit2
+**N>2 conflict recovery.** On merge conflict at any step:
+1. `git -C $REPO merge --abort`
+2. Do not attempt remaining merges.
+3. Collect conflict files, all units' diffs, and the orchestration-planner output.
+4. Spawn a single engineer with a conflict-resolution brief: all units' complete changes, the conflict markers, and explicit instruction to implement all units sequentially in a single worktree targeting `FEATURE_BRANCH`.
+5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
+6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
 
-# Repeat the same conflict check after this merge before proceeding.
+**Branch verification before merge.** Before merging each unit's branch, verify the worktree is on the expected branch:
 
-# Clean up worktrees and sub-branches
-git -C $REPO worktree remove ${REPO}/.worktrees/[BRANCH_NAME]-unit1 --force
-git -C $REPO worktree remove ${REPO}/.worktrees/[BRANCH_NAME]-unit2 --force
-git -C $REPO branch -d [BRANCH_NAME]-unit1 [BRANCH_NAME]-unit2
+```bash
+# Confirm branch matches expected sub-branch before merging:
+# git -C ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} rev-parse --abbrev-ref HEAD
+# If the branch name does not match ${FEATURE_BRANCH}-${unit_slug}, abort that unit's merge and escalate.
+```
+
+**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `FEATURE_BRANCH` root. If the integration check fails, spawn one engineer on `FEATURE_BRANCH` with the integration failure output. This engineer has full context (all units' work is on the branch). The resulting fix goes through a single Skeptic on the incremental diff before Phase 5 is declared complete. The integration fix Skeptic does NOT replace Phase 6.
+
+**Worktree cleanup.** After all merges succeed (or after escalation, to prevent stale worktree accumulation):
+
+```bash
+# For each unit:
+git -C $REPO worktree remove ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} --force
+git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+git -C $REPO worktree prune
 ```
 
 For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `agent-methodology.md §Worktree Lifecycle`.
@@ -261,6 +305,8 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 ## Phase 6: Skeptic review
 
 **Phase 6 guard (tight-fix path).** If Phase 5 spawned the engineer under the Elevated (tight-fix path) sub-path (see `agent-methodology.md`) AND the Worker returned Status: DONE with the verbatim pre-commit test output in its summary, skip the rest of Phase 6. The tight-fix path's pre-commit test verification replaces the post-impl Skeptic for this case. If the Worker returned Status: BLOCKED or DONE_WITH_CONCERNS, fall through to the standard Phase 6 Skeptic spawn on the uncommitted diff (see `skeptic-protocol.md` line 376 for the amended "no irreversible changes" rule that permits this sub-path).
+
+**Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $REPO diff origin/$BASE_BRANCH..HEAD`). This is a full-picture review that catches cross-unit interactions the per-unit Skeptics could not see (emergent behaviors, combined diff scope). Phase 6 is NOT skipped for the `per-unit` strategy.
 
 Spawn a `skeptic` agent with:
 - The adversarial brief type identified by the architect
