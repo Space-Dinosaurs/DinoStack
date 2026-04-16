@@ -33,6 +33,8 @@ Before prompting for anything, silently scan the project to derive as many confi
 
 **Dep-audit command** — derived from the package manager already detected in the Web UI pass. Map: `pnpm-lock.yaml` → `pnpm audit`; `yarn.lock` → `yarn audit`; `package-lock.json` or npm detected → `npm audit`; `requirements.txt`/`pyproject.toml` (poetry or pip) → `pip-audit`; `Cargo.lock` → `cargo audit`; `go.sum` → `govulncheck`. No lockfile detected = no signal (omit). This is a pure derivation from existing package manager detection — no extra scan needed.
 
+**Auto-memory hash dirs** — scan `~/.claude/projects/` for existing directories matching this project. The project slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended (e.g. cwd `/Users/tyson/myproject` → slug `-Users-tyson-myproject`). Also form a second variant where every `.` in the slug is replaced by `-` (to match Claude Code's convention for paths containing dots). A subdirectory of `~/.claude/projects/` is a candidate if its name equals either variant. Record: count of candidates, each candidate's full path, each candidate's most-recent file mtime (use `stat` on files inside to find the newest). Selection rule: **0 candidates** = greenfield (the canonical slug path will be created by Claude Code on next session); **1 candidate** = use it as-is; **2+ candidates** = silently select the one with the most recent file mtime (matches `/wrap`'s Rule 4b). The selected path becomes `~/.claude/projects/<selected-slug>/memory` — this is what gets written as `autoMemoryDirectory` in Step 7. Note: `autoMemoryDirectory` is **ignored** if set in the checked-in `.claude/settings.json` for security — it must be written to `.claude/settings.local.json` (the gitignored user-local file). Only Claude Code honors this setting; Codex/Cursor/Gemini adapters do not consume it.
+
 ### 1. Present discovery results
 
 Present the results of Step 0 in a single message:
@@ -50,6 +52,7 @@ Discovery complete. Here's what I found:
   Release:       [detected type]  ([e.g. "vercel.json", "GitHub Actions release workflow"])
   Benchmarks:    [detected type]  ([e.g. "vitest bench scripts in package.json"])
   Dep audit:     [command]        ([e.g. "npm audit", derived from package manager])
+  Auto-memory:   [selected path]  ([e.g. "selected from 3 existing dirs - most recent" or "greenfield - new dir will be created"])
 
 Fields not shown were not detected and are optional — you can add them now or later.
 
@@ -70,10 +73,13 @@ Show only fields where a value was found. Omit fields with no detection. Annotat
 - "no release" / "skip release" → clear release signal (suppresses `.claude/release.md` creation)
 - "no benchmarks" / "skip benchmarks" → clear benchmark signal
 - "no dep audit" / "skip dep audit" → clear dep-audit derivation
+- "no auto-memory" / "skip auto-memory pin" → clear autoMemoryDirectory signal (suppresses the Step 7 write and the Step 2a idempotent update)
 
 ### Principle: Negative answers are sticky
 
-**Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or empty Enter) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
+**Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or empty Enter) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 7, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
+
+Declinable features enumerated (each must be honored in every downstream step): project name (not declinable — required), description, tracks, database CLI, web UI, `gh`, tracker (Linear / Jira / neither), release, benchmarks, dep audit, **auto-memory pin** (new — declined via "no auto-memory" / "skip auto-memory pin"; suppresses Step 2a item 9, Step 7's `autoMemoryDirectory` write, and Step 12 reminder 10).
 
 When adding a new declinable feature to Step 1, extend the override grammar above AND wire the decline signal through every downstream step that prompts about or acts on that feature.
 
@@ -194,6 +200,8 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 7. **`.claude/release.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist: plan to create it using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
 
 8. **`.claude/findings.md`** — if the file does not exist: plan to create it using the same stub template as Step 6b.
+
+9. **Auto-memory directory** — if the user declined auto-memory in Step 1 (`no auto-memory` / `skip auto-memory pin`): skip entirely. If `.claude/settings.local.json` already has `autoMemoryDirectory` set (to any value): leave it alone (idempotent — user's existing preference wins, even if it differs from the Step 0 selection). If the file exists but lacks the `autoMemoryDirectory` key: plan to merge it in using the selected path from Step 0 (do not overwrite other keys in the file). If the file does not exist: Step 7 handles creation with the key present. If auto-memory was declined but the key is already set on disk: leave it (do not remove — user's existing preference wins).
 
 **Present the diff:**
 
@@ -400,9 +408,16 @@ Only create this file if it does not already exist (enforced in Step 2 - skip if
 
 ```json
 {
+  "autoMemoryDirectory": "~/.claude/projects/<selected-slug>/memory",
   "env": {}
 }
 ```
+
+Substitute `<selected-slug>` with the slug chosen in Step 0's auto-memory discovery (e.g. `~/.claude/projects/-Users-tyson-myproject/memory`). Claude Code honors this setting to pin the session's auto-memory directory to a single known path regardless of which subdirectory you launch from; this eliminates the multi-hash-dir problem that `/wrap` otherwise has to contend with. **Schema caveat:** `autoMemoryDirectory` is ignored if set in the checked-in `.claude/settings.json` for security — it MUST live in `.claude/settings.local.json` (user-local, gitignored). Only Claude Code consumes this field; Codex/Cursor/Gemini adapters ignore it.
+
+**If the user declined auto-memory in Step 1** (`no auto-memory` / `skip auto-memory pin`): omit the `autoMemoryDirectory` field entirely — write just `{"env": {}}`.
+
+**Merge rule for update mode** (Step 2a): if `.claude/settings.local.json` already exists, merge `autoMemoryDirectory` into it only if the key is not already set. Never overwrite an existing `autoMemoryDirectory` value — the user's existing preference wins. Preserve all other keys in the file (`env`, `LINEAR_API_KEY`, etc.).
 
 Add any project-specific env vars here (e.g. database connection strings, API keys).
 
@@ -575,3 +590,4 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 8b. `.claude/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time.
 8. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 9. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
+10. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
