@@ -65,15 +65,15 @@ This is a spawn-time decision, not a compile-time default. The same agent defini
 
 ### Codex and Gemini
 
-The Codex and Gemini CLIs accept a `--model` flag at invocation time. The conductor resolves the tier number to a model name using the provider tier map at `~/.agentic/tier-map.yml`, then passes `--model <name>` in the spawn invocation.
+The Codex and Gemini CLIs accept a `--model` flag at invocation time. If a tier map exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), the conductor resolves the tier number to a model name and passes `--model <name>` in the spawn invocation. If neither file exists, the conductor omits the `--model` flag entirely and the CLI uses its session default - there is no hardcoded fallback. See "Tier map missing at spawn time" below.
 
 ### Summary by adapter
 
 | Adapter | Resolution point | How |
 |---|---|---|
 | Claude Code | Spawn time | `model` param on `Agent` tool call (`haiku`/`sonnet`/`opus` enum) |
-| Codex | Spawn time | `--model` flag on `codex` CLI invocation, name from tier-map.yml |
-| Gemini | Spawn time | `--model` flag on `gemini` CLI invocation, name from tier-map.yml |
+| Codex | Spawn time | `--model` flag on `codex` CLI invocation with name from tier-map.yml if present; flag omitted (CLI session default) if no tier-map exists |
+| Gemini | Spawn time | `--model` flag on `gemini` CLI invocation with name from tier-map.yml if present; flag omitted (CLI session default) if no tier-map exists |
 
 ---
 
@@ -352,7 +352,7 @@ If a Codex or Gemini CLI version does not support `--model` flag for subagent sp
 - Add a note in the spawn block for each agent-spawn phase (Phase 3 architect, Phase 5 engineer, Phase 6 skeptic) directing the conductor to the tier declaration protocol in `agent-methodology.md`. The note should say: "Declare a tier if this spawn warrants non-default model selection (see Tier declaration in agent-methodology.md). Default is Tier 2 (omit the model param)."
 
 **`content/references/subagent-protocol.md`** - UPDATE REQUIRED
-- Section 10 (Input Contract) and Rule 3 (Spawn threshold) describe spawn invocation contents. Add a note to Section 10: "For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (`haiku` for Tier 1, `opus` for Tier 3). This param is omitted for Tier 2 (default). Codex/Gemini: pass `--model <resolved-name>` from the tier-map.yml. The model param is an implementation detail of the spawn call, not part of the spawn prompt text."
+- Section 10 (Input Contract) and Rule 3 (Spawn threshold) describe spawn invocation contents. Add a note to Section 10: "For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (`haiku` for Tier 1, `opus` for Tier 3). This param is omitted for Tier 2 (default). Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text."
 
 **`.codex/install.sh`**
 - Does NOT write `~/.agentic/tier-map.yml` and does NOT create `~/.agentic/`. Tier routing is opt-in: users author the file themselves when they want it. No tier-map logic in install.
