@@ -884,6 +884,17 @@
             <li><strong>Task state in <code>.agentic/tasks.jsonl</code></strong> - conductor writes all entries (pending &rarr; in_progress &rarr; done/failed/blocked). Workers return summaries only. Crash recovery: <code>in_progress</code> entries on resume treated as failed, re-spawned with original brief from <code>inputs</code> field.</li>
           </ul>
         </div>
+        <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+          <h4 style="color: #5a3d8a;">Cost-Aware Tier Routing</h4>
+          <ul>
+            <li><strong>Conductors declare Tier 1/2/3 at spawn time</strong> - routes lightweight tasks to faster models and critical reviews to max-capability models</li>
+            <li><strong>Tier 1</strong> - cheap/fast (Haiku). Declare explicitly for shallow reads, existence checks, format-only tasks, and mechanical transformations</li>
+            <li><strong>Tier 2</strong> - default (session model, Sonnet-equivalent). No declaration needed. Most spawns land here</li>
+            <li><strong>Tier 3</strong> - max capability (Opus). Declare explicitly for security adversarial review, novel architecture design, full blast-radius analysis across an unknown codebase</li>
+            <li><strong>Declaration is documentation; the model param is enforcement</strong> - writing <code>Tier: 3</code> in the status block does not self-execute. The conductor must also pass <code>model: "opus"</code> in the <code>Agent</code> tool call. Declaration without the param produces Tier 2 behavior</li>
+            <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
+          </ul>
+        </div>
       </div>
       <div>
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2);">
