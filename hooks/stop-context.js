@@ -1,6 +1,39 @@
 #!/usr/bin/env node
 
 /**
+ * Purpose: Reads the Claude Code Stop hook JSON payload from stdin and writes
+ *          session context to disk so the next session's Workers have lightweight
+ *          context about what was happening. Also marks any active orchestration
+ *          loop as interrupted so the next session can offer to resume.
+ *
+ * Public API: run() — invoked immediately at module load via run() call at
+ *             bottom of file. Not imported; executed as a CLI script by the
+ *             Claude Code Stop hook.
+ *
+ * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
+ *                dependencies. Reads from stdin (fd 0). Reads/writes
+ *                ~/.claude/projects/[hash]/context.md and
+ *                [cwd]/.agentic/loop-state.json.
+ *
+ * Downstream consumers: Claude Code Stop hook (configured in
+ *                        ~/.claude/settings.json or project .claude/settings.json).
+ *                        Output files are read by Worker agents at session start.
+ *
+ * Failure modes: All failures are silent (process.exit(0)). Two independent
+ *                write paths: (1) context.md write is best-effort; any fs error
+ *                is swallowed and the file may not be written. (2) loop-state.json
+ *                write is also best-effort; any fs error is swallowed independently
+ *                of path (1). Both paths are independent — a failure in loop-state
+ *                write does not affect context.md and vice versa. The 10-minute
+ *                implicit-interrupt heuristic handles missed loop-state writes.
+ *                cwd values with path traversal components are rejected for the
+ *                loop-state write (defence in depth).
+ *
+ * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout).
+ *              Synchronous I/O throughout; runs as a short-lived CLI process.
+ */
+
+/**
  * Claude Code Stop Hook — Session Context Writer
  *
  * Reads the Stop hook JSON payload from stdin and writes a minimal context.md
@@ -14,7 +47,7 @@
  *  - /wrap coexistence: if context.md was written by /wrap (detected by
  *    "# Session Context\n*Written by /wrap" at the file start), the Stop hook
  *    appends a "Session Activity" block rather than overwriting. Any previous
- *    activity block is replaced, not accumulated — most recent session only.
+ *    activity block is replaced, not accumulated - most recent session only.
  *    /wrap content is preserved indefinitely; only another /wrap run replaces
  *    the whole file. The Stop hook is the fallback for sessions where /wrap
  *    was never run.
@@ -29,6 +62,40 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
+
+/**
+ * Write interrupted status to loop-state.json if an active loop exists.
+ * Called from ALL exit paths so the loop-state write is never skipped.
+ * Silent failure: any error is swallowed independently of the context write.
+ * @param {string} cwd - Verified project directory (already traversal-checked by caller).
+ */
+function writeLoopState(cwd) {
+  // M3: Reject cwd values with traversal components before any path join.
+  // path.resolve normalizes '..' segments; if the result differs from the
+  // input, cwd was not a clean absolute path and could escape the project dir.
+  const resolvedCwd = path.resolve(cwd);
+  if (resolvedCwd !== cwd) {
+    // cwd contains traversal components - skip loop-state write silently.
+    return;
+  }
+
+  try {
+    const loopStatePath = path.join(cwd, '.agentic', 'loop-state.json');
+    if (fs.existsSync(loopStatePath)) {
+      const loopState = JSON.parse(fs.readFileSync(loopStatePath, 'utf-8'));
+      if (loopState.status === 'active') {
+        loopState.status = 'interrupted';
+        loopState.interrupted_at = new Date().toISOString();
+        loopState.interrupt_reason = 'unknown'; // cannot distinguish rate_limit vs crash at hook time
+        const tmpPath = loopStatePath + '.tmp';
+        fs.writeFileSync(tmpPath, JSON.stringify(loopState, null, 2));
+        fs.renameSync(tmpPath, loopStatePath);
+      }
+    }
+  } catch (_) {
+    // Silent failure - the 10-minute implicit-interrupt heuristic handles missed writes
+  }
+}
 
 function run() {
   // --- 1. Read stdin ---
@@ -240,6 +307,8 @@ ${toolsLine}
       } catch (_) {
         // Silent failure
       }
+      // M1: write loop-state on ALL exit paths, including the wrap-coexistence path.
+      writeLoopState(cwd);
       process.exit(0);
     }
   } catch (_) {
@@ -253,6 +322,11 @@ ${toolsLine}
   } catch (_) {
     // Silent failure
   }
+
+  // --- 11. Write interrupted status to loop-state.json if an active loop exists ---
+  // Delegated to writeLoopState() which is also called from the wrap-coexistence
+  // path (section 9) so the write executes on ALL exit paths.
+  writeLoopState(cwd);
 
   process.exit(0);
 }

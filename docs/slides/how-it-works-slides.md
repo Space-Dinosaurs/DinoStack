@@ -264,6 +264,10 @@ Skeptic reviews ──> sign-off? ──> Phase 6b ──>  QA verifies ──> 
 The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</code>
 </div>
 
+<div class="callout">
+<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/implement-ticket</code>'s built-in resume check.
+</div>
+
 ---
 
 ## When the loop stalls

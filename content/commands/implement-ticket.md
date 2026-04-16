@@ -8,6 +8,61 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 
 ---
 
+## Resume check (before setup)
+
+Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state.json`:
+
+**If the file exists and `status == "interrupted"`:**
+- Print: "Interrupted loop detected on branch [branch] for ticket [ticket_id]."
+- Print: "Last phase: [last_phase] / [last_phase_action], iteration [loop_state.iteration]/[loop_state.max_iterations]."
+- Print: "Open findings: [count of findings_log entries with status=open or status=addressed]"
+- Ask: "Resume this loop or start fresh? (resume / fresh)"
+- If "fresh": delete the file. Proceed normally from Setup below.
+- If "resume": apply wait strategy (see below), then jump to the resume entry point determined by `last_phase` / `last_phase_action` per the table below.
+
+**If the file exists and `status == "active"` with `last_updated` more than 10 minutes ago:** treat as implicitly interrupted (the Stop hook may not have fired). Print: "Found an active loop state last written [elapsed] ago — treating as interrupted." Then follow the "interrupted" path above.
+
+**If the file exists and `status == "complete"` or `"stalled"`:**
+- Print: "A completed/stalled loop state file exists for ticket [ticket_id]. Clearing it."
+- Delete the file. Proceed normally.
+
+**If no file exists:** proceed normally.
+
+**Wait strategy (applied before resuming when `interrupt_reason == "rate_limit"`):**
+```
+elapsed = now() - interrupted_at
+if interrupt_reason == "rate_limit":
+  if elapsed < 60 seconds:
+    wait_remaining = 60 - elapsed
+    print: "Rate limit detected. Waiting [wait_remaining]s before resuming."
+    sleep(wait_remaining)
+else:
+  # session_expiry or unknown: no wait needed
+  print: "Loop interrupted. Resuming from last checkpoint."
+```
+
+**Resume entry point table:**
+
+| last_phase | last_phase_action | Resume action |
+|---|---|---|
+| skeptic | spawned | Re-spawn Skeptic with current diff (`git diff origin/$BASE_BRANCH..HEAD`). On iteration 2+, include prior-iteration findings block from `findings_log` (same as normal iteration 2+ behavior). |
+| skeptic | returned | Skeptic output was received but Engineer fix pass was not yet spawned. Re-classify findings from `findings_log` (entries with status=open) and spawn the Engineer fix pass. |
+| engineer | spawned | Check `git status --porcelain` on the branch. If clean: re-spawn Engineer with same open findings brief. If dirty (uncommitted changes): ask human "The Engineer had uncommitted changes. Discard and re-run, or commit what's there and re-run Skeptic?" |
+| engineer | returned | Engineer returned but loop did not advance. Use `last_engineer_summary` from state file. Re-enter Skeptic spawn step. |
+| qa | spawned | Re-spawn QA engineer with the prior brief. |
+| qa | returned | QA engineer returned but loop did not advance. Re-spawn Engineer fix pass for QA failures. |
+| quality_gate | engineer_spawned | Check `git status --porcelain`. If clean: re-spawn Phase 7 engineer with quality gate failure output from `loop_state.last_engineer_summary`. If dirty: ask human (discard and re-run, or commit and re-run `$QUALITY_CMD`). |
+| quality_gate | engineer_returned | Phase 7 engineer committed. Re-run `$QUALITY_CMD` only. |
+| quality_gate | rerun_pending | Re-run `$QUALITY_CMD` only. |
+
+**After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
+
+**Parse failure:** if `.agentic/loop-state.json` exists but cannot be parsed as JSON, print a warning, offer to delete the file and start fresh. Do not silently ignore it.
+
+**Concurrent session guard:** if `status == "active"` and `last_updated` was within the last 10 minutes, print a warning ("A session appears to be actively writing this loop state. Are you sure you want to resume here?") and require explicit confirmation before proceeding.
+
+---
+
 ## Setup: Read project config
 
 Before any phase, read the project's `AGENTS.md` and extract the following values:
@@ -322,32 +377,50 @@ For the full adversarial brief menu (security, logic, performance, data integrit
 
 **Findings handling - loop contract:**
 
-Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (create `.agentic/` directory if absent):
+Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (create `.agentic/` directory if absent). **Use atomic write: write to `.agentic/loop-state.json.tmp` first, then rename to `.agentic/loop-state.json`.**
 
-```
-LOOP_STATE initialized:
-  phase: skeptic
-  iteration: 1
-  max_iterations: 3
-  findings_log: []
-  last_engineer_summary: null
-  termination_reason: null
-```
-
-Write this as JSON to `.agentic/loop-state.json`:
+**Full P2 schema (extends the P0 in-context schema with cross-session resume fields):**
 
 ```json
 {
-  "phase": "skeptic",
-  "iteration": 1,
-  "max_iterations": 3,
-  "findings_log": [],
-  "last_engineer_summary": null,
-  "termination_reason": null
+  "schema_version": 1,
+  "ticket_id": "<string | null>",
+  "branch": "<string>",
+  "repo": "<string>",
+  "base_branch": "<string>",
+  "status": "active",
+  "interrupted_at": null,
+  "interrupt_reason": null,
+  "last_phase": "skeptic",
+  "last_phase_action": "spawned",
+  "loop_state": {
+    "phase": "skeptic",
+    "iteration": 1,
+    "max_iterations": 3,
+    "findings_log": [],
+    "qa_failures_log": [],
+    "last_engineer_summary": null,
+    "termination_reason": null
+  }
 }
 ```
 
-**Stability contract:** `.agentic/loop-state.json` is a stable contract from P0 onward. The P2 rate-limit resumer will READ this file for resume keying; any schema change post-P0 must consider P2 readers.
+**Field notes:**
+- `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
+- `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
+- `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
+- `status` values: `"active"` (loop running), `"interrupted"` (Stop hook or crash), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
+
+**Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
+- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`
+- After Skeptic returns, before Engineer spawn: `last_phase=skeptic`, `last_phase_action=returned`
+- After Engineer spawned (fix pass): `last_phase=engineer`, `last_phase_action=spawned`
+- After Engineer returns: `last_phase=engineer`, `last_phase_action=returned`; update `loop_state.last_engineer_summary` (verbatim, capped 2000 chars)
+- After each `findings_log` update (Steps 2, 3, 5): overwrite with updated `loop_state`
+- On clean termination: set `status=complete`, `loop_state.termination_reason=clean`
+- On stalled termination (cap_reached, convergence_failure, blocked): set `status=stalled`
+
+**Stability contract:** `.agentic/loop-state.json` is a stable contract from P0 onward. Any schema change must consider resume readers.
 
 The file is overwritten (not appended) on each iteration state update and at loop exit with `termination_reason` set. It is not deleted on clean termination - the final state is the post-mortem record until the next loop invocation overwrites it. Whether `.agentic/` is gitignored is deferred to project convention.
 
@@ -436,7 +509,7 @@ For full QA gate rules, see `agent-methodology.md §QA Gate`.
 
 **QA loop contract:**
 
-Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (overwriting the Phase 6 state):
+Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (overwriting the Phase 6 state). **Use atomic write (tmp+rename).** Reset `last_phase=qa`, `last_phase_action=spawned`. Same write-trigger pattern as Phase 6 applies here: write at every phase transition (QA spawn, QA return, Engineer spawn, Engineer return). On clean exit set `status=complete`; on stalled exit set `status=stalled`.
 
 ```
 LOOP_STATE initialized:
@@ -510,10 +583,13 @@ All checks must pass (typecheck, lint, tests, knip, jscpd). Do not suppress or s
 
 This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter. Instead:
 
-1. Spawn one `engineer` fix pass scoped to the quality gate failure output. The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry.
-2. Re-run `$QUALITY_CMD`.
-3. If it passes: proceed to Phase 6c (finding promotion) then Phase 8.
-4. If it still fails: escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
+1. Before spawning the Phase 7 engineer: write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
+2. Spawn one `engineer` fix pass scoped to the quality gate failure output. The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry.
+3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
+4. Before re-running `$QUALITY_CMD`: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write).
+5. Re-run `$QUALITY_CMD`.
+6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 6c (finding promotion) then Phase 8.
+7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
 **No unbounded loop:** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
 
@@ -696,3 +772,11 @@ PR: https://github.com/[GH_REPO]/pull/[PR_NUMBER]
 #### If TRACKER is `none`
 
 Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update. PR is open at: https://github.com/[GH_REPO]/pull/[PR_NUMBER]"
+
+---
+
+## Phase 12: Loop state cleanup
+
+After the PR is open (Phase 9 complete), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate.
+
+If the file does not exist (it was never written, e.g. loop never started), skip silently.
