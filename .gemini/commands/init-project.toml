@@ -75,17 +75,37 @@ Show only fields where a value was found. Omit fields with no detection. Annotat
 - "no benchmarks" / "skip benchmarks" → clear benchmark signal
 - "no dep audit" / "skip dep audit" → clear dep-audit derivation
 
+**Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or empty Enter) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
+
 Corrections patch in-memory state; they do not re-run discovery. After corrections, echo only the changed lines: "Updated: [field] → [value]. Anything else, or press Enter to continue."
 
 **Exit conditions:** empty input (Enter), "done", or "accept" → proceed with current state.
 
-**If tracker signals were found** but tracker is not already configured, prompt before the confirmation block ends:
+**If tracker signals were found** but tracker is not already configured, prompt before the confirmation block ends. Accept numeric shortcuts in addition to named answers so the user can answer any tracker prompt with a digit.
 
-- Linear only → "Set up Linear tracker? [y/N]"
-- Jira only → "Set up Jira tracker? [y/N]"
-- Both → "I detected signals for both Linear and Jira. Which tracker does this project use? [linear/jira/neither]"
+- **Linear only** → "Set up Linear tracker? [y/N]"
+  - Accept as **yes**: `y`, `yes`, `1`
+  - Accept as **no**: `n`, `no`, `2`, empty (Enter)
+- **Jira only** → "Set up Jira tracker? [y/N]"
+  - Accept as **yes**: `y`, `yes`, `1`
+  - Accept as **no**: `n`, `no`, `2`, empty (Enter)
+- **Both detected** → present a numbered list:
 
-Wait for tracker confirmation before proceeding.
+  ```
+  I detected signals for both Linear and Jira. Which tracker does this project use?
+    1. Linear
+    2. Jira
+    3. Neither (skip tracker setup)
+
+  Answer with a number, name, or "neither" / "none" / "skip".
+  ```
+
+  Accept:
+  - **Linear**: `1`, `linear`
+  - **Jira**: `2`, `jira`
+  - **Neither / skip**: `3`, `neither`, `none`, `skip`, `n`, `no`, empty (Enter)
+
+Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / empty answer to any of the above prompts records tracker = **declined** in the in-memory state (per the "Negative answers are sticky" principle). Declined tracker suppresses Step 2a Linear migration prompts, Step 11 tracker setup, and the Step 12 Linear QA assignee reminder.
 
 **Required fields** — project name is required. If it was not discovered and the user does not provide it in the override step, ask once more: "A project name is required. What should I call this project?" If still not provided, stop and ask the user to re-run `/init-project` with a name ready.
 
@@ -146,25 +166,32 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 **Compute the diff** — compare current `AGENTS.md` and adjacent files against what Step 1 discovery + confirmation implies:
 
 1. **Legacy `## Linear` migration** — if `## Linear` exists but is missing `Workspace:` or `QA assignee ID:` fields:
-   - Attempt to derive `Workspace`: scan git remote origin URL and last 50 commit messages for `linear.app/<slug>/` URL patterns. Use the slug if found.
-   - Attempt to derive `QA assignee ID`: check for any UUID-shaped value already in the section.
-   - Prompt only for values that could not be derived: "What is your Linear workspace slug?" and/or "What is the Linear QA assignee UUID? (optional — press Enter to skip)".
-   - Rewrite `## Linear` in place using the new canonical shape (see Step 11a for shape). Preserve `Projects:` if present. Preserve the old `Default assignee:` name as a comment line if it existed and differs from any new UUID.
+   - **First, check Step 1 tracker state.** If the user declined tracker in Step 1 (`no tracker` / "neither" / "skip" / Enter on the tracker prompt), do NOT prompt for Linear workspace slug, QA assignee UUID, or any other Linear field. Instead, ask ONCE - framed as contradiction resolution, not as a follow-up about whether to set up Linear:
+
+     > "I see a `## Linear` section in AGENTS.md but you declined tracker setup in Step 1. Remove the `## Linear` section? [y/N]"
+
+     Accept `y` / `yes` / `1` as yes (plan removal of `## Linear`). Accept `n` / `no` / `2` / empty as no (leave `## Linear` as-is; do not migrate, do not prompt for any field). Either way, do not ask anything else about Linear in this run.
+   - **Otherwise** (user accepted or confirmed Linear, or tracker is unspecified and there was no Step 1 decline):
+     - Attempt to derive `Workspace`: scan git remote origin URL and last 50 commit messages for `linear.app/<slug>/` URL patterns. Use the slug if found.
+     - Attempt to derive `QA assignee ID`: check for any UUID-shaped value already in the section.
+     - Prompt only for values that could not be derived: "What is your Linear workspace slug?" and/or "What is the Linear QA assignee UUID? (optional — press Enter to skip)".
+     - Rewrite `## Linear` in place using the new canonical shape (see Step 11a for shape). Preserve `Projects:` if present. Preserve the old `Default assignee:` name as a comment line if it existed and differs from any new UUID.
 
 2. **Tracker mutual exclusion** — Linear and Jira are mutually exclusive:
    - If user confirmed Jira during Step 1 and `## Linear` exists: plan to remove `## Linear` and write `## Tracker` (Jira shape).
    - If user confirmed Linear and `## Tracker` (Jira) exists: plan to remove `## Tracker` and write `## Linear` (Linear shape).
+   - If the user **declined** tracker in Step 1 and either `## Linear` or `## Tracker` exists: handle the same way as the legacy migration in case 1 above — ask ONCE as a contradiction-resolution prompt ("I see `## [Linear|Tracker]` in AGENTS.md but you declined tracker setup in Step 1. Remove the section? [y/N]"). If yes, plan removal. If no, leave the section untouched. Do not prompt for any tracker field.
    - If no tracker change: leave existing section untouched.
 
-3. **`## Tools` backfill** — for each new CLI tool discovered in Step 0 that is not already present in `## Tools`: plan to append it. Never touch existing entries. Match on CLI name (e.g. `psql`, `mongosh`, `gh`). If a dep-audit command was derived in Step 0 and no dep-audit entry exists in `## Tools`: plan to append it (e.g. `- Dependency audit: use \\`npm audit --json\\` for vulnerability scans`).
+3. **`## Tools` backfill** — for each new CLI tool discovered in Step 0 that is not already present in `## Tools`: plan to append it. Never touch existing entries. Match on CLI name (e.g. `psql`, `mongosh`, `gh`). If a dep-audit command was derived in Step 0 and no dep-audit entry exists in `## Tools`: plan to append it (e.g. `- Dependency audit: use \\`npm audit --json\\` for vulnerability scans`). **Honor Step 1 declines in backfill:** if the user declined `gh` (`no gh` / `skip gh`), do not append a `gh` entry even if `gh` was detected on PATH. If the user declined dep audit (`no dep audit` / `skip dep audit`), do not append a dep-audit entry even if a command was derived.
 
 4. **Missing sections** — if `## Docs` or `## Conventions` is absent: plan to add them (same content as greenfield template).
 
 5. **`docs/` directories** — plan to create any missing subdirectories.
 
-6. **`.claude/qa.md`** — if web UI was confirmed and file does not exist: plan to create it.
+6. **`.claude/qa.md`** — if web UI was confirmed **and the user did not decline web UI in Step 1** (`no web UI` / `skip web UI`) and file does not exist: plan to create it. If the user declined web UI, do not create the file and do not prompt for port or command.
 
-7. **`.claude/release.md`** — if release signals were detected and file does not exist: plan to create it using the same template as Step 6a.
+7. **`.claude/release.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist: plan to create it using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
 
 8. **`.claude/findings.md`** — if the file does not exist: plan to create it using the same stub template as Step 6b.
 
@@ -255,7 +282,7 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   - [Database CLI if applicable, e.g.: Database operations: use `psql` with `$DB_URL`]
   - [Dep audit if applicable - use the command derived in Step 0 from the detected package manager: `npm audit --json` for npm, `pnpm audit --json` for pnpm, `yarn audit --json` for yarn, `pip-audit` for pip/poetry, `cargo audit` for cargo, `govulncheck ./...` for go. Do NOT hardcode `npm audit` for non-npm projects.]
   ```
-  Include the `gh` line only if `gh` was detected or confirmed; include the database line only if a DB CLI was specified; include the dep-audit line only if a dep-audit command was derived in Step 0, and use the exact command derived there.
+  Include the `gh` line only if `gh` was detected or confirmed **and not declined** in Step 1 (`no gh` / `skip gh`); include the database line only if a DB CLI was specified; include the dep-audit line only if a dep-audit command was derived in Step 0 **and not declined** in Step 1 (`no dep audit` / `skip dep audit`), and use the exact command derived there.
 - `## Docs` section:
   ```markdown
   ## Docs
@@ -268,6 +295,8 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
 - `## Conventions` - a single TODO bullet placeholder; filled in as the project evolves.
 
 Keep it under 40 lines.
+
+If the project shows parallel fan-out signals (3 or more distinct modules or tracks, complex orchestration history in git log, or prior multi-unit plans visible in docs/planning/), add a note in the scaffolded root AGENTS.md under `## Conventions`: "`.agentic/tasks.jsonl` is the task coordination surface for multi-unit orchestration plans."
 
 ### 4. Create subdirectory `AGENTS.md` files
 
@@ -293,7 +322,7 @@ MCP servers are not added by default - prefer CLI tools (`gh`, `psql`, etc.). On
 
 ### 6. Create `.claude/qa.md`
 
-Only create if the user confirmed a web UI in Step 1. Only create if the file does not already exist.
+Only create if the user confirmed a web UI in Step 1 AND the user did not decline web UI in Step 1 (`no web UI` / `skip web UI`). Only create if the file does not already exist. If web UI was declined, skip this step entirely — do not prompt for port, command, or staging URL.
 
 Fill in `command` and `port` from the Step 1 confirmation results. If discovery populated these values and the user confirmed them, use those values directly. Use `TODO` placeholders only for values that were neither discovered nor provided.
 
@@ -418,6 +447,17 @@ Add any framework-specific entries if the stack is already known (e.g. `.next/` 
 
 If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
 
+Regardless of whether `.gitignore` is new or existing: check whether it already contains `.agentic/`. If not, append the following block to it. If `.gitignore` does not exist, the entry above creates it - ensure this block is included in the new file's contents.
+
+```
+# Agentic engineering runtime artifacts (must not be committed)
+# .agentic/ covers: loop-state.json (cross-session resume state), hud/ (per-worker HUD files),
+# and tasks.jsonl (multi-unit task coordination). All are runtime data, not source.
+.agentic/
+```
+
+The `.agentic/` directory-level entry covers all runtime artifacts: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), and `tasks.jsonl` (multi-unit task coordination). None of these should be committed.
+
 ### 10. Create `docs/` structure
 
 Create the following empty directories with a `.gitkeep` (only for directories that do not already exist):
@@ -431,7 +471,7 @@ docs/
 
 ### 11. Set up tracker
 
-Only run if the user confirmed a tracker in Step 1. If tracker was "none" or not confirmed, skip this step entirely.
+Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
 
 **11a. Linear setup** (run if tracker = Linear)
 
@@ -523,16 +563,16 @@ After all files are processed, print a short summary with three sections:
 **Curated:** list `AGENTS.md` if it was reorganized in place (with a note: "reorganized to target structure; extracted facts moved to MEMORY.md").
 **Skipped (already existed):** list every file that was left untouched and why (auto-skipped `.claude/settings.local.json`, or existing track `AGENTS.md`, or other existing files left untouched).
 
-Then remind the user to:
+Then remind the user to (**omit any reminder for a feature the user declined in Step 1**, per "Negative answers are sticky"):
 1. Update the `## Tools` section in root `AGENTS.md` as new CLI tools are added to the project over time
 2. Fill in the `## Conventions` section in root `AGENTS.md` as the project takes shape
 3. Grow each `[track]/AGENTS.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
 4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
-6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \\`gh\\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1
-7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created
-8a. *(If `.claude/release.md` was created)* Fill in the deploy command and rollback procedure in `.claude/release.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
+6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \\`gh\\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
+7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created (and therefore web UI was not declined)
+8a. *(If `.claude/release.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.claude/release.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
 8b. `.claude/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time.
-8. *(If Jira was configured)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
-9. *(If Linear was configured without a QA assignee UUID)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
+8. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
+9. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
 """
