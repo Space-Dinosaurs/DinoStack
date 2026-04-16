@@ -107,16 +107,17 @@ gemini:
 The harness resolves the tier map with the following precedence (first found wins):
 
 1. `.agentic/tier-map.yml` in the project root (project-specific overrides)
-2. `~/.agentic/tier-map.yml` (user-global config, set at install time)
-3. Bundled defaults in the adapter (hardcoded fallback)
+2. `~/.agentic/tier-map.yml` (user-global config, authored by the user)
 
-The project-level file is not committed to this repo (add `.agentic/` to `.gitignore` to prevent accidental model-name commitment). The user-global file is created by the adapter's `install.sh` during setup.
+If neither file exists, the conductor MUST NOT pass `--model` to the Codex/Gemini CLI. The CLI uses its own session default (provider-controlled). There are no hardcoded model-name fallbacks anywhere in the repo or adapters.
+
+The project-level file is not committed to this repo (add `.agentic/` to `.gitignore` to prevent accidental model-name commitment).
 
 ### Where it lives
 
-`~/.agentic/tier-map.yml` is written by the Codex and Gemini adapter install scripts. The Claude adapter does not write to this file - Claude Code uses the built-in enum, not a tier map. If the file already exists, `install.sh` merges (adds missing providers, does not overwrite existing entries).
+`~/.agentic/tier-map.yml` is authored by the user when they want tier routing for Codex or Gemini. The adapter install scripts (`.codex/install.sh`, `.gemini/install.sh`) do NOT write this file and do NOT create `~/.agentic/` - tier routing is fully opt-in. The Claude adapter is unaffected regardless: Claude Code uses the built-in `haiku`/`sonnet`/`opus` enum, not a tier map.
 
-The `content/` directory contains a canonical example at `content/references/tier-map-example.yml`. This is documentation only.
+The `content/references/tier-map-example.yml` file is an illustrative example users copy and edit themselves. It is not consulted at runtime and is not installed anywhere. Model names in the example are illustrative only and not kept current - users must edit them to match their provider's current catalog.
 
 ### Update process
 
@@ -239,7 +240,7 @@ This section is advisory for conductors. It documents which tier is appropriate 
 
 ### P0 - Gemini adapter
 
-The Gemini adapter design in `docs/planning/p0-gemini-adapter.md` does not address model selection within Gemini. P2 adds one requirement to the Gemini adapter: `~/.agentic/tier-map.yml` must include a `gemini:` section, written by `.gemini/install.sh`. The Gemini adapter's `install.sh` design is otherwise unaffected.
+The Gemini adapter design in `docs/planning/p0-gemini-adapter.md` does not address model selection within Gemini. P2 does not change this: `.gemini/install.sh` does not write to `~/.agentic/tier-map.yml`. Users who want tier routing for Gemini spawns author the file themselves with a `gemini:` section. If no tier map exists at spawn time, the Gemini CLI uses its session default. The Gemini adapter's `install.sh` design is unaffected.
 
 ### P1 - multi-provider worker pools
 
@@ -249,7 +250,7 @@ The conductor's tier declaration in P1 context means: "spawn this agent at Tier 
 
 No design conflict. P2 tier resolution is a subordinate lookup that operates after P1's provider assignment.
 
-**Coordination surface:** The `.agentic/tier-map.yml` file created by P2 is the natural location for P1 to store provider pool configuration. The nested `tiers:` format accommodates this - P1 can add a `pool:` key alongside `tiers:` without breaking the P2 tier lookup:
+**Coordination surface:** The `.agentic/tier-map.yml` file introduced by P2 (authored by the user, not created by install scripts) is the natural location for P1 to store provider pool configuration. The nested `tiers:` format accommodates this - P1 can add a `pool:` key alongside `tiers:` without breaking the P2 tier lookup:
 
 ```yaml
 codex:
@@ -285,13 +286,9 @@ Add a "Tier declaration" subsection to `content/rules/agent-methodology.md` unde
 
 Add `content/references/tier-map-example.yml` as a documentation-only example covering the Codex and Gemini sections. Do not include a `claude:` section - Claude Code uses the built-in enum.
 
-**Step 4: Update `.codex/install.sh`**
+**Step 4: Install scripts do not write tier-map**
 
-Add a step to write the `codex:` section of `~/.agentic/tier-map.yml` (creating `~/.agentic/` if needed). If the file already exists, merge rather than overwrite.
-
-**Step 5: Update `.gemini/install.sh` (when P0 Gemini adapter exists)**
-
-Add a step to write the `gemini:` section of `~/.agentic/tier-map.yml`.
+`.codex/install.sh` and `.gemini/install.sh` do not write to `~/.agentic/tier-map.yml` and do not create `~/.agentic/`. Tier routing is opt-in: users who want it author the file themselves, using `content/references/tier-map-example.yml` as a starting template. This keeps zero hardcoded model IDs in the repo or the install output - the exact point of P2.
 
 ### What does NOT need to change
 
@@ -315,7 +312,7 @@ No build artifacts to revert. No symlink conversions to undo. The rollback is a 
 
 ### Tier map missing at spawn time (Codex/Gemini)
 
-If `~/.agentic/tier-map.yml` does not exist when a Codex/Gemini spawn resolves a non-default tier, the adapter falls back to bundled defaults (hardcoded in the adapter). This ensures spawns are not blocked by a missing config file.
+If neither `.agentic/tier-map.yml` (project) nor `~/.agentic/tier-map.yml` (user) exists when a Codex/Gemini spawn occurs, the conductor omits the `--model` flag entirely. The CLI uses its own session default, which is Tier-2-equivalent for most provider defaults. Spawns are never blocked by a missing tier map; they degrade cleanly to the session model. There is no hardcoded fallback list - the repo intentionally contains zero model-name defaults so provider releases do not require repo edits.
 
 ### Unknown tier declared
 
@@ -358,11 +355,11 @@ If a Codex or Gemini CLI version does not support `--model` flag for subagent sp
 - Section 10 (Input Contract) and Rule 3 (Spawn threshold) describe spawn invocation contents. Add a note to Section 10: "For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (`haiku` for Tier 1, `opus` for Tier 3). This param is omitted for Tier 2 (default). Codex/Gemini: pass `--model <resolved-name>` from the tier-map.yml. The model param is an implementation detail of the spawn call, not part of the spawn prompt text."
 
 **`.codex/install.sh`**
-- Add step to write `codex:` section in `~/.agentic/tier-map.yml` if not present (creating `~/.agentic/` if needed)
+- Does NOT write `~/.agentic/tier-map.yml` and does NOT create `~/.agentic/`. Tier routing is opt-in: users author the file themselves when they want it. No tier-map logic in install.
 - Optionally: add a comment to the TOML agent template documenting why model is omitted (spawn-time resolution via `--model` flag)
 
-**`.gemini/install.sh`** (when P0 Gemini adapter is implemented)
-- Add step to write `gemini:` section in `~/.agentic/tier-map.yml`
+**`.gemini/install.sh`**
+- Does NOT write `~/.agentic/tier-map.yml` and does NOT create `~/.agentic/`. Same rationale as `.codex/install.sh`: zero hardcoded model names anywhere in the repo or its install artifacts. Users who want tier routing author `~/.agentic/tier-map.yml` themselves, using `content/references/tier-map-example.yml` as an illustrative reference.
 
 ### Docs and slides
 
