@@ -381,7 +381,6 @@ If a Codex or Gemini CLI version does not support `--model` flag for subagent sp
 
 ---
 
-## Open questions
+## Open questions (resolved 2026-04-16)
 
-**Q3 (non-blocking): Should `investigator` default to Tier 1 or Tier 2?**
-The tier guidance table assigns `investigator` a default of Tier 1. Investigator is used for blast-radius mapping and codebase exploration before architect spawns - this is reasoning-heavy work that may benefit from Tier 2. Haiku's reasoning on complex codebases may produce incomplete briefs that silently mislead the architect. Counter-argument: conductor can always declare Tier 2 explicitly when depth is needed; the default should minimize cost. **Recommendation: Tier 1 default, with explicit documentation that complex blast-radius analysis warrants Tier 2 or Tier 3 declaration.**
+**Q3: Investigator default Tier 1.** Decision: accept plan recommendation. Tier 1 default, with explicit documentation that complex blast-radius analysis warrants conductor upgrade to Tier 2 or Tier 3. Rationale: minimizes cost for the common case (shallow reads); conductor always has the option to declare a higher tier when depth is needed.
