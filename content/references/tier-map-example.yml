@@ -1,22 +1,35 @@
 # Provider tier maps for cost-aware routing - Codex and Gemini only.
-# Claude Code uses a built-in enum (haiku/sonnet/opus); no tier-map lookup needed.
+#
+# THIS FILE IS AN ILLUSTRATIVE EXAMPLE. It is NOT installed, copied, or
+# consulted at runtime. Nothing in this repo reads this file. It is here
+# purely as a reference for users who want to author their own tier map.
+#
+# To enable tier routing:
+#   1. Copy this file to ~/.agentic/tier-map.yml (or .agentic/tier-map.yml
+#      in a project root for project-specific overrides).
+#   2. Edit the model names below to match your provider's current catalog.
+#      The names here are examples only and are not kept current with
+#      provider releases - edit to suit your needs.
+#   3. Restart the session. No rebuild needed.
+#
+# If no tier map exists when a Codex/Gemini agent is spawned, the conductor
+# omits the --model flag and the CLI uses its session default. There are
+# no hardcoded fallback model IDs anywhere in the repo or adapters - this
+# is deliberate so provider releases never require repo edits.
+#
+# Claude Code uses a built-in enum (haiku/sonnet/opus); no tier-map lookup
+# is needed for Claude and this file is irrelevant to Claude spawns.
+#
 # Tier 1 = cheap/fast, Tier 2 = balanced, Tier 3 = max capability.
-#
-# Location precedence:
-#   1. .agentic/tier-map.yml (project root - project-specific overrides)
-#   2. ~/.agentic/tier-map.yml (user-global - set by install.sh)
-#   3. Bundled adapter defaults (hardcoded fallback)
-#
-# To update: edit the file and restart the session. No rebuild needed.
 
 codex:
   tiers:
-    1: gpt-4o-mini
-    2: gpt-4o
-    3: o3
+    1: gpt-4o-mini      # example, edit to suit your needs
+    2: gpt-4o           # example, edit to suit your needs
+    3: o3               # example, edit to suit your needs
 
 gemini:
   tiers:
-    1: gemini-2.0-flash
-    2: gemini-2.0-pro
-    3: gemini-ultra-2
+    1: gemini-2.0-flash # example, edit to suit your needs
+    2: gemini-2.0-pro   # example, edit to suit your needs
+    3: gemini-ultra-2   # example, edit to suit your needs
