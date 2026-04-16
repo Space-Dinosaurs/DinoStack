@@ -30,6 +30,10 @@ Your spawn prompt will contain:
 - `completion_conditions` - your acceptance criteria. You are done when every condition listed here is met and quality gates pass.
 - `output_paths` - the specific file paths you are expected to write or modify. If the value is "conductor-directed", report what you actually touched in your output summary.
 
+When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract block, the engineer includes `task_id` in its return summary so the conductor can correlate the result with the task entry. The engineer does NOT write to `.agentic/tasks.jsonl` - the conductor handles all task-state writes.
+
+**HUD file writes (Phase 2 fan-out only).** When spawned as a parallel fan-out Worker with a `worker_id` field in the execution contract, the engineer writes phase transition updates to `.agentic/hud/<worker-id>.json` before each major action (before spawning sub-agents, at loop phase transitions, at completion). The HUD file write accompanies `[loop: ...]` breadcrumb emissions - both happen at the same event. Engineers spawned without a `worker_id` (single-unit, non-fan-out contexts) do not write HUD files. The `worker_id` is provided in the spawn prompt alongside `task_id`.
+
 **Tight-fix path execution contract.** When the conductor declares the Elevated (tight-fix path) sub-path (see `agent-methodology.md`), your `completion_conditions` will specify a pre-commit test verification sequence. You must execute this sequence exactly:
 
 1. BASELINE: Before modifying any file, run the affected test(s) (and full project quality gate if defined). Capture the output verbatim. If ANY test fails in baseline, stop immediately. Return Status: BLOCKED with the baseline failure output. Do NOT attempt to classify the failure as "unrelated" and proceed - any baseline failure is an absolute stop.

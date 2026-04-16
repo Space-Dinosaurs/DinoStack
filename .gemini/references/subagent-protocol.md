@@ -30,6 +30,8 @@ When decomposing a request into multiple subtasks, if tasks A, B, and C are inde
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
+When the conductor spawns workers for a multi-unit plan with task-state tracking, each worker receives its `task_id` in the execution contract for identification. The conductor writes all task-state updates - workers do not write to `.agentic/tasks.jsonl`.
+
 ### Rule 3 — Spawn threshold
 
 **Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action. Trivial risk → conductor edits directly if no subagents are running; spawn a single `engineer` Worker in foreground (no Skeptic, no brief file) if any subagent is running.** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
@@ -113,6 +115,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `qa-review` | QA engineer is verifying the change in a browser |
 | `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/implement-ticket`; include current iteration count, max cap, and open finding counts |
 | `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
+| `[phase: task-state-init \| N tasks written]` | Conductor initialized `.agentic/tasks.jsonl` with N pending task entries from the orchestration plan's JSONL block |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
 | `releasing` | Release orchestrator is executing the release sequence |
 | `dep-auditing` | Dependency auditor is scanning lockfiles and running vulnerability tools |
@@ -123,6 +126,8 @@ Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-revi
 **Loop breadcrumb examples:**
 - `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
 - `[loop: qa | iteration 2/3 | open failures: 1]`
+
+**Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to `.agentic/loop-state.json` (tmp+rename). The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
 
 **Loop transition rules (BLOCKED / NEEDS_CONTEXT / DONE_WITH_CONCERNS inside a Skeptic or QA loop):**
 
@@ -253,6 +258,13 @@ Workers are decomposed for focus. Skeptic review is scoped for effectiveness:
 
 **Heuristic for interdependence:** if a bug in unit A would only be detectable by examining unit B's implementation, or if unit A's correctness depends on assumptions about unit B's interface, the units are interdependent and need an integration Skeptic.
 
+**Fan-out Skeptic strategy mapping.** When the parallel fan-out primitive is active (N >= 2 independent units from the orchestration-planner), the planner's `skeptic_strategy` field is the authoritative source for which review mode applies:
+
+- **`per-unit`**: each unit gets its own Skeptic reviewing that unit's individual diff (against `BASE_BRANCH`). Skeptics for independent units can be spawned in a single message (parallel) - they are reviewing non-overlapping diffs and there is no interference. This is the strategy when all units in the group are fully independent per the heuristic above.
+- **`integration`**: one Skeptic reviews the combined diff from `BASE_BRANCH` after all units are merged onto a scratch integration branch. This replaces per-unit Skeptics - do not layer integration on top of per-unit. This strategy applies when units share an interface contract, shared data model, or cross-cutting concern. The integration Skeptic also serves as the Phase 6 gate (see `/implement-ticket` Phase 6 guard).
+
+The orchestration-planner's classification (written into the JSONL block at planning time) governs which strategy the conductor applies at Phase 5. The conductor reads `skeptic_strategy` from the planner's JSONL block - it does not re-derive the strategy from plan prose or apply the heuristic itself at execution time.
+
 The principle: overusing Skeptics dilutes their value. Narrow Workers improve implementation correctness. Broad Skeptic scope (where warranted) catches interaction bugs that per-unit review would miss.
 
 **Mid-task re-decomposition:** If a Worker discovers its scope is still too broad during execution, it returns partial output with a decomposition request. The conductor then decomposes further and re-spawns focused Workers. See Skeptic Protocol Section 5.
@@ -302,6 +314,24 @@ The Task tool creates a temporary git worktree for the agent to work in — an i
 # Example: authentic8/ nested inside ~/
 echo "Documents/Development/authentic8/" >> ~/.gitignore
 ```
+
+### Manually-managed named worktrees (fan-out primitive)
+
+The fan-out primitive in `/implement-ticket` Phase 5 uses a different worktree model from the Agent tool's `isolation: "worktree"`. Both are valid; the choice depends on whether merge order and branch naming matter.
+
+| Mode | Branch naming | Cleanup | Use when |
+|---|---|---|---|
+| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Auto-cleaned by the tool if no changes; conductor removes after PR | Single-agent isolation; merge order does not matter |
+| Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Conductor removes explicitly after all merges or escalation | Multi-branch fan-out; merge order and branch naming matter for history attribution |
+
+Manually-managed worktrees are created with:
+
+```bash
+git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
+  -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
+```
+
+The `unit_slug` comes from the orchestration-planner's JSONL block. The conductor controls merge ordering (via `merge_order` from the planner) and removes worktrees and sub-branches explicitly after the merge phase. This model preserves attributable merge history in the git graph - each unit's sub-branch is visible in `git log --graph`, making conflict locality traceable.
 
 ### When NOT needed
 
@@ -356,6 +386,8 @@ The Subagent Protocol does not replace The Skeptic Protocol — it provides the 
 ## 10. Input Contract
 
 When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `agent-methodology.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
+
+For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (`haiku` for Tier 1, `opus` for Tier 3). This param is omitted for Tier 2 (default). Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
