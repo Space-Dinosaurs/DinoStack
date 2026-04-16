@@ -109,16 +109,17 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(6) { border-left-color: #fb8c00; }
   .columns-3 .card:nth-child(7) { border-left-color: #00acc1; }
   h2 { margin-bottom: 0.4em; }
+  .tier { font-size: 0.85em; color: #888; margin-top: 0.3em; }
 </style>
 
 <div class="columns-3">
-<div class="card"><strong>investigator</strong><br/>Maps unfamiliar code. Traces data flow and blast radius before you change anything.</div>
-<div class="card"><strong>debugger</strong><br/>Root cause analysis. Given a failure, returns a diagnosis and fix brief.</div>
-<div class="card"><strong>orchestration-planner</strong><br/>Picks the team. Given a goal, produces a structured execution plan.</div>
-<div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase, reads <code>.claude/findings.md</code> at plan time, returns a structured technical plan.</div>
-<div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, writes module manifests, adds regression tests for Critical/Major fixes, runs quality gates.</div>
-<div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor. Checks module manifests and regression tests.</div>
-<div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.</div>
+<div class="card"><strong>investigator</strong><br/>Maps unfamiliar code. Traces data flow and blast radius before you change anything.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>debugger</strong><br/>Root cause analysis. Given a failure, returns a diagnosis and fix brief.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>orchestration-planner</strong><br/>Picks the team. Given a goal, produces a structured execution plan.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase, reads <code>.claude/findings.md</code> at plan time, returns a structured technical plan.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, writes module manifests, adds regression tests for Critical/Major fixes, runs quality gates.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor. Checks module manifests and regression tests.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.<div class="tier">Default Tier: 1</div></div>
 </div>
 
 ---
@@ -138,15 +139,16 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(5) { border-left-color: #37474f; }
   .columns-3 .card:nth-child(6) { border-left-color: #f4511e; }
   h2 { margin-bottom: 0.4em; }
+  .tier { font-size: 0.85em; color: #888; margin-top: 0.3em; }
 </style>
 
 <div class="columns-3">
-<div class="card"><strong>security-auditor</strong><br/>OWASP-structured review. Auth, secrets, injection, privilege escalation.</div>
-<div class="card"><strong>adr-generator</strong><br/>Writes decision records. Captures the why behind architectural choices.</div>
-<div class="card"><strong>adr-drift-detector</strong><br/>Audits codebase compliance against Architecture Decision Records.</div>
-<div class="card"><strong>perf-analyst</strong><br/>Profiles CPU, memory, and latency hotspots. Returns a measured findings brief; does not implement fixes.</div>
-<div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing. Pre-flight gates, version bump, tag, deploy, post-deploy verification.</div>
-<div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review. CVE scanning, license compliance, lockfile analysis across all ecosystems.</div>
+<div class="card"><strong>security-auditor</strong><br/>OWASP-structured review. Auth, secrets, injection, privilege escalation.<div class="tier">Default Tier: 3</div></div>
+<div class="card"><strong>adr-generator</strong><br/>Writes decision records. Captures the why behind architectural choices.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>adr-drift-detector</strong><br/>Audits codebase compliance against Architecture Decision Records.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>perf-analyst</strong><br/>Profiles CPU, memory, and latency hotspots. Returns a measured findings brief; does not implement fixes.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing. Pre-flight gates, version bump, tag, deploy, post-deploy verification.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review. CVE scanning, license compliance, lockfile analysis across all ecosystems.<div class="tier">Default Tier: 1</div></div>
 </div>
 
 ---

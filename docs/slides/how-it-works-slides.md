@@ -193,6 +193,10 @@ The main session agent decides for each task: handle it directly, or delegate to
 When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a review is cheap; the cost of a bad change is not.
 </div>
 
+<div class="callout">
+<strong>Tier declaration:</strong> Conductors declare <code>Tier: 1/2/3</code> when spawning. Tier 2 is the default - no change to existing spawns. Tier 1 = cheap/fast (Haiku). Tier 3 = max capability (Opus). Declaration is documentation; the <code>model</code> param in the Agent tool call is enforcement.
+</div>
+
 ---
 
 ## Under the hood - the agent team
