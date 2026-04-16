@@ -1492,7 +1492,9 @@
       "Write(**/context.md)",  "Edit(**/context.md)",
       "Write(**/memory*.md)",  "Edit(**/memory*.md)",
       "Write(**/.claude/*.md)","Edit(**/.claude/*.md)",
-      "Write(**/.claude/*.json)","Edit(**/.claude/*.json)"
+      "Write(**/.claude/*.json)","Edit(**/.claude/*.json)",
+      "Write(.claude/qa.md)",    "Edit(.claude/qa.md)",
+      "Write(.claude/findings.md)","Edit(.claude/findings.md)"
     ],
     "deny": [
       "Bash(git push --force*)",
@@ -1509,7 +1511,7 @@
     "defaultMode": "bypassPermissions"
   }
 }</code></pre>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/init-project</code> and <code>/wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, release.md, compression-state.json, plus their rolling snapshots). Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/init-project</code> and <code>/wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, release.md, compression-state.json, plus their rolling snapshots). The two exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>) exist because the <code>**/</code> prefix in the broader <code>.claude/*.md</code> glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> dir don't match - without these, <code>/init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
       </div>
     </div>
   </div>
