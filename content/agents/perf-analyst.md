@@ -2,7 +2,6 @@
 name: perf-analyst
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
-model: claude-sonnet-4-6
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.

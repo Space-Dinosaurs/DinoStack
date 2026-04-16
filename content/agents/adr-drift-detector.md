@@ -2,7 +2,6 @@
 name: adr-drift-detector
 description: Audits codebase compliance against Architecture Decision Records (ADRs). Invoke when the user mentions ADR compliance, architecture drift, "does code match ADRs", architectural audit, or wants to verify decisions are being followed. Automatically finds ADRs, extracts decisions, searches code for evidence, and produces a structured drift report.
 tools: Read, Bash, Grep, Glob
-model: claude-sonnet-4-5
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.

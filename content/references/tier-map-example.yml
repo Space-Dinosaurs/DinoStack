@@ -1,0 +1,22 @@
+# Provider tier maps for cost-aware routing - Codex and Gemini only.
+# Claude Code uses a built-in enum (haiku/sonnet/opus); no tier-map lookup needed.
+# Tier 1 = cheap/fast, Tier 2 = balanced, Tier 3 = max capability.
+#
+# Location precedence:
+#   1. .agentic/tier-map.yml (project root - project-specific overrides)
+#   2. ~/.agentic/tier-map.yml (user-global - set by install.sh)
+#   3. Bundled adapter defaults (hardcoded fallback)
+#
+# To update: edit the file and restart the session. No rebuild needed.
+
+codex:
+  tiers:
+    1: gpt-4o-mini
+    2: gpt-4o
+    3: o3
+
+gemini:
+  tiers:
+    1: gemini-2.0-flash
+    2: gemini-2.0-pro
+    3: gemini-ultra-2

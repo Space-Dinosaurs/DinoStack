@@ -250,6 +250,37 @@ print("  settings.json written.")
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Step 7: Write tier-map defaults for Gemini if not already present
+# ---------------------------------------------------------------------------
+
+mkdir -p "$HOME/.agentic"
+TIER_MAP="$HOME/.agentic/tier-map.yml"
+if [ ! -f "$TIER_MAP" ]; then
+  cat > "$TIER_MAP" << 'TIEREOF'
+# Provider tier maps for cost-aware routing
+# Tier 1 = cheap/fast, Tier 2 = balanced, Tier 3 = max capability
+gemini:
+  tiers:
+    1: gemini-2.0-flash
+    2: gemini-2.0-pro
+    3: gemini-ultra-2
+TIEREOF
+  echo "Created $TIER_MAP with Gemini defaults"
+elif ! grep -q "^gemini:" "$TIER_MAP"; then
+  cat >> "$TIER_MAP" << 'TIEREOF'
+
+gemini:
+  tiers:
+    1: gemini-2.0-flash
+    2: gemini-2.0-pro
+    3: gemini-ultra-2
+TIEREOF
+  echo "Added Gemini section to $TIER_MAP"
+else
+  echo "Gemini section already present in $TIER_MAP"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

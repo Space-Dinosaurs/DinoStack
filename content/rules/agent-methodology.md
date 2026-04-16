@@ -159,6 +159,37 @@ Risk: Elevated + Cleanup - [specific signal]
 Applying adversarial review with /simplify cleanup pass.
 ```
 
+### Tier declaration
+
+Conductors declare the model tier at spawn time to route lightweight tasks to faster models and critical reviews to max-capability models. Tier is declared in the same block as Risk, immediately below the Risk line.
+
+**Declaration format:**
+```
+Risk: Elevated - security adversarial brief
+Tier: 3  (max capability - security audit needs Opus)
+Spawning security-auditor.
+```
+
+**Default:** Tier 2. When no tier is declared, no model override is passed and the agent inherits the session model (Sonnet-equivalent). Most spawns are Tier 2 - omit the declaration entirely.
+
+**Model param mapping (Claude Code):**
+
+| Tier | Claude Code `model` param | Use when |
+|---|---|---|
+| 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
+| 2 | omit (session default) | Standard work - engineer, investigator, skeptic at normal depth |
+| 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
+
+**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
+
+**When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
+
+**When to declare Tier 3:** task demands maximum capability - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Tier 3 costs significantly more; include a justification parenthetical.
+
+**Codex/Gemini:** Conductor resolves tier from `~/.agentic/tier-map.yml` and passes `--model <name>` on the CLI invocation. See `content/references/tier-map-example.yml` for the tier-map format.
+
+For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
+
 ## Post-sign-off finding promotion
 
 After Skeptic sign-off on any Elevated task (and after any QA gate), the conductor performs a promotion check. If any Major or Critical finding from the completed task represents a recurring pattern (seen 2+ times in this project) or is novel but has outsized blast radius (data loss, security, production outage class), add or update an entry in `.claude/findings.md`. This rule fires after every Skeptic sign-off in any context - not only inside `/implement-ticket`. Full promotion criteria, entry format, and who reads the file: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.

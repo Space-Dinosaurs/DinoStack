@@ -385,6 +385,8 @@ The Subagent Protocol does not replace The Skeptic Protocol — it provides the 
 
 When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `agent-methodology.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
 
+For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (`haiku` for Tier 1, `opus` for Tier 3). This param is omitted for Tier 2 (default). Codex/Gemini: pass `--model <resolved-name>` from tier-map.yml. The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
+
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
 ---
