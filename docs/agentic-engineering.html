@@ -701,46 +701,23 @@
 
 <!-- ═══ ORIENTATION: How to tell the protocol is running ═══ -->
 <div id="signals" class="section persistence-layer">
-  <div class="section-title"><h2>Is It Working?</h2><h3>The conductor narrates delegations - signal vocabulary for first-time users</h3></div>
+  <div class="section-title"><h2>Is It Working?</h2><h3>The protocol is passive. You know it's running when you see narration like this.</h3></div>
 
-  <p class="desc">The protocol is observational by design. There is no dashboard, no progress bar, no daemon you start. The main session agent (the <strong>conductor</strong>) classifies each task, delegates to named specialists in the background, and narrates what it is doing in plain English as it goes. If you see the phrases below, it is running.</p>
+  <p class="desc">There is no dashboard and no daemon. The session agent classifies each task and delegates in the background, narrating as it goes. If you see phrases like these, it's working.</p>
 
   <div class="code-block">
     <span class="cb-label">example session narration</span>
-    <span class="cb-comment"># Example narration you will see in your Claude Code session</span><br>
-    <span class="cb-keyword">Routing this through orchestration-planner first</span> <span class="cb-comment">- multiple phases involved.</span><br>
-    <span class="cb-keyword">Spawning architect</span> <span class="cb-comment">to produce a plan before any code lands.</span><br>
-    <span class="cb-keyword">Architect returned a plan</span><span class="cb-comment">; passing it to engineer to execute.</span><br>
-    <span class="cb-keyword">Spawning engineer</span> <span class="cb-comment">to implement the cache layer in an isolated worktree.</span><br>
-    <span class="cb-keyword">Handing off to skeptic</span> <span class="cb-comment">for adversarial review before sign-off.</span><br>
-    <span class="cb-keyword">Spawning debugger</span> <span class="cb-comment">on the failing test to diagnose root cause.</span><br>
-    <span class="cb-keyword">QA engineer verifying</span> <span class="cb-comment">acceptance criteria in the browser.</span><br>
-    <span class="cb-keyword">[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</span>
-  </div>
-
-  <div class="rel-grid" style="margin-top: 18px;">
-    <div class="rel-card">
-      <h4>What each phrase means</h4>
-      <ul>
-        <li><strong>orchestration-planner</strong> - the task spans multiple phases or agents; the planner decides the sequence before work begins.</li>
-        <li><strong>architect</strong> - a structured plan is being produced before any file is written. Plans are Skeptic-reviewed.</li>
-        <li><strong>engineer</strong> - the only agent that writes code. Runs in the background, usually in an isolated worktree.</li>
-        <li><strong>skeptic</strong> - adversarial review. Classifies findings as Critical, Major, or Minor. Nothing meaningful merges without a sign-off.</li>
-      </ul>
-    </div>
-    <div class="rel-card">
-      <h4>And the rest of the roster</h4>
-      <ul>
-        <li><strong>debugger</strong> - given a failing test or stack trace, finds the root cause and writes a fix brief. Never edits code itself.</li>
-        <li><strong>qa-engineer</strong> - runtime verification against acceptance criteria; uses a real browser when UI is in scope.</li>
-        <li><strong>investigator</strong> - maps unfamiliar code before a plan is drafted.</li>
-        <li><strong>[loop: ...]</strong> breadcrumbs - the Skeptic or QA fix loop is iterating. Caps at 3 passes, then escalates to you.</li>
-      </ul>
-    </div>
+    <span class="cb-keyword">Routing this through orchestration-planner first...</span><br>
+    <span class="cb-keyword">Spawning architect to produce a plan...</span><br>
+    <span class="cb-keyword">Handing the architect's plan to engineer...</span><br>
+    <span class="cb-keyword">Spawning engineer to implement the cache layer...</span><br>
+    <span class="cb-keyword">Handing off to skeptic for adversarial review...</span><br>
+    <span class="cb-keyword">Spawning debugger on the failing test...</span><br>
+    <span class="cb-keyword">QA engineer verifying acceptance criteria in the browser...</span>
   </div>
 
   <div class="note">
-    <strong>If you see none of this</strong>, the task was classified <strong>Direct action</strong> - small, reversible, handled in the main thread without a subagent. That is the protocol working correctly on a cheap task, not a sign that it is off. The roster itself is covered in detail in <a href="#agents">Agent Layer</a> below.
+    <strong>If you see none of this</strong>, the task was classified as a small, reversible <strong>Direct action</strong> and handled in the main thread without a subagent. That is the protocol working correctly on a cheap task, not a sign that it is off.
   </div>
 </div>
 
