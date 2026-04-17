@@ -15,3 +15,6 @@ node_modules/
 
 # Local agent config (project-level tier-map and task state)
 .agentic/
+
+# Local-only brainstorming / scratchpads
+docs/brainstorm/
