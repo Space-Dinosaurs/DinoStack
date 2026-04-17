@@ -231,7 +231,7 @@ The stop hook is the safety net - you always get <em>something</em>. <code>/wrap
 </div>
 
 <div class="callout">
-Close the session with <code>/exit</code> rather than ctrl+c, so the Stop hook can finish writing <code>context.md</code> cleanly. ctrl+c can interrupt the hook and lose session state.
+Close the session cleanly so the Stop hook can finish writing <code>context.md</code>. In the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state). In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.
 </div>
 
 ---

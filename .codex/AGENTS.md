@@ -424,7 +424,7 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 
 **Session startup:** Read `context.md` as the first action of every session - standalone, never in parallel with other tool calls.
 
-**Session context** is auto-written by the Stop hook to `~/.claude/projects/[hash]/context.md` after every agent turn. `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session with `/exit` rather than ctrl+c, so the Stop hook can finish writing `context.md` cleanly.
+**Session context** is auto-written by the Stop hook to `~/.claude/projects/[hash]/context.md` after every agent turn. `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)

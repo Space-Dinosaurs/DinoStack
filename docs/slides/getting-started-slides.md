@@ -198,7 +198,7 @@ When the goal is done - or clearly won't be done today - run `/wrap`. It does th
 </div>
 
 <div class="callout">
-After <code>/wrap</code>, close the session with <code>/exit</code> rather than ctrl+c, so the Stop hook can finish writing <code>context.md</code> cleanly.
+After <code>/wrap</code>, close the session cleanly. In the terminal CLI, use <code>/exit</code> rather than ctrl+c. In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally.
 </div>
 
 ---

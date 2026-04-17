@@ -2,13 +2,38 @@
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
 
-The Stop hook auto-writes `~/.claude/projects/[hash]/context.md` after every turn with raw session data. `/wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/init-project`: where `/init-project` scaffolds the AGENTS.md hierarchy, `/wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
+The Stop hook auto-writes `<cwd>/.agentic/context.md` after every turn with raw session data. `/wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/init-project`: where `/init-project` scaffolds the AGENTS.md hierarchy, `/wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
 
 ## Your job (main agent)
 
+**Pre-flight scaffold-accuracy check** (runs BEFORE Step 0). `/init-project` is the canonical scaffolding spec; /wrap uses it as the reference for "what this project should look like." Check for drift and auto-migrate the critical items inline:
+
+1. **CLAUDE.md → AGENTS.md migration** (per-file, recursive through tracks). For each `CLAUDE.md` in the project (root + every track directory) where a sibling `AGENTS.md` does not already exist:
+   - `cp <dir>/CLAUDE.md <dir>/AGENTS.md` to preserve content.
+   - Overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` so Claude Code transparently loads the new file.
+   - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched).
+
+2. **`.claude/` → `.agentic/` session state migration.** If `<cwd>/.claude/context.md` exists and `<cwd>/.agentic/context.md` does not:
+   - `mkdir -p <cwd>/.agentic`
+   - `mv <cwd>/.claude/context.md <cwd>/.agentic/context.md`
+   - Same for `<cwd>/.claude/memory.md` and `<cwd>/.claude/memory/` (the auto-memory dir).
+   - Redo symlinks in `~/.claude/projects/[hash]/` to point at the new `.agentic/` paths.
+
+3. **Missing-stub creation.** If any of `.claude/findings.md`, `.claude/tracking.md`, `.claude/deploy.md` (only when release signals detected) is missing, create a stub per the template in `/init-project` Steps 6a–6d.
+
+4. **Silent auto-fix for remaining drift.** /wrap is silent and hands-off. For any drift /wrap can fix without user input, fix it inline:
+   - Create `docs/overview/`, `docs/technical/`, `docs/planning/`, `docs/research/` (with `.gitkeep`) if missing.
+   - Create `.claude/settings.json` (`{}`) if missing.
+   - Create `.claude/settings.local.json` with `autoMemoryDirectory` set to `<cwd>/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value).
+   - Create `.gitignore` entries for `.claude/settings.local.json` and `.agentic/` if missing.
+
+5. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /wrap. Instead, record a bullet under "Watch Out For" in the context.md output noting which scaffolding items are still incomplete. The user can address these later by running `/init-project` interactively.
+
+All steps are silent on success. Log each migration action taken (e.g. "Migrated admin/CLAUDE.md to admin/AGENTS.md + pointer") to the wrap run output only, not as user prompts. After preflight completes, proceed to Step 0.
+
 **Pre-flight check — no active Workers.** Before doing anything else, check whether any background Workers or subagents are currently running. If any are, stop and tell the user: "Cannot run /wrap while background tasks are active. Please wait for them to finish (or stop them) first." Do not proceed until confirmed.
 
-**Multi-hash-dir check:** Run `ls ~/.claude/projects/` and enumerate every subdirectory whose name matches the current project slug. The slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended (e.g. cwd `/Users/alice/myapp` → slug `-Users-alice-myapp`). Because Claude Code versions differ in whether they preserve or replace `.` in usernames, also match the variant where every `.` in the slug is replaced by `-`. List all matching subdirectory names now. If more than one matches, record them all — Step 4 Part A will apply its disambiguation rules at write time.
+**Pre-flight path check:** Confirm `<cwd>/.agentic/` exists or can be created. The /wrap skill now writes project-local under `<cwd>/.agentic/` instead of the legacy `~/.claude/projects/[hash]/` hashed directories. No disambiguation needed - one canonical location per project.
 
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
 
@@ -242,28 +267,11 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 **Project directory:** [absolute cwd]
 
-**Output path (context.md):** Do not attempt to compute the hash manually. Use the candidate list enumerated in the pre-flight multi-hash-dir check above (re-run `ls ~/.claude/projects/` now if that check was skipped). Apply the rules below to pick exactly one candidate directory.
+**Output path (context.md):** `<cwd>/.agentic/context.md`. Project-local. The file lives next to the code it describes and is gate-free (no sensitive-file check). The Stop hook writes to the same path. Create the `<cwd>/.agentic/` directory if it does not exist.
 
-**Slug and variant matching:** The project slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended. Also form a second variant where every `.` in the slug is replaced by `-`. A subdirectory is a candidate if its name equals either variant. Collect all candidates.
+**Memory path (memory.md):** `<cwd>/.agentic/memory.md`. Same directory as context.md.
 
-**Zero candidates:** No project hash dir exists yet. Use the literal-slug variant as the write path — Claude Code will create it on next write.
-
-**One candidate:** Use it. This is the common case.
-
-**Two or more candidates:** Pick the one the live Stop hook writes to, using these rules in order:
-
-- **Rule 4a — Auto-memory split convention.** For each candidate, check whether a `MEMORY.md` exists at the candidate root or at `memory/MEMORY.md` inside it. If any such file explicitly documents which variant receives `context.md` (e.g. a line stating "context.md is written to the dot-preserved variant"), follow that documented convention. Use the `cat` or Read tool to inspect the file content and scan for the guidance.
-- **Rule 4b — Most recent context.md mtime.** If no split convention is documented, inspect each candidate's `context.md` file (if present). Select the candidate whose `context.md` has the most recent mtime. Use `stat -f "%m %N"` on macOS or `stat -c "%Y %n"` on Linux; sort descending; take the first. The Stop hook writes a new context.md after every agent turn, so the live-session dir is always the most recently touched.
-- **Rule 4c — No context.md in any candidate.** If no candidate has a context.md, select the candidate whose directory mtime is most recent (same `stat` approach, applied to the directory itself).
-- **Never** pick based on `compression-state.json`, `memory.md`, or `memory/` subdirectory presence — those files may have been written by a previous /wrap run to the wrong dir and are not a reliable signal of the live Stop hook target.
-
-**Log the decision.** When picking from multiple candidates, state in user-visible text at this step which directory was selected and which rule fired. Example: "Two project hash dirs found; picked `-Users-tyson.hummel-Documents-myapp` because its context.md mtime is 2 minutes newer than the other candidate."
-
-**Relocate stale compression-state.json if needed.** If the selected candidate differs from any `compression-state.json` target path referenced earlier in the /wrap run (from Step 0), update the target path entries in compression-state.json to point at the selected candidate's paths before writing. Remove the old stale entries.
-
-The context.md path is `~/.claude/projects/[selected-candidate]/context.md`.
-
-**Memory path (memory.md):** Same directory as context.md identified above, filename `memory.md`. Use the same candidate directory identified for context.md above — the two files must live in the same hash dir to avoid split state. Do NOT pick memory.md's dir independently.
+**Migration note:** Earlier versions of this skill wrote to `~/.claude/projects/[hash]/{context,memory}.md`. If those files exist for the current project but the project-local files do not, copy them once into `<cwd>/.agentic/` before merging. Symlinks at the old hashed location pointing at the new project paths are acceptable - they preserve any platform mechanism that auto-loads from the legacy path while keeping writes gate-free.
 
 **Part A — Write context.md**
 
@@ -438,4 +446,4 @@ Relay confirmation to the user. Include all paths written (context.md, memory.md
 
 Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
 
-**Final reminder:** After `/wrap` completes, close the session with `/exit` rather than ctrl+c, so the Stop hook can finish writing `context.md` cleanly. ctrl+c can interrupt the hook and lose session state.
+**Final reminder:** After `/wrap` completes, close the session cleanly so the Stop hook can finish writing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting.

@@ -1416,7 +1416,7 @@
       <li><code>memory.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
       <li><code>AGENTS.md</code> files hold the canonical project description (structure, tools, conventions).</li>
       <li>The Stop hook auto-writes a basic context.md every turn; <code>/wrap</code> produces the enriched version when detail matters.</li>
-      <li>Close the session with <code>/exit</code> rather than ctrl+c, so the Stop hook can finish writing <code>context.md</code> cleanly. ctrl+c can interrupt the hook and lose session state.</li>
+      <li>Close the session cleanly so the Stop hook can finish writing <code>context.md</code>: in the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state); in the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.</li>
     </ul>
   </div>
 </div>
