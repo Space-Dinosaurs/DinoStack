@@ -27,7 +27,7 @@ Your spawn prompt will contain three things:
 ## Evaluation process
 
 1. Read the adversarial brief. Internalize the specific attack surface or failure scenario it describes.
-2. **Known anti-patterns check** - if `.claude/findings.md` exists in the project root, read it now. Treat each entry as a documented anti-pattern. If the diff repeats any pattern described there, raise it as a **Major** finding: `Repeats documented pattern from .claude/findings.md: [category name].`
+2. **Known anti-patterns check** - if `.claude/findings.md` exists in the project root, read it now. ALSO read `<track>/.claude/findings.md` for any track directory the diff touches (track-level findings are rare but supplement root for track-isolated patterns). Treat each entry as a documented anti-pattern. If the diff repeats any pattern described there, raise it as a **Major** finding: `Repeats documented pattern from .claude/findings.md: [category name].`
 3. Read the Worker output in full. If file paths are given, read those files now.
    Work through two stages: first, check spec compliance (does it do what was asked, does it match the task requirements?). Second, check code quality (logic errors, edge cases, missing error handling). Surface spec compliance issues first in your findings - they are the most actionable and a spec compliance failure can make code quality findings moot.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.

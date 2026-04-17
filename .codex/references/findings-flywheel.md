@@ -49,7 +49,7 @@ A test that passes even without the fix does not count. The Worker should confir
 
 ### What `.claude/findings.md` is
 
-A project-level file that accumulates finding patterns. It is not a log of every finding — it is a curated set of recurring or high-impact patterns that should shape future work. The file lives at `.claude/findings.md` alongside `.claude/qa.md` and `.claude/work-tracking.md`.
+A project-level file that accumulates finding patterns. It is not a log of every finding — it is a curated set of recurring or high-impact patterns that should shape future work. The file lives at `.claude/findings.md` alongside `.claude/qa.md` and `.claude/tracking.md`.
 
 Entries are short. A single entry answers: what is the pattern, where does it tend to appear, and how should it be avoided going forward.
 

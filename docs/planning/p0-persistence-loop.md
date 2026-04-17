@@ -356,7 +356,7 @@ Per MEMORY.md, adding a new protocol primitive requires auditing 7 surfaces. Aud
 
 5. **SKILL.md** - No update needed. SKILL.md provides the on-demand methodology summary for non-Claude adapters. The persistence loop is an orchestration detail within `/implement-ticket`; it does not change agent roster, named agent definitions, or the summary that SKILL.md delivers.
 
-6. **init-project.md** - No update needed. init-project.md scaffolds project structure at setup time (AGENTS.md, release.md, qa.md). It does not reference loop behavior or session-time orchestration.
+6. **init-project.md** - No update needed. init-project.md scaffolds project structure at setup time (AGENTS.md, deploy.md, qa.md). It does not reference loop behavior or session-time orchestration.
 
 7. **wrap.md** - No update needed. wrap.md captures stable session facts and promotes findings at wrap time. Loop state is in-context only (cross-session persistence is P2 scope), so wrap.md has nothing new to capture from the loop.
 

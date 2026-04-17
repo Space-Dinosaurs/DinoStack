@@ -122,10 +122,13 @@ function run() {
 
   const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
 
-  // --- 4. Compute path hash ---
-  // Replace every '/' with '-'. Leading '-' is intentional per convention.
-  const hash = cwd.replace(/\//g, '-');
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', hash);
+  // --- 4. Compute output path ---
+  // Write context.md to the project's .agentic/ directory. Claude Code treats
+  // any .claude/ directory (project-local OR global) as a sensitive file
+  // location, so writing there still triggers the permission prompt even when
+  // allow rules are set. .agentic/ is the same convention already used for
+  // loop-state.json and is not subject to that check.
+  const projectDir = path.join(cwd, '.agentic');
   const outputPath = path.join(projectDir, 'context.md');
 
   // --- 5. Extract recent user messages (last 3, truncated to ~150 chars) ---

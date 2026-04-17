@@ -277,7 +277,7 @@ blockquote {
   font-style: italic;
 }
 ;" data-marpit-pagination-total="8">
-<h2 id="the-problem-work-trackingmd-solves">The problem work-tracking.md solves</h2>
+<h2 id="the-problem-work-trackingmd-solves">The problem tracking.md solves</h2>
 
 <p>Every project tracks work differently:</p>
 <ul>
@@ -287,7 +287,7 @@ blockquote {
 <li>Baking <em>nothing</em> in means every session re-explains &quot;how do we track work here?&quot;</li>
 </ul>
 <div class="callout">
-<code>.claude/work-tracking.md</code> is the protocol's pressure release: project-level, free-form instructions the orchestration-planner reads and follows verbatim.
+<code>.claude/tracking.md</code> is the protocol's pressure release: project-level, free-form instructions the orchestration-planner reads and follows verbatim.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="3" data-marpit-scope-nmejCtrc="" data-paginate="true" data-theme="default" data-style="section {
@@ -425,12 +425,12 @@ blockquote {
 ;" data-marpit-pagination-total="8">
 <h2 id="where-it-lives-and-who-reads-it">Where it lives and who reads it</h2>
 
-<p>File: <code>.claude/work-tracking.md</code> at the project root.</p>
+<p>File: <code>.claude/tracking.md</code> at the project root.</p>
 <p>Reader: the <strong>orchestration-planner</strong> agent, during step 7 of its planning process:</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Check if .claude/work-tracking.md exists in the project root.
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Check if .claude/tracking.md exists in the project root.
 If it does, read it and follow its instructions.
 </code></pre>
-<p>The planner is otherwise strictly read-only. <code>work-tracking.md</code> is the <strong>one file</strong> that can instruct it to run commands (curl a ticket API, update a status, post a comment).</p>
+<p>The planner is otherwise strictly read-only. <code>tracking.md</code> is the <strong>one file</strong> that can instruct it to run commands (curl a ticket API, update a status, post a comment).</p>
 <div class="callout">
 No file = no tracker actions. The protocol degrades cleanly for projects that don't care.
 </div>
@@ -873,7 +873,7 @@ blockquote {
 ;" data-marpit-pagination-total="8">
 <h2 id="example---a-project-with-no-external-tracker">Example - a project with no external tracker</h2>
 
-<p>Not every project has Linear or Jira. <code>work-tracking.md</code> can point at anything:</p>
+<p>Not every project has Linear or Jira. <code>tracking.md</code> can point at anything:</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-markdown"><span class="hljs-section"># Work Tracking</span>
 
 No external tracker. Work is captured in docs/worklog.md.

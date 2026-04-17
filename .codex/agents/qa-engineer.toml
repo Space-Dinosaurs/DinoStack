@@ -33,6 +33,8 @@ If the prompt is minimal (just a URL and "check if this works"), operate in smok
 
 Before asking for a URL, check for `.claude/qa.md` in the project root. This file can provide dev server setup and URLs automatically.
 
+**Multi-track resolution.** If the root `.claude/qa.md` is an index (lists tracks with pointers to per-track qa.md files rather than containing a `command:` / `port:` of its own), identify which track the change under review touches. Use the diff's file paths as the signal: if the diff touches `admin/`, read `admin/.claude/qa.md`; if it touches `backend/` (non-UI), there may be no qa.md and you should report NEEDS_CONTEXT. When the diff spans multiple tracks, prefer the track that owns the most visible behavioral change - or report NEEDS_CONTEXT if unclear. Always prefer the most-specific qa.md (track > root-index).
+
 ```markdown
 # QA Config
 ## Dev server
