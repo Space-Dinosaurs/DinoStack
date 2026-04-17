@@ -1,5 +1,7 @@
 # /representation-audit
 
+> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+
 Performs a periodic prose quality pass over methodology files to surface Python-shaped writing and propose cleaner natural-language rewrites.
 
 **When to use:** After any substantial methodology addition, or quarterly. This command is analysis only. It writes a rewrite proposal document and stops. No methodology files are changed. Actual rewrites go through `/update-agentic-engineering` separately, one candidate at a time.

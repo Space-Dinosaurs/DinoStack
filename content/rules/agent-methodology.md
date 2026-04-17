@@ -1,3 +1,25 @@
+## Activation preflight
+
+Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to two file reads with no subagent spawn and no LLM reasoning.
+
+1. **Read the global mode.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`.
+2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
+3. **Scan for the marker line.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
+   - `agentic-engineering: opt-in`
+   - `agentic-engineering: opt-out`
+   If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
+4. **Activation decision.**
+   - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
+   - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
+   - Any other combination (including `marker=none` with `mode=opt-out`, or `marker=opt-in` with `mode=opt-in`) - proceed with the methodology.
+5. **When no-opping, print one line and stop:**
+   `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
+   Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
+
+**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
+
+**Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
+
 ## Delegation
 
 **The main session agent is a conductor, not a player.** It stays lightweight, available, and responsive to the user at all times. All substantial work is delegated to subagents.

@@ -1,5 +1,7 @@
 # /skeptic - The Skeptic Protocol Invocation
 
+> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+
 Orchestrate adversarial review for `$ARGUMENTS`. The main agent drives the loop: spawn Worker, spawn Skeptic, route findings, repeat until sign-off.
 
 ## Your job (main agent)

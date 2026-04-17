@@ -2,6 +2,10 @@
 
 # /init-project
 
+> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+>
+> Additional activation behavior for this command: see Step 0 "Global activation mode" below.
+
 Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, and gitignore.
 
 <!-- Risk-tier note: this command performs discovery, confirmation, and scaffolding only. It does not emit or classify risk-tier vocabulary (Trivial, Low, Elevated). No Trivial-tier addition is needed here. -->
@@ -11,7 +15,32 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 ### 0. Run discovery
 
-Before prompting for anything, silently scan the project to derive as many configuration values as possible.
+**0a. Global activation mode** — read this before any other discovery work.
+
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`.
+
+- **If `mode=opt-in`**: prompt the user before doing any scaffolding:
+
+  > "agentic-engineering is installed in opt-in mode. Activate it for this project? [Y/n]"
+
+  Accept `y` / `yes` / `1` / empty (Enter) as **yes**. Accept `n` / `no` / `2` as **no**.
+
+  - On **yes**: ensure the `AGENTS.md` scaffolded below contains an `agentic-engineering: opt-in` marker. If the template already has an `## Activation` section, use it. Otherwise add one line near the top of `AGENTS.md`:
+
+    ```markdown
+    ## Activation
+    agentic-engineering: opt-in
+    ```
+
+  - On **no**: stop `/init-project` here. Print: "Skipped - no scaffolding written. Rerun `/init-project` to activate later, or set `--mode=opt-out` via a reinstall." Exit.
+
+- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use agentic-engineering by default. Add `agentic-engineering: opt-out` to `AGENTS.md` to disable it in this project."
+
+- **If the config file is missing or malformed**: treat as `mode=opt-out` and proceed without prompting (back-compat with pre-feature installs).
+
+This step runs before Step 0 discovery below because an opt-in decline should short-circuit the entire command.
+
+**0b. Project discovery** — once activation is resolved, silently scan the project to derive as many configuration values as possible.
 
 **Project name** — check in order: `package.json` `.name` (strip leading `@scope/`); `pyproject.toml` `[project] name`; `Cargo.toml` `[package] name`; `go.mod` module path last segment; `build.gradle`/`settings.gradle` `rootProject.name`; git remote origin URL last path segment (strip `.git`); current directory basename. First match wins. Steps 1–5 = high confidence; steps 6–7 = low confidence (annotate as "(inferred)").
 
@@ -696,3 +725,4 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
+13. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, add `agentic-engineering: opt-out` to `AGENTS.md` (under `## Activation` or as a bare line near the top). *(If global mode was `opt-in` and the user activated)* This project has `agentic-engineering: opt-in` in `AGENTS.md`; remove that line to deactivate here later.

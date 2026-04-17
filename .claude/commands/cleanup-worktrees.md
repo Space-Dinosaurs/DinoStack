@@ -2,6 +2,8 @@
 
 # /cleanup-worktrees
 
+> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+
 Clean up stale git worktrees and local branches in the current repository.
 
 Use proactively after finishing a task, when a PR is merged, when worktrees are accumulating, or any time you want to confirm the repo is in a clean state. Also invoke when the user says "prune worktrees", "clean up branches", "tidy the repo", or "remove stale worktrees". Works in any git repo.
