@@ -79,6 +79,30 @@ A protocol for shipping software with AI agents
 
 ---
 
+## How to tell it's working
+
+<style scoped>
+  ul { font-size: 0.88em; }
+  ul li { margin: 0.25em 0; }
+  code { font-size: 0.92em; }
+  .callout { font-size: 0.85em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+The protocol is observational. The conductor narrates delegations as it runs - listen for phrases like:
+
+- `Routing this through orchestration-planner - multiple phases involved.`
+- `Spawning architect to produce a plan before any code lands.`
+- `Spawning engineer to implement the cache layer.`
+- `Handing off to skeptic for adversarial review.`
+- `Spawning debugger on the failing test.`
+- `QA engineer verifying acceptance criteria in the browser.`
+
+<div class="callout">
+No narration? The task was classified <strong>Direct action</strong> - handled in the main thread without a subagent. That is the protocol working, not off.
+</div>
+
+---
+
 ## What it is
 
 - A **portable methodology** for AI-assisted software development
