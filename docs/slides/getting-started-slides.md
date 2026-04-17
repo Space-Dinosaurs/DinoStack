@@ -100,6 +100,17 @@ The agent clones the repo, runs the installer, and walks you through optional to
 
 ---
 
+## Pick an activation mode
+
+The installer asks one question: how should the methodology activate across your projects?
+
+- **`opt-out` (default)** - active everywhere. Individual projects disable it by adding `agentic-engineering: opt-out` to their root `AGENTS.md`. Best for most users.
+- **`opt-in`** - dormant until a project's `AGENTS.md` contains `agentic-engineering: opt-in`. Best for trying the protocol in one project before rolling out everywhere.
+
+Press Enter at the prompt to accept the default, or pass `--mode=opt-in` / `--mode=opt-out` to the installer. The choice is saved to `~/.claude/agentic-engineering.json` and shared across all four adapters. Change it later by re-running any installer with a `--mode` flag.
+
+---
+
 ## Always run `claude` from the project directory
 
 The **current working directory is the project identity**. Claude Code keys every bit of persistence - memory, AGENTS.md, session history - to the cwd it was started from.
