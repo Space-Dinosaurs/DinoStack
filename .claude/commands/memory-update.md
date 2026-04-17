@@ -8,7 +8,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Immediately** spawn a background `general-purpose` Worker (`run_in_background: true`). Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
-**Before spawning:** Locate the MEMORY.md path from your auto-injected context. Claude Code injects a block at startup that says: "You have a persistent auto memory directory at `~/.claude/projects/[hash]/memory/`." Use that path to construct the full MEMORY.md path: `[memory_dir]/MEMORY.md`. Pass this path to the Worker as `$MEMORY_PATH`.
+**Before spawning:** Locate the MEMORY.md path from your auto-injected context. The canonical path is Memory lives in the project at `<cwd>/.agentic/memory/``. Construct the full MEMORY.md path: `<cwd>/.agentic/memory/MEMORY.md`. Pass this path to the Worker as `$MEMORY_PATH`.
 
 **What to pass as context:** A concise summary of the decision - 1-3 sentences covering what was decided, why, and any key tradeoffs.
 

@@ -23,7 +23,7 @@ You are a Worker agent. Implement the task fully and return your complete output
 
 **Context (REQUIRED - do not leave blank):** [Paste the relevant AGENTS.md sections, specs, schema, or file paths the Worker needs. Include the project AGENTS.md at minimum.]
 
-**Session context:** [Paste the content of `~/.claude/projects/[hash]/context.md` - the hash is the absolute project directory path with every `/` replaced by `-`.]
+**Session context:** [Paste the content of `<cwd>/.agentic/context.md`]
 
 The adversarial brief below will be used by the Skeptic reviewing your output. Write your implementation knowing you will be evaluated against it.
 

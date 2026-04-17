@@ -30,6 +30,10 @@ Your spawn prompt must contain:
 
 Read all four before starting. Do not infer a target environment or deploy command - require them explicitly.
 
+**Check `.claude/deploy.md` for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check if `.claude/deploy.md` exists in the project root. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
+
+**Multi-track resolution.** If the root `.claude/deploy.md` is an index (lists tracks with pointers to per-track deploy.md files), identify which track the release targets. Use the spawn prompt's target environment or the diff's file paths as the signal. When unclear, report NEEDS_CONTEXT with the detected candidate tracks listed. Always prefer the most-specific deploy.md (track > root-index).
+
 ## Pre-flight checklist
 
 Run every check in order. If any check fails, STOP immediately and report which gate failed and why. Do not proceed to the next phase. Do not attempt to fix the gate yourself.
