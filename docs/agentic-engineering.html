@@ -701,20 +701,21 @@
 
 <!-- ═══ ORIENTATION: How to tell the protocol is running ═══ -->
 <div id="signals" class="section persistence-layer">
-  <div class="section-title" data-num="00"><h2>Is It Working?</h2><h3>The conductor narrates delegations - signal vocabulary for first-time users</h3></div>
+  <div class="section-title"><h2>Is It Working?</h2><h3>The conductor narrates delegations - signal vocabulary for first-time users</h3></div>
 
   <p class="desc">The protocol is observational by design. There is no dashboard, no progress bar, no daemon you start. The main session agent (the <strong>conductor</strong>) classifies each task, delegates to named specialists in the background, and narrates what it is doing in plain English as it goes. If you see the phrases below, it is running.</p>
 
   <div class="code-block">
-<span class="cb-comment"># Example narration you will see in your Claude Code session</span>
-<span class="cb-keyword">Routing this through orchestration-planner first</span> <span class="cb-comment">- multiple phases involved.</span>
-<span class="cb-keyword">Spawning architect</span> <span class="cb-comment">to produce a plan before any code lands.</span>
-<span class="cb-keyword">Architect returned a plan</span><span class="cb-comment">; passing it to engineer to execute.</span>
-<span class="cb-keyword">Spawning engineer</span> <span class="cb-comment">to implement the cache layer in an isolated worktree.</span>
-<span class="cb-keyword">Handing off to skeptic</span> <span class="cb-comment">for adversarial review before sign-off.</span>
-<span class="cb-keyword">Spawning debugger</span> <span class="cb-comment">on the failing test to diagnose root cause.</span>
-<span class="cb-keyword">QA engineer verifying</span> <span class="cb-comment">acceptance criteria in the browser.</span>
-<span class="cb-keyword">[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</span>
+    <span class="cb-label">example session narration</span>
+    <span class="cb-comment"># Example narration you will see in your Claude Code session</span><br>
+    <span class="cb-keyword">Routing this through orchestration-planner first</span> <span class="cb-comment">- multiple phases involved.</span><br>
+    <span class="cb-keyword">Spawning architect</span> <span class="cb-comment">to produce a plan before any code lands.</span><br>
+    <span class="cb-keyword">Architect returned a plan</span><span class="cb-comment">; passing it to engineer to execute.</span><br>
+    <span class="cb-keyword">Spawning engineer</span> <span class="cb-comment">to implement the cache layer in an isolated worktree.</span><br>
+    <span class="cb-keyword">Handing off to skeptic</span> <span class="cb-comment">for adversarial review before sign-off.</span><br>
+    <span class="cb-keyword">Spawning debugger</span> <span class="cb-comment">on the failing test to diagnose root cause.</span><br>
+    <span class="cb-keyword">QA engineer verifying</span> <span class="cb-comment">acceptance criteria in the browser.</span><br>
+    <span class="cb-keyword">[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</span>
   </div>
 
   <div class="rel-grid" style="margin-top: 18px;">
