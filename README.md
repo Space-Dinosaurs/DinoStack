@@ -34,6 +34,38 @@ bash .claude/install.sh
 
 For other tools (Cursor, Codex, Gemini), see the install instructions in each adapter's README.
 
+## Installation modes
+
+agentic-engineering supports two global activation modes, chosen at install time and persisted in `~/.claude/agentic-engineering.json`:
+
+- **`opt-out` (default)** - the methodology is active in every project unless the project's root `AGENTS.md` contains the line `agentic-engineering: opt-out`. Best for most users: the protocol runs everywhere, and individual projects can opt out.
+- **`opt-in`** - the methodology is installed but dormant; it only runs in projects whose root `AGENTS.md` contains the line `agentic-engineering: opt-in`. Best for trying the protocol in one project before rolling it out everywhere.
+
+**Choosing a mode at install:** the installer prompts interactively. Accept the default (`opt-out`) with Enter, or pick `2` for `opt-in`. You can also pass the mode non-interactively:
+
+```
+bash .claude/install.sh --mode=opt-in
+bash .claude/install.sh --mode=opt-out
+```
+
+The same flag works for `.cursor/install.sh`, `.codex/install.sh`, and `.gemini/install.sh` - the config file is shared across adapters.
+
+**Per-project marker:** add a single line to the project's root `AGENTS.md`:
+
+```
+agentic-engineering: opt-in
+```
+
+or:
+
+```
+agentic-engineering: opt-out
+```
+
+Matching is case-insensitive. A leading `- ` (markdown list) is allowed. If both markers appear, the one appearing first wins and a warning is printed.
+
+**Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.
+
 ## Updating
 
 Ask your agent:

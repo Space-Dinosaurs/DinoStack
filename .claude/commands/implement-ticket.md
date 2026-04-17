@@ -2,6 +2,8 @@
 
 # Implement Ticket
 
+> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+
 Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
 ## Invocation

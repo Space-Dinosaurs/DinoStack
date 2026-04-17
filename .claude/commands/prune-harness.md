@@ -2,6 +2,8 @@
 
 # /prune-harness
 
+> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+
 Performs a periodic analysis pass over methodology files to surface deletion candidates - rules whose motivating assumptions have expired as Claude has become more capable.
 
 **When to use:** After each Claude model upgrade, or quarterly. This command is analysis only. It writes a proposal document and stops. No methodology files are changed. Actual deletions go through `/update-agentic-engineering` separately, one candidate at a time.
