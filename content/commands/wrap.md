@@ -33,6 +33,24 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 
 **Pre-flight check — no active Workers.** Before doing anything else, check whether any background Workers or subagents are currently running. If any are, stop and tell the user: "Cannot run /wrap while background tasks are active. Please wait for them to finish (or stop them) first." Do not proceed until confirmed.
 
+**Pre-flight lock acquisition.** /wrap writes to several shared project-local files (context.md, memory.md, AGENTS.md, findings.md, compression-state.json, rolling snapshots). Concurrent /wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:
+
+1. Ensure `<cwd>/.agentic/` exists (`mkdir -p <cwd>/.agentic`).
+2. Attempt atomic acquisition: `mkdir <cwd>/.agentic/wrap.lock` (atomic on POSIX - succeeds only if the directory did not exist).
+3. **If `mkdir` succeeds**, immediately write owner metadata: `<cwd>/.agentic/wrap.lock/owner` containing two lines - the current process PID and an ISO8601 UTC timestamp (e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`). Proceed.
+4. **If `mkdir` fails** (lock already held), read `<cwd>/.agentic/wrap.lock/owner`. Consider the lock stale if EITHER: (a) the PID is not running (`ps -p <pid>` returns non-zero), OR (b) the timestamp is older than 30 minutes. If stale, remove the lock dir (`rm -rf <cwd>/.agentic/wrap.lock`) and retry step 2 once. If the retry still fails, treat as live.
+5. **If the lock is live**, abort immediately. Tell the user: "Another /wrap run is in progress in this project (pid N, started at TIME). Wait for it to finish, then retry." Do not queue or wait. Do not proceed to any subsequent step.
+
+The 30-minute staleness heuristic exists because a crashed or force-killed /wrap may leave the lock dir behind - the PID check catches most cases, but the timestamp backstop covers PID reuse.
+
+**Lock release is mandatory on every exit path.** The lock dir MUST be removed (`rm -rf <cwd>/.agentic/wrap.lock`) before /wrap returns control to the user, on ALL of:
+- successful completion at Step 6;
+- escalation to the user at Step 3 (format re-invocation limit or contested finding);
+- compression failure or escalation at Part E;
+- any user-abort path (e.g. drift requiring input, Skeptic scope bail).
+
+If /wrap aborts before this lock step (e.g. at the active-Workers check above), no lock was acquired and no release is needed.
+
 **Pre-flight path check:** Confirm `<cwd>/.agentic/` exists or can be created. The /wrap skill now writes project-local under `<cwd>/.agentic/` instead of the legacy `~/.claude/projects/[hash]/` hashed directories. No disambiguation needed - one canonical location per project.
 
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
@@ -308,8 +326,6 @@ First, check how many session labels are already present in the existing file's 
 - **Watch Out For**: union both lists. Remove exact duplicate lines. If one had "None" and the other has real entries, use only the real entries.
 - **Tools Used**: combine both comma-separated lists, split by comma, trim whitespace, deduplicate, re-join as a single comma-separated list.
 
-Note: this skill does not prevent two sessions from running `/wrap` simultaneously. If that occurs, last-write-wins and one merged result will be silently overwritten.
-
 Write the merged result to disk. Return: "Merged context written to [path] (combined sessions)."
 
 **Part B — Write memory.md**
@@ -441,6 +457,8 @@ Otherwise skip that target silently.
 If the project is a git repository with a `/cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
 
 **Step 6 — Confirm completion.**
+
+Release the pre-flight lock: `rm -rf <cwd>/.agentic/wrap.lock`. This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
 
 Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and `.claude/findings.md` if Part D ran). Also include the cleanup summary if Step 5 ran.
 

@@ -79,7 +79,7 @@ Show only fields where a value was found. Omit fields with no detection. Annotat
 
 **Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or empty Enter) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 7, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
 
-Declinable features enumerated (each must be honored in every downstream step): project name (not declinable — required), description, tracks, database CLI, web UI, `gh`, tracker (Linear / Jira / neither), release, benchmarks, dep audit, **auto-memory pin** (new — declined via "no auto-memory" / "skip auto-memory pin"; suppresses Step 2a item 9, Step 7's `autoMemoryDirectory` write, and Step 12 reminder 10).
+Declinable features enumerated (each must be honored in every downstream step): project name (not declinable — required), description, tracks, database CLI, web UI, `gh`, tracker (Linear / Jira / neither), release, benchmarks, dep audit, **auto-memory pin** (new — declined via "no auto-memory" / "skip auto-memory pin"; suppresses Step 2a item 9, Step 7's `autoMemoryDirectory` write, and Step 12 reminder 12).
 
 When adding a new declinable feature to Step 1, extend the override grammar above AND wire the decline signal through every downstream step that prompts about or acts on that feature.
 
@@ -130,6 +130,8 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/qa.md` (only if web UI confirmed in Step 1)
 - `.claude/deploy.md` (only if release signals detected in Step 0)
 - `.claude/findings.md` - the findings flywheel's project-local anti-pattern log - always created empty, populated by `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle over time
+- `.claude/tracking.md` (only if a tracker was confirmed in Step 1)
+- `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
 - `memory/MEMORY.md` (created at `<cwd>/.agentic/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
 - `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
@@ -152,7 +154,7 @@ Already exists (will be left untouched or curated in place):
 
 **`.claude/settings.local.json` - always skip silently if it exists.** Do not ask. Do not overwrite. **Exception:** if the file exists but lacks the `autoMemoryDirectory` key, Step 2a item 9 will perform a narrow idempotent merge to add that single field without touching any other keys. See Step 2a item 9. Remind the user: "`.claude/settings.local.json` already exists and was left untouched - it may contain real secrets. Add any new env keys manually."
 
-**`AGENTS.md` (root) - if it exists, curate in place.** Do not skip. Do not overwrite wholesale. Read it and reorganize it to conform to the target structure (under 40 lines). See Step 3 for the curation process.
+**`AGENTS.md` (root) - if it exists, curate in place.** Do not skip. Do not overwrite wholesale. Read it and reorganize it to conform to the target structure (under 45 lines). See Step 3 for the curation process.
 
 **All other existing files - leave untouched.** Note them in the scan output. Do not ask. Do not overwrite.
 
@@ -202,6 +204,8 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 8. **`.claude/findings.md`** — if the file does not exist: plan to create it using the same stub template as Step 6b.
 
 9. **Auto-memory directory** — if the user declined auto-memory in Step 1 (`no auto-memory` / `skip auto-memory pin`): skip entirely. If `.claude/settings.local.json` already has `autoMemoryDirectory` set (to any value): leave it alone (idempotent — user's existing preference wins, even if it differs from the Step 0 selection). If the file exists but lacks the `autoMemoryDirectory` key: plan to merge it in using the selected path from Step 0 (do not overwrite other keys in the file). If the file does not exist: Step 7 handles creation with the key present. If auto-memory was declined but the key is already set on disk: leave it (do not remove — user's existing preference wins).
+
+10. **`.agentic/preferences.json`** — if the file does not exist: plan to create it with `{}` as content.
 
 **Present the diff:**
 
@@ -254,7 +258,7 @@ Read the existing `AGENTS.md` and identify two groups of content:
 - The target `AGENTS.md` structure below
 - Instruction to produce two artifacts: (1) the curated `AGENTS.md` content conforming to the target structure, (2) `MEMORY.md` entries for each memory candidate using format `- **YYYY-MM-DD:** [what and why, one-two sentences]` with today's date
 
-**Target `AGENTS.md` structure (under 40 lines):**
+**Target `AGENTS.md` structure (under 45 lines):**
 - H1: project name
 - One-paragraph description
 - `## Decisions` - resolved architecture decisions as brief bullets, no rationale paragraphs
@@ -263,9 +267,10 @@ Read the existing `AGENTS.md` and identify two groups of content:
 - `## Linear` OR `## Tracker` (preserve whichever is present — do not drop during curation)
 - `## Docs`
 - `## Conventions`
+- `## Session start` (tool-agnostic session-agent scaffolding check; see template block below)
 
 **Spawn a fresh Skeptic** after the Worker returns with this adversarial brief:
-> "Is the curated AGENTS.md under 40 lines? Does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
+> "Is the curated AGENTS.md under 45 lines? Does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
 
 Require sign-off format:
 ```
@@ -301,8 +306,25 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   ```
   Always include this section.
 - `## Conventions` - a single TODO bullet placeholder; filled in as the project evolves.
+- `## Session start` section - tool-agnostic instruction for the session agent to verify scaffolding on the first interaction of each new session:
+  ```markdown
+  ## Session start
+  - On the first interaction of a new session, silently check that `/init-project` scaffolding exists. Check each item only if its precondition holds:
+    - Root `AGENTS.md` has required sections (`## Tools`, `## Docs`, `## Conventions`, `## Session start`) - always check.
+    - `.claude/settings.json` - always check.
+    - `.claude/findings.md` - always check.
+    - `docs/{planning,research,technical,overview}/` - always check.
+    - Seeded `MEMORY.md` at `<cwd>/.agentic/memory/MEMORY.md` - always check.
+    - `.claude/qa.md` - only if this project has a web UI.
+    - `.claude/deploy.md` - only if release signals apply to this project.
+    - `.claude/tracking.md` - only if a tracker was confirmed during `/init-project`.
+  - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.claude/qa.md`, `[track]/.claude/deploy.md`) are out of scope for this session-start check - do not flag them.
+  - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6d creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
+  - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
+  - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or Enter defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
+  ```
 
-Keep it under 40 lines.
+Keep it under 45 lines.
 
 If the project shows parallel fan-out signals (3 or more distinct modules or tracks, complex orchestration history in git log, or prior multi-unit plans visible in docs/planning/), add a note in the scaffolded root AGENTS.md under `## Conventions`: "`.agentic/tasks.jsonl` is the task coordination surface for multi-unit orchestration plans."
 
@@ -468,6 +490,22 @@ Content template (Jira):
 Read by the `orchestration-planner` agent at plan time (step 7 of its brief). A missing `tracking.md` is non-fatal - the planner falls back to AGENTS.md's tracker section for basic metadata.
 
 **Track-level tracking.md is rare** - only create if the project genuinely has teams split across tracks with different Linear teams or Jira projects per track. Default is root-only.
+
+### 6d. Create `.agentic/preferences.json`
+
+Always create. No signal required - the session-start scaffolding check declared in the root `AGENTS.md` template needs a tool-agnostic place to persist its "never prompt again" preference. Only create if the file does not already exist.
+
+Seed with an empty object:
+
+```json
+{}
+```
+
+This is a tool-agnostic, gitignored preferences file read by session agents (the `.agentic/` directory is already gitignored by the block appended in Step 9, so no separate gitignore entry is needed). Currently it holds `skipScaffoldingCheck` (set to `true` when the user answers `never` to the session-start scaffolding prompt). Future session-level preferences may be added to this file.
+
+Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer - each developer's "never prompt again" preference is local to their checkout and does not leak to collaborators.
+
+**Write semantics for the `never` answer.** When the session agent writes `skipScaffoldingCheck`, it must read-modify-write: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, and write the merged object back. Do not clobber other keys.
 
 ### 7. Create `.claude/settings.local.json`
 
@@ -653,8 +691,8 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
 7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created (and therefore web UI was not declined)
-8a. *(If `.claude/deploy.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.claude/deploy.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
-8b. `.claude/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time.
-8. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
-9. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
-10. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
+8. *(If `.claude/deploy.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.claude/deploy.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
+9. `.claude/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time.
+10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
+11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
+12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
