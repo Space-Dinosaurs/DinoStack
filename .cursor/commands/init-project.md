@@ -31,7 +31,7 @@ Before prompting for anything, silently scan the project to derive as many confi
 
 **Dep-audit command** — derived from the package manager already detected in the Web UI pass. Map: `pnpm-lock.yaml` → `pnpm audit`; `yarn.lock` → `yarn audit`; `package-lock.json` or npm detected → `npm audit`; `requirements.txt`/`pyproject.toml` (poetry or pip) → `pip-audit`; `Cargo.lock` → `cargo audit`; `go.sum` → `govulncheck`. No lockfile detected = no signal (omit). This is a pure derivation from existing package manager detection — no extra scan needed.
 
-**Auto-memory hash dirs** — scan `~/.claude/projects/` for existing directories matching this project. The project slug is the absolute cwd with every `/` replaced by `-` and a literal `-` prepended (e.g. cwd `/Users/tyson/myproject` → slug `-Users-tyson-myproject`). Also form a second variant where every `.` in the slug is replaced by `-` (to match Claude Code's convention for paths containing dots). A subdirectory of `~/.claude/projects/` is a candidate if its name equals either variant. Record: count of candidates, each candidate's full path, each candidate's most-recent file mtime (use `stat` on files inside to find the newest). Selection rule: **0 candidates** = greenfield (the canonical slug path will be created by Claude Code on next session); use the dot-replaced variant as the canonical slug (matches Claude Code's own convention for paths containing dots). For cwds without dots the two variants are identical, so this is only load-bearing when the cwd contains a literal `.`. **1 candidate** = use it as-is; **2+ candidates** = silently select the one with the most recent file mtime (matches `/wrap`'s Rule 4b). The selected path becomes `~/.claude/projects/<selected-slug>/memory` — this is what gets written as `autoMemoryDirectory` in Step 7. Note: `autoMemoryDirectory` is **ignored** if set in the checked-in `.claude/settings.json` for security — it must be written to `.claude/settings.local.json` (the gitignored user-local file). Only Claude Code honors this setting; Codex/Cursor/Gemini adapters do not consume it.
+**Auto-memory directory** - memory lives at `<cwd>/.agentic/memory/`. This is project-local (not under the sensitive `.claude/` path) and not platform-hashed. `/init-project` writes this path as `autoMemoryDirectory` in Step 7. Note: `autoMemoryDirectory` is **ignored** if set in the checked-in `.claude/settings.json` for security - it must be written to `.claude/settings.local.json` (the gitignored user-local file). Only Claude Code honors this setting; Codex/Cursor/Gemini adapters do not consume it.
 
 ### 1. Present discovery results
 
@@ -68,7 +68,7 @@ Show only fields where a value was found. Omit fields with no detection. Annotat
 - "no gh" / "skip gh" → remove gh from Tools
 - "use Linear" / "set up Linear" / "use Jira" / "set up Jira" / "no tracker" → set tracker
 - "port is N" → override detected port
-- "no release" / "skip release" → clear release signal (suppresses `.claude/release.md` creation)
+- "no release" / "skip release" → clear release signal (suppresses `.claude/deploy.md` creation)
 - "no benchmarks" / "skip benchmarks" → clear benchmark signal
 - "no dep audit" / "skip dep audit" → clear dep-audit derivation
 - "no auto-memory" / "skip auto-memory pin" → clear autoMemoryDirectory signal (suppresses the Step 7 write and the Step 2a idempotent update)
@@ -126,9 +126,9 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/settings.json`
 - `.claude/settings.local.json`
 - `.claude/qa.md` (only if web UI confirmed in Step 1)
-- `.claude/release.md` (only if release signals detected in Step 0)
+- `.claude/deploy.md` (only if release signals detected in Step 0)
 - `.claude/findings.md` - the findings flywheel's project-local anti-pattern log - always created empty, populated by `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle over time
-- `memory/MEMORY.md` (created at `~/.claude/projects/[hash]/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
+- `memory/MEMORY.md` (created at `<cwd>/.agentic/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
 - `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
 
@@ -195,7 +195,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 6. **`.claude/qa.md`** — if web UI was confirmed **and the user did not decline web UI in Step 1** (`no web UI` / `skip web UI`) and file does not exist: plan to create it. If the user declined web UI, do not create the file and do not prompt for port or command.
 
-7. **`.claude/release.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist: plan to create it using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
+7. **`.claude/deploy.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist: plan to create it using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
 
 8. **`.claude/findings.md`** — if the file does not exist: plan to create it using the same stub template as Step 6b.
 
@@ -213,7 +213,7 @@ Here's what I'd update:
   .claude/qa.md:
     - Create (not found, web UI detected as [framework] on port [N])
 
-  .claude/release.md:
+  .claude/deploy.md:
     - Create (not found, release signal detected: [type])
 
   .claude/findings.md:
@@ -351,7 +351,22 @@ prefer: local
 
 The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
 
-### 6a. Create `.claude/release.md`
+**Multi-track projects.** If two or more tracks have detected web UIs (distinct ports / dev scripts), create a per-track qa.md at `<track>/.claude/qa.md` for EACH track with its own command/port/URL, AND create a root `.claude/qa.md` that is an index listing the tracks with pointers. Example root:
+
+```markdown
+# QA Config (Multi-track Index)
+
+This project has multiple web UIs. Per-track qa.md files:
+- admin/.claude/qa.md - admin panel (port 4322)
+- dashboard/.claude/qa.md - ops dashboard (port 4321)
+- verify/.claude/qa.md - public verify page (port 4324)
+
+qa-engineer: pick the track based on which one the diff touches.
+```
+
+When `qa-engineer` runs, it reads the root first. If the root is an index, it picks the track matching the diff's file paths and reads that track's qa.md for command/port/URLs.
+
+### 6a. Create `.claude/deploy.md`
 
 Only create if release signals were detected in Step 0 AND the user has not suppressed the signal ("no release") AND the file does not already exist.
 
@@ -360,7 +375,7 @@ Fill in the `command` from the detected release type where possible. Use `TODO` 
 Content template:
 
 ```markdown
-# Release Config
+# Deploy Config
 
 ## Environments
 production: [detected deploy command, e.g. "vercel --prod --yes", or TODO]
@@ -382,6 +397,8 @@ prefer: production
 
 The `release-orchestrator` agent reads this file the same way `qa-engineer` reads `qa.md` — it uses these values as defaults for target environment, deploy command, and rollback procedure. Fill in `staging` if the project has a staging environment. Update `command` once the exact deploy command is confirmed.
 
+**Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.claude/deploy.md` for EACH track that deploys, AND create a root `.claude/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first; if index, pick the track matching the diff.
+
 ### 6b. Create `.claude/findings.md`
 
 Always create. No signal required - the findings flywheel applies to every project regardless of stack or release setup. Only create if the file does not already exist.
@@ -400,18 +417,68 @@ Architect reads this file at plan time to surface prior lessons and cites applic
 
 Full spec: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`
 
+### 6c. Create `.claude/tracking.md`
+
+Always create when a tracker was confirmed in Step 1 (Linear or Jira). Only create if the file does not already exist.
+
+This is the operational ticket-tracking surface used by the `orchestration-planner` agent and any command that routes work against tickets. It is separate from the tracker metadata in `AGENTS.md` (which declares team/workspace/project). `tracking.md` is where active work, sprint notes, ticket-status conventions, and any project-specific ticket-flow instructions live.
+
+Content template (Linear):
+
+```markdown
+# Tracking
+
+<!-- Read by orchestration-planner and any command that coordinates work against tickets. -->
+<!-- Declared team/workspace/project lives in AGENTS.md ## Linear; this file is for active work flow. -->
+
+## Conventions
+- Branch prefix: `[TEAM]-<id>-<description>` (e.g. `FRM-12-fix-login`)
+- Ticket lifecycle: Backlog -> Ready -> In Progress -> In Review -> QA -> Done
+- QA assignee: see `AGENTS.md ## Linear QA assignee ID`
+
+## Active work
+<!-- Rolling list of in-flight tickets (optional). Keep short; sprint-scoped. -->
+
+## Commands
+<!-- Project-specific lc (linearctl) invocations or policy overrides. -->
+```
+
+Content template (Jira):
+
+```markdown
+# Tracking
+
+<!-- Read by orchestration-planner and any command that coordinates work against tickets. -->
+<!-- Declared project key / base URL lives in AGENTS.md ## Tracker; this file is for active work flow. -->
+
+## Conventions
+- Branch prefix: `[PROJECT]-<id>-<description>` (e.g. `PROJ-42-add-auth`)
+- Ticket lifecycle: <state names from your Jira workflow>
+- QA transition: see `AGENTS.md ## Tracker JIRA_QA_TRANSITION`
+
+## Active work
+<!-- Rolling list of in-flight tickets (optional). -->
+
+## Commands
+<!-- Project-specific atlassian-mcp calls or policy overrides. -->
+```
+
+Read by the `orchestration-planner` agent at plan time (step 7 of its brief). A missing `tracking.md` is non-fatal - the planner falls back to AGENTS.md's tracker section for basic metadata.
+
+**Track-level tracking.md is rare** - only create if the project genuinely has teams split across tracks with different Linear teams or Jira projects per track. Default is root-only.
+
 ### 7. Create `.claude/settings.local.json`
 
 Only create this file if it does not already exist (enforced in Step 2 - skip if it exists).
 
 ```json
 {
-  "autoMemoryDirectory": "~/.claude/projects/<selected-slug>/memory",
+  "autoMemoryDirectory": "<cwd>/.agentic/memory",
   "env": {}
 }
 ```
 
-Substitute `<selected-slug>` with the slug chosen in Step 0's auto-memory discovery (e.g. `~/.claude/projects/-Users-tyson-myproject/memory`). Claude Code honors this setting to pin the session's auto-memory directory to a single known path regardless of which subdirectory you launch from; this eliminates the multi-hash-dir problem that `/wrap` otherwise has to contend with. **Schema caveat:** `autoMemoryDirectory` is ignored if set in the checked-in `.claude/settings.json` for security — it MUST live in `.claude/settings.local.json` (user-local, gitignored). Only Claude Code consumes this field; Codex/Cursor/Gemini adapters ignore it.
+The path is the project-local `.agentic/memory/` directory (absolute path preferred for portability). Claude Code honors this setting to pin the session's auto-memory directory to a known path regardless of which subdirectory you launch from. **Schema caveat:** `autoMemoryDirectory` is ignored if set in the checked-in `.claude/settings.json` for security - it MUST live in `.claude/settings.local.json` (user-local, gitignored). Only Claude Code consumes this field; Codex/Cursor/Gemini adapters ignore it.
 
 **If the user declined auto-memory in Step 1** (`no auto-memory` / `skip auto-memory pin`): omit the `autoMemoryDirectory` field entirely — write just `{"env": {}}`.
 
@@ -421,10 +488,10 @@ Add any project-specific env vars here (e.g. database connection strings, API ke
 
 ### 8. Seed `MEMORY.md`
 
-The project MEMORY.md lives outside the project directory at `~/.claude/projects/[hash]/memory/MEMORY.md` and is auto-injected by Claude Code at startup.
+The project MEMORY.md lives at `<cwd>/.agentic/memory/MEMORY.md` and is auto-injected by Claude Code at startup.
 
 If the file does not already exist, create the memory directory and seed the file:
-- Resolve the memory directory path from the Claude Code auto-injected context (look for "You have a persistent auto memory directory at `~/.claude/projects/[hash]/memory/`")
+- Resolve the memory directory path from the Claude Code auto-injected context (look for "You have a persistent auto memory directory at `<cwd>/.agentic/memory/`")
 - Create the file at `[memory_dir]/MEMORY.md` with:
 
 ```
@@ -584,7 +651,7 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
 7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created (and therefore web UI was not declined)
-8a. *(If `.claude/release.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.claude/release.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
+8a. *(If `.claude/deploy.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.claude/deploy.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
 8b. `.claude/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time.
 8. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 9. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.

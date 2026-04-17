@@ -448,4 +448,4 @@ Relay confirmation to the user. Include all paths written (context.md, memory.md
 
 Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
 
-**Final reminder:** After `/wrap` completes, close the session with `/exit` rather than ctrl+c, so the Stop hook can finish writing `context.md` cleanly. ctrl+c can interrupt the hook and lose session state.
+**Final reminder:** After `/wrap` completes, close the session cleanly so the Stop hook can finish writing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting.
