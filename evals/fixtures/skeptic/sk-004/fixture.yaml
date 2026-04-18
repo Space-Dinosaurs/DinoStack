@@ -1,5 +1,5 @@
 id: sk-004
-description: "Password reset handler stores a raw SHA-1 of a reset token plus leaves a stray debug print; Skeptic should raise Critical on insecure token hashing and Minor on the debug print."
+description: "Password reset handler stores a raw SHA-1 of a reset token plus leaves a stray debug print. Skeptic should raise Critical on insecure token hashing and Minor on the debug print."
 component: skeptic
 protocol_sha: b09cc57da369184442b8c86bfc373dc7a07fa3c8
 inputs:
