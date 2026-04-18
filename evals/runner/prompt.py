@@ -49,12 +49,13 @@ def _read_companion(fixture: Fixture, key: str) -> str:
 def build_skeptic_prompt(fixture: Fixture) -> str:
     """Build the Skeptic brief.
 
-    When the runner uses the two-level spawn path, this brief is passed verbatim
-    to the named Skeptic subagent (which already has its role, calibration, and
-    sign-off format loaded from content/agents/skeptic.md). When the runner
-    falls back to the raw-prompt path, the outer session wraps this brief with
-    a "follow content/agents/skeptic.md" instruction - the brief itself does
-    not need to repeat the role.
+    Assembles the inner brief (adversarial brief + worker diff/narrative +
+    resolved-issues preflight + sign-off instruction) that the invoker passes
+    verbatim to the named Skeptic subagent via the Task spawn. The subagent
+    already has its role, calibration, and sign-off format loaded from
+    content/agents/skeptic.md, so this brief does not repeat the role. The
+    expect_subagent / spawn-path handling lives in evals.runner.invoker, not
+    here.
     """
     brief = fixture.inputs.get("adversarial_brief", "").rstrip()
     diff_text = _read_companion(fixture, "diff_file")
