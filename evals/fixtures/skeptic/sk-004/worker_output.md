@@ -11,5 +11,4 @@
   stored hash.
 - Rate-limited to 3 requests per email per hour.
 
-**Quality gates:** pytest passes, ruff clean. Left a `print(...)` in
-`confirm_reset` while debugging - will remove in a follow-up.
+**Quality gates:** pytest passes, ruff clean.
