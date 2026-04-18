@@ -1,0 +1,22 @@
+id: sk-005
+description: "Bug fix for a null-dereference in webhook signature verification, but the new regression test exercises the pre-fix happy path instead of the failure mode; Skeptic should raise Major for missing regression test."
+component: skeptic
+protocol_sha: b09cc57da369184442b8c86bfc373dc7a07fa3c8
+inputs:
+  adversarial_brief: |
+    The Worker fixed a Critical finding from a prior Skeptic round: a
+    null-dereference in webhook signature verification when the Stripe-Signature
+    header is missing. Per content/agents/skeptic.md, a fix round requires a
+    regression test that would have caught the failure mode. Verify: does the
+    added test actually exercise the missing-header path, or only the already-
+    working happy path? Probe also for incomplete fix (are there other call
+    sites that dereference `sig` before the None check?).
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical: []
+  major:
+    - category: "missing regression test"
+      keywords: ["regression test"]
+  minor: []
+expected_signoff_granted: false

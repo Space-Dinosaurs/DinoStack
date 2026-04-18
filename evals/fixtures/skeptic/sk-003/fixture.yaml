@@ -1,0 +1,18 @@
+id: sk-003
+description: "Clean docstring-only typo fix in an existing module; Skeptic should grant sign-off with no Critical or Major findings."
+component: skeptic
+protocol_sha: b09cc57da369184442b8c86bfc373dc7a07fa3c8
+inputs:
+  adversarial_brief: |
+    The Worker fixed two typos in the module-level docstring of an existing
+    utility module. Verify there is no behavioral change and nothing that should
+    block sign-off. Check for: stale module manifest, unintended secondary edits,
+    altered public API.
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical: []
+  major: []
+  minor: []
+  clean_allowed: true
+expected_signoff_granted: true

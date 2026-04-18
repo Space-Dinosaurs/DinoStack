@@ -1,0 +1,21 @@
+id: sk-004
+description: "Password reset handler stores a raw SHA-1 of a reset token plus leaves a stray debug print; Skeptic should raise Critical on insecure token hashing and Minor on the debug print."
+component: skeptic
+protocol_sha: b09cc57da369184442b8c86bfc373dc7a07fa3c8
+inputs:
+  adversarial_brief: |
+    The Worker added a password-reset flow. Probe for: insecure cryptographic
+    primitives used for token storage or comparison (SHA-1 / MD5 / unsalted
+    hashes), timing-attack vulnerabilities in token comparison, and any
+    leftover debug output or dead branches.
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical:
+    - category: "insecure hash"
+      keywords: ["sha-1"]
+  major: []
+  minor:
+    - category: "debug print"
+      keywords: ["print"]
+expected_signoff_granted: false

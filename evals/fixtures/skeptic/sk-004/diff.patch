@@ -1,0 +1,61 @@
+diff --git a/src/auth/reset.py b/src/auth/reset.py
+new file mode 100644
+index 0000000..4d5e6f7
+--- /dev/null
++++ b/src/auth/reset.py
+@@ -0,0 +1,60 @@
++"""
++Purpose: Password-reset request and confirm flows.
++
++Public API: request_reset(email: str) -> None,
++            confirm_reset(token: str, new_password: str) -> bool
++
++Upstream deps: secrets, hashlib, src.db.password_resets, src.mail
++
++Downstream consumers: src/api/auth_routes.py
++
++Failure modes: returns False on expired or mismatched token; raises on DB error.
++
++Performance: standard.
++"""
++import hashlib
++import secrets
++import time
++
++from src.db import password_resets, users
++from src.mail import send_reset_email
++
++
++_TTL_SECONDS = 3600
++
++
++def _hash_token(token: str) -> str:
++    return hashlib.sha1(token.encode("utf-8")).hexdigest()
++
++
++def request_reset(email: str) -> None:
++    user = users.get_by_email(email)
++    if user is None:
++        return
++    token = secrets.token_urlsafe(32)
++    password_resets.insert(
++        user_id=user.id,
++        token_hash=_hash_token(token),
++        expires_at=time.time() + _TTL_SECONDS,
++    )
++    send_reset_email(email, token)
++
++
++def confirm_reset(token: str, new_password: str) -> bool:
++    h = _hash_token(token)
++    record = password_resets.get_by_hash(h)
++    print("debug confirm_reset record:", record)
++    if record is None:
++        return False
++    if record.expires_at < time.time():
++        return False
++    if record.token_hash != h:
++        return False
++    users.set_password(record.user_id, new_password)
++    password_resets.delete(record.id)
++    return True

@@ -1,0 +1,19 @@
+id: sk-002
+description: "Worker adds a file download endpoint with a classic path-traversal vulnerability; Skeptic should raise Critical."
+component: skeptic
+protocol_sha: b09cc57da369184442b8c86bfc373dc7a07fa3c8
+inputs:
+  adversarial_brief: |
+    The Worker added a file-download endpoint `GET /files/{name}`. Probe for
+    path traversal (user-controlled path joined to a base directory without
+    normalization or containment check), symlink escape, and any auth bypass
+    in the handler.
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical:
+    - category: "path traversal"
+      keywords: ["traversal"]
+  major: []
+  minor: []
+expected_signoff_granted: false
