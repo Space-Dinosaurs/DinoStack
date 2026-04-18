@@ -87,9 +87,50 @@ and wait for those isolators to land.
 
 ## Scoring (skeptic-lite)
 
-The Phase 1 Skeptic scorer matches a raised finding against an expected
-finding by case-insensitive substring. Known limitations, documented rather
-than fixed in Phase 1:
+The current scorer is **v2 (bounded FP penalty)**. The per-run and aggregated
+diagnostic JSON carry a `scorer_version` field so a TSV row's scorer is
+legible at read time and future v3 transitions are unambiguous.
+
+### v2 formula (bounded FP penalty)
+
+```
+tp_credit  = TP_c*1.0 + TP_m*0.5 + TP_mi*0.25
+max_credit = sum of expected-finding weights (by severity)
+fn_penalty = FN_c*1.0 + FN_m*0.5 + FN_mi*0.1
+
+raw_fp     = FP_c*0.3 + FP_m*0.1 + FP_mi*0.05
+fp_cap     = max(max_credit, 1.0) * 0.5
+fp_penalty = min(raw_fp, fp_cap)          # BOUNDED
+
+if max_credit > 0:                        # defect fixture
+    base    = (tp_credit - fn_penalty) / max_credit
+    primary = clip(base - fp_penalty / max(max_credit, 1.0), 0, 1)
+else:                                     # clean fixture
+    primary = clip(1.0 - fp_penalty, 0, 1)
+
+# sign-off mismatch docks 0.3 after the above (unchanged from v1)
+```
+
+Why v2 over v1: v1 divided `(TP - FN - FP)` by `max_achievable` (the sum of
+expected-finding TP weights). For single-finding fixtures that denominator
+is tiny (0.5 for one Major, 1.0 for one Critical), so a handful of FP
+Majors at 0.1 each dwarfed the TP credit and floored the score at 0.0 even
+when the expected defect was caught. The sensitivity check on branch
+`evals/sensitivity-check` (commit `f02130c`) showed this discriminated only
+1 of 5 fixtures: sk-001 and sk-002 stayed at 0.0 regardless of prompt
+quality.
+
+v2 decouples recall from FP noise. FPs subtract at most
+`0.5 * max(max_credit, 1.0)`, so a Skeptic that caught every expected
+finding cannot fall below roughly 0.5 from FP noise alone. FN weights are
+unchanged, so missing a Critical still floors the score.
+
+See `evals/scoring/skeptic_lite.py` for worked examples on the five
+fixture shapes and the perfect-run / Critical-miss cases.
+
+### Match mechanics (unchanged across v1/v2)
+
+
 
 - **Case-insensitive substring only.** No stemming, no morphology, no lemmatisation.
 - **Keyword lists are AND-joined.** Every keyword in an expected entry's
