@@ -18,3 +18,8 @@ node_modules/
 
 # Local-only brainstorming / scratchpads
 docs/brainstorm/
+
+# Eval runner: worktrees are ephemeral per-run; runlog JSONL is per-run detail.
+# TSV files under evals/results/ ARE committed (see docs/planning/p2-self-improving-harness.md).
+evals/.worktrees/
+evals/results/*.runlog.jsonl
