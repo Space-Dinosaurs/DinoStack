@@ -140,6 +140,24 @@ def cmd_run(args: argparse.Namespace) -> int:
         _log.error("No fixtures found for component %s", manifest.name)
         return 2
 
+    # protocol_sha drift warning: each fixture records the SHA of the content
+    # file(s) it was labeled against. If the current SHA differs, fixture
+    # labels may be stale. Warn loudly but do not block - re-run fixture-label
+    # review is the mitigation (see README).
+    current_sha = ld.current_protocol_sha(manifest)
+    if current_sha:
+        for fx in fixtures:
+            if fx.protocol_sha and fx.protocol_sha != current_sha:
+                _log.warning(
+                    "protocol_sha drift: fixture %s was labeled against %s but "
+                    "current content SHA is %s (fixture: %s). Re-run fixture-label "
+                    "review before trusting this score.",
+                    fx.id,
+                    fx.protocol_sha,
+                    current_sha,
+                    fx.path,
+                )
+
     rows: list[dict] = []
     for fx in fixtures:
         row = _run_fixture(manifest, fx, n_runs, commit, content_hash, scoring)

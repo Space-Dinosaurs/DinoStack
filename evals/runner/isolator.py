@@ -27,6 +27,10 @@ import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from .logging import get_logger
+
+_log = get_logger("evals.isolator")
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _WORKTREE_BASE = _REPO_ROOT / "evals" / ".worktrees"
 
@@ -42,7 +46,13 @@ class IsolatorBase(ABC):
 
 
 class Tier1Worktree(IsolatorBase):
-    """Tier 1: git worktree of HEAD for read-only prompt components."""
+    """Tier 1: git worktree of HEAD for read-only prompt components.
+
+    Tier 1 is read-only: no Bash, no Write, no Edit, no network-bound tools.
+    Allowed tools at the runner level are Read, Grep, Glob (plus Task for the
+    two-level subagent spawn). If a component needs shell or network for its
+    correctness, it does not belong at Tier 1 - declare Tier 2 or Tier 3.
+    """
 
     tier = 1
 
@@ -71,15 +81,28 @@ class Tier1Worktree(IsolatorBase):
         if self.worktree_path is None:
             return
         p = self.worktree_path
-        # Best-effort cleanup.
-        subprocess.run(
+        # Best-effort cleanup - never raise, but surface failures via logging so
+        # a silently-failing cleanup does not pile up stale worktrees.
+        result = subprocess.run(
             ["git", "worktree", "remove", "--force", str(p)],
             cwd=str(_REPO_ROOT),
             capture_output=True,
             text=True,
         )
+        if result.returncode != 0:
+            _log.warning(
+                "git worktree remove --force failed for %s: %s",
+                p,
+                (result.stderr or result.stdout or "").strip(),
+            )
         if p.exists():
             shutil.rmtree(p, ignore_errors=True)
+            if p.exists():
+                _log.warning(
+                    "worktree directory still present after cleanup: %s "
+                    "(manual removal may be required)",
+                    p,
+                )
         self.worktree_path = None
 
 
