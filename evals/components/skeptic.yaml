@@ -1,0 +1,11 @@
+name: skeptic
+tier: 1
+content_glob:
+  - content/agents/skeptic.md
+scoring_module: evals.scoring.skeptic_lite
+fixture_dir: evals/fixtures/skeptic
+n_runs: 3
+parallelism: serial
+timeout_seconds: 180
+invoke:
+  agent_name: skeptic
