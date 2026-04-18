@@ -58,6 +58,21 @@ def aggregate(
             agg_status = st
             break
 
+    # Surface scorer_version at the top of the aggregated diagnostic so TSV
+    # readers can tell at a glance which scorer produced a row. The field is
+    # sourced from whichever per-run score declared it; if multiple runs
+    # report different versions (should not happen within a single
+    # fixture-run invocation) we record the first one and flag a mismatch.
+    scorer_versions = [
+        s.get("scorer_version") or s.get("diagnostic", {}).get("scorer_version")
+        for s in per_run_scores
+    ]
+    scorer_versions_nonnull = [v for v in scorer_versions if v]
+    scorer_version = scorer_versions_nonnull[0] if scorer_versions_nonnull else None
+    scorer_version_mismatch = (
+        len(set(scorer_versions_nonnull)) > 1 if scorer_versions_nonnull else False
+    )
+
     diagnostic: dict[str, Any] = {
         "per_run": [
             {
@@ -69,6 +84,10 @@ def aggregate(
         ],
         "n_runs": len(per_run_scores),
     }
+    if scorer_version is not None:
+        diagnostic["scorer_version"] = scorer_version
+    if scorer_version_mismatch:
+        diagnostic["scorer_version_mismatch"] = True
 
     return {
         "commit": commit,
