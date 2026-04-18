@@ -1,5 +1,5 @@
 id: sk-003
-description: "Clean docstring-only typo fix in an existing module; Skeptic should grant sign-off with no Critical or Major findings."
+description: "Clean docstring-only typo fix in an existing module. Skeptic should grant sign-off with no Critical or Major findings."
 component: skeptic
 protocol_sha: b09cc57da369184442b8c86bfc373dc7a07fa3c8
 inputs:
