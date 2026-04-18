@@ -89,17 +89,20 @@ def _run_fixture(
     scoring,
 ) -> dict:
     per_run_scores: list[dict] = []
-    _log.info("Running fixture %s (n=%d)", fixture.id, n_runs)
+    invocation_modes: list[str] = []
+    agent_name = (manifest.invoke or {}).get("agent_name")
+    _log.info("Running fixture %s (n=%d, agent=%s)", fixture.id, n_runs, agent_name)
     for i in range(n_runs):
         _log.info("  run %d/%d", i + 1, n_runs)
         with iso_mod.make_isolator(manifest.tier) as worktree:
             pr_mod.stage_fixture_files(fixture, worktree)
             prompt_text = pr_mod.build_skeptic_prompt(fixture)
             run_record = inv_mod.invoke_run(
-                prompt_text, worktree, manifest.timeout_seconds
+                prompt_text, worktree, manifest.timeout_seconds, agent_name=agent_name
             )
         score = _score_run(scoring, run_record, fixture)
         per_run_scores.append(score)
+        invocation_modes.append(run_record.get("invocation_mode") or "raw-prompt")
         write_runlog(
             manifest.name,
             {
@@ -111,6 +114,7 @@ def _run_fixture(
                 "latency_ms": run_record.get("latency_ms"),
                 "turns_used": run_record.get("turns_used"),
                 "cost_usd": run_record.get("cost_usd"),
+                "invocation_mode": run_record.get("invocation_mode"),
                 "primary": score.get("primary"),
                 "score_status": score.get("status"),
                 "final_text_preview": (run_record.get("final_text") or "")[:1000],
@@ -119,6 +123,10 @@ def _run_fixture(
         )
 
     row = agg_mod.aggregate(per_run_scores, fixture, manifest, commit, content_hash)
+    # If any run fell back to raw-prompt, prefix the description so readers can
+    # tell which rows were not true named-subagent measurements.
+    if invocation_modes and any(m != "two-level" for m in invocation_modes):
+        row["description"] = f"[raw-prompt] {row['description']}"
     tsv.append_row(manifest.name, row)
     return row
 
