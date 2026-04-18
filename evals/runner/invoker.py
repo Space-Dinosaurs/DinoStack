@@ -28,7 +28,11 @@ from .normalizer import parse_stream_json
 
 CLAUDE_BIN = "claude"
 
-_ALLOWED_TOOLS = "Read,Grep,Glob,Bash"
+# Tier 1 is read-only. The Skeptic (and any future Tier 1 component) reads
+# diffs and worker output - it does not execute shell commands and does not
+# modify files. We therefore drop Bash/Write/Edit and restrict to read-only
+# plus Task (for the two-level subagent spawn in invoke_run_two_level).
+_ALLOWED_TOOLS = "Read,Grep,Glob,Task"
 _MAX_TURNS = "6"
 
 
@@ -63,7 +67,8 @@ def invoke_run(prompt: str, worktree: Path, timeout_seconds: int) -> dict:
         "--output-format", "stream-json",
         "--verbose",
         "--allowed-tools", _ALLOWED_TOOLS,
-        "--permission-mode", "acceptEdits",
+        # Tier 1 is read-only: nothing to accept, so permission-mode is default.
+        "--permission-mode", "default",
         "--max-turns", _MAX_TURNS,
     ]
 
