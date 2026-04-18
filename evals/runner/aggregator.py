@@ -46,7 +46,10 @@ def aggregate(
 
     primaries = [float(s.get("primary", 0.0)) for s in per_run_scores]
     median = statistics.median(primaries)
-    stdev = statistics.pstdev(primaries) if len(primaries) > 1 else 0.0
+    # Sample stdev (N-1 divisor). With n < 2 the sample stdev is undefined, so
+    # we report 0.0 explicitly rather than raising. The TSV stdev column is
+    # documented as "sample stdev (N-1)" in evals/README.md.
+    stdev = statistics.stdev(primaries) if len(primaries) >= 2 else 0.0
 
     statuses = [s.get("status", "ok") for s in per_run_scores]
     agg_status = "ok"

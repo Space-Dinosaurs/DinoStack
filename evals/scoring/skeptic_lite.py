@@ -8,6 +8,12 @@ Public API: score(trace: dict, fixture: dict) -> dict with keys
             {primary: float in [0, 1], diagnostic: dict,
              status: "ok" | "invalid_format"}.
 
+Contract: score() expects a single-run trace - i.e. trace["runs"] contains
+          exactly one run record. Aggregation across N runs is the
+          aggregator module's job (median/stdev over per-run primaries).
+          A multi-run trace is an API-misuse bug, not a recoverable state,
+          and the function asserts on it.
+
 Upstream deps: stdlib re.
 
 Downstream consumers: evals.runner.cli (via dynamic import per manifest's
@@ -117,6 +123,10 @@ def score(trace: dict, fixture: dict) -> dict:
     runs = trace.get("runs") or []
     if not runs:
         return {"primary": 0.0, "status": "invalid_format", "diagnostic": {"reason": "no_runs"}}
+    assert len(runs) == 1, (
+        "skeptic_lite.score expects a single-run trace; aggregation across N runs "
+        "happens in evals.runner.aggregator, not here."
+    )
 
     run = runs[0]
     text = run.get("final_text") or ""
