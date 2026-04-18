@@ -47,14 +47,20 @@ def _read_companion(fixture: Fixture, key: str) -> str:
 
 
 def build_skeptic_prompt(fixture: Fixture) -> str:
+    """Build the Skeptic brief.
+
+    When the runner uses the two-level spawn path, this brief is passed verbatim
+    to the named Skeptic subagent (which already has its role, calibration, and
+    sign-off format loaded from content/agents/skeptic.md). When the runner
+    falls back to the raw-prompt path, the outer session wraps this brief with
+    a "follow content/agents/skeptic.md" instruction - the brief itself does
+    not need to repeat the role.
+    """
     brief = fixture.inputs.get("adversarial_brief", "").rstrip()
     diff_text = _read_companion(fixture, "diff_file")
     worker_text = _read_companion(fixture, "worker_output_file")
 
     parts = [
-        "You are being invoked as the Skeptic named agent for an eval run. "
-        "Follow content/agents/skeptic.md exactly.",
-        "",
         "## Adversarial brief",
         brief,
         "",
@@ -72,6 +78,6 @@ def build_skeptic_prompt(fixture: Fixture) -> str:
         "## Resolved issues preflight",
         "No prior rounds.",
         "",
-        "Produce your sign-off using the exact format in content/agents/skeptic.md.",
+        "Produce your sign-off using the exact format specified in your role.",
     ]
     return "\n".join(parts) + "\n"
