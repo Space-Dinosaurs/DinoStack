@@ -8,6 +8,7 @@ Public API: load_component(name: str) -> ComponentManifest,
             list_components() -> list[str],
             compute_component_content_hash(manifest: ComponentManifest) -> str,
             compute_fixture_hash(fixture_path: pathlib.Path) -> str,
+            current_protocol_sha(manifest: ComponentManifest) -> str | None,
             ComponentManifest, Fixture dataclasses.
 
 Upstream deps: pyyaml, stdlib hashlib/pathlib/dataclasses, evals.runner.logging.
@@ -24,6 +25,8 @@ Performance: standard; O(total fixture bytes) for hash computation.
 from __future__ import annotations
 
 import hashlib
+import json
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -97,6 +100,13 @@ def load_component(name: str) -> ComponentManifest:
         raise ValueError(f"Component {name} manifest missing keys: {sorted(missing)}")
     if data["parallelism"] not in ("serial", "parallel"):
         raise ValueError(f"parallelism must be 'serial' or 'parallel', got {data['parallelism']}")
+    invoke_section = data.get("invoke") or {}
+    if not isinstance(invoke_section, dict) or not invoke_section.get("agent_name"):
+        raise ValueError(
+            f"Component {name} manifest must set invoke.agent_name (the named subagent "
+            "to spawn). This is required so the runner measures the actual named agent "
+            "rather than a raw top-level Claude session."
+        )
     return ComponentManifest(
         name=data["name"],
         tier=int(data["tier"]),
@@ -160,12 +170,75 @@ def _iter_content_files(manifest: ComponentManifest) -> list[Path]:
     return sorted(set(files), key=lambda p: str(p))
 
 
+def current_protocol_sha(manifest: ComponentManifest) -> str | None:
+    """Return the current git commit SHA that last touched any file in content_glob.
+
+    This is the value that fixture authors record as `protocol_sha` at labeling
+    time. Returns None if git is unavailable, if no files match content_glob, or
+    if the files are not tracked in git.
+    """
+    files = _iter_content_files(manifest)
+    if not files:
+        return None
+    rel_paths: list[str] = []
+    for fpath in files:
+        try:
+            rel_paths.append(str(fpath.relative_to(_REPO_ROOT)))
+        except ValueError:
+            continue
+    if not rel_paths:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "log", "-n", "1", "--format=%H", "--"] + rel_paths,
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    sha = result.stdout.strip()
+    return sha or None
+
+
 def compute_component_content_hash(manifest: ComponentManifest) -> str:
     h = hashlib.sha256()
+    # Prepend each file's repo-root-relative path (NUL-delimited) before its
+    # bytes so that renaming or re-ordering files changes the hash, even if
+    # the raw byte concatenation happens to collide.
     for fpath in _iter_content_files(manifest):
+        try:
+            rel = fpath.relative_to(_REPO_ROOT)
+        except ValueError:
+            rel = fpath
+        h.update(str(rel).encode("utf-8"))
+        h.update(b"\0")
         h.update(fpath.read_bytes())
+        h.update(b"\0")
     return h.hexdigest()
 
 
+# Fields that define a fixture's semantic identity for caching / TSV keying.
+# Fields like description, protocol_sha, and free-form comments are explicitly
+# excluded so they can be reworded without invalidating the fixture cache.
+_FIXTURE_HASH_FIELDS = ("id", "inputs", "expected_findings", "expected_signoff_granted")
+
+
 def compute_fixture_hash(fixture_path: Path) -> str:
-    return hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+    """Hash a fixture by its semantic fields only (canonical JSON).
+
+    This is intentionally NOT a hash of the raw YAML bytes: we want description
+    reword churn, protocol_sha bumps, and comment edits to leave fixture_hash
+    unchanged so TSV rows remain comparable across those edits. Changes to id,
+    inputs, expected_findings, or expected_signoff_granted do alter the hash.
+    """
+    data: Any = yaml.safe_load(fixture_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        # Preserve previous behaviour for malformed fixtures: hash raw bytes.
+        return hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+    semantic = {k: data.get(k) for k in _FIXTURE_HASH_FIELDS}
+    payload = json.dumps(semantic, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
