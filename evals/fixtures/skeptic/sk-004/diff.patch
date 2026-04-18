@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..4d5e6f7
 --- /dev/null
 +++ b/src/auth/reset.py
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,58 @@
 +"""
 +Purpose: Password-reset request and confirm flows.
 +
@@ -49,7 +49,6 @@ index 0000000..4d5e6f7
 +def confirm_reset(token: str, new_password: str) -> bool:
 +    h = _hash_token(token)
 +    record = password_resets.get_by_hash(h)
-+    print("debug confirm_reset record:", record)
 +    if record is None:
 +        return False
 +    if record.expires_at < time.time():
