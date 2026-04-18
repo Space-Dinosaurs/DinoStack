@@ -39,6 +39,39 @@ Run this check once at the top of the first skill invocation in a session (and a
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
 - "This qualifies as the tight-fix path, so I can skip Skeptic" - Valid only when every checklist item is explicitly satisfied AND declared. An incomplete declaration, a stale debugger brief, Low debugger confidence, or any disqualifier reverts to standard Elevated. The default when uncertain is standard Elevated.
 
+**Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step.
+
+Stop and ask the user ONLY when:
+1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
+2. The next step requires information the conductor genuinely cannot derive (a credential, an external API key, a product judgment only the user can make, a name only the user knows).
+3. Acceptance criteria are ambiguous in a way that materially changes the implementation, and guessing wrong would waste significant work.
+4. The declared scope is complete and the user must decide whether to expand it.
+
+Anything else - "should I create the missing endpoint that #271 depends on?", "want me to add the test?", "shall I fix the broken import?" - is the conductor abdicating. If the work is in scope and within reason, do it and report what was done.
+
+**Anti-patterns:**
+- Stopping after one unit of a multi-unit plan to ask if the next unit should be done. The plan is the answer.
+- Asking permission to fix a broken test discovered during work. Fix it.
+- Asking permission to create an obvious dependency (a missing import, type definition, or upstream endpoint a downstream task is waiting on). Create it.
+- Asking permission to look something up. Look it up.
+
+**When uncertain whether to ask:** prefer acting. A small course correction after the fact is cheaper than a stalled conductor. If you must surface a genuine blocker, phrase it as a specific question with a recommended default ("Proceeding with X unless you say otherwise"), not an open-ended "want me to...".
+
+**Stop-frequency is a planning signal.** Repeated genuine blockers within a single task indicate the plan is under-specified, not that the conductor is being appropriately cautious. Continuing to ask piecemeal questions papers over the structural gap and burns operator attention. Track stops against task complexity:
+
+| Task shape | Max genuine stops before flagging the plan |
+|---|---|
+| Trivial or single-unit | 0 - one blocker means it was not well-scoped |
+| Single-unit Elevated | 1 |
+| Multi-unit plan (2-5 units) | 2 across the whole plan |
+| Large multi-unit plan (6+ units) | 3 across the whole plan |
+
+When the threshold is exceeded, the conductor stops spawning Workers and surfaces a planning concern to the user instead of another piecemeal question. Format:
+
+*"I've hit N blockers on this task: [bullet list of each blocker and why]. This is past the threshold for a [task shape] task and suggests the plan needs revisiting before we continue. Options: (a) re-spawn architect with these gaps, (b) answer the open questions upfront and resume, or (c) descope. Recommendation: [pick one]."*
+
+Then wait. Do NOT keep spawning Workers against an under-specified plan - that compounds the cost of the missing planning work and produces churn the user has to clean up later.
+
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
 | Read a file / git status/log/diff (when confirming a known fact, not exploring; see Context preservation in Risk Classification) | Yes | No |
