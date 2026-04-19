@@ -1,0 +1,9 @@
+{
+  "name": "search-service",
+  "version": "1.7.0",
+  "scripts": {"test": "jest"},
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "@elastic/elasticsearch": "^8.13.0"
+  }
+}

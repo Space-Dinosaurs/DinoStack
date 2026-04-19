@@ -1,0 +1,5 @@
+{
+  "name": "checkout-monorepo",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"]
+}

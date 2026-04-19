@@ -1,0 +1,33 @@
+id: wr-008
+component: wrap
+protocol_sha: 9791eb86da00c701c3a597fedf0c6482df942bab
+description: "Legacy CLAUDE.md exists in apps/legacy-admin/ with no sibling AGENTS.md; root AGENTS.md present; expect pre-flight migration to create apps/legacy-admin/AGENTS.md from the CLAUDE.md content and overwrite apps/legacy-admin/CLAUDE.md with the @AGENTS.md pointer"
+repo_archetype: "monorepo-pnpm"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+expected_outputs:
+  route_expected: "light"
+  must_exist:
+    - ".agentic/context.md"
+    - "apps/legacy-admin/AGENTS.md"
+    - "apps/legacy-admin/CLAUDE.md"
+  must_not_exist:
+    - ".agentic/wrap.lock"
+  context_md_required_sections:
+    - "## Recent Focus"
+    - "## Current Task / Next Steps"
+    - "## Key File Paths"
+  expected_substrings:
+    context.md:
+      - "fix/legacy-admin-flag-read"
+      - "flags.ts"
+    "apps/legacy-admin/AGENTS.md":
+      - "pages router"
+      - "3.2.0"
+      - "sunset"
+    "apps/legacy-admin/CLAUDE.md":
+      - "@AGENTS.md"
+  forbidden_substrings:
+    context.md: []
