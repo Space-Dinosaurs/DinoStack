@@ -1,0 +1,19 @@
+id: wr-005
+component: wrap
+protocol_sha: 9791eb86da00c701c3a597fedf0c6482df942bab
+description: "Pure Q&A session; no files touched, no commits, no stashes; expect zero-substance route"
+repo_archetype: "empty-minimal"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+expected_outputs:
+  route_expected: "zero-substance"
+  must_exist: []
+  must_not_exist:
+    - ".agentic/memory.md"
+    - ".claude/findings.md"
+    - ".agentic/wrap.lock"
+  context_md_required_sections: []
+  expected_substrings: {}
+  forbidden_substrings: {}
