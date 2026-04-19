@@ -339,10 +339,12 @@ The integration quality check catches failures invisible to individual worktrees
 ## Task-state coordination
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
-  ul { font-size: 0.82em; }
-  ul li { margin: 0.2em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  h2 { font-size: 1.6em; margin-bottom: 0.3em; }
+  p { font-size: 0.85em; margin: 0.25em 0; }
+  pre { font-size: 0.6em; padding: 0.35em 0.7em; line-height: 1.25; margin: 0.25em 0 0.35em 0; }
+  table { font-size: 0.78em; margin: 0.3em 0; }
+  th, td { padding: 0.3em 0.6em; }
+  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.35em; }
 </style>
 
 `.agentic/tasks.jsonl` is the durable fan-out coordination surface:
