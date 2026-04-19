@@ -31,8 +31,10 @@ observed_state:
     Estimated diff: ~3 lines in sort.ts plus updating the asserted order
     in sort.test.ts. No prior engineer attempt on this ticket.
 inputs:
-  invoke_instruction: |
+  invoke_instruction: |+
     Given the observed state above, state the single next routing action.
+
+
 expected_decision:
   decision_class: "tight_fix_path"
   next_agent: "engineer"
