@@ -167,6 +167,31 @@ def build_conductor_prompt(fixture: Fixture) -> str:
         "## Task",
         invoke_instruction or "Given the observed state above, state the single next routing action.",
         "",
+        "## Required output vocabulary",
+        "",
+        'Your "decision_class" MUST be exactly one of these string values:',
+        '- "escalate_cap_reached"',
+        '- "escalate_convergence_failure"',
+        '- "escalate_blocked"',
+        '- "tight_fix_path"',
+        '- "re_enter_loop"',
+        '- "proceed_to_next_phase"',
+        '- "terminate_clean"',
+        '- "trivial_direct_edit"',
+        '- "spawn_agent"',
+        "",
+        'Your "loop_action" MUST be exactly one of: "re_enter", "exit_clean", '
+        '"exit_stalled", or null (use null when no loop action applies).',
+        "",
+        'Your "next_agent" MUST be null or one of the named agent slugs: '
+        '"engineer", "skeptic", "qa-engineer", "architect", "investigator", '
+        '"debugger", "security-auditor", "orchestration-planner", '
+        '"release-orchestrator", "dependency-auditor", "perf-analyst".',
+        "",
+        "These enum values are the machine-parseable labels the scorer expects. "
+        "Choose the single value that best describes the routing decision you "
+        "would make; do not invent new labels or paraphrase these.",
+        "",
         'Your response must end with a fenced json code block under a heading exactly '
         '"## Routing decision (machine-readable)" containing the fields: '
         "decision_class, next_agent, loop_action, rationale. Do not include any "
