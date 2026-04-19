@@ -1,0 +1,47 @@
+id: co-016
+description: "User requests a supply-chain audit of the project's dependency graph; correct routing is spawn dependency-auditor, not security-auditor or engineer."
+component: conductor
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+scenario: |
+  The user asks for a supply-chain review of the project's dependencies.
+  They want vulnerability scan results, license compliance flags across
+  the graph, and maintenance-signal notes on any abandoned transitive
+  packages. No code change is being requested. The last such review was
+  six months ago and the lockfile has drifted considerably since.
+observed_state:
+  phase: "pre_implementation"
+  iteration: 0
+  max_iterations: 3
+  last_engineer_status: null
+  open_findings: []
+  risk_signals:
+    - "supply-chain review"
+    - "lockfile audit"
+    - "license compliance"
+    - "CVE scan"
+  qa_triggers_matched: null
+  other_context: |
+    Project uses pnpm; pnpm-lock.yaml lists roughly 1100 transitive
+    packages. The user's request is a standalone audit deliverable - a
+    report, not a code fix. No auth, no sessions, no tokens, no runtime
+    security surface is being changed. The user has NOT asked for a
+    shallow CVE check as part of a broader security review; they
+    explicitly want the full dependency-graph pass including license
+    review and maintenance signals (last-commit timestamps, deprecation
+    flags).
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "spawn_agent"
+  next_agent: "dependency-auditor"
+  loop_action: null
+  cost_class: "medium"
+  rationale_keywords:
+    - "dependency"
+    - "supply-chain"
+    - "lockfile"
+    - "license"
+  must_not_select:
+    - "engineer"
+    - "security-auditor"
