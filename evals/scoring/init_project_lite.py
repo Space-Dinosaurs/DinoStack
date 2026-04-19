@@ -33,15 +33,24 @@ Performance: standard; one pass over the snapshot keys, one read of each
 
 ---
 
-## Scoring formula (v1)
+## Scoring formula (v2)
 
-Weighted sum across five dimensions, minus a capped extras penalty:
+Weighted sum across five dimensions, minus a capped extras penalty. Weights
+are normalized so a perfect run scores exactly 1.0. The v1 weights summed to
+0.95, so a flawless scaffold scored 0.95 with no dimension missed - confusing
+for fixture authors. v2 scales every v1 weight by 1/0.95 (factor ~1.05263).
 
-    w_req    = 0.50   (required file presence)
-    w_cond   = 0.15   (conditional required files keyed on expected_signals)
-    w_sect   = 0.15   (AGENTS.md required-section coverage)
-    w_gi     = 0.10   (.gitignore required substring coverage)
-    w_budget = 0.05   (AGENTS.md line-budget flag)
+    v1_sum  = 0.50 + 0.15 + 0.15 + 0.10 + 0.05 = 0.95
+    scale   = 1 / 0.95
+
+    w_req    = 0.50 * scale = 0.526316   (required file presence)
+    w_cond   = 0.15 * scale = 0.157895   (conditional files keyed on signals)
+    w_sect   = 0.15 * scale = 0.157895   (AGENTS.md section coverage)
+    w_gi     = 0.10 * scale = 0.105263   (.gitignore substring coverage)
+    w_budget = 0.05 * scale = 0.052632   (AGENTS.md line-budget flag)
+
+    Assertion: w_req + w_cond + w_sect + w_gi + w_budget == 1.0 (see
+    _WEIGHTS_SUM_ASSERTION below).
 
     extras_raw     = 0.3 * forbidden_present + 0.05 * unexpected_claude_md
     extras_penalty = min(extras_raw, 0.15)
@@ -52,19 +61,35 @@ Weighted sum across five dimensions, minus a capped extras penalty:
                    + w_gi   * gitignore_hits / max(gitignore_total, 1)
                    + w_budget * (1 if line_budget_ok else 0)
                    - extras_penalty, 0.0, 1.0)
+
+Perfect-run arithmetic check:
+    1.0 * 0.526316 + 1.0 * 0.157895 + 1.0 * 0.157895
+  + 1.0 * 0.105263 + 1.0 * 0.052632 - 0.0
+  = 1.000001 (rounds to 1.000000 after round(_, 6) + clip)
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-SCORER_VERSION = "v1"
+SCORER_VERSION = "v2"
 
-_W_REQ = 0.50
-_W_COND = 0.15
-_W_SECT = 0.15
-_W_GI = 0.10
-_W_BUDGET = 0.05
+# v1 weights renormalized so a perfect run scores 1.0 instead of 0.95.
+_SCALE = 1.0 / 0.95
+_W_REQ = 0.50 * _SCALE
+_W_COND = 0.15 * _SCALE
+_W_SECT = 0.15 * _SCALE
+_W_GI = 0.10 * _SCALE
+_W_BUDGET = 0.05 * _SCALE
+
+# Sanity: weights sum to 1.0 within floating-point epsilon. A perfect run
+# (all ratios == 1.0, no extras penalty) MUST score exactly 1.0 after the
+# final clip; fixture authors should never see 0.95 and wonder which
+# dimension was missed.
+_WEIGHTS_SUM_ASSERTION = abs(
+    (_W_REQ + _W_COND + _W_SECT + _W_GI + _W_BUDGET) - 1.0
+) < 1e-9
+assert _WEIGHTS_SUM_ASSERTION, "init_project_lite weights must sum to 1.0"
 
 _EXTRAS_CAP = 0.15
 _EXTRAS_FORBIDDEN = 0.3
