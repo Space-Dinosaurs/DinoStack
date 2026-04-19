@@ -42,17 +42,27 @@ fixture choice.
 ## Version history
 
 v1 (550218a): initial. Six dimensions, tiered route credit, binary extras.
-v2 (this commit): widens `_ALWAYS_OK_EXTRAS` to include Claude Code runtime
+v2 (4b2e16a): widens `_ALWAYS_OK_EXTRAS` to include Claude Code runtime
     config (`.claude/settings.json`, `.claude/settings.local.json`) and the
     init-project preflight migration artifact (`.claude/tracking.md`).
     Introduces `_STANDARD_ROUTE_SENTINELS` to prevent double-counting
     `.agentic/memory.md` and `.claude/findings.md` as extras on
     standard-route fixtures where their creation IS the route signal.
     Overfitting-Rule rationale: these paths are either produced by the
-    harness (not the command) or are already credited by w_route. v1
-    penalized runtime noise, not command fidelity.
+    harness (not the command) or are already credited by w_route.
+v3 (this commit): adds three more /wrap-produced paths to always-ok:
+    `.agentic/memory.original.md` (Part-E first-compression backup),
+    `.agentic/deploy.md` (init-project preflight release-stub), and
+    `.agentic/compression-state.json` (Part-E state). Also adds
+    `_ALWAYS_OK_EXTRAS_PREFIXES` for the `.agentic/memory.pre-`
+    rolling-snapshot family. Rationale (Phase 5 corpus expansion
+    finding): wr-006 (compression trigger) and wr-010 (release-signal
+    deploy stub) scored 0.85/0.90 in n=1 dry-runs entirely on
+    extras_penalty from legitimate command outputs the scorer hadn't
+    enumerated. These are spec-required /wrap behaviors, not command
+    fidelity failures. Shape is defensible independent of fixtures.
 
-## Scoring formula (v2)
+## Scoring formula (v3)
 
 Weighted sum across six dimensions, minus a capped extras penalty. Weights
 sum to exactly 1.0 (runtime assertion).
@@ -87,7 +97,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-SCORER_VERSION = "v2"
+SCORER_VERSION = "v3"
 
 _W_FILES = 0.25
 _W_SECTIONS = 0.15
@@ -148,7 +158,17 @@ _ALWAYS_OK_EXTRAS = {
     ".claude/settings.local.json",     # Claude Code runtime config
     ".agentic/tracking.md",            # init-project preflight migration artifact (post-migration path)
     ".claude/tracking.md",             # legacy init-project preflight migration artifact (back-compat window)
+    ".agentic/memory.original.md",     # Part-E compression canonical backup (written on first compression)
+    ".agentic/deploy.md",              # init-project preflight stub when release signals detected
+    ".agentic/compression-state.json", # Part-E state file written by /wrap itself
 }
+
+# Glob-style patterns (startswith match) accepted as always-ok extras.
+# Part-E rolling snapshots use timestamp suffixes so enumerating each path
+# in _ALWAYS_OK_EXTRAS is not viable.
+_ALWAYS_OK_EXTRAS_PREFIXES = (
+    ".agentic/memory.pre-",            # Part-E rolling snapshots
+)
 
 # Files that /wrap's standard route legitimately produces as the route's
 # own signal. When route_expected == "standard", these files appearing is
@@ -438,6 +458,8 @@ def score(trace: dict, fixture: dict) -> dict:
             continue
         if k.startswith(_LOCK_PATH):
             # Lock presence is penalized by w_lock, not by extras.
+            continue
+        if any(k.startswith(p) for p in _ALWAYS_OK_EXTRAS_PREFIXES):
             continue
         extras_hits.append(k)
     extras_raw = _EXTRAS_PER_HIT * len(extras_hits)
