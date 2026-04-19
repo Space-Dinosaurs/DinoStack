@@ -96,7 +96,11 @@ def _run_fixture(
         _log.info("  run %d/%d", i + 1, n_runs)
         with iso_mod.make_isolator(manifest.tier) as worktree:
             pr_mod.stage_fixture_files(fixture, worktree)
-            prompt_text = pr_mod.build_skeptic_prompt(fixture)
+            # Dispatch prompt construction by component name via the builder
+            # registry in evals.runner.prompt. Adding a new component eval
+            # means registering its builder there; this call site is component-
+            # agnostic.
+            prompt_text = pr_mod.build_prompt(manifest.name, fixture)
             run_record = inv_mod.invoke_run(
                 prompt_text, worktree, manifest.timeout_seconds, agent_name=agent_name
             )
