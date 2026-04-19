@@ -121,21 +121,149 @@ def load_component(name: str) -> ComponentManifest:
     )
 
 
-def _load_fixture_file(path: Path) -> Fixture:
-    data: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
+# Per-component fixture validators. A fixture's shape depends on what the
+# component's scoring module expects; validation is dispatched by the
+# fixture's own `component` field. Skeptic fixtures carry expected_findings
+# and diff/worker_output companions; conductor fixtures carry scenario,
+# observed_state, and expected_decision inline.
+
+_CONDUCTOR_DECISION_CLASSES = {
+    "spawn_agent",
+    "re_enter_loop",
+    "escalate_cap_reached",
+    "escalate_convergence_failure",
+    "escalate_blocked",
+    "tight_fix_path",
+    "proceed_to_next_phase",
+    "terminate_clean",
+    "trivial_direct_edit",
+}
+
+_CONDUCTOR_NEXT_AGENTS = {
+    "engineer",
+    "skeptic",
+    "qa-engineer",
+    "architect",
+    "investigator",
+    "debugger",
+    "security-auditor",
+    "orchestration-planner",
+    "release-orchestrator",
+    "dependency-auditor",
+    "perf-analyst",
+}
+
+_CONDUCTOR_LOOP_ACTIONS = {"re_enter", "exit_clean", "exit_stalled"}
+_CONDUCTOR_COST_CLASSES = {"critical", "high", "medium", "low"}
+
+
+def _validate_skeptic_fixture(data: dict, path: Path) -> None:
     required = {"id", "description", "component", "protocol_sha", "inputs", "expected_findings"}
     missing = required - set(data)
     if missing:
         raise ValueError(f"Fixture at {path} missing keys: {sorted(missing)}")
+
+
+def _validate_conductor_fixture(data: dict, path: Path) -> None:
+    required = {
+        "id",
+        "component",
+        "protocol_sha",
+        "scenario",
+        "observed_state",
+        "inputs",
+        "expected_decision",
+    }
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"Conductor fixture at {path} missing keys: {sorted(missing)}")
+
+    observed = data.get("observed_state") or {}
+    if not isinstance(observed, dict):
+        raise ValueError(f"Conductor fixture at {path}: observed_state must be a mapping")
+    obs_required = {"phase", "iteration", "max_iterations"}
+    obs_missing = obs_required - set(observed)
+    if obs_missing:
+        raise ValueError(
+            f"Conductor fixture at {path}: observed_state missing keys: {sorted(obs_missing)}"
+        )
+
+    expected = data.get("expected_decision") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(f"Conductor fixture at {path}: expected_decision must be a mapping")
+    exp_required = {"decision_class", "cost_class", "rationale_keywords", "must_not_select"}
+    exp_missing = exp_required - set(expected)
+    if exp_missing:
+        raise ValueError(
+            f"Conductor fixture at {path}: expected_decision missing keys: {sorted(exp_missing)}"
+        )
+
+    dc = expected.get("decision_class")
+    if dc not in _CONDUCTOR_DECISION_CLASSES:
+        raise ValueError(
+            f"Conductor fixture at {path}: decision_class '{dc}' not in "
+            f"{sorted(_CONDUCTOR_DECISION_CLASSES)}"
+        )
+    na = expected.get("next_agent")
+    if na is not None and na not in _CONDUCTOR_NEXT_AGENTS:
+        raise ValueError(
+            f"Conductor fixture at {path}: next_agent '{na}' not in "
+            f"{sorted(_CONDUCTOR_NEXT_AGENTS)} (null is also allowed)"
+        )
+    la = expected.get("loop_action")
+    if la is not None and la not in _CONDUCTOR_LOOP_ACTIONS:
+        raise ValueError(
+            f"Conductor fixture at {path}: loop_action '{la}' not in "
+            f"{sorted(_CONDUCTOR_LOOP_ACTIONS)} (null is also allowed)"
+        )
+    cc = expected.get("cost_class")
+    if cc not in _CONDUCTOR_COST_CLASSES:
+        raise ValueError(
+            f"Conductor fixture at {path}: cost_class '{cc}' not in "
+            f"{sorted(_CONDUCTOR_COST_CLASSES)}"
+        )
+    mns = expected.get("must_not_select")
+    if not isinstance(mns, list):
+        raise ValueError(f"Conductor fixture at {path}: must_not_select must be a list")
+    rk = expected.get("rationale_keywords")
+    if not isinstance(rk, list):
+        raise ValueError(f"Conductor fixture at {path}: rationale_keywords must be a list")
+
+
+_FIXTURE_VALIDATORS = {
+    "skeptic": _validate_skeptic_fixture,
+    "conductor": _validate_conductor_fixture,
+}
+
+
+def _load_fixture_file(path: Path) -> Fixture:
+    data: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Fixture at {path} is not a YAML mapping")
+    component = data.get("component")
+    if not component:
+        raise ValueError(f"Fixture at {path} missing 'component' field")
+    validator = _FIXTURE_VALIDATORS.get(component)
+    if validator is None:
+        raise ValueError(
+            f"Fixture at {path}: no validator registered for component '{component}'. "
+            f"Known: {sorted(_FIXTURE_VALIDATORS)}"
+        )
+    validator(data, path)
+
+    # Components other than Skeptic may not carry expected_findings /
+    # expected_signoff_granted; default them to empty so the Fixture shape is
+    # uniform. Scoring modules read fixture.raw for component-specific fields.
+    expected_findings = dict(data.get("expected_findings") or {})
     return Fixture(
         id=data["id"],
-        description=data["description"],
+        description=data.get("description", ""),
         component=data["component"],
-        protocol_sha=data["protocol_sha"],
-        inputs=dict(data["inputs"]),
-        expected_findings=dict(data["expected_findings"]),
+        protocol_sha=data.get("protocol_sha", ""),
+        inputs=dict(data.get("inputs") or {}),
+        expected_findings=expected_findings,
         expected_signoff_granted=bool(data.get("expected_signoff_granted", False)),
-        clean_allowed=bool(data["expected_findings"].get("clean_allowed", False)),
+        clean_allowed=bool(expected_findings.get("clean_allowed", False)),
         path=path,
         raw=data,
     )
