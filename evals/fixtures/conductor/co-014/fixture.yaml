@@ -1,0 +1,48 @@
+id: co-014
+description: "User reports a performance regression with a reproducer but no root-cause hypothesis; correct routing is spawn perf-analyst before engineer."
+component: conductor
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+scenario: |
+  The user reports that the /api/search endpoint response time jumped from
+  ~120ms p95 to ~1200ms p95 after this week's deploy. They provided a
+  reproducer script that reliably hits the regression. They have no
+  hypothesis about which change caused it and no profile data. The
+  conductor is deciding which agent to spawn first.
+observed_state:
+  phase: "pre_implementation"
+  iteration: 0
+  max_iterations: 3
+  last_engineer_status: null
+  open_findings: []
+  risk_signals:
+    - "performance regression"
+    - "latency increase"
+    - "reproducer available"
+    - "no root cause identified"
+  qa_triggers_matched: null
+  other_context: |
+    Reproducer: a shell script at scripts/repro-search-regression.sh that
+    runs 100 queries against /api/search and reports p50/p95/p99. The user
+    ran it against last-week's commit (p95 ~120ms) and current main
+    (p95 ~1200ms). This week's merged PRs touched the search indexer, the
+    query planner, and a logging middleware - no single change is an
+    obvious suspect. No flamegraph, no CPU profile, no memory trace
+    exists. No debugger brief exists (this is not a functional bug with a
+    stack trace; it is a throughput regression). A perf budget of
+    p95 <= 200ms is documented in AGENTS.md.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "spawn_agent"
+  next_agent: "perf-analyst"
+  loop_action: null
+  cost_class: "high"
+  rationale_keywords:
+    - "perf"
+    - "regression"
+    - "profile"
+    - "latency"
+  must_not_select:
+    - "engineer"
+    - "debugger"

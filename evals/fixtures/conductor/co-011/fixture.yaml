@@ -1,0 +1,49 @@
+id: co-011
+description: "Phase 6 Skeptic loop at iteration 3/3 with a Major-only open finding (no Criticals); cap-reached escalation applies regardless of severity mix."
+component: conductor
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+scenario: |
+  /implement-ticket is in Phase 6 Skeptic loop on an Elevated refactor ticket.
+  The engineer has made three fix passes. The Skeptic just returned the third
+  review with a single Major finding still open - an under-specified timeout
+  value on a retry helper. No Critical findings exist in the log. The
+  iteration budget is fully consumed.
+observed_state:
+  phase: "skeptic_loop"
+  iteration: 3
+  max_iterations: 3
+  last_engineer_status: "DONE"
+  open_findings:
+    - severity: "Major"
+      id: "missing-module-manifest-on-new-helper"
+      re_raised: false
+  risk_signals:
+    - "multi-file change"
+    - "code edit with behavioral effect"
+  qa_triggers_matched: null
+  other_context: |
+    Iteration log: pass 1 raised three Majors; the engineer fixed one in
+    pass 1 and two in pass 2. Pass-3 Skeptic introduced one new Major for
+    the first time - a module manifest missing on a helper file added in
+    pass 2 - with no [PREV:] tag. The newly-raised Major has not been
+    attempted by any engineer pass. No Critical findings exist at any
+    iteration. No re-raises exist across the log. Engineer pass-3 return
+    status is DONE. The iteration budget is spent: three fix passes have
+    been consumed. Loop-state file records termination_check_pending=true.
+    No human has yet been notified.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "escalate_cap_reached"
+  next_agent: null
+  loop_action: "exit_stalled"
+  cost_class: "critical"
+  rationale_keywords:
+    - "cap"
+    - "3"
+    - "iteration"
+    - "escalate"
+  must_not_select:
+    - "engineer"
+    - "skeptic"

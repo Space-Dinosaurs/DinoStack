@@ -1,0 +1,51 @@
+id: co-013
+description: "Pre-implementation on a design-heavy new feature: data-model, API shape, and cross-module integration decisions remain; correct routing is spawn architect before engineer."
+component: conductor
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+scenario: |
+  The user has asked for a new subscription-tier feature that adds a
+  persistent entitlements table, a new GET/POST API surface under
+  /api/entitlements, and cross-module reads from the billing and auth
+  modules. The conductor has already read the relevant modules in this
+  session (investigator-equivalent context exists from prior conversation).
+  No architect has run. No engineer has been spawned. No prior plan exists
+  for this feature.
+observed_state:
+  phase: "pre_implementation"
+  iteration: 0
+  max_iterations: 3
+  last_engineer_status: null
+  open_findings: []
+  risk_signals:
+    - "multi-file change"
+    - "new file creation"
+    - "data model change"
+    - "new API surface"
+    - "cross-module integration"
+  qa_triggers_matched: null
+  other_context: |
+    Conversation history: the session has already Read src/billing/plans.ts,
+    src/auth/permissions.ts, and src/api/router.ts; file layout and
+    conventions are understood. The user's request enumerates three shape
+    decisions that are NOT yet resolved: (a) whether entitlements are
+    denormalized per-user or computed from plan+overrides, (b) whether the
+    new endpoints sit under /api/v1 or /api/v2, (c) whether the auth
+    middleware gates entitlement reads. No prior architect spawn exists.
+    Ticket is classified Elevated. No investigator is needed - the
+    codebase shape is already loaded into session context.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "spawn_agent"
+  next_agent: "architect"
+  loop_action: null
+  cost_class: "high"
+  rationale_keywords:
+    - "architect"
+    - "design"
+    - "data model"
+    - "api"
+  must_not_select:
+    - "engineer"
+    - "investigator"
