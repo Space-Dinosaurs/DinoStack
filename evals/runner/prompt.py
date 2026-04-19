@@ -213,6 +213,120 @@ def build_conductor_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+_REPO_ROOT_P = Path(__file__).resolve().parent.parent.parent
+
+
+def build_init_project_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for a /init-project eval run.
+
+    The runner cannot invoke `/init-project` as a slash command under a
+    redirected HOME (the command body is not installed into the fake
+    ~/.claude/). Instead, we inline the verbatim body of
+    content/commands/init-project.md into the prompt alongside a synthetic
+    auto-memory banner (which the command looks for to derive the memory
+    dir), a fixture-context preface, a non-interactivity directive, and an
+    explicit "Required outputs" block that enumerates the paths the scorer
+    will check (vocabulary enforcement at the prompt layer, per
+    evals/LEARNINGS.md).
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected_outputs") or {}
+    signals = set(expected.get("expected_signals") or [])
+
+    must_exist = list(expected.get("must_exist") or [])
+    cond = expected.get("must_exist_conditional") or {}
+    for sig in signals:
+        for p in cond.get(sig, []):
+            if p not in must_exist:
+                must_exist.append(p)
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "init-project.md"
+    if not command_path.exists():
+        raise FileNotFoundError(f"init-project command body missing: {command_path}")
+    command_body = command_path.read_text(encoding="utf-8")
+
+    # The synthetic auto-memory banner mirrors what Claude Code injects at
+    # session start when autoMemoryDirectory is pinned. /init-project Step 8
+    # looks for this exact phrasing to derive the memory dir path.
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    non_interactivity = (
+        "Do not prompt the user at any point. Where the command body below "
+        "instructs you to confirm or ask (including but not limited to: "
+        "tracker-selection prompts, Linear-migration prompts, 'Proceed?' "
+        "confirmations, and Step 2a [y/N] prompts), proceed with the "
+        "auto-discovered defaults. If a required field cannot be "
+        "auto-discovered, write the file with the template's TODO "
+        "placeholder so it remains auditable. Never block waiting for input."
+    )
+
+    required_outputs_lines = ["The following files must exist after you finish:"]
+    for p in must_exist:
+        required_outputs_lines.append(f"- {p}")
+    required_outputs_lines.append("")
+    mne = expected.get("must_not_exist") or []
+    if mne:
+        required_outputs_lines.append("The following files MUST NOT be created:")
+        for p in mne:
+            required_outputs_lines.append(f"- {p}")
+        required_outputs_lines.append("")
+    sections = expected.get("agents_md_required_sections") or []
+    if sections:
+        required_outputs_lines.append(
+            "AGENTS.md must contain these sections (as verbatim line prefixes):"
+        )
+        for s in sections:
+            required_outputs_lines.append(f"- {s!r}")
+        max_lines = expected.get("agents_md_max_lines")
+        if max_lines:
+            required_outputs_lines.append(
+                f"AGENTS.md must be at most {max_lines} lines."
+            )
+        required_outputs_lines.append("")
+    gi_lines = expected.get("gitignore_required_lines") or []
+    if gi_lines:
+        required_outputs_lines.append(
+            ".gitignore must contain each of these substrings:"
+        )
+        for s in gi_lines:
+            required_outputs_lines.append(f"- `{s}`")
+        required_outputs_lines.append("")
+
+    required_outputs_block = "\n".join(required_outputs_lines).rstrip()
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        (
+            "You are running the /init-project command against the repository "
+            "rooted at the current working directory. Your $HOME is redirected "
+            "for this session; a project-level config lives at "
+            "$HOME/.claude/agentic-engineering.json and may already be seeded."
+        ),
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/init-project.md follows. "
+        "Execute it against this repository:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: INIT_PROJECT_DONE",
+    ]
+    _ = inputs  # inputs currently unused here; home_config is applied by isolator.
+    return "\n".join(parts) + "\n"
+
+
 # Builder registry. Keyed by component name (matches the manifest `name`
 # field). Adding a new component eval means adding its builder here; the
 # invoker dispatches through this map and does not know about individual
@@ -220,6 +334,7 @@ def build_conductor_prompt(fixture: Fixture) -> str:
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
+    "init-project": build_init_project_prompt,
 }
 
 
