@@ -8,7 +8,7 @@ Purpose: Score a single /init-project command-mode run against a labeled
 Public API: score(trace: dict, fixture: dict) -> dict with keys
             {primary: float in [0, 1], diagnostic: dict,
              status: "ok" | "invalid_format",
-             scorer_version: "v1"}.
+             scorer_version: "v3"}.
 
 Contract: score() expects a single-run trace - trace["runs"] contains
           exactly one run record with a "filesystem" dict mapping repo-
@@ -33,12 +33,21 @@ Performance: standard; one pass over the snapshot keys, one read of each
 
 ---
 
-## Scoring formula (v2)
+## Scoring formula (v3)
 
 Weighted sum across five dimensions, minus a capped extras penalty. Weights
 are normalized so a perfect run scores exactly 1.0. The v1 weights summed to
 0.95, so a flawless scaffold scored 0.95 with no dimension missed - confusing
 for fixture authors. v2 scales every v1 weight by 1/0.95 (factor ~1.05263).
+
+v3 adds vacuous-dimension handling: if a fixture has no applicable
+conditionals (conditional_total == 0) the conditional-files dimension is
+treated as vacuously satisfied and credited at 1.0, rather than 0/1 = 0.
+The command did nothing wrong on an axis that did not apply. The same
+vacuously-satisfied semantics are applied to the gitignore dimension when
+gitignore_total == 0 (previously 0 / max(0, 1) == 0.0 incorrectly
+penalized the run). Sections always have required values per fixture
+schema, so no vacuous case exists there.
 
     v1_sum  = 0.50 + 0.15 + 0.15 + 0.10 + 0.05 = 0.95
     scale   = 1 / 0.95
@@ -56,9 +65,11 @@ for fixture authors. v2 scales every v1 weight by 1/0.95 (factor ~1.05263).
     extras_penalty = min(extras_raw, 0.15)
 
     primary = clip(w_req * required_present / required_total
-                   + w_cond * conditional_present / max(conditional_total, 1)
+                   + w_cond * (1.0 if conditional_total == 0
+                               else conditional_present / conditional_total)
                    + w_sect * section_hits / section_total
-                   + w_gi   * gitignore_hits / max(gitignore_total, 1)
+                   + w_gi   * (1.0 if gitignore_total == 0
+                               else gitignore_hits / gitignore_total)
                    + w_budget * (1 if line_budget_ok else 0)
                    - extras_penalty, 0.0, 1.0)
 
@@ -72,7 +83,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-SCORER_VERSION = "v2"
+SCORER_VERSION = "v3"
 
 # v1 weights renormalized so a perfect run scores 1.0 instead of 0.95.
 _SCALE = 1.0 / 0.95
@@ -226,9 +237,9 @@ def score(trace: dict, fixture: dict) -> dict:
 
     score_primary = (
         _W_REQ * (required_present / required_total)
-        + _W_COND * (conditional_present / max(conditional_total, 1))
+        + _W_COND * (1.0 if conditional_total == 0 else conditional_present / conditional_total)
         + _W_SECT * (section_hits / section_total)
-        + _W_GI * (gitignore_hits / max(gitignore_total, 1))
+        + _W_GI * (1.0 if gitignore_total == 0 else gitignore_hits / gitignore_total)
         + _W_BUDGET * (1.0 if line_budget_ok else 0.0)
         - extras_penalty
     )
