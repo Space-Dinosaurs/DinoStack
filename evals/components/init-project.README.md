@@ -6,16 +6,17 @@ scaffolding when run against a seeded project.
 ## What this measures
 
 - Does the command produce every file it must (AGENTS.md, CLAUDE.md,
-  `.claude/settings*.json`, `.claude/findings.md`, `.agentic/preferences.json`,
+  `.claude/settings*.json`, `.agentic/findings.md`, `.agentic/preferences.json`,
   `docs/*/.gitkeep`, `.gitignore`)?
 - Does it correctly emit conditional files keyed on detected signals
-  (`.claude/qa.md` for web UI, `.claude/deploy.md` for release,
-  `.claude/tracking.md` for tracker)?
+  (`.agentic/qa.md` for web UI, `.agentic/deploy.md` for release,
+  `.agentic/tracking.md` for tracker)?
 - Does it NOT emit files whose signals are absent?
 - Does AGENTS.md carry the required sections and stay under the line budget
   (45)?
 - Does `.gitignore` contain the mandatory entries
-  (`.claude/settings.local.json`, `.agentic/`)?
+  (`.claude/settings.local.json`, and the targeted `.agentic/` runtime-artifact
+  block including at minimum `.agentic/loop-state.json`)?
 
 ## What this does NOT measure
 

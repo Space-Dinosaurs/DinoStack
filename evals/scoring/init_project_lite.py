@@ -158,10 +158,15 @@ def _unexpected_claude_md_count(
     active_conditional_paths: set[str],
     must_exist_set: set[str],
 ) -> int:
-    always_ok = {".claude/findings.md"}
+    # findings.md is always created (by /init-project) regardless of signals;
+    # tolerate both the new .agentic/ path and the legacy .claude/ path during
+    # the 2-minor-release back-compat window.
+    always_ok = {".agentic/findings.md", ".claude/findings.md"}
     count = 0
     for k in snapshot_keys:
-        if not k.startswith(".claude/") or not k.endswith(".md"):
+        is_claude_md = k.startswith(".claude/") and k.endswith(".md")
+        is_agentic_md = k.startswith(".agentic/") and k.endswith(".md") and k != ".agentic/preferences.json"
+        if not (is_claude_md or is_agentic_md):
             continue
         if k in must_exist_set or k in active_conditional_paths or k in always_ok:
             continue

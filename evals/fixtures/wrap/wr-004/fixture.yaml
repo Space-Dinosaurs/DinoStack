@@ -12,7 +12,7 @@ expected_outputs:
   must_exist:
     - ".agentic/context.md"
     - ".agentic/memory.md"
-    - ".claude/findings.md"
+    - ".agentic/findings.md"
   must_not_exist:
     - ".agentic/wrap.lock"
   context_md_required_sections:

@@ -11,7 +11,7 @@ expected_outputs:
   route_expected: "standard"
   must_exist:
     - ".agentic/context.md"
-    - ".claude/findings.md"
+    - ".agentic/findings.md"
   must_not_exist:
     - ".agentic/wrap.lock"
   context_md_required_sections:

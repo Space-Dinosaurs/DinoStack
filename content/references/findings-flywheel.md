@@ -5,7 +5,7 @@
 Every Critical or Major Skeptic finding that gets fixed is a latent regression. Without a test, the same bug can silently reappear in a future change. Without a record, the same pattern of mistake repeats across future tasks with no signal that the pattern was already encountered. The flywheel closes both loops:
 
 1. **Per-finding regression test** — when a finding is fixed, the Worker proposes a test that would have caught it. Skeptic verifies the test exists before granting sign-off.
-2. **Pattern promotion** — recurring finding categories are persisted to `.claude/findings.md`. Architect reads this file at plan time so prior lessons shape future plans.
+2. **Pattern promotion** — recurring finding categories are persisted to `.agentic/findings.md`. Architect reads this file at plan time so prior lessons shape future plans.
 
 These are two distinct mechanisms with different scopes: the regression test is code-level (lives in the test suite, catches the specific failure mode); the pattern entry is session-level (lives in a project file, informs future planning).
 
@@ -45,11 +45,24 @@ A test that passes even without the fix does not count. The Worker should confir
 
 ---
 
-## Part 2: Pattern Promotion to `.claude/findings.md`
+## Part 2: Pattern Promotion to `.agentic/findings.md`
 
-### What `.claude/findings.md` is
+### What `.agentic/findings.md` is
 
-A project-level file that accumulates finding patterns. It is not a log of every finding — it is a curated set of recurring or high-impact patterns that should shape future work. The file lives at `.claude/findings.md` alongside `.claude/qa.md` and `.claude/tracking.md`.
+A project-level file that accumulates finding patterns. It is not a log of every finding — it is a curated set of recurring or high-impact patterns that should shape future work. The file lives at `.agentic/findings.md` alongside `.agentic/qa.md` and `.agentic/tracking.md`. All four files are tool-agnostic agent config, checked into the repo so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project state.
+
+### Path resolution (back-compat)
+
+Readers resolve the file via this fallback order:
+
+```
+resolve(name):  # name in {qa, deploy, findings, tracking}
+  for dir in ['.agentic', '.claude']:
+    if exists(f'{dir}/{name}.md'): return that path
+  return None
+```
+
+Writers always write to `.agentic/<name>.md`. Track-scoped lookup uses the same order under `<track>/`. The legacy `.claude/` fallback is a **2-minor-release back-compat window** (approximately 6 weeks). Once a project is migrated (via `/init-project` update mode or `/wrap` preflight), the legacy path is gone and only `.agentic/findings.md` remains. After the 2-release window, the fallback will be removed and readers will only look in `.agentic/`.
 
 Entries are short. A single entry answers: what is the pattern, where does it tend to appear, and how should it be avoided going forward.
 
@@ -81,7 +94,7 @@ data-pipelines template.
 
 ### When to promote
 
-The conductor (or the main agent in the `/implement-ticket` flow) checks after Skeptic sign-off whether any Major or Critical finding from the just-completed task warrants a `.claude/findings.md` entry.
+The conductor (or the main agent in the `/implement-ticket` flow) checks after Skeptic sign-off whether any Major or Critical finding from the just-completed task warrants a `.agentic/findings.md` entry.
 
 **Promote if any of the following are true:**
 
@@ -99,19 +112,21 @@ The conductor (or the main agent in the `/implement-ticket` flow) checks after S
 
 Target under 15 entries. The file must remain scannable - Architect reads it unconditionally on every plan, so unbounded growth inflates every spawn on long-running projects. When adding a new entry would push the file past 15 entries, the conductor (promote step) is responsible for consolidating entries that describe the same underlying failure mode, or retiring entries that no longer apply to the current shape of the codebase.
 
-### Who reads `.claude/findings.md`
+### Who reads `.agentic/findings.md`
 
-- **Architect (required):** at plan time, read `.claude/findings.md` if it exists. Cite any entries that apply to the current task in the plan's "Trade-offs and constraints" or "Known limitations" section. A plan that ignores an applicable findings entry is incomplete.
-- **Skeptic (required):** at review time, treat `.claude/findings.md` entries as known anti-patterns. If the Worker's implementation repeats a pattern documented in findings, raise it as a **Major** finding — `Repeats documented pattern from .claude/findings.md: [category name].`
+All readers resolve the path via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback (see "Path resolution" above). During the 2-minor-release back-compat window (~6 weeks from migration ship date), the fallback remains active; after that, readers look only in `.agentic/`. Writers have always written to `.agentic/` since migration.
+
+- **Architect (required):** at plan time, read findings.md via the resolver. Cite any entries that apply to the current task in the plan's "Trade-offs and constraints" or "Known limitations" section. A plan that ignores an applicable findings entry is incomplete.
+- **Skeptic (required):** at review time, treat findings.md entries (read via resolver) as known anti-patterns. If the Worker's implementation repeats a pattern documented in findings, raise it as a **Major** finding — `Repeats documented pattern from findings.md: [category name].`
 - **Worker (optional):** may read findings for context when implementing a task where the Architect has cited relevant entries.
 
-### Who writes `.claude/findings.md`
+### Who writes `.agentic/findings.md`
 
 The conductor (main agent) is responsible for the promote step after any Skeptic sign-off - in `/implement-ticket` (Phase 6c), in `/wrap` (Part D), and in any ad-hoc Worker+Skeptic cycle. The promote step is defined in `agent-methodology.md` §Post-sign-off finding promotion. The conductor:
 
 1. Reads the Skeptic's findings from the just-completed task.
 2. Applies the promotion criteria above.
-3. If promotion is warranted: reads the current `.claude/findings.md` (or creates it if absent), adds or updates the relevant entry, and confirms the write.
+3. If promotion is warranted: reads the current findings.md via the resolver (or creates `.agentic/findings.md` if neither path exists), adds or updates the relevant entry, and writes the merged result to `.agentic/findings.md`. If the resolver fell back to the legacy path, the legacy file is left untouched - `/init-project` update mode or `/wrap` preflight will migrate it via `git mv` when the working tree is clean.
 4. Keeps the step lightweight — the file must not become a bureaucratic artifact. A promote step that takes more effort than the task itself is miscalibrated.
 
 ---
@@ -121,4 +136,4 @@ The conductor (main agent) is responsible for the promote step after any Skeptic
 | Loop | Trigger | Actor | Output | Lives in |
 |---|---|---|---|---|
 | Regression test | Critical/Major finding fixed | Worker + Skeptic verification | Test case that catches the failure mode | Project test suite |
-| Pattern promotion | Sign-off granted on task with Major+ finding | Conductor | Entry in `.claude/findings.md` | `.claude/findings.md` |
+| Pattern promotion | Sign-off granted on task with Major+ finding | Conductor | Entry in `.agentic/findings.md` | `.agentic/findings.md` (resolver: `.agentic/` preferred, legacy `.claude/` fallback for 2 minor releases) |

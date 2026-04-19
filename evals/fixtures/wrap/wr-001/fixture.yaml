@@ -13,7 +13,7 @@ expected_outputs:
     - ".agentic/context.md"
   must_not_exist:
     - ".agentic/memory.md"
-    - ".claude/findings.md"
+    - ".agentic/findings.md"
     - ".agentic/wrap.lock"
   context_md_required_sections:
     - "## Recent Focus"
