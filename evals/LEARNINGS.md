@@ -1,0 +1,177 @@
+# Evals learnings
+
+Accumulated lessons from building component evals. Read this before starting a new component eval - each lesson below was paid for in rework.
+
+## Invocation path matters and is easy to get wrong
+
+The eval must invoke the component via the SAME path humans use in production. For named agents, that means the Task-tool subagent-spawn path, NOT a top-level `claude -p` session pretending to be the named agent.
+
+- **Symptom if wrong:** a top-level session told to "follow content/agents/foo.md" does not get the frontmatter applied (tools, model, description). What you measure is a plain Claude session plus a Read, not the named agent.
+- **Correct pattern:** two-level spawn. Outer `claude -p` session is a thin spawner with `Task` in allowed-tools. Its prompt: "Use Task with subagent_type='<agent_name>' and prompt=<brief>. Return the subagent's response verbatim." The normalizer extracts the subagent's output from the outer Task result, filtering nested tool_results by `parent_tool_use_id`.
+- **When the invocation path must be a proxy:** if the component is session-level (like the main conductor's in-flight routing), the eval can only measure a proxy (the `orchestration-planner` named subagent in Phase 3's case). Document this limitation upfront in the component README's "what this measures vs. doesn't" section. Do not oversell.
+
+## Scoring-function floors and ceilings kill signal
+
+A scoring function that floors at 0 or ceilings at 1 on most fixtures cannot detect prompt variants. Phase 1's v1 Skeptic scorer floored sk-001 and sk-002 at 0.0 because FP-Major penalty was absolute (-0.1 each) while `max_achievable` was tiny (0.5 for single-Major fixtures). A Skeptic catching the TP plus 5 FPs computed to -1.2 → clipped to 0, and no prompt improvement could surface.
+
+- **Rule:** a Skeptic-correct component that catches the TP MUST be able to score above 0 regardless of false-positive noise. Cap FP penalty at ~50% of max_credit (or `max(max_credit, 1.0) * 0.5`). This was Phase 2's v2 fix.
+- **Rule:** clean-control fixtures (no expected findings) need their own scoring path that doesn't divide by zero.
+- **Test before trusting:** the sensitivity-check pattern. Run the eval twice on the same prompt to observe within-prompt noise. Then edit the prompt (a plausible, small calibration change) and run again. If fewer than ~60% of fixtures move outside their noise envelope, either the scorer saturates or the fixtures don't exercise the sensitive region.
+
+## Vocabulary enforcement belongs in the prompt, not the fixture
+
+If the scorer does exact-string matching on an enum (decision_class, severity, category), the prompt MUST enumerate the valid values. Phase 3 burned a round because the enum values were invented by the fixture author, never referenced in `content/`, and never shown to the planner. The planner emitted natural synonyms ("tight_fix" vs "tight_fix_path") and scored 0 for vocabulary, not routing.
+
+- **Rule:** in the prompt, list the exact enum strings the scorer expects. This is scaffolding, not telegraphing - the planner still has to choose which option applies.
+- **Do not** add "synonym maps" to the scorer as a workaround. Enforce vocabulary at the prompt layer; keep scoring exact.
+
+## Telegraphing is the most insidious fixture defect
+
+A fixture's observed_state or context MUST describe situational FACTS (what happened, what state exists, what artifacts the subagent can see). It must NOT describe the rule that governs the correct answer. If the planner can pick the right answer by restating quoted text in the prompt, the eval measures restatement, not reasoning.
+
+- **Bad:** `other_context: "The persistence loop contract says iteration 3 is the cap."` - tells the planner the rule.
+- **Good:** `other_context: "Three engineer fix passes have run on this ticket. The most recent Skeptic review raised the same Major finding again."` - tells the planner the state; the planner must retrieve the rule from its loaded `content/` files.
+- **Test per fixture:** could a human labeler reading ONLY the fixture (not the methodology files) guess the expected decision? If yes, the fixture is telegraphing.
+- **Process rule:** the fixture author should draft the fixture, ask an independent reader (or a cold agent) to solve it without access to the methodology files, and revise until the cold reader cannot determine the answer.
+
+## Isolation claims must match isolation mechanisms
+
+Phase 1 initially declared Tier 1 as "worktree-only" but granted `Bash` tool access and `acceptEdits` permission. That's not read-only isolation - it's a shell + write session with a git worktree. The fix was to drop Bash and edit tools; Tier 1 now means Read, Grep, Glob, Task only, with `default` permission mode.
+
+- **Rule:** the isolator's allowed_tools list must match its declared tier. Tier 1 = read-only review, no Bash, no Write, no Edit. Tier 3 = full execution in Docker with network denied by default.
+- **Network:** Tier 1 currently does NOT enforce network denial (relies on tool list being read-only). If a future read-only component needs Bash or network, it is NOT Tier 1 - upgrade it to Tier 2 or 3 and implement the isolation.
+- **Do not** use "git worktree per run" as a synonym for isolation. It isolates the working tree; it does not isolate network, HOME, or nested subagent grants.
+
+## Fixture hash should hash meaning, not bytes
+
+Phase 1 initially hashed fixture YAML bytes directly for `fixture_hash`. That meant a cosmetic description tweak (even a single character) changed the hash - particularly sensitive if a local pre-commit secret-scanner false-positive-matched certain SHA substrings and forced a reword. The fix: hash only the semantic fields (`id`, `inputs`, `expected_findings`, `expected_signoff_granted`) via canonical JSON.
+
+- **Rule:** `fixture_hash = sha256(json.dumps(semantic_subset, sort_keys=True, separators=(",", ":")))`. Descriptions, comments, and `protocol_sha` are not in the subset.
+- **Benefit:** hash is stable across local-hook churn and reword polishing. Only a meaningful fixture change invalidates the row.
+
+## Prompt-neutral edits vs. behavioral edits
+
+When you need to rotate a fixture hash (e.g. to dodge a secret-scanner false-positive), the edit must be SEMANTICALLY NEUTRAL. Adding instruction text like "Return exactly one decision." changes the component's output-shape pressure on that fixture relative to its peers. The correct rotation mechanisms are:
+- Toggle a trailing blank line inside a free-text YAML block
+- Change YAML block-scalar style (`|` to `|+`) - preserves rendered content
+- Reorder unused YAML keys alphabetically
+
+If you can't dodge the false-positive with a neutral change, the correct fix is to the scanner rule, not the fixture.
+
+## Run the sensitivity check before declaring a phase done
+
+A component eval is "done" when it can distinguish two plausible variants of the component's source text, not when it produces a TSV. Phase 3 first ran with all fixtures pinned at floor/ceiling; the eval produced numbers but was measuring vocabulary, not routing. The sensitivity check - run baseline twice, then a plausible variant, then compare - is how you verify the signal path before investing in more fixtures.
+
+- **Rule:** before expanding a component's fixture corpus past the initial 5-10, run a sensitivity check. If <60% of fixtures move on a plausible prompt edit, fix the scorer or re-author fixtures before scaling.
+
+## Overfitting Rule in practice
+
+`evals/OVERFITTING-RULE.md` says: edits to `content/` motivated by a TSV score must satisfy "if this exact fixture disappeared, would this edit still be a worthwhile change?" The rule is easy to state and hard to apply - the temptation to chase a low score is real.
+
+- **Concrete pattern that passes the rule:** a scorer-side change (tightening precision/recall calibration) motivated by multiple fixtures showing the same shape of defect.
+- **Concrete pattern that fails the rule:** editing `orchestration-planner.md` to canonicalize `decision_class` vocabulary because co-008 scored 0.286. That's chasing a single fixture's vocabulary quirk. The better fix is either fixture rewording or accepting the low score.
+- **Document non-fixes too:** when a low-scoring fixture is a known limitation that we deliberately chose not to fix, note it (in the fixture README, in the commit message, or in this doc). Silent acceptance is how overfitting sneaks in later.
+
+## Content glob is load-bearing
+
+The `content_glob` in the component manifest determines which files' changes invalidate the content-hash cache. If a file contains rules the component's correctness depends on but is not in the glob, a change to that file silently leaves the content_hash the same and the eval produces stale results.
+
+- **Rule:** glob includes every file the component's correct behavior couples to. For the conductor eval, that means `orchestration-planner.md`, `agent-methodology.md`, AND `implement-ticket.md` (which owns Phase 6/6b cap rules). Phase 3 initially missed `implement-ticket.md`.
+- **Do not** include files just because they're nearby. Ad-hoc inclusion over-invalidates the cache on unrelated edits and makes TSV rows look less comparable than they are.
+
+## stdev of zero is data, not noise
+
+A fixture that produces stdev=0.000 across N=3 runs is saying: the component's output is deterministic on this scenario at this sample size. That's not a bug unless it happens on EVERY fixture - then the eval lacks dynamic range.
+
+- **Rule:** the planning doc's ordering criterion `|median_A - median_B| < stdev` is undefined when stdev=0. Either supplement with cross-fixture median spread (the practical alternative we adopted in Phase 3), or increase N to induce visible variance for statistical tie-breaking.
+- **Practical target:** at least 2 fixtures with non-zero stdev in any component's baseline run, as a sanity check that the eval is exercising uncertainty somewhere.
+
+## Things still unresolved across the whole eval system
+
+- **Per-fixture cost caps.** The runner doesn't enforce a per-fixture token budget. A runaway subagent burns tokens silently.
+- **protocol_sha drift warning.** Implemented but no enforcement. A drifted fixture still runs and scores; the warning just logs.
+- **No cross-component regression harness.** A change to one component's prompt that indirectly affects another (e.g. a shared subagent) is invisible until someone manually re-runs the other component's eval.
+- **Fixture labeling is human-heavy.** No proposal for scaling beyond the current hand-authoring pace.
+- **Scorer versioning.** `scorer_version` is recorded but the runner does not warn when a newer scorer rolls in and invalidates prior rows.
+
+## Slash commands are not discoverable under redirected HOME
+
+Tier 2 evals redirect `$HOME` to a tmpdir to contain blast radius. Inside
+that fake HOME the skill / command install path is absent, so
+`claude -p "/init-project"` returns `Unknown command: /init-project`.
+Telling the runner to invoke a slash command in that environment
+measures nothing.
+
+- **Rule:** for slash-command evals, inline the verbatim command body
+  as the `-p` prompt content. Add a synthetic auto-memory banner, a
+  fixture-context preface, and a non-interactivity directive around it.
+  Do not invoke `/slash-name`. This is a proxy; document it in the
+  component README's invocation-caveat section.
+
+## Tier 2 command-mode runs are "raw-prompt" by design
+
+The `[raw-prompt]` TSV description prefix was designed to flag UNEXPECTED
+fallbacks on agent-mode runs where the Task spawn didn't resolve. For
+command-mode runs (`invoke.mode == "command"`), there is no Task wrapper
+- raw-prompt IS the intended path. Tagging every command-mode row with
+`[raw-prompt]` makes every row look like a fallback.
+
+- **Rule:** only prefix `[raw-prompt]` when `invoke_mode == "agent"` and
+  some run fell back to raw-prompt. The cli.py conditional
+  `if invoke_mode == "agent" and ...` is the right guard; it was landed
+  correctly in the Turn 1 cli.py and needs no further change.
+
+## Scorer weights must sum to 1.0 (or the documented ceiling)
+
+init_project_lite v1 weights summed to 0.95, so a flawless scaffold
+scored 0.95. Fixture authors reading the TSV see 0.95 and assume one of
+the five dimensions was missed. There was no sixth dimension - v1 just
+didn't normalize.
+
+- **Rule:** renormalize weights so a perfect run scores 1.0. Add a
+  runtime assertion (`assert abs(sum(weights) - 1.0) < 1e-9`) so future
+  additions that shift the total surface immediately. This was v2's fix.
+
+## Filesystem snapshot alone is insufficient for line-level scoring
+
+init_project_lite needs to inspect AGENTS.md and .gitignore contents
+(not just existence) to check required-section coverage and required
+substrings. A pure `sha256` snapshot cannot satisfy that; the scorer
+reads the files directly from disk.
+
+- **Rule:** the invoker must keep the worktree alive through the
+  scoring phase and stash `worktree_root` on the run record before the
+  isolator cleans up. If a scorer needs file-level inspection, it reads
+  from `worktree_root` not from the snapshot. Cleanup is the caller's
+  responsibility, done AFTER scoring completes.
+
+## "No applicable conditional" is not the same as "zero conditional hits"
+
+init_project_lite v2 still computes `conditional_present /
+max(conditional_total, 1)` for every fixture, including fixtures whose
+`expected_signals: []` means no conditional files should ever appear.
+Those fixtures score 0 / 1 = 0 on the conditional dimension, losing
+0.158 of the weighted sum for a dimension that is not applicable. Both
+ip-002 (python-poetry, no signals) and ip-005 (greenfield) hit this and
+settle at 0.8421 despite doing everything /init-project asked of them.
+
+- **Recognised limitation, not fixed in v2:** raising this to v3 by
+  scoring vacuous dimensions 1.0 would saturate all 5 fixtures at 1.0
+  and eliminate sensitivity-check headroom. The clean fix is to
+  simultaneously (a) make non-applicable dimensions vacuous and (b) add
+  fixtures that exercise the remaining headroom (e.g. tracker signal,
+  AGENTS.md line-budget stressor). Document this as a known-limitation
+  in the fixture README rather than silently letting 0.842 look like
+  fixture-level misbehaviour.
+
+## Sensitivity headroom requires at least one slack dimension
+
+Phase 4's full-run baseline produced stdev=0 on all 5 fixtures. That
+means every fixture is either at floor or at a stable structural score;
+a plausible prompt edit has no dimension to move. The calibration-level
+sensitivity edit (AGENTS.md line budget `45 -> 40`) only moves fixtures
+where the generated AGENTS.md lines straddle the threshold. Current
+runs produce 29-38 lines, well under 40, so the edit doesn't move the
+median. Fixture corpus expansion should include at least one
+AGENTS.md-line-budget stressor (e.g. a decisions-heavy repo) to give
+the line-budget dimension teeth.
