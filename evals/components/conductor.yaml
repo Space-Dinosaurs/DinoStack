@@ -1,8 +1,14 @@
 name: conductor
 tier: 1
 content_glob:
+  # Phase-command files are included when their contract is load-bearing for
+  # the component under test. implement-ticket.md owns the Phase 6 / Phase 6b
+  # iteration caps and convergence-failure escalation rules the fixtures
+  # depend on; excluding it from the hash meant edits to those rules did not
+  # invalidate cached eval results.
   - content/agents/orchestration-planner.md
   - content/rules/agent-methodology.md
+  - content/commands/implement-ticket.md
 scoring_module: evals.scoring.conductor_lite
 fixture_dir: evals/fixtures/conductor
 n_runs: 3
