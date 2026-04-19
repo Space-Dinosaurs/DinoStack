@@ -25,10 +25,12 @@ observed_state:
     - "new file creation"
   qa_triggers_matched: null
   other_context: |
-    Standard Elevated task. No tight-fix path eligibility (this is a
-    feature-add, not a bug fix). The loop contract says: spawn a fresh
-    engineer with the open findings brief, instruct it to address only
-    those findings, and re-enter the loop.
+    Ticket type: feature-add (new report export endpoint). Engineer pass 1
+    just returned DONE with three files created (one new module, one
+    updated router, one new test file). Skeptic's sign-off is withheld
+    pending the two Majors. No Critical findings were raised. No debugger
+    brief exists for this ticket. Iteration counter sits at 1; no prior
+    fix passes have been spent. No cap-reached or BLOCKED signals.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.

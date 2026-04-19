@@ -24,11 +24,14 @@ observed_state:
     - "UI-visible change"
   qa_triggers_matched: true
   other_context: |
-    p0-persistence-loop.md: "Phase 6 Skeptic loop: up to 3 fix passes.
-    Phase 6b QA loop: up to 3 fix passes. The two sub-caps are
-    independent - exhausting the Skeptic cap does not consume QA cap
-    budget." The prior ticket's cap_reached has no bearing on this
-    ticket's budget.
+    Session history: an earlier, unrelated ticket (#142, feature-flag
+    toggle for the admin panel) exited via cap_reached after exhausting
+    three Skeptic fix passes and was escalated. The current ticket (#147,
+    coupon-pricing UI) is a separate /implement-ticket run launched after
+    #142 was handed back to the human. For this ticket, the Skeptic loop
+    closed cleanly on iteration 1 and the QA phase has just begun; no
+    fix passes have been spent against the QA loop yet. The QA finding
+    is not a re-raise; it is first observation.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.

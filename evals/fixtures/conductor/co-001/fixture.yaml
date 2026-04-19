@@ -22,10 +22,13 @@ observed_state:
     - "code edit with behavioral effect"
   qa_triggers_matched: null
   other_context: |
-    The persistence loop contract in p0-persistence-loop.md and the "Re-route
-    limits" rule in agent-methodology.md both cap Phase 6 at 3 fix passes.
-    The engineer has already attempted the fix; a fourth spawn is not an
-    available move.
+    Iteration log: pass 1 addressed a Critical input-sanitization finding and
+    a Major logging-context finding; pass 2 addressed a Critical missing-null-
+    check finding; pass 3 attempted unchecked-null-propagation but the current
+    Skeptic re-raised the same finding with [PREV: iter-1] attached. The
+    Engineer's pass-3 return status is DONE. No other open findings remain.
+    Loop-state file records termination_check_pending=true. No human has yet
+    been notified of the stall.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.

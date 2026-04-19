@@ -24,11 +24,12 @@ observed_state:
     - "security surface"
   qa_triggers_matched: null
   other_context: |
-    p0-persistence-loop.md: "BLOCKED: Treat as immediate cap_reached
-    escalation regardless of current iteration count. BLOCKED means the
-    Engineer hit a hard blocker requiring architecture decisions or human
-    judgment - it is a design-level problem that more iterations cannot
-    resolve." The iteration counter is NOT incremented.
+    The Engineer's BLOCKED return narrative enumerates the three call sites
+    (src/api/login.py, src/api/refresh.py, src/jobs/worker.py) and asks which
+    module should own the consolidated validator. The Engineer explicitly
+    states they do not have authority to pick the owning module and that
+    picking arbitrarily could conflict with in-flight work on the worker
+    module. No architect agent has run against this ticket.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.

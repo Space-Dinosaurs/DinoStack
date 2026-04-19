@@ -22,10 +22,12 @@ observed_state:
     - "multi-file change"
   qa_triggers_matched: null
   other_context: |
-    p0-persistence-loop.md: "one re-raise after a claimed fix is sufficient
-    to trigger convergence failure escalation." agent-methodology.md
-    "Convergence failure" section confirms: escalate immediately, do not
-    consume remaining iteration budget.
+    The re-raised finding body is byte-identical to iteration 1's, with an
+    added [PREV: iter-1] tag from the Skeptic. The Engineer's iteration-2
+    return narrative explicitly claims the finding was addressed and points
+    at a commit that touched src/api/handlers.py. Skeptic's current review
+    notes the change is in the wrong call site. One iteration of budget
+    (iteration 3) remains technically available.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.

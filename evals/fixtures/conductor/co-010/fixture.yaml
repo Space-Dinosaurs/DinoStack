@@ -21,11 +21,13 @@ observed_state:
     - "multi-file change"
   qa_triggers_matched: true
   other_context: |
-    agent-methodology.md and orchestration-planner.md both require:
-    "Use security-auditor when: the change touches auth, sessions,
-    tokens, passwords, or permissions. Run after engineer + Skeptic, not
-    instead of Skeptic." Sign-off + QA pass do not substitute for a
-    security audit on an auth-surface change.
+    Diff summary: src/auth/session.ts adds a rotateOnReset() call; src/auth/reset.ts
+    invokes rotateOnReset() from the password-reset flow; src/auth/tokens.ts
+    adds a new invalidatePredecessor() helper. Skeptic sign-off text reads
+    "SIGN-OFF GRANTED. No open findings" after iteration 1. QA returned
+    PASS with all functional acceptance criteria met. The orchestration
+    has spawned engineer, skeptic, and qa-engineer so far; security-auditor
+    has not been invoked in this session. Ticket is Elevated.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.
