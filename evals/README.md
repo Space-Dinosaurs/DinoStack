@@ -130,7 +130,8 @@ fixture shapes and the perfect-run / Critical-miss cases.
 
 ### Match mechanics (unchanged across v1/v2)
 
-
+Known limitations of the substring-match approach, documented rather than
+fixed in Phase 1:
 
 - **Case-insensitive substring only.** No stemming, no morphology, no lemmatisation.
 - **Keyword lists are AND-joined.** Every keyword in an expected entry's
