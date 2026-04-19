@@ -1,0 +1,29 @@
+id: wr-002
+component: wrap
+protocol_sha: 9791eb86da00c701c3a597fedf0c6482df942bab
+description: "Unpromoted Major Skeptic finding with 2 prior instances; expect standard route + findings.md growth"
+repo_archetype: "node-express"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+expected_outputs:
+  route_expected: "standard"
+  must_exist:
+    - ".agentic/context.md"
+    - ".claude/findings.md"
+  must_not_exist:
+    - ".agentic/wrap.lock"
+  context_md_required_sections:
+    - "## Recent Focus"
+    - "## Current Task / Next Steps"
+    - "## Key File Paths"
+  expected_substrings:
+    context.md:
+      - "TICK-441"
+      - "fix/tick-441-idempotency"
+    findings.md:
+      - "webhook"
+      - "validat"
+  forbidden_substrings:
+    context.md: []
