@@ -1,0 +1,43 @@
+id: ip-006
+component: init-project
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+description: "Node + Next.js decisions-heavy; web UI; stresses AGENTS.md line budget"
+repo_archetype: "node-pnpm-decisions-heavy"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-out","set_at":"2026-04-18"}'
+expected_outputs:
+  must_exist:
+    - AGENTS.md
+    - CLAUDE.md
+    - .claude/settings.json
+    - .claude/settings.local.json
+    - .claude/findings.md
+    - .agentic/preferences.json
+    - docs/overview/.gitkeep
+    - docs/technical/.gitkeep
+    - docs/planning/.gitkeep
+    - docs/research/.gitkeep
+    - .gitignore
+  must_exist_conditional:
+    web_ui:
+      - .claude/qa.md
+    release:
+      - .claude/deploy.md
+    tracker:
+      - .claude/tracking.md
+  must_not_exist:
+    - .claude/deploy.md
+    - .claude/tracking.md
+  agents_md_required_sections:
+    - "# "
+    - "## Tools"
+    - "## Docs"
+    - "## Conventions"
+  agents_md_max_lines: 45
+  gitignore_required_lines:
+    - ".claude/settings.local.json"
+    - ".agentic/"
+  expected_signals:
+    - web_ui

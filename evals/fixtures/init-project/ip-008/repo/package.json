@@ -1,0 +1,10 @@
+{
+  "name": "ip-008-lib",
+  "version": "0.2.0",
+  "description": "Utility helpers for string normalization.",
+  "main": "src/lib.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

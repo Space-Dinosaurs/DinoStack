@@ -1,0 +1,21 @@
+lockfileVersion: '6.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+dependencies:
+  next:
+    specifier: 14.2.5
+    version: 14.2.5
+  react:
+    specifier: 18.3.1
+    version: 18.3.1
+  react-dom:
+    specifier: 18.3.1
+    version: 18.3.1
+
+devDependencies:
+  typescript:
+    specifier: 5.5.3
+    version: 5.5.3
