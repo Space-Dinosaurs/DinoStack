@@ -277,3 +277,101 @@ so the ledger only reflects production-prompt measurements.
   8-fixture corpus; the scoped-subset interpretation above is the
   working definition of "calibrated enough" and is carried forward
   into any future Phase-5 probe design.
+
+## Phase 5 /wrap eval baseline (partial, n=1)
+
+Scorer v1 shipped (550218a) with six weighted dimensions summing to
+1.0: file presence (0.25), context.md section coverage (0.15),
+substring fidelity to the session transcript (0.20), tiered route
+credit (0.15), forbidden-file absence (0.15), lock-release hygiene
+(0.10). Tiered routing credit (exact -> 1.0, adjacent -> 0.5,
+wrong-direction -> 0.0) follows the Phase 4 pattern of graded credit
+on at least one axis.
+
+Corpus: 5 fixtures (wr-001..wr-005) covering clean-end-of-feature,
+Skeptic finding promotion, in-progress refactor, learnings append
+against a 14-entry findings.md, and a zero-substance Q&A session.
+Every fixture seeds opt-in marker in both `home_config` and the
+repo's AGENTS.md; the prompt builder raises at build time if the
+marker is missing.
+
+Baseline n=1 medians (committed to ledger at 550218a):
+
+- wr-001 (clean light): 1.0 - all five required sections hit, four
+  transcript substrings preserved, no extras.
+- wr-002 (standard, skeptic finding promotion): 0.85 - substrings and
+  sections all hit; dropped 0.15 to `extras_penalty` because the
+  command created `.claude/settings.json`, `.claude/settings.local.json`,
+  `.agentic/memory.md`, and `.claude/tracking.md` beyond the expected
+  set.
+- wr-003 (light, in-progress): 1.0 - negative substring checks
+  ("completed", "done") correctly absent from Recent Focus; next-step
+  pointer present.
+- wr-004 (standard, learnings append): 0.85 - memory.md captured
+  `router.ts` and `WebhookError`; dropped 0.15 to `extras_penalty` on
+  the same `.claude/settings*.json` + `.claude/tracking.md` set.
+- wr-005 (zero-substance discriminator): 1.0 - correctly routed
+  zero-substance, no forbidden files created.
+
+Headroom status: corpus has real discrimination room by design.
+Neither 0.85 score hit a substring or routing defect; both dropped
+exclusively on the extras axis. This is a live scoring surface on its
+first use: the `.claude/settings*.json` files come from Claude Code
+itself (per-session config writes), and `.claude/tracking.md` is
+created by init-project scaffolding that /wrap's light/standard paths
+trigger through the opt-in preflight migration. Before a future
+maintainer claims these extras are a bug, they should decide whether
+to (a) add them to every fixture's `must_exist` as expected Claude
+Code runtime artifacts, or (b) tighten the prompt builder to freeze
+`.claude/settings.json` before the run. Either change passes the
+Overfitting Rule if paired with a written rationale.
+
+Unfinished in this session (resource exhaustion mid-run): n=3
+baseline across the full corpus and a full n=3 substring-fidelity
+probe (remove "Replace all placeholders with real content from the
+data provided." from wrap.md Step 1). A partial probe captured one
+clean row (wr-001 stayed at 1.0 under probe - no movement on a
+substring-axis probe against a fixture without substring pressure) and
+one `cli_exit_1` crash on wr-002. The probe was reverted cleanly from
+both the working tree and the TSV. Follow-up session should re-run
+baseline n=3 and probe n=3 once usage resets.
+
+## Phase 5 session-transcript proxy caveat
+
+Unlike conductor (named subagent, two-level Task spawn) and
+init-project (slash command with no session-input requirement), /wrap
+in production reads the live Claude Code session transcript. Evals
+have no live session. The wrap prompt builder substitutes a
+hand-authored `session-transcript.md` per fixture, loaded into the
+prompt under `<SYNTHETIC_SESSION_TRANSCRIPT>` with an instruction to
+treat it as the authoritative record for Step 0 compilation.
+
+What this measures: /wrap's ability to compile, route, and persist a
+pre-digested narrative into context.md, memory.md, findings.md, and
+AGENTS.md with correct structure, fidelity, and forbidden-file
+discipline. What this does NOT measure: /wrap's ability to introspect
+an actual tool-call stream. A maintainer edit to Step 0's survey
+language that changes how /wrap reads a live session may not move any
+fixture score because the eval pre-digests the session for the
+command. This is the same proxy category as the conductor eval
+(LEARNINGS line 11) and should be documented in the component's
+README.
+
+## Phase 5 closure (partial)
+
+- Scorer: v1 shipped (550218a) with tiered route credit and
+  vacuous-safe file/section/substring/forbidden axes.
+- Corpus: 5 fixtures covering the route space (zero-substance, light,
+  standard) plus one negative-substring discriminator and one
+  findings.md-size stressor.
+- Baseline: n=1 across all 5 fixtures committed. Two fixtures below
+  ceiling (0.85 each) via the extras axis. n=3 and full probe not
+  completed this session; carried forward.
+- Lock-release axis: latent-by-design per Phase 4 doctrine. Never
+  tripped in baseline; will surface on command regression.
+- Extras axis: unexpectedly live on first use. The `.claude/settings*.json`
+  and `.claude/tracking.md` extras are a real finding - either the
+  scorer needs per-fixture allow-lists for Claude Code runtime
+  artifacts, or the prompt builder needs to freeze `.claude/`
+  contents before the run. Flagged for resolution before shipping n=3
+  baseline.
