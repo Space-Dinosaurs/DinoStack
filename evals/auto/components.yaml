@@ -1,0 +1,35 @@
+# /auto-harness per-component policy.
+#
+# editable: explicit allowlist of paths the editor-agent is allowed to
+#           propose edits to. Matched first; anything outside this list
+#           is rejected regardless of locked.
+# locked:   defense-in-depth deny-list. A path on this list is rejected
+#           even if it somehow matched editable (it cannot - editable is
+#           the primary gate - but locked documents the verifier-adjacent
+#           surfaces that must not be touched by the loop).
+# max_edit_loc: cap on (added + removed) lines per single proposed diff.
+# keep_delta_rule: prose description; the apply/keep logic lives in loop.py.
+# max_iterations: default cap if the CLI does not override.
+# whole_file_replacement: if false, the diff must apply via `git apply` to
+#                         the existing file (no full-file rewrites).
+
+skeptic:
+  editable:
+    - content/agents/skeptic.md
+  locked:
+    - content/rules/agent-methodology.md
+    - content/rules/skeptic-protocol.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+conductor:
+  TODO: "populate after skeptic MVP lands. Editable likely includes content/agents/orchestration-planner.md only; locked includes content/rules/agent-methodology.md and evals/**."
+
+init-project:
+  TODO: "populate after skeptic MVP lands. Editable likely includes content/commands/init-project.md only; locked includes evals/** and content/rules/**."
+
+wrap:
+  TODO: "populate after skeptic MVP lands. Editable likely includes content/commands/wrap.md only; locked includes evals/** and content/rules/**."
