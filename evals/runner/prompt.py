@@ -327,6 +327,157 @@ def build_init_project_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_wrap_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for a /wrap eval run.
+
+    The runner cannot invoke `/wrap` as a slash command under a redirected
+    HOME (same caveat as /init-project; see LEARNINGS). We inline the
+    verbatim body of content/commands/wrap.md into the prompt alongside:
+
+      - a synthetic auto-memory banner
+      - a fixture-context preface that hands the seeded session transcript
+        to the command as its authoritative session memory
+      - a non-interactivity directive that includes a seed-commit step and
+        any fixture-specific `pre_wrap_git_setup` shell commands
+      - a required-outputs block enumerating the paths the scorer will
+        check
+      - a completion marker "WRAP_DONE"
+
+    Fail-fast: if the fixture's seeded AGENTS.md does not carry the
+    literal "agentic-engineering: opt-in" line, the /wrap Activation
+    preflight will no-op and the run will produce nothing. We raise here
+    before the CLI is spawned so the failure mode is visible in the
+    runner output rather than silently scoring zero.
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected_outputs") or {}
+
+    repo_dir_rel = inputs.get("repo_dir")
+    if not repo_dir_rel:
+        raise ValueError(f"wrap fixture {fixture.id} missing inputs.repo_dir")
+    agents_md_path = fixture.dir / repo_dir_rel / "AGENTS.md"
+    if not agents_md_path.exists():
+        raise FileNotFoundError(
+            f"wrap fixture {fixture.id}: seeded AGENTS.md missing at {agents_md_path}"
+        )
+    agents_md_text = agents_md_path.read_text(encoding="utf-8")
+    if "agentic-engineering: opt-in" not in agents_md_text:
+        raise ValueError(
+            f"wrap fixture {fixture.id}: seeded AGENTS.md at {agents_md_path} "
+            "does not contain the literal line 'agentic-engineering: opt-in'. "
+            "The /wrap Activation preflight will no-op without that marker; "
+            "refusing to run to prevent silent zero-scoring."
+        )
+
+    transcript_path = fixture.dir / repo_dir_rel / ".agentic" / "session-transcript.md"
+    if not transcript_path.exists():
+        raise FileNotFoundError(
+            f"wrap fixture {fixture.id}: session transcript missing at {transcript_path}"
+        )
+    transcript_text = transcript_path.read_text(encoding="utf-8")
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "wrap.md"
+    if not command_path.exists():
+        raise FileNotFoundError(f"wrap command body missing: {command_path}")
+    command_body = command_path.read_text(encoding="utf-8")
+
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    fixture_context = (
+        "You are finalizing a coding session with /wrap. The session "
+        "transcript below is the authoritative record of what happened "
+        "this session. Treat it as your session memory for Step 0 "
+        "compilation."
+    )
+
+    pre_setup = inputs.get("pre_wrap_git_setup") or []
+    pre_setup_block_lines = [
+        "Before running any git command inside the worktree, first run "
+        "`git init -q && git add -A && git commit -q -m 'fixture seed' "
+        "--allow-empty` to establish a baseline commit so HEAD exists."
+    ]
+    if pre_setup:
+        pre_setup_block_lines.append(
+            "Then, before invoking the /wrap body below, run these shell "
+            "commands in order to reproduce the state the transcript "
+            "describes:"
+        )
+        for cmd in pre_setup:
+            pre_setup_block_lines.append(f"- `{cmd}`")
+
+    non_interactivity = (
+        "Do not prompt the user at any point. Where the command body "
+        "instructs you to confirm or ask (including user-abort paths), "
+        "proceed with the auto-discovered defaults. If a required field "
+        "cannot be auto-discovered, write the template's placeholder so "
+        "it remains auditable. Never block waiting for input. "
+        + " ".join(pre_setup_block_lines)
+    )
+
+    must_exist = list(expected.get("must_exist") or [])
+    must_not_exist = list(expected.get("must_not_exist") or [])
+    required_sections = list(expected.get("context_md_required_sections") or [])
+
+    required_outputs_lines: list[str] = []
+    if must_exist:
+        required_outputs_lines.append("The following files must exist after you finish:")
+        for p in must_exist:
+            required_outputs_lines.append(f"- {p}")
+        required_outputs_lines.append("")
+    if must_not_exist:
+        required_outputs_lines.append("The following files MUST NOT be present when you finish:")
+        for p in must_not_exist:
+            required_outputs_lines.append(f"- {p}")
+        required_outputs_lines.append("")
+    if required_sections:
+        required_outputs_lines.append(
+            ".agentic/context.md must contain these sections (verbatim line prefixes):"
+        )
+        for s in required_sections:
+            required_outputs_lines.append(f"- {s!r}")
+        required_outputs_lines.append("")
+    if not required_outputs_lines:
+        required_outputs_lines.append(
+            "No explicit required-output paths for this scenario - "
+            "follow the routing logic in the command body and write only "
+            "what the route prescribes."
+        )
+    required_outputs_block = "\n".join(required_outputs_lines).rstrip()
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        fixture_context,
+        "",
+        "<SYNTHETIC_SESSION_TRANSCRIPT>",
+        "The session transcript follows. Treat its contents as your own "
+        "session memory; the tools and file edits it describes are what "
+        "your Step 0 compilation should surface.",
+        "",
+        transcript_text.rstrip(),
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/wrap.md follows. Execute "
+        "it against this repository:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: WRAP_DONE",
+    ]
+    return "\n".join(parts) + "\n"
+
+
 # Builder registry. Keyed by component name (matches the manifest `name`
 # field). Adding a new component eval means adding its builder here; the
 # invoker dispatches through this map and does not know about individual
@@ -335,6 +486,7 @@ BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
     "init-project": build_init_project_prompt,
+    "wrap": build_wrap_prompt,
 }
 
 

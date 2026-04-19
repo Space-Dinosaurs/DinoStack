@@ -283,10 +283,32 @@ def _validate_init_project_fixture(data: dict, path: Path) -> None:
         )
 
 
+def _validate_wrap_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"wrap fixture at {path} missing keys: {sorted(missing)}")
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"wrap fixture at {path}: inputs must be a mapping")
+    if "repo_dir" not in inputs:
+        raise ValueError(f"wrap fixture at {path}: inputs.repo_dir is required")
+    expected = data.get("expected_outputs") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(f"wrap fixture at {path}: expected_outputs must be a mapping")
+    route = expected.get("route_expected")
+    if route not in ("zero-substance", "light", "standard"):
+        raise ValueError(
+            f"wrap fixture at {path}: route_expected must be one of "
+            "'zero-substance', 'light', 'standard'"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
     "init-project": _validate_init_project_fixture,
+    "wrap": _validate_wrap_fixture,
 }
 
 
