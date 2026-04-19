@@ -1,0 +1,12 @@
+name: conductor
+tier: 1
+content_glob:
+  - content/agents/orchestration-planner.md
+  - content/rules/agent-methodology.md
+scoring_module: evals.scoring.conductor_lite
+fixture_dir: evals/fixtures/conductor
+n_runs: 3
+parallelism: serial
+timeout_seconds: 180
+invoke:
+  agent_name: orchestration-planner
