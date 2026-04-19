@@ -32,7 +32,6 @@ observed_state:
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.
-    Return exactly one decision.
 expected_decision:
   decision_class: "tight_fix_path"
   next_agent: "engineer"
