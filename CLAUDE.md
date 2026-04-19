@@ -3,7 +3,7 @@
 A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
 
 ## Decisions
-- TODO: Resolved architecture decisions as brief bullets - fill in as the project takes shape.
+- Internal eval harness lives at `evals/` (Python 3.11, stdlib + pyyaml, git worktrees, shell-out to Claude CLI). Component-first approach per `docs/planning/p2-self-improving-harness.md`. See `evals/LEARNINGS.md` before starting work on any new component eval, and `evals/OVERFITTING-RULE.md` before shipping content/ edits motivated by eval scores.
 
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
