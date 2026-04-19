@@ -1,0 +1,42 @@
+id: co-010
+description: "Change touches auth surface, Skeptic signed off and QA passed; correct routing is spawn security-auditor before declaring complete."
+component: conductor
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+scenario: |
+  The ticket added session-token rotation on password reset. The Skeptic
+  has already signed off and QA has just returned PASS. The change modifies
+  src/auth/session.ts, src/auth/reset.ts, and src/auth/tokens.ts -
+  explicit auth surface. No security-auditor has run yet in this
+  orchestration. The conductor is deciding whether to declare the unit
+  complete or spawn another agent.
+observed_state:
+  phase: "post_skeptic"
+  iteration: 1
+  max_iterations: 3
+  last_engineer_status: "DONE"
+  open_findings: []
+  risk_signals:
+    - "security surface"
+    - "auth / sessions / tokens"
+    - "multi-file change"
+  qa_triggers_matched: true
+  other_context: |
+    agent-methodology.md and orchestration-planner.md both require:
+    "Use security-auditor when: the change touches auth, sessions,
+    tokens, passwords, or permissions. Run after engineer + Skeptic, not
+    instead of Skeptic." Sign-off + QA pass do not substitute for a
+    security audit on an auth-surface change.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "spawn_agent"
+  next_agent: "security-auditor"
+  loop_action: null
+  cost_class: "critical"
+  rationale_keywords:
+    - "security"
+    - "auth"
+    - "token"
+    - "session"
+  must_not_select: []

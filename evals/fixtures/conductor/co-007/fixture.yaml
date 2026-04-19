@@ -1,0 +1,47 @@
+id: co-007
+description: "Unfamiliar codebase area: investigator must run before architect so the architect can design on top of a real blast-radius map."
+component: conductor
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+scenario: |
+  The user asks to restructure the billing webhook handler to support a new
+  provider. The conductor has not read the billing module in this session,
+  and the main session has no prior context about how webhooks are routed,
+  what validation is applied, or which downstream jobs they enqueue.
+  Someone just suggested spawning architect directly. The relevant files
+  have not been read in the current conversation.
+observed_state:
+  phase: "pre_implementation"
+  iteration: 0
+  max_iterations: 3
+  last_engineer_status: null
+  open_findings: []
+  risk_signals:
+    - "unfamiliar codebase area"
+    - "multi-file change"
+    - "architecture decision"
+    - "external APIs"
+  qa_triggers_matched: null
+  other_context: |
+    agent-methodology.md "Investigator-before-Architect for unfamiliar
+    territory" rule: when the task touches a codebase area the main
+    session has not recently investigated, the conductor must spawn the
+    investigator agent first and pass its brief as input to the architect.
+    The only exception is when the relevant files have been Read within
+    the current conversation AND no substantive changes have been made
+    since - not satisfied here.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "spawn_agent"
+  next_agent: "investigator"
+  loop_action: null
+  cost_class: "high"
+  rationale_keywords:
+    - "investigator"
+    - "unfamiliar"
+    - "before"
+    - "architect"
+  must_not_select:
+    - "architect"
+    - "engineer"

@@ -1,0 +1,43 @@
+id: co-002
+description: "Convergence failure - a Critical finding is re_raised unchanged after a claimed fix at iteration 2; one re-raise is sufficient under the loop contract."
+component: conductor
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+scenario: |
+  Phase 6 Skeptic loop. The engineer's first fix pass claimed to address a
+  Critical input-validation finding, but the current Skeptic has re-raised
+  the same finding verbatim with a [PREV: ...] tag. Iteration budget is not
+  yet exhausted, but the loop contract's convergence-failure rule bypasses
+  remaining budget when a Critical recurs unchanged after a claimed fix.
+observed_state:
+  phase: "skeptic_loop"
+  iteration: 2
+  max_iterations: 3
+  last_engineer_status: "DONE"
+  open_findings:
+    - severity: "Critical"
+      id: "input-validation-bypass"
+      re_raised: true
+  risk_signals:
+    - "security surface"
+    - "multi-file change"
+  qa_triggers_matched: null
+  other_context: |
+    p0-persistence-loop.md: "one re-raise after a claimed fix is sufficient
+    to trigger convergence failure escalation." agent-methodology.md
+    "Convergence failure" section confirms: escalate immediately, do not
+    consume remaining iteration budget.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "escalate_convergence_failure"
+  next_agent: null
+  loop_action: "exit_stalled"
+  cost_class: "critical"
+  rationale_keywords:
+    - "convergence"
+    - "re-raise"
+    - "escalate"
+    - "critical"
+  must_not_select:
+    - "engineer"

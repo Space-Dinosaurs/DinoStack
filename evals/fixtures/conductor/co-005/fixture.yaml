@@ -1,0 +1,45 @@
+id: co-005
+description: "Standard Skeptic loop at iteration 1/3 with Major findings; correct routing is re-enter the loop with a fresh engineer fix pass."
+component: conductor
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+scenario: |
+  Phase 6 Skeptic loop, iteration 1 of 3. The Skeptic just returned sign-off
+  withheld with two Major findings: one about a missing module manifest on
+  a new file, one about an ambiguous error path on a database failure. No
+  Critical findings. Iteration budget has three fix passes and none have
+  been used yet. Neither finding is a re-raise; this is the first review.
+observed_state:
+  phase: "skeptic_loop"
+  iteration: 1
+  max_iterations: 3
+  last_engineer_status: "DONE"
+  open_findings:
+    - severity: "Major"
+      id: "missing-module-manifest"
+      re_raised: false
+    - severity: "Major"
+      id: "ambiguous-db-failure-path"
+      re_raised: false
+  risk_signals:
+    - "multi-file change"
+    - "new file creation"
+  qa_triggers_matched: null
+  other_context: |
+    Standard Elevated task. No tight-fix path eligibility (this is a
+    feature-add, not a bug fix). The loop contract says: spawn a fresh
+    engineer with the open findings brief, instruct it to address only
+    those findings, and re-enter the loop.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "re_enter_loop"
+  next_agent: "engineer"
+  loop_action: "re_enter"
+  cost_class: "medium"
+  rationale_keywords:
+    - "iteration"
+    - "major"
+    - "fix"
+    - "engineer"
+  must_not_select: []

@@ -1,0 +1,45 @@
+id: co-006
+description: "Trivial single-file copy change with no subagents running; conductor edits directly - no engineer, no Skeptic, no QA."
+component: conductor
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+scenario: |
+  The user has asked for a single-file copy change: update the button label
+  on a marketing landing page from "Sign up" to "Get started". The change
+  touches exactly one file, has no behavioral effect, no logic change, no
+  shared design token involvement, and no legal/pricing/compliance or
+  marketing-claim surface. No subagents are currently running. The string
+  is not matched by any test, not an error message that drives control
+  flow, and lives outside any protocol/infrastructure path.
+observed_state:
+  phase: "initial_planning"
+  iteration: 0
+  max_iterations: 3
+  last_engineer_status: null
+  open_findings: []
+  risk_signals:
+    - "single file"
+    - "copy-only change"
+    - "no subagents running"
+  qa_triggers_matched: null
+  other_context: |
+    agent-methodology.md Trivial signals: single file, no control-flow or
+    state change, not a shared design token, reversible one-line revert,
+    no security surface. "Conductor rule for Trivial: If no subagents are
+    currently running, the conductor edits directly (no Worker, no
+    Skeptic, no brief file)."
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "trivial_direct_edit"
+  next_agent: null
+  loop_action: null
+  cost_class: "low"
+  rationale_keywords:
+    - "trivial"
+    - "direct"
+    - "single"
+  must_not_select:
+    - "engineer"
+    - "skeptic"
+    - "qa-engineer"

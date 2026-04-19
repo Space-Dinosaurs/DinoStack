@@ -1,0 +1,38 @@
+id: co-008
+description: "Phase 6 Skeptic loop exited cleanly; the diff matches .claude/qa.md trigger patterns; correct routing is spawn qa-engineer (Phase 6b)."
+component: conductor
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+scenario: |
+  Phase 6 Skeptic loop just granted sign-off on the current ticket. The
+  diff touches src/components/checkout/CheckoutButton.tsx and
+  src/pages/checkout.tsx. The project ships a .claude/qa.md whose
+  "## QA triggers" section lists `src/components/checkout/**` and
+  `src/pages/checkout.tsx` among its patterns. No findings are open, the
+  quality gate has not yet run.
+observed_state:
+  phase: "post_skeptic"
+  iteration: 1
+  max_iterations: 3
+  last_engineer_status: "DONE"
+  open_findings: []
+  risk_signals:
+    - "UI-visible change"
+    - "matches qa triggers"
+  qa_triggers_matched: true
+  other_context: |
+    agent-methodology.md "QA Gate" section: after Skeptic sign-off on any
+    Elevated unit, if the diff matches any .claude/qa.md trigger pattern,
+    spawn qa-engineer before declaring the unit complete.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "proceed_to_next_phase"
+  next_agent: "qa-engineer"
+  loop_action: "exit_clean"
+  cost_class: "high"
+  rationale_keywords:
+    - "qa"
+    - "trigger"
+    - "sign-off"
+  must_not_select: []
