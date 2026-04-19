@@ -184,9 +184,10 @@ def build_conductor_prompt(fixture: Fixture) -> str:
         '"exit_stalled", or null (use null when no loop action applies).',
         "",
         'Your "next_agent" MUST be null or one of the named agent slugs: '
-        '"engineer", "skeptic", "qa-engineer", "architect", "investigator", '
-        '"debugger", "security-auditor", "orchestration-planner", '
-        '"release-orchestrator", "dependency-auditor", "perf-analyst".',
+        '"adr-drift-detector", "adr-generator", "architect", "debugger", '
+        '"dependency-auditor", "engineer", "investigator", '
+        '"orchestration-planner", "perf-analyst", "qa-engineer", '
+        '"release-orchestrator", "security-auditor", "skeptic".',
         "",
         "These enum values are the machine-parseable labels the scorer expects. "
         "Choose the single value that best describes the routing decision you "
