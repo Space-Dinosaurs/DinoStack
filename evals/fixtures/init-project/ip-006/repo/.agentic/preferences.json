@@ -1,0 +1,9 @@
+{
+  "userNotes": [
+    "Migrations soak on staging for 48h before production apply.",
+    "Feature flags default to off; enabling is an explicit rollout decision.",
+    "Structured JSON logs with trace_id; plain strings fail lint.",
+    "pages/api/ changes require security-auditor review regardless of size.",
+    "Every cron writes a heartbeat row to ops.cron_heartbeat."
+  ]
+}
