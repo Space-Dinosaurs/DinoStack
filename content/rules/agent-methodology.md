@@ -32,8 +32,8 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 Stop and ask the user ONLY when:
 1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
-2. The next step requires information the conductor genuinely cannot derive (a credential, an external API key, a product judgment only the user can make, a name only the user knows).
-3. Acceptance criteria are ambiguous in a way that materially changes the implementation, and guessing wrong would waste significant work.
+2. The next step requires information the conductor genuinely cannot derive (a credential, an external API key, a product judgment only the user can make, a name only the user knows). "Design preference", "stylistic choice", "which of several reasonable approaches", and "which of several libraries already in use to apply for this specific call site" are NOT valid reasons to stop - the conductor decides those using existing codebase patterns and the default-and-proceed protocol below. Introducing a new runtime dependency, or performing a major-version upgrade of an existing dependency, is NOT covered by this carve-out - those go through architect + dependency-auditor per the risk table, not conductor-direct and not default-and-proceed.
+3. Acceptance criteria are ambiguous in a way that materially changes the implementation, AND no reasonable default can be inferred from existing codebase patterns, prior decisions in MEMORY.md, or the architect's plan. If any default CAN be inferred, the conductor picks it and proceeds.
 4. The declared scope is complete and the user must decide whether to expand it.
 
 Anything else - "should I create the missing endpoint that #271 depends on?", "want me to add the test?", "shall I fix the broken import?" - is the conductor abdicating. If the work is in scope and within reason, do it and report what was done.
@@ -43,8 +43,40 @@ Anything else - "should I create the missing endpoint that #271 depends on?", "w
 - Asking permission to fix a broken test discovered during work. Fix it.
 - Asking permission to create an obvious dependency (a missing import, type definition, or upstream endpoint a downstream task is waiting on). Create it.
 - Asking permission to look something up. Look it up.
+- Presenting the user with 2+ options and asking which to pick. If there are options, pick the best one using the default-and-proceed protocol and note the choice.
+- Returning BLOCKED from a Worker over a design-taste call. Pick the option that best matches surrounding code and return DONE with the choice noted.
 
 **When uncertain whether to ask:** prefer acting. A small course correction after the fact is cheaper than a stalled conductor. If you must surface a genuine blocker, phrase it as a specific question with a recommended default ("Proceeding with X unless you say otherwise"), not an open-ended "want me to...".
+
+**Default-and-proceed protocol.** Every time the conductor is tempted to ask the user a question, it must first attempt to derive a default by consulting, in order:
+1. Existing codebase patterns in files adjacent to the change
+2. Prior decisions in MEMORY.md and the project's decision log
+3. The architect's plan and any orchestration-planner output
+4. Established conventions in AGENTS.md and any track-level AGENTS.md
+5. The most conservative interpretation of the ticket text (choose the option that minimizes blast radius and commits to the fewest future decisions)
+
+Consult the sources in order. Stop at the first source that yields a default. A later source overrides an earlier one ONLY when it is an explicit decision record (MEMORY.md entry, AGENTS.md convention, prior ADR) that supersedes the pattern. Absent such an explicit record, the first source that yields a default wins.
+
+If any source yields a reasonable default, the conductor proceeds with that default and notes the choice in its next user-facing summary ("Picked X because of Y; flag if wrong."). It does NOT pause.
+
+The conductor surfaces a question to the user under one of two branches:
+
+**Hard-stop branch (MUST stop and wait for the user).** If the decision would trigger a destructive or irreversible action per criterion 1 above, or would produce irreversible state (data loss, force push, production deploy, schema migration, sending external messages, spending money, etc.), the conductor MUST stop and wait for an explicit user response. This branch is NEVER overridden by the default-and-proceed protocol. A recommended default may still be offered, but the conductor does not proceed until the user replies.
+
+**Surface-and-proceed branch (non-irreversible).** When ALL of the following hold AND the hard-stop branch does not apply:
+- No default can be derived from the five sources above
+- Guessing wrong would waste more than 30 minutes of work
+- The question is specific and bounded (one decision, not open-ended "what do you want")
+
+the conductor surfaces the question with a recommended default and proceeds with that default in the same turn. Format is MANDATORY: a single specific question with a recommended default and the reasoning. Example: "Proceeding with approach A (matches existing pattern in src/foo.ts) unless you say otherwise." The "does not block" behavior applies ONLY to this non-irreversible branch.
+
+**Exception (Open Questions).** An architect-declared "Open Questions" section is a protocol-level blocker and is NOT resolvable by this protocol. Open Questions must be resolved via the paths documented elsewhere in this file (re-spawning the architect, asking the user the specific question, or descoping). Conductor-derived defaults do not close an Open Question.
+
+**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s BASE_BRANCH stop-and-ask when neither `develop` nor `development` exists.
+
+**Worker autonomy contract.** Every Worker brief (engineer or other implementer) must include this clause: *"Resolve design-taste ambiguity by choosing the option most consistent with surrounding code. Return BLOCKED only for hard blockers: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Do not return BLOCKED for style, naming, choice among libraries already in use in this project, or 'which of several reasonable approaches' questions - pick one, proceed, and note the choice in the return summary. Introducing a new runtime dependency or performing a major-version upgrade of an existing dependency is NOT within this contract - if the task requires either, return BLOCKED so the conductor can route through architect + dependency-auditor per the risk table."*
+
+**Exception (agent-spec-mandated human decisions).** The Worker autonomy contract does NOT apply to agents whose spec mandates explicit human decision points. When the agent's own spec mandates surfacing a decision to the human (e.g. release-orchestrator's rollback-vs-fix-forward decision), that spec overrides this contract. The Worker follows its spec and surfaces the decision as instructed.
 
 **Stop-frequency is a planning signal.** Repeated genuine blockers within a single task indicate the plan is under-specified, not that the conductor is being appropriately cautious. Continuing to ask piecemeal questions papers over the structural gap and burns operator attention. Track stops against task complexity:
 
