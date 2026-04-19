@@ -8,7 +8,7 @@ Purpose: Score a single /init-project command-mode run against a labeled
 Public API: score(trace: dict, fixture: dict) -> dict with keys
             {primary: float in [0, 1], diagnostic: dict,
              status: "ok" | "invalid_format",
-             scorer_version: "v3"}.
+             scorer_version: "v4"}.
 
 Contract: score() expects a single-run trace - trace["runs"] contains
           exactly one run record with a "filesystem" dict mapping repo-
@@ -33,7 +33,7 @@ Performance: standard; one pass over the snapshot keys, one read of each
 
 ---
 
-## Scoring formula (v3)
+## Scoring formula (v4)
 
 Weighted sum across five dimensions, minus a capped extras penalty. Weights
 are normalized so a perfect run scores exactly 1.0. The v1 weights summed to
@@ -49,6 +49,30 @@ gitignore_total == 0 (previously 0 / max(0, 1) == 0.0 incorrectly
 penalized the run). Sections always have required values per fixture
 schema, so no vacuous case exists there.
 
+v4 replaces the binary line-budget flag with a tiered credit:
+  - line_count <= max_lines                  -> 1.0 ("under")
+  - max_lines < line_count <= max_lines + 10 -> 0.5 ("grace")
+  - line_count > max_lines + 10              -> 0.0 ("over")
+Weights themselves are unchanged from v3; only the line-budget term's
+credit function changes. The weights-sum assertion still holds.
+
+Justification (Overfitting-Rule-passing rationale):
+
+Tiered line-budget credit (under -> 1.0, grace+10 -> 0.5, over -> 0.0)
+reflects that AGENTS.md length is a soft quality dimension, not a hard
+pass/fail. A scaffold 2 lines over budget is meaningfully different from
+one 20 lines over, and the v3 binary flag collapsed that distinction.
+This shape is defensible independent of any single fixture: the command
+prescribes a 45-line budget, not a hard limit, and downstream reviewers
+treat small overruns as warnings rather than defects.
+
+Version history:
+  v1: weights sum to 0.95 (perfect run caps at 0.95).
+  v2: renormalize weights to sum to 1.0.
+  v3: vacuous-dimension handling for conditional + gitignore when
+      their totals are 0.
+  v4: tiered line-budget credit (under/grace/over); weights unchanged.
+
     v1_sum  = 0.50 + 0.15 + 0.15 + 0.10 + 0.05 = 0.95
     scale   = 1 / 0.95
 
@@ -56,7 +80,7 @@ schema, so no vacuous case exists there.
     w_cond   = 0.15 * scale = 0.157895   (conditional files keyed on signals)
     w_sect   = 0.15 * scale = 0.157895   (AGENTS.md section coverage)
     w_gi     = 0.10 * scale = 0.105263   (.gitignore substring coverage)
-    w_budget = 0.05 * scale = 0.052632   (AGENTS.md line-budget flag)
+    w_budget = 0.05 * scale = 0.052632   (AGENTS.md line-budget tier credit)
 
     Assertion: w_req + w_cond + w_sect + w_gi + w_budget == 1.0 (see
     _WEIGHTS_SUM_ASSERTION below).
@@ -70,7 +94,7 @@ schema, so no vacuous case exists there.
                    + w_sect * section_hits / section_total
                    + w_gi   * (1.0 if gitignore_total == 0
                                else gitignore_hits / gitignore_total)
-                   + w_budget * (1 if line_budget_ok else 0)
+                   + w_budget * line_budget_credit
                    - extras_penalty, 0.0, 1.0)
 
 Perfect-run arithmetic check:
@@ -83,7 +107,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-SCORER_VERSION = "v3"
+SCORER_VERSION = "v4"
 
 # v1 weights renormalized so a perfect run scores 1.0 instead of 0.95.
 _SCALE = 1.0 / 0.95
@@ -105,6 +129,17 @@ assert _WEIGHTS_SUM_ASSERTION, "init_project_lite weights must sum to 1.0"
 _EXTRAS_CAP = 0.15
 _EXTRAS_FORBIDDEN = 0.3
 _EXTRAS_UNEXPECTED = 0.05
+
+# v4: grace window above max_lines that still earns partial credit.
+_LINE_BUDGET_GRACE = 10
+
+
+def _line_budget_credit(line_count: int, max_lines: int) -> tuple[float, str]:
+    if line_count <= max_lines:
+        return (1.0, "under")
+    if line_count <= max_lines + _LINE_BUDGET_GRACE:
+        return (0.5, "grace")
+    return (0.0, "over")
 
 
 def _count_present(snapshot_keys: set[str], paths: list[str]) -> tuple[int, list[str]]:
@@ -203,6 +238,9 @@ def score(trace: dict, fixture: dict) -> dict:
         agents_lines = agents_md_text.splitlines()
         line_count_agents_md = len(agents_lines)
         line_budget_ok = line_count_agents_md <= max_lines
+        line_budget_credit, line_budget_tier = _line_budget_credit(
+            line_count_agents_md, max_lines
+        )
         section_hits = 0
         for req in required_sections:
             if any(line.startswith(req) for line in agents_lines):
@@ -211,6 +249,8 @@ def score(trace: dict, fixture: dict) -> dict:
         agents_lines = []
         line_count_agents_md = 0
         line_budget_ok = False
+        line_budget_credit = 0.0
+        line_budget_tier = "over"
         section_hits = 0
     section_total = max(len(required_sections), 1)
 
@@ -240,7 +280,7 @@ def score(trace: dict, fixture: dict) -> dict:
         + _W_COND * (1.0 if conditional_total == 0 else conditional_present / conditional_total)
         + _W_SECT * (section_hits / section_total)
         + _W_GI * (1.0 if gitignore_total == 0 else gitignore_hits / gitignore_total)
-        + _W_BUDGET * (1.0 if line_budget_ok else 0.0)
+        + _W_BUDGET * line_budget_credit
         - extras_penalty
     )
     primary = max(0.0, min(1.0, score_primary))
@@ -258,6 +298,9 @@ def score(trace: dict, fixture: dict) -> dict:
         "section_total": len(required_sections),
         "line_count_agents_md": line_count_agents_md,
         "line_budget_ok": line_budget_ok,
+        "line_budget_credit": line_budget_credit,
+        "line_budget_tier": line_budget_tier,
+        "line_budget_grace_max": max_lines + _LINE_BUDGET_GRACE,
         "gitignore_hits": gitignore_hits,
         "gitignore_total": gitignore_total,
         "unexpected_claude_md": unexpected_claude_md,
