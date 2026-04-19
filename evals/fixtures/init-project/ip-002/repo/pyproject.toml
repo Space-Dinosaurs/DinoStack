@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "mypackage"
+version = "0.1.0"
+description = "A Python CLI utility."
+authors = ["Dev <dev@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
