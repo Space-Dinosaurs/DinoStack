@@ -200,6 +200,56 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 **Compute the diff** — compare current `AGENTS.md` and adjacent files against what Step 1 discovery + confirmation implies:
 
+0. **Pre-AGENTS.md migration (CLAUDE.md only)** — runs BEFORE item 1 below. Detect pre-AGENTS.md layout via both:
+   - Root `AGENTS.md` is absent, AND
+   - Root `CLAUDE.md` exists and contains more than the single-line pointer `@AGENTS.md` (i.e. has real content — prose, sections, or instructions beyond the pointer).
+
+   If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just `@AGENTS.md`, or neither exists), skip item 0 entirely and proceed to item 1.
+
+   **Main agent pre-work (inline, before spawning Worker):** read the existing root `CLAUDE.md` and classify its content into three buckets:
+   - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is agentic-engineering's canonical project-instructions surface.
+   - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
+   - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
+
+   **Spawn Worker** (labeled "CLAUDE.md split Worker") with:
+   - The raw existing root `CLAUDE.md` content.
+   - The three-bucket classification above, with the main agent's pre-classification notes.
+   - The target `AGENTS.md` structure (from Step 3 template).
+   - Instruction to produce three artifacts:
+     1. **Proposed `AGENTS.md`** — the agentic-engineering canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
+     2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the single-line `@AGENTS.md` pointer.
+     3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
+
+   **Spawn Skeptic** (fresh, background) with the Worker's three artifacts and this adversarial brief verbatim:
+
+   > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
+
+   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted.`
+
+   **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
+
+   ```
+   Pre-AGENTS.md migration detected. Proposed split of root CLAUDE.md:
+
+   ─── Proposed AGENTS.md (NEW) ───────────────────────────────
+   [Worker's proposed AGENTS.md content]
+
+   ─── Residual CLAUDE.md (AFTER) ─────────────────────────────
+   [Worker's residual CLAUDE.md content, OR "(empty — will be replaced with single-line `@AGENTS.md` pointer)"]
+
+   ─── MEMORY.md additions (APPEND) ───────────────────────────
+   [Worker's MEMORY.md entries]
+
+   Accept this split? [y/N/edit]
+   ```
+
+   Accept:
+   - `y` / `yes` / `1` / empty (Enter on y/N defaults to N — require explicit `y` here): apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the single-line pointer `@AGENTS.md` instead. Append the MEMORY.md entries per Step 3's semantic-dedup merge rule.
+   - `n` / `no` / `2`: abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) — instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /init-project later, or run the greenfield creation flow manually." and exit the command.
+   - `edit` / `e`: prompt for a free-form correction nudge ("What should change? One or two sentences."), then re-spawn the Worker with the original CLAUDE.md plus the user's nudge, re-spawn a fresh Skeptic, and present the revised three-way split. **Iteration cap: 3.** After 3 `edit` iterations, fall back to: "Three edit iterations reached. The split still needs manual review. Aborting /init-project; edit CLAUDE.md and AGENTS.md manually, then re-run /init-project." and exit.
+
+   After a `y`-accepted split completes, proceed to item 1 below. The downstream items now operate against the newly-written `AGENTS.md`.
+
 1. **Legacy `## Linear` migration** — if `## Linear` exists but is missing `Workspace:` or `QA assignee ID:` fields:
    - **First, check Step 1 tracker state.** If the user declined tracker in Step 1 (`no tracker` / "neither" / "skip" / Enter on the tracker prompt), do NOT prompt for Linear workspace slug, QA assignee UUID, or any other Linear field. Instead, ask ONCE - framed as contradiction resolution, not as a follow-up about whether to set up Linear:
 
