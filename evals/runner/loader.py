@@ -101,11 +101,23 @@ def load_component(name: str) -> ComponentManifest:
     if data["parallelism"] not in ("serial", "parallel"):
         raise ValueError(f"parallelism must be 'serial' or 'parallel', got {data['parallelism']}")
     invoke_section = data.get("invoke") or {}
-    if not isinstance(invoke_section, dict) or not invoke_section.get("agent_name"):
+    if not isinstance(invoke_section, dict):
+        raise ValueError(f"Component {name} manifest: invoke must be a mapping")
+    mode = invoke_section.get("mode") or "agent"
+    if mode not in ("agent", "command"):
         raise ValueError(
-            f"Component {name} manifest must set invoke.agent_name (the named subagent "
-            "to spawn). This is required so the runner measures the actual named agent "
-            "rather than a raw top-level Claude session."
+            f"Component {name} manifest: invoke.mode must be 'agent' or 'command', got {mode!r}"
+        )
+    if mode == "agent" and not invoke_section.get("agent_name"):
+        raise ValueError(
+            f"Component {name} manifest must set invoke.agent_name for invoke.mode='agent' "
+            "(the named subagent to spawn). This is required so the runner measures the "
+            "actual named agent rather than a raw top-level Claude session."
+        )
+    if mode == "command" and not invoke_section.get("command_file"):
+        raise ValueError(
+            f"Component {name} manifest: invoke.mode='command' requires invoke.command_file "
+            "(repo-relative path to the command markdown whose body is inlined into the prompt)."
         )
     return ComponentManifest(
         name=data["name"],
@@ -230,9 +242,51 @@ def _validate_conductor_fixture(data: dict, path: Path) -> None:
         raise ValueError(f"Conductor fixture at {path}: rationale_keywords must be a list")
 
 
+def _validate_init_project_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"init-project fixture at {path} missing keys: {sorted(missing)}")
+
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"init-project fixture at {path}: inputs must be a mapping")
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"init-project fixture at {path}: inputs.repo_dir is required "
+            "(relative path to the seeded repo subtree under the fixture dir)"
+        )
+
+    expected = data.get("expected_outputs") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(f"init-project fixture at {path}: expected_outputs must be a mapping")
+    for key in ("must_exist", "must_not_exist", "agents_md_required_sections", "gitignore_required_lines"):
+        val = expected.get(key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"init-project fixture at {path}: expected_outputs.{key} must be a list"
+            )
+    cond = expected.get("must_exist_conditional")
+    if cond is not None and not isinstance(cond, dict):
+        raise ValueError(
+            f"init-project fixture at {path}: expected_outputs.must_exist_conditional must be a mapping"
+        )
+    signals = expected.get("expected_signals")
+    if signals is not None and not isinstance(signals, list):
+        raise ValueError(
+            f"init-project fixture at {path}: expected_outputs.expected_signals must be a list"
+        )
+    max_lines = expected.get("agents_md_max_lines")
+    if max_lines is not None and not isinstance(max_lines, int):
+        raise ValueError(
+            f"init-project fixture at {path}: expected_outputs.agents_md_max_lines must be an int"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
+    "init-project": _validate_init_project_fixture,
 }
 
 
