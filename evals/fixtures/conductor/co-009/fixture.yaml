@@ -1,0 +1,45 @@
+id: co-009
+description: "Phase 6 cap was reached on a prior unrelated path; QA loop is independent at iteration 1 with failures; correct routing is re-enter Phase 6b loop, not escalate."
+component: conductor
+protocol_sha: 9097423d327d4d1f513de3951745b07591947451
+scenario: |
+  A prior ticket in this same session hit Phase 6 cap_reached and was
+  escalated. The current ticket is separate: it passed Phase 6 Skeptic
+  cleanly on iteration 1, then Phase 6b QA ran and returned FAIL with one
+  functional acceptance criterion - the checkout button remains disabled
+  after coupon application. This is iteration 1 of the QA loop; the QA
+  loop budget is independent from the Skeptic loop budget and has three
+  fix passes available.
+observed_state:
+  phase: "qa_loop"
+  iteration: 1
+  max_iterations: 3
+  last_engineer_status: "DONE"
+  open_findings:
+    - severity: "Major"
+      id: "checkout-button-disabled-post-coupon"
+      re_raised: false
+  risk_signals:
+    - "qa failure"
+    - "UI-visible change"
+  qa_triggers_matched: true
+  other_context: |
+    p0-persistence-loop.md: "Phase 6 Skeptic loop: up to 3 fix passes.
+    Phase 6b QA loop: up to 3 fix passes. The two sub-caps are
+    independent - exhausting the Skeptic cap does not consume QA cap
+    budget." The prior ticket's cap_reached has no bearing on this
+    ticket's budget.
+inputs:
+  invoke_instruction: |
+    Given the observed state above, state the single next routing action.
+expected_decision:
+  decision_class: "re_enter_loop"
+  next_agent: "engineer"
+  loop_action: "re_enter"
+  cost_class: "high"
+  rationale_keywords:
+    - "qa"
+    - "iteration"
+    - "independent"
+    - "fix"
+  must_not_select: []
