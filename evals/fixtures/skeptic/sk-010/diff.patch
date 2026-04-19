@@ -1,0 +1,44 @@
+diff --git a/src/billing/pricing.py b/src/billing/pricing.py
+index fffffff..1a1a1a1 100644
+--- a/src/billing/pricing.py
++++ b/src/billing/pricing.py
+@@ -1,5 +1,5 @@
+ """
+-Purpose: Compute the charge amount for a given subscriber + usage record.
++Purpose: Compute the charge amount for a given subscriber + usage record, including the free-tier rebate.
+
+ Public API: compute_charge(subscriber, usage) -> int (cents)
+ """
+@@ -13,6 +13,12 @@ def compute_charge(subscriber, usage) -> int:
+     if subscriber.plan == "enterprise":
+         return max(0, base - subscriber.enterprise_credit_cents)
+     if subscriber.plan == "pro":
+         return base
++    if subscriber.plan == "free":
++        # Free tier gets a flat 100% rebate on the first 100 units, charged
++        # at the standard rate after that.
++        overage = max(0, usage.units - 100)
++        return overage * usage.rate_cents
++    # Fallback: treat unknown plans as pro pricing.
+     return base
+diff --git a/tests/billing/test_pricing.py b/tests/billing/test_pricing.py
+index 2b2b2b2..3c3c3c3 100644
+--- a/tests/billing/test_pricing.py
++++ b/tests/billing/test_pricing.py
+@@ -2,7 +2,7 @@ from src.billing.pricing import compute_charge
+ from tests.factories import make_subscriber, make_usage
+
+
+-def test_compute_charge_enterprise_applies_credit():
++def test_enterprise_applies_credit():
+     sub = make_subscriber(plan="enterprise", enterprise_credit_cents=500)
+     usage = make_usage(units=10, rate_cents=100)
+     # 10 * 100 = 1000, minus 500 credit = 500.
+@@ -10,6 +10,6 @@ def test_compute_charge_enterprise_applies_credit():
+
+
+-def test_compute_charge_pro_is_base():
++def test_pro_is_base():
+     sub = make_subscriber(plan="pro")
+     usage = make_usage(units=10, rate_cents=100)
+     assert compute_charge(sub, usage) == 1000

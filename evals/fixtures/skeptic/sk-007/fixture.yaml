@@ -1,0 +1,21 @@
+id: sk-007
+description: "Migration drops a column but the ORM model and a query in the reporting module still reference it. Skeptic should raise Critical for migration-unsafe column drop."
+component: skeptic
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  adversarial_brief: |
+    The Worker authored an Alembic migration that drops a column from a live
+    production table. Probe for: ORM models, raw SQL strings, query builders,
+    serializers, or analytics/reporting code that still reads or writes that
+    column; deploy ordering risk (migration ships before the application
+    version that stops referencing the column); missing downgrade path;
+    missing data-preservation step if the column holds irreplaceable data.
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical:
+    - category: "migration safety"
+      keywords: ["legacy_external_id"]
+  major: []
+  minor: []
+expected_signoff_granted: false

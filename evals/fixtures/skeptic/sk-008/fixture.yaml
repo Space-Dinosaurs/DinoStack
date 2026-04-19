@@ -1,0 +1,21 @@
+id: sk-008
+description: "Worker adds an async fire-and-forget task with no error handler; process will log an unhandled rejection and the caller will never know. Skeptic should raise Major for swallowed async error."
+component: skeptic
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  adversarial_brief: |
+    The Worker added a new background dispatch in a user-facing request
+    handler. Probe for: unhandled promise rejection paths, swallowed
+    exceptions (bare `except:` or `.catch(() => {})`), async work
+    abandoned without a lifecycle owner (tasks that outlive the request
+    scope without a supervisor), and missing observability (no log, no
+    metric increment, no error reporter call on failure).
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical: []
+  major:
+    - category: "swallowed async error"
+      keywords: ["unhandled"]
+  minor: []
+expected_signoff_granted: false

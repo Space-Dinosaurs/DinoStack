@@ -1,0 +1,37 @@
+diff --git a/src/handlers/signup.ts b/src/handlers/signup.ts
+index 8888888..9999999 100644
+--- a/src/handlers/signup.ts
++++ b/src/handlers/signup.ts
+@@ -1,5 +1,6 @@
+ import { Request, Response } from "express";
+ import { createUser } from "../services/users";
++import { sendWelcomeEmail } from "../services/mail";
+
+ export async function handleSignup(req: Request, res: Response) {
+   const { email, password } = req.body;
+@@ -7,6 +8,8 @@ export async function handleSignup(req: Request, res: Response) {
+   if (!email || !password) {
+     return res.status(400).json({ error: "missing_fields" });
+   }
+   const user = await createUser(email, password);
++  // Fire-and-forget: welcome mail is best-effort, do not block signup.
++  sendWelcomeEmail(user.id, email);
+   return res.status(201).json({ id: user.id });
+ }
+diff --git a/src/services/mail.ts b/src/services/mail.ts
+index aaaaaaa..bbbbbbb 100644
+--- a/src/services/mail.ts
++++ b/src/services/mail.ts
+@@ -5,3 +5,12 @@ export async function sendOrderConfirmation(orderId: number, email: string) {
+   const html = await render("order_confirmation", { orderId });
+   await transport.send({ to: email, subject: "Your order", html });
+ }
++
++export async function sendWelcomeEmail(userId: number, email: string) {
++  const html = await render("welcome", { userId });
++  await transport.send({
++    to: email,
++    subject: "Welcome",
++    html,
++  });
++}

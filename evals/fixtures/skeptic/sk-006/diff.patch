@@ -1,0 +1,26 @@
+diff --git a/src/config/loader.py b/src/config/loader.py
+index 1111111..2222222 100644
+--- a/src/config/loader.py
++++ b/src/config/loader.py
+@@ -18,7 +18,7 @@ def load_settings(path: str) -> Settings:
+     with open(path) as f:
+         raw = yaml.safe_load(f)
+     return Settings(
+-        queue_name=raw["queue_name"],
++        queue_name=raw["primary_queue"],
+         shard_count=int(raw.get("shard_count", 1)),
+         retry_limit=int(raw.get("retry_limit", 3)),
+     )
+diff --git a/tests/config/test_loader.py b/tests/config/test_loader.py
+index 3333333..4444444 100644
+--- a/tests/config/test_loader.py
++++ b/tests/config/test_loader.py
+@@ -4,7 +4,7 @@ from src.config.loader import load_settings
+ def test_load_settings(tmp_path):
+     p = tmp_path / "settings.yaml"
+     p.write_text(
+-        "queue_name: orders\nshard_count: 4\nretry_limit: 5\n"
++        "primary_queue: orders\nshard_count: 4\nretry_limit: 5\n"
+     )
+     s = load_settings(str(p))
+     assert s.queue_name == "orders"

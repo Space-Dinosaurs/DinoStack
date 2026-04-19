@@ -1,0 +1,56 @@
+diff --git a/src/api/link_preview.py b/src/api/link_preview.py
+new file mode 100644
+index 0000000..ccccccc
+--- /dev/null
++++ b/src/api/link_preview.py
+@@ -0,0 +1,42 @@
++"""
++Purpose: Server-side link preview: fetch a URL and extract og:title / og:image
++         so the chat client can render a rich card.
++
++Public API: preview(request) -> JSONResponse
++
++Upstream deps: httpx, beautifulsoup4
++
++Downstream consumers: src/api/routes.py
++
++Failure modes: returns {"error": "fetch_failed"} with status 502 on network
++               error. No auth enforced here (handled by middleware).
++
++Performance: one outbound GET per request, 5-second timeout.
++"""
++import httpx
++from bs4 import BeautifulSoup
++from starlette.responses import JSONResponse
++
++
++async def preview(request):
++    data = await request.json()
++    url = data.get("url")
++    if not url:
++        return JSONResponse({"error": "missing_url"}, status_code=400)
++    try:
++        async with httpx.AsyncClient(follow_redirects=True, timeout=5.0) as c:
++            resp = await c.get(url)
++    except httpx.HTTPError:
++        return JSONResponse({"error": "fetch_failed"}, status_code=502)
++    soup = BeautifulSoup(resp.text, "html.parser")
++    title = soup.find("meta", property="og:title")
++    image = soup.find("meta", property="og:image")
++    return JSONResponse(
++        {
++            "title": title["content"] if title else None,
++            "image": image["content"] if image else None,
++        }
++    )
+diff --git a/src/api/routes.py b/src/api/routes.py
+index ddddddd..eeeeeee 100644
+--- a/src/api/routes.py
++++ b/src/api/routes.py
+@@ -5,6 +5,7 @@ from src.api.health import healthz
++from src.api.link_preview import preview
+
+ routes = [
+     Route("/healthz", healthz),
++    Route("/link-preview", preview, methods=["POST"]),
+ ]
