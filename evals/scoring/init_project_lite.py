@@ -1,0 +1,239 @@
+"""
+Purpose: Score a single /init-project command-mode run against a labeled
+         fixture by walking the worktree's filesystem snapshot and checking
+         required path existence, forbidden path absence, AGENTS.md
+         structure (required sections, line budget), and .gitignore
+         content.
+
+Public API: score(trace: dict, fixture: dict) -> dict with keys
+            {primary: float in [0, 1], diagnostic: dict,
+             status: "ok" | "invalid_format",
+             scorer_version: "v1"}.
+
+Contract: score() expects a single-run trace - trace["runs"] contains
+          exactly one run record with a "filesystem" dict mapping repo-
+          relative paths to sha256 hashes (populated by
+          evals.runner.invoker when mode=="command") AND access to the
+          worktree for AGENTS.md / .gitignore line-level inspection. The
+          scorer reads those two files directly from disk via a
+          worktree_root path passed in the run record.
+
+Upstream deps: stdlib re, pathlib, fnmatch.
+
+Downstream consumers: evals.runner.cli (dynamic import per manifest's
+                      scoring_module).
+
+Failure modes: Missing or empty filesystem snapshot => status
+               "invalid_format", primary 0.0. Missing worktree_root =>
+               AGENTS.md / .gitignore checks treated as failures but the
+               existence checks still run on the snapshot keys.
+
+Performance: standard; one pass over the snapshot keys, one read of each
+             of two small text files.
+
+---
+
+## Scoring formula (v1)
+
+Weighted sum across five dimensions, minus a capped extras penalty:
+
+    w_req    = 0.50   (required file presence)
+    w_cond   = 0.15   (conditional required files keyed on expected_signals)
+    w_sect   = 0.15   (AGENTS.md required-section coverage)
+    w_gi     = 0.10   (.gitignore required substring coverage)
+    w_budget = 0.05   (AGENTS.md line-budget flag)
+
+    extras_raw     = 0.3 * forbidden_present + 0.05 * unexpected_claude_md
+    extras_penalty = min(extras_raw, 0.15)
+
+    primary = clip(w_req * required_present / required_total
+                   + w_cond * conditional_present / max(conditional_total, 1)
+                   + w_sect * section_hits / section_total
+                   + w_gi   * gitignore_hits / max(gitignore_total, 1)
+                   + w_budget * (1 if line_budget_ok else 0)
+                   - extras_penalty, 0.0, 1.0)
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+SCORER_VERSION = "v1"
+
+_W_REQ = 0.50
+_W_COND = 0.15
+_W_SECT = 0.15
+_W_GI = 0.10
+_W_BUDGET = 0.05
+
+_EXTRAS_CAP = 0.15
+_EXTRAS_FORBIDDEN = 0.3
+_EXTRAS_UNEXPECTED = 0.05
+
+
+def _count_present(snapshot_keys: set[str], paths: list[str]) -> tuple[int, list[str]]:
+    present = 0
+    missing: list[str] = []
+    for p in paths:
+        if p in snapshot_keys:
+            present += 1
+        else:
+            missing.append(p)
+    return present, missing
+
+
+def _unexpected_claude_md_count(
+    snapshot_keys: set[str],
+    active_conditional_paths: set[str],
+    must_exist_set: set[str],
+) -> int:
+    always_ok = {".claude/findings.md"}
+    count = 0
+    for k in snapshot_keys:
+        if not k.startswith(".claude/") or not k.endswith(".md"):
+            continue
+        if k in must_exist_set or k in active_conditional_paths or k in always_ok:
+            continue
+        count += 1
+    return count
+
+
+def score(trace: dict, fixture: dict) -> dict:
+    runs = trace.get("runs") or []
+    if not runs:
+        return {
+            "primary": 0.0,
+            "status": "invalid_format",
+            "diagnostic": {"reason": "no_runs", "scorer_version": SCORER_VERSION},
+            "scorer_version": SCORER_VERSION,
+        }
+    assert len(runs) == 1, (
+        "init_project_lite.score expects a single-run trace; aggregation "
+        "across N runs happens in evals.runner.aggregator."
+    )
+    run = runs[0]
+    snapshot = run.get("filesystem")
+    if not isinstance(snapshot, dict) or not snapshot:
+        return {
+            "primary": 0.0,
+            "status": "invalid_format",
+            "diagnostic": {
+                "reason": "no_filesystem_snapshot",
+                "cli_status": run.get("status"),
+                "scorer_version": SCORER_VERSION,
+            },
+            "scorer_version": SCORER_VERSION,
+        }
+    snapshot_keys = set(snapshot.keys())
+
+    expected = fixture.get("expected_outputs") or {}
+    must_exist = list(expected.get("must_exist") or [])
+    must_not_exist = list(expected.get("must_not_exist") or [])
+    cond_map = expected.get("must_exist_conditional") or {}
+    expected_signals = set(expected.get("expected_signals") or [])
+    required_sections = list(expected.get("agents_md_required_sections") or [])
+    max_lines = int(expected.get("agents_md_max_lines") or 45)
+    gi_required = list(expected.get("gitignore_required_lines") or [])
+
+    # Required files
+    required_present, missing_required = _count_present(snapshot_keys, must_exist)
+    required_total = max(len(must_exist), 1)
+
+    # Conditional files: active when their signal key is in expected_signals
+    conditional_paths: list[str] = []
+    for sig, paths in cond_map.items():
+        if sig in expected_signals:
+            conditional_paths.extend(paths)
+    conditional_present, missing_conditional = _count_present(snapshot_keys, conditional_paths)
+    conditional_total = len(conditional_paths)
+
+    # Forbidden files
+    forbidden_present_list = [p for p in must_not_exist if p in snapshot_keys]
+    forbidden_present = len(forbidden_present_list)
+
+    # AGENTS.md structure
+    worktree_root = run.get("worktree_root")
+    agents_md_path: Path | None = None
+    if worktree_root and "AGENTS.md" in snapshot_keys:
+        agents_md_path = Path(worktree_root) / "AGENTS.md"
+    agents_md_text = ""
+    if agents_md_path is not None and agents_md_path.exists():
+        try:
+            agents_md_text = agents_md_path.read_text(encoding="utf-8")
+        except OSError:
+            agents_md_text = ""
+
+    if agents_md_text:
+        agents_lines = agents_md_text.splitlines()
+        line_count_agents_md = len(agents_lines)
+        line_budget_ok = line_count_agents_md <= max_lines
+        section_hits = 0
+        for req in required_sections:
+            if any(line.startswith(req) for line in agents_lines):
+                section_hits += 1
+    else:
+        agents_lines = []
+        line_count_agents_md = 0
+        line_budget_ok = False
+        section_hits = 0
+    section_total = max(len(required_sections), 1)
+
+    # .gitignore content
+    gitignore_text = ""
+    if worktree_root and ".gitignore" in snapshot_keys:
+        gi_path = Path(worktree_root) / ".gitignore"
+        if gi_path.exists():
+            try:
+                gitignore_text = gi_path.read_text(encoding="utf-8")
+            except OSError:
+                gitignore_text = ""
+    gitignore_hits = sum(1 for s in gi_required if s in gitignore_text)
+    gitignore_total = len(gi_required)
+
+    # Extras
+    active_conditional_set = set(conditional_paths)
+    must_exist_set = set(must_exist)
+    unexpected_claude_md = _unexpected_claude_md_count(
+        snapshot_keys, active_conditional_set, must_exist_set
+    )
+    extras_raw = _EXTRAS_FORBIDDEN * forbidden_present + _EXTRAS_UNEXPECTED * unexpected_claude_md
+    extras_penalty = min(extras_raw, _EXTRAS_CAP)
+
+    score_primary = (
+        _W_REQ * (required_present / required_total)
+        + _W_COND * (conditional_present / max(conditional_total, 1))
+        + _W_SECT * (section_hits / section_total)
+        + _W_GI * (gitignore_hits / max(gitignore_total, 1))
+        + _W_BUDGET * (1.0 if line_budget_ok else 0.0)
+        - extras_penalty
+    )
+    primary = max(0.0, min(1.0, score_primary))
+
+    diagnostic: dict[str, Any] = {
+        "required_present": required_present,
+        "required_total": len(must_exist),
+        "missing_required": missing_required,
+        "conditional_present": conditional_present,
+        "conditional_total": conditional_total,
+        "missing_conditional": missing_conditional,
+        "forbidden_present": forbidden_present,
+        "forbidden_paths": forbidden_present_list,
+        "section_hits": section_hits,
+        "section_total": len(required_sections),
+        "line_count_agents_md": line_count_agents_md,
+        "line_budget_ok": line_budget_ok,
+        "gitignore_hits": gitignore_hits,
+        "gitignore_total": gitignore_total,
+        "unexpected_claude_md": unexpected_claude_md,
+        "extras_raw": round(extras_raw, 6),
+        "extras_penalty": round(extras_penalty, 6),
+        "snapshot_file_count": len(snapshot_keys),
+        "scorer_version": SCORER_VERSION,
+    }
+
+    return {
+        "primary": round(primary, 6),
+        "status": "ok",
+        "diagnostic": diagnostic,
+        "scorer_version": SCORER_VERSION,
+    }

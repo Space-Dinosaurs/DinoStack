@@ -90,21 +90,48 @@ def _run_fixture(
 ) -> dict:
     per_run_scores: list[dict] = []
     invocation_modes: list[str] = []
-    agent_name = (manifest.invoke or {}).get("agent_name")
-    _log.info("Running fixture %s (n=%d, agent=%s)", fixture.id, n_runs, agent_name)
+    invoke_section = manifest.invoke or {}
+    agent_name = invoke_section.get("agent_name")
+    invoke_mode = invoke_section.get("mode") or "agent"
+    _log.info(
+        "Running fixture %s (n=%d, mode=%s, agent=%s)",
+        fixture.id, n_runs, invoke_mode, agent_name,
+    )
     for i in range(n_runs):
         _log.info("  run %d/%d", i + 1, n_runs)
-        with iso_mod.make_isolator(manifest.tier) as worktree:
-            pr_mod.stage_fixture_files(fixture, worktree)
-            # Dispatch prompt construction by component name via the builder
-            # registry in evals.runner.prompt. Adding a new component eval
-            # means registering its builder there; this call site is component-
-            # agnostic.
-            prompt_text = pr_mod.build_prompt(manifest.name, fixture)
-            run_record = inv_mod.invoke_run(
-                prompt_text, worktree, manifest.timeout_seconds, agent_name=agent_name
-            )
-        score = _score_run(scoring, run_record, fixture)
+        if invoke_mode == "command":
+            # Tier 2 HOME-redirect path: copy the fixture's seeded repo into
+            # a tmpdir worktree and seed a fresh ~/.claude/ inside a fake
+            # HOME.
+            repo_dir_rel = (fixture.inputs or {}).get("repo_dir")
+            fixture_repo_dir = fixture.dir / repo_dir_rel if repo_dir_rel else None
+            home_config = (fixture.inputs or {}).get("home_config") or {}
+            with iso_mod.make_isolator(
+                manifest.tier,
+                fixture_repo_dir=fixture_repo_dir,
+                home_config=home_config,
+            ) as (worktree, fake_home):
+                prompt_text = pr_mod.build_prompt(manifest.name, fixture)
+                run_record = inv_mod.invoke_run(
+                    prompt_text,
+                    worktree,
+                    manifest.timeout_seconds,
+                    mode="command",
+                    home=fake_home,
+                )
+                # Scorer needs the worktree root to read AGENTS.md/.gitignore
+                # line-level content. Stuff it into the record before the
+                # isolator cleans up.
+                run_record["worktree_root"] = str(worktree)
+                score = _score_run(scoring, run_record, fixture)
+        else:
+            with iso_mod.make_isolator(manifest.tier) as worktree:
+                pr_mod.stage_fixture_files(fixture, worktree)
+                prompt_text = pr_mod.build_prompt(manifest.name, fixture)
+                run_record = inv_mod.invoke_run(
+                    prompt_text, worktree, manifest.timeout_seconds, agent_name=agent_name
+                )
+            score = _score_run(scoring, run_record, fixture)
         per_run_scores.append(score)
         invocation_modes.append(run_record.get("invocation_mode") or "raw-prompt")
         write_runlog(
@@ -127,9 +154,10 @@ def _run_fixture(
         )
 
     row = agg_mod.aggregate(per_run_scores, fixture, manifest, commit, content_hash)
-    # If any run fell back to raw-prompt, prefix the description so readers can
-    # tell which rows were not true named-subagent measurements.
-    if invocation_modes and any(m != "two-level" for m in invocation_modes):
+    # For agent-mode components, tag any row that fell back to raw-prompt so
+    # readers can distinguish real named-subagent measurements from fallbacks.
+    # Command-mode rows are always raw-prompt by design and do not get the tag.
+    if invoke_mode == "agent" and invocation_modes and any(m != "two-level" for m in invocation_modes):
         row["description"] = f"[raw-prompt] {row['description']}"
     tsv.append_row(manifest.name, row)
     return row
