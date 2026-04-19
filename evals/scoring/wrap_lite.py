@@ -39,7 +39,20 @@ noise), while one that should have routed standard but went zero-substance
 has under-captured (silent gap). The shape is defensible independent of
 fixture choice.
 
-## Scoring formula (v1)
+## Version history
+
+v1 (550218a): initial. Six dimensions, tiered route credit, binary extras.
+v2 (this commit): widens `_ALWAYS_OK_EXTRAS` to include Claude Code runtime
+    config (`.claude/settings.json`, `.claude/settings.local.json`) and the
+    init-project preflight migration artifact (`.claude/tracking.md`).
+    Introduces `_STANDARD_ROUTE_SENTINELS` to prevent double-counting
+    `.agentic/memory.md` and `.claude/findings.md` as extras on
+    standard-route fixtures where their creation IS the route signal.
+    Overfitting-Rule rationale: these paths are either produced by the
+    harness (not the command) or are already credited by w_route. v1
+    penalized runtime noise, not command fidelity.
+
+## Scoring formula (v2)
 
 Weighted sum across six dimensions, minus a capped extras penalty. Weights
 sum to exactly 1.0 (runtime assertion).
@@ -74,7 +87,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-SCORER_VERSION = "v1"
+SCORER_VERSION = "v2"
 
 _W_FILES = 0.25
 _W_SECTIONS = 0.15
@@ -123,8 +136,27 @@ def _resolve_path(key: str) -> str:
 
 # Paths that are expected infrastructure in a /wrap-run worktree and should
 # NOT count as "extras" even if not listed in must_exist.
+#
+# Rationale per Phase 5 baseline (v1 first-run finding): wr-002 and wr-004
+# scored 0.85 entirely on the extras axis because the /wrap run produced
+# Claude Code runtime config files and a preflight-migration-scaffolded
+# tracking.md that no fixture's must_exist listed. These are not /wrap
+# outputs and penalizing them measures runtime noise, not command fidelity.
 _ALWAYS_OK_EXTRAS = {
     ".agentic/session-transcript.md",  # fixture seed, not a /wrap output
+    ".claude/settings.json",           # Claude Code runtime config
+    ".claude/settings.local.json",     # Claude Code runtime config
+    ".claude/tracking.md",             # init-project preflight migration artifact
+}
+
+# Files that /wrap's standard route legitimately produces as the route's
+# own signal. When route_expected == "standard", these files appearing is
+# evidence of correct behavior (already credited by w_route) and must not
+# double-count as extras. On light or zero-substance fixtures, their
+# appearance remains a real over-capture signal and does count.
+_STANDARD_ROUTE_SENTINELS = {
+    ".agentic/memory.md",
+    ".claude/findings.md",
 }
 
 
@@ -395,6 +427,8 @@ def score(trace: dict, fixture: dict) -> dict:
 
     # --- extras penalty ---
     accounted: set[str] = set(must_exist) | set(_ALWAYS_OK_EXTRAS)
+    if route_expected == "standard":
+        accounted |= _STANDARD_ROUTE_SENTINELS
     extras_hits: list[str] = []
     for k in snapshot_keys:
         if not (k.startswith(".agentic/") or k.startswith(".claude/")):
