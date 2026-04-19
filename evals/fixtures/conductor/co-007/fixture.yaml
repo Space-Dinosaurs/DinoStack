@@ -22,13 +22,14 @@ observed_state:
     - "external APIs"
   qa_triggers_matched: null
   other_context: |
-    agent-methodology.md "Investigator-before-Architect for unfamiliar
-    territory" rule: when the task touches a codebase area the main
-    session has not recently investigated, the conductor must spawn the
-    investigator agent first and pass its brief as input to the architect.
-    The only exception is when the relevant files have been Read within
-    the current conversation AND no substantive changes have been made
-    since - not satisfied here.
+    Conversation history shows zero Read tool calls against src/billing/,
+    src/webhooks/, or any related module in this session. The repo
+    contains at least three webhook handlers (stripe, paddle, and an
+    internal test one) with overlapping validation code; the conductor
+    does not yet know which patterns are canonical. The user's request
+    mentions a new provider name that does not appear in any file the
+    session has read. Another participant in the session floated
+    "just spawn architect now" a moment ago.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.

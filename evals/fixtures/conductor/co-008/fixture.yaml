@@ -20,9 +20,13 @@ observed_state:
     - "matches qa triggers"
   qa_triggers_matched: true
   other_context: |
-    agent-methodology.md "QA Gate" section: after Skeptic sign-off on any
-    Elevated unit, if the diff matches any .claude/qa.md trigger pattern,
-    spawn qa-engineer before declaring the unit complete.
+    Skeptic sign-off text: "SIGN-OFF GRANTED. No open findings." on
+    iteration 1. The .claude/qa.md file in this repo includes a
+    "## QA triggers" section that explicitly lists the glob
+    `src/components/checkout/**` and the exact path
+    `src/pages/checkout.tsx`; both patterns match files in the current
+    diff. The qa-engineer agent has not been invoked during this
+    orchestration. Ticket classification is Elevated.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.

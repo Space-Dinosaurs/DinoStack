@@ -22,13 +22,14 @@ observed_state:
     - "single file + colocated test"
   qa_triggers_matched: null
   other_context: |
-    agent-methodology.md "Elevated (tight-fix path)" section: all 6
-    checklist items hold - bug fix (not a feature), debugger brief from
-    the current session, High confidence, single file + colocated test,
-    existing test exercises the fix path, no security/auth/etc surface.
-    The tight-fix path lets the conductor spawn a solo engineer Worker
-    with pre-commit test verification and skip the post-implementation
-    Skeptic.
+    Debugger brief (just returned, same session): root cause is that
+    rankPinned sorts ascending instead of descending on the pinnedAt
+    timestamp; the existing test src/feed/sort.test.ts::"pinned items
+    first" asserts the reversed order and thus passes today against the
+    buggy production code. Fix is flipping one comparator. No other files
+    involved. No auth, payments, secrets, crypto, or persistence touched.
+    Estimated diff: ~3 lines in sort.ts plus updating the asserted order
+    in sort.test.ts. No prior engineer attempt on this ticket.
 inputs:
   invoke_instruction: |
     Given the observed state above, state the single next routing action.
