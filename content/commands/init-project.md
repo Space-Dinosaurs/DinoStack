@@ -244,8 +244,8 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    ```
 
    Accept:
-   - `y` / `yes` / `1` / empty (Enter on y/N defaults to N — require explicit `y` here): apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the single-line pointer `@AGENTS.md` instead. Append the MEMORY.md entries per Step 3's semantic-dedup merge rule.
-   - `n` / `no` / `2`: abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) — instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /init-project later, or run the greenfield creation flow manually." and exit the command.
+   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the single-line pointer `@AGENTS.md` instead. Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **Enter alone does NOT apply** - this is a destructive three-way write; require an explicit `y`.
+   - `n` / `no` / `2` / empty (Enter): abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) — instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /init-project later, or run the greenfield creation flow manually." and exit the command.
    - `edit` / `e`: prompt for a free-form correction nudge ("What should change? One or two sentences."), then re-spawn the Worker with the original CLAUDE.md plus the user's nudge, re-spawn a fresh Skeptic, and present the revised three-way split. **Iteration cap: 3.** After 3 `edit` iterations, fall back to: "Three edit iterations reached. The split still needs manual review. Aborting /init-project; edit CLAUDE.md and AGENTS.md manually, then re-run /init-project." and exit.
 
    After a `y`-accepted split completes, proceed to item 1 below. The downstream items now operate against the newly-written `AGENTS.md`.
@@ -289,6 +289,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
     - **Only legacy `.claude/<name>.md` exists**: plan to migrate via `git mv .claude/<name>.md .agentic/<name>.md`. Before planning the `git mv`, run `git status --porcelain` to verify the working tree is clean of staged or unstaged changes. If dirty, block with: `Cannot migrate legacy .claude/ config while the working tree is dirty. Commit or stash first, then re-run /init-project.` Do NOT stash or commit on behalf of the user.
     - **Only `.agentic/<name>.md` exists** (the normal post-migration state): no action needed.
     - **Neither exists**: no action for this step (creation of the file, if applicable, is handled by items 6-8 above).
+    **Per-track coverage:** apply the same four rules to every per-track path (`<track>/.claude/qa.md` and `<track>/.claude/deploy.md`) for every track detected in Step 0. A project may have a mix of migrated and legacy per-track paths; each is evaluated independently.
     List each planned `git mv` in the diff preview under a `Legacy migration:` heading so the user sees the moves before confirming.
 
 **Present the diff:**
@@ -472,7 +473,7 @@ This project has multiple web UIs. Per-track qa.md files:
 qa-engineer: pick the track based on which one the diff touches.
 ```
 
-When `qa-engineer` runs, it reads the root first (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the root is an index, it picks the track matching the diff's file paths and reads that track's qa.md for command/port/URLs.
+When `qa-engineer` runs, it reads the root first (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the root is an index, it picks the track matching the diff's file paths and reads that track's qa.md for command/port/URLs. **Per-track resolver also applies during the back-compat window**: `<track>/.agentic/qa.md` preferred, `<track>/.claude/qa.md` fallback. Step 2a item 11 plans `git mv` for per-track legacy paths on each update run.
 
 ### 6a. Create `.agentic/deploy.md`
 
@@ -505,7 +506,7 @@ prefer: production
 
 The `release-orchestrator` agent reads this file the same way `qa-engineer` reads `qa.md` — it uses these values as defaults for target environment, deploy command, and rollback procedure. Fill in `staging` if the project has a staging environment. Update `command` once the exact deploy command is confirmed.
 
-**Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.agentic/deploy.md` for EACH track that deploys, AND create a root `.agentic/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first via resolver (`.agentic/` preferred, `.claude/` fallback); if index, pick the track matching the diff.
+**Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.agentic/deploy.md` for EACH track that deploys, AND create a root `.agentic/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first via resolver (`.agentic/` preferred, `.claude/` fallback); if index, pick the track matching the diff. **Per-track resolver also applies during the back-compat window**: `<track>/.agentic/deploy.md` preferred, `<track>/.claude/deploy.md` fallback. Step 2a item 11 plans `git mv` for per-track legacy paths on each update run.
 
 ### 6b. Create `.agentic/findings.md`
 
