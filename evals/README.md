@@ -5,8 +5,17 @@ This is the Phase 1 deliverable of the P2 self-improving-harness plan
 against labeled fixtures in isolation, aggregates scores across N runs, and
 appends to a per-component TSV ledger.
 
-Phase 1 ships one component end-to-end: **Skeptic** (Tier 1 isolation,
-skeptic-lite scoring, 5 seeded fixtures).
+Shipping components:
+
+- **Skeptic** (Tier 1 isolation, skeptic-lite scoring, 5 seeded fixtures) -
+  the Phase 1 end-to-end deliverable.
+- **Conductor / orchestration-planner** (Tier 1 isolation, conductor-lite
+  scoring, 10 seeded fixtures) - the Phase 3 deliverable. Measures the
+  named `orchestration-planner` agent's routing decisions against labeled
+  ground truth drawn from `content/rules/agent-methodology.md` and
+  `docs/planning/p0-persistence-loop.md`. See
+  [`fixtures/conductor/README.md`](./fixtures/conductor/README.md) for
+  schema, cost_class rubric, and known limitations.
 
 ## Prerequisites
 
