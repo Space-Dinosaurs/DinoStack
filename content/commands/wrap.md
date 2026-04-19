@@ -21,15 +21,21 @@ The Stop hook auto-writes `<cwd>/.agentic/context.md` after every turn with raw 
    - Same for `<cwd>/.claude/memory.md` and `<cwd>/.claude/memory/` (the auto-memory dir).
    - Redo symlinks in `~/.claude/projects/[hash]/` to point at the new `.agentic/` paths.
 
-3. **Missing-stub creation.** If any of `.claude/findings.md`, `.claude/tracking.md`, `.claude/deploy.md` (only when release signals detected) is missing, create a stub per the template in `/init-project` Steps 6a–6d.
+3. **Legacy config migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`:
+   - **Both paths exist on disk**: do NOT migrate. Log a drift warning in the wrap run output (e.g. "Drift (both .claude/findings.md and .agentic/findings.md exist - skipping auto-migration; resolve manually via /init-project)"), and add a bullet under the context.md "Watch Out For" section naming the conflicting files. Skip to the next name.
+   - **Only legacy `.claude/<name>.md` exists**: first, run `git status --porcelain` to check working-tree cleanliness. If there are staged or unstaged changes, do NOT migrate - log a drift note ("Skipped migration of legacy .claude/<name>.md: working tree dirty. Commit or stash, then re-run /wrap or /init-project.") and add a Watch Out For bullet. If the working tree is clean, migrate: `git mv .claude/<name>.md .agentic/<name>.md`. Log the move to the wrap run output only.
+   - **Only `.agentic/<name>.md` exists**: no action.
+   - **Neither exists**: no action at this step - the missing-stub creation below handles creation.
 
-4. **Silent auto-fix for remaining drift.** /wrap is silent and hands-off. For any drift /wrap can fix without user input, fix it inline:
+4. **Missing-stub creation.** If any of `.agentic/findings.md`, `.agentic/tracking.md`, `.agentic/deploy.md` (only when release signals detected) is missing (checked via resolver: `.agentic/<name>.md` preferred, legacy `.claude/<name>.md` fallback), create a stub at `.agentic/<name>.md` per the template in `/init-project` Steps 6a-6d.
+
+5. **Silent auto-fix for remaining drift.** /wrap is silent and hands-off. For any drift /wrap can fix without user input, fix it inline:
    - Create `docs/overview/`, `docs/technical/`, `docs/planning/`, `docs/research/` (with `.gitkeep`) if missing.
    - Create `.claude/settings.json` (`{}`) if missing.
    - Create `.claude/settings.local.json` with `autoMemoryDirectory` set to `<cwd>/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value).
-   - Create `.gitignore` entries for `.claude/settings.local.json` and `.agentic/` if missing.
+   - Create `.gitignore` entries for `.claude/settings.local.json` and the `.agentic/` runtime-artifact block (per `/init-project` Step 9) if missing.
 
-5. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /wrap. Instead, record a bullet under "Watch Out For" in the context.md output noting which scaffolding items are still incomplete. The user can address these later by running `/init-project` interactively.
+6. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /wrap. Instead, record a bullet under "Watch Out For" in the context.md output noting which scaffolding items are still incomplete. The user can address these later by running `/init-project` interactively.
 
 All steps are silent on success. Log each migration action taken (e.g. "Migrated admin/CLAUDE.md to admin/AGENTS.md + pointer") to the wrap run output only, not as user prompts. After preflight completes, proceed to Step 0.
 
@@ -68,12 +74,12 @@ Survey the current conversation and note down:
 - Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into context.md only.
 - Identify the project root (absolute cwd).
 - Check for and read: the root `AGENTS.md` (if it exists), and any `[track]/AGENTS.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
-- **Read `.claude/findings.md`** if it exists in the project. Record its full current content — this will be passed to the Worker as a dedicated field so it can dedupe and apply the size cap.
+- **Read findings.md via resolver** — try `.agentic/findings.md` first; if absent, fall back to the legacy `.claude/findings.md`. Record the full current content and the resolved path — this will be passed to the Worker as dedicated fields so it can dedupe, apply the size cap, and note whether the resolver hit the legacy fallback path.
 - **Read `.claude/compression-state.json`** if it exists in the project. Record its full current content — this will be passed to Part E later to determine whether compression is needed for each target.
 - Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates.
 - **Check for missing AGENTS.md files:** For each directory that had files touched this session, check whether an AGENTS.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
-- **Note any Skeptic findings that surfaced this session** (from Worker+Skeptic cycles or inline review). For each Major or Critical finding, note whether it was already promoted to `.claude/findings.md` during the session, or not yet promoted. This feeds Output 4 below.
+- **Note any Skeptic findings that surfaced this session** (from Worker+Skeptic cycles or inline review). For each Major or Critical finding, note whether it was already promoted to `.agentic/findings.md` during the session, or not yet promoted. This feeds Output 4 below.
 - **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
 - **Note task-state summary** - if `.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
@@ -142,8 +148,8 @@ Content:
 
 If no AGENTS.md files were found, write "None."]
 
-**Existing .claude/findings.md content:**
-[Paste the full current content of `.claude/findings.md` if it was read in Step 0. If the file does not exist, write "None." This is used for deduplication and size-cap enforcement in Output 4.]
+**Existing findings.md content (resolved path: `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback):**
+[Paste the full current content of the resolved findings.md from Step 0. Also note which path the resolver hit (`.agentic/findings.md` or legacy `.claude/findings.md`). If neither exists, write "None." This is used for deduplication and size-cap enforcement in Output 4. Writers always write to `.agentic/findings.md`.]
 
 **Output 1 — context.md draft**
 
@@ -243,7 +249,7 @@ This is automatic - do not ask the user. Populate sections from session context 
 
 **Output 4 — findings.md entries**
 
-Review the raw session data for Skeptic findings that were NOT already promoted to `.claude/findings.md` during this session. For each unpromoted Major or Critical finding, apply the promotion criteria from `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`: promote if the pattern is recurring (2+ prior instances in this project) or is novel but high blast-radius (data loss, security, production outage class). For each entry that qualifies, produce it in this format:
+Review the raw session data for Skeptic findings that were NOT already promoted to `.agentic/findings.md` during this session. For each unpromoted Major or Critical finding, apply the promotion criteria from `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`: promote if the pattern is recurring (2+ prior instances in this project) or is novel but high blast-radius (data loss, security, production outage class). For each entry that qualifies, produce it in this format:
 
     ## [Category name]
 
@@ -254,7 +260,7 @@ Review the raw session data for Skeptic findings that were NOT already promoted 
 
 Rules:
 - Only include findings that qualify per the promotion criteria above. If nothing qualifies, write "None."
-- Do not duplicate entries already present in the "Existing .claude/findings.md content" field above (check semantically, not just string match).
+- Do not duplicate entries already present in the "Existing findings.md content" field above (check semantically, not just string match).
 - Check the current entry count in the existing file. If adding new entries would push the total past 15, flag which entries should be pruned or consolidated rather than blindly appending. State: "Size cap: [N] existing entries — pruning needed before appending." and identify consolidation candidates.
 
 Return all four outputs clearly labeled. Do not write to disk.
@@ -271,7 +277,7 @@ Provide the draft, the existing AGENTS.md file contents from Step 0, and this ad
 >
 > "Also review the proposed AGENTS.md updates (Output 3): Is each proposed addition actually derived from this session's work - or is it generic, hallucinated, or already present in the existing file content provided? Is any content going to the wrong file (project-wide content should go to root; track-specific content should go to the track subdir)? Are updates lean - brief bullets only, no verbose rationale? Does any proposed addition contradict or duplicate existing entries in the same file?"
 >
-> "Also verify the proposed findings.md entries (Output 4): Are they derived from actual Skeptic findings that occurred in this session - not hallucinated or speculative patterns? Does each proposed entry meaningfully differ from the existing entries in the current `.claude/findings.md` content that was provided? If Output 4 is 'None', confirm that no unpromoted Major or Critical findings from the session were overlooked."
+> "Also verify the proposed findings.md entries (Output 4): Are they derived from actual Skeptic findings that occurred in this session - not hallucinated or speculative patterns? Does each proposed entry meaningfully differ from the existing entries in the current findings.md content that was provided (resolved from `.agentic/findings.md` or legacy `.claude/findings.md`)? If Output 4 is 'None', confirm that no unpromoted Major or Critical findings from the session were overlooked."
 
 Require this statement before sign-off: "Active search: I have applied the adversarial brief and actively searched for Critical and Major findings."
 
@@ -368,20 +374,24 @@ Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file wri
 
 Skip Part D entirely if Output 4 is "None".
 
-**Path:** `$PROJECT_ROOT/.claude/findings.md` — this file is project-local (inside the project's `.claude/` directory), not in `~/.claude/projects/[hash]/`.
+**Write path:** `$PROJECT_ROOT/.agentic/findings.md` — this file is project-local (inside the project's tool-agnostic `.agentic/` directory). Writers always write here.
 
-1. Use the Read tool to attempt to read the file at `$PROJECT_ROOT/.claude/findings.md`.
+**Read path (resolver):** try `$PROJECT_ROOT/.agentic/findings.md` first; if absent, fall back to the legacy `$PROJECT_ROOT/.claude/findings.md`.
 
-2. **If the file does not exist**: create it with this stub header, then append the Output 4 entries below it:
+1. Use the Read tool to attempt to read the file via the resolver: first `$PROJECT_ROOT/.agentic/findings.md`, then the legacy `$PROJECT_ROOT/.claude/findings.md` if the preferred path is absent.
+
+2. **If neither file exists**: create `.agentic/findings.md` with this stub header, then append the Output 4 entries below it:
 
        # Findings
        <!-- Auto-managed by /wrap and /implement-ticket. Target: under 15 entries. Architect reads this at plan time. -->
 
-   Return: "Created .claude/findings.md and wrote N entries."
+   Return: "Created .agentic/findings.md and wrote N entries."
 
-3. **If the file exists**: for each entry in Output 4, check whether the same pattern is already captured — semantically, not just string match. If an existing entry covers the same pattern, skip the new entry. If the new entry supersedes an existing one (same pattern, updated guidance), replace the existing entry in place. Otherwise append the new entry. If the Worker flagged a size-cap issue, apply the suggested consolidations or retirements before appending.
+3. **If the resolver hit `.agentic/findings.md`**: for each entry in Output 4, check whether the same pattern is already captured — semantically, not just string match. If an existing entry covers the same pattern, skip the new entry. If the new entry supersedes an existing one (same pattern, updated guidance), replace the existing entry in place. Otherwise append the new entry. If the Worker flagged a size-cap issue, apply the suggested consolidations or retirements before appending.
 
-   Write the updated file to disk. Return: "Updated .claude/findings.md (N entries added, M superseded)" or "Skipped .claude/findings.md (nothing to add)."
+   Write the updated file to `.agentic/findings.md`. Return: "Updated .agentic/findings.md (N entries added, M superseded)" or "Skipped .agentic/findings.md (nothing to add)."
+
+4. **If the resolver fell back to legacy `.claude/findings.md`** (preflight did not migrate it - e.g. dirty tree or both-paths drift): do NOT write to `.claude/findings.md`. Instead, copy the legacy content as the baseline, merge Output 4 entries into that content using the semantic dedup rules in step 3, and write the merged result to `.agentic/findings.md`. Leave `.claude/findings.md` on disk untouched (the preflight already logged the drift and added a Watch Out For bullet). Return: "Wrote .agentic/findings.md (migrated from .claude/findings.md); N entries added, M superseded."
 
 **Part E — Compress always-loaded memory files**
 
@@ -462,7 +472,7 @@ If the project is a git repository with a `/cleanup-worktrees` skill available, 
 
 Release the pre-flight lock: `rm -rf <cwd>/.agentic/wrap.lock`. This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and `.claude/findings.md` if Part D ran). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and `.agentic/findings.md` if Part D ran). Also include the cleanup summary if Step 5 ran.
 
 Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
 

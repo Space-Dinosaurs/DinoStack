@@ -13,7 +13,7 @@ expected_outputs:
     - CLAUDE.md
     - .claude/settings.json
     - .claude/settings.local.json
-    - .claude/findings.md
+    - .agentic/findings.md
     - .agentic/preferences.json
     - docs/overview/.gitkeep
     - docs/technical/.gitkeep
@@ -22,13 +22,13 @@ expected_outputs:
     - .gitignore
   must_exist_conditional:
     web_ui:
-      - .claude/qa.md
+      - .agentic/qa.md
     release:
-      - .claude/deploy.md
+      - .agentic/deploy.md
     tracker:
-      - .claude/tracking.md
+      - .agentic/tracking.md
   must_not_exist:
-    - .claude/deploy.md
+    - .agentic/deploy.md
   agents_md_required_sections:
     - "# "
     - "## Tools"
@@ -37,7 +37,7 @@ expected_outputs:
   agents_md_max_lines: 45
   gitignore_required_lines:
     - ".claude/settings.local.json"
-    - ".agentic/"
+    - ".agentic/loop-state.json"
   expected_signals:
     - web_ui
     - tracker

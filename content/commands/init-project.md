@@ -97,7 +97,7 @@ Show only fields where a value was found. Omit fields with no detection. Annotat
 - "no gh" / "skip gh" → remove gh from Tools
 - "use Linear" / "set up Linear" / "use Jira" / "set up Jira" / "no tracker" → set tracker
 - "port is N" → override detected port
-- "no release" / "skip release" → clear release signal (suppresses `.claude/deploy.md` creation)
+- "no release" / "skip release" → clear release signal (suppresses `.agentic/deploy.md` creation)
 - "no benchmarks" / "skip benchmarks" → clear benchmark signal
 - "no dep audit" / "skip dep audit" → clear dep-audit derivation
 - "no auto-memory" / "skip auto-memory pin" → clear autoMemoryDirectory signal (suppresses the Step 7 write and the Step 2a idempotent update)
@@ -154,10 +154,10 @@ Before writing any files, check which files already exist. The full set of files
 - `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
-- `.claude/qa.md` (only if web UI confirmed in Step 1)
-- `.claude/deploy.md` (only if release signals detected in Step 0)
-- `.claude/findings.md` - the findings flywheel's project-local anti-pattern log - always created empty, populated by `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle over time
-- `.claude/tracking.md` (only if a tracker was confirmed in Step 1)
+- `.agentic/qa.md` (only if web UI confirmed in Step 1)
+- `.agentic/deploy.md` (only if release signals detected in Step 0)
+- `.agentic/findings.md` - the findings flywheel's project-local anti-pattern log - always created empty, populated by `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle over time
+- `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
 - `memory/MEMORY.md` (created at `<cwd>/.agentic/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
@@ -224,15 +224,22 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 5. **`docs/` directories** — plan to create any missing subdirectories.
 
-6. **`.claude/qa.md`** — if web UI was confirmed **and the user did not decline web UI in Step 1** (`no web UI` / `skip web UI`) and file does not exist: plan to create it. If the user declined web UI, do not create the file and do not prompt for port or command.
+6. **`.agentic/qa.md`** — if web UI was confirmed **and the user did not decline web UI in Step 1** (`no web UI` / `skip web UI`) and file does not exist (checked via resolver: `.agentic/qa.md` OR legacy `.claude/qa.md`): plan to create it at `.agentic/qa.md`. If the user declined web UI, do not create the file and do not prompt for port or command.
 
-7. **`.claude/deploy.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist: plan to create it using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
+7. **`.agentic/deploy.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist (checked via resolver: `.agentic/deploy.md` OR legacy `.claude/deploy.md`): plan to create it at `.agentic/deploy.md` using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
 
-8. **`.claude/findings.md`** — if the file does not exist: plan to create it using the same stub template as Step 6b.
+8. **`.agentic/findings.md`** — if the file does not exist (checked via resolver: `.agentic/findings.md` OR legacy `.claude/findings.md`): plan to create it at `.agentic/findings.md` using the same stub template as Step 6b.
 
 9. **Auto-memory directory** — if the user declined auto-memory in Step 1 (`no auto-memory` / `skip auto-memory pin`): skip entirely. If `.claude/settings.local.json` already has `autoMemoryDirectory` set (to any value): leave it alone (idempotent — user's existing preference wins, even if it differs from the Step 0 selection). If the file exists but lacks the `autoMemoryDirectory` key: plan to merge it in using the selected path from Step 0 (do not overwrite other keys in the file). If the file does not exist: Step 7 handles creation with the key present. If auto-memory was declined but the key is already set on disk: leave it (do not remove — user's existing preference wins).
 
 10. **`.agentic/preferences.json`** — if the file does not exist: plan to create it with `{}` as content.
+
+11. **Legacy path migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`:
+    - **Both paths exist** (e.g. `.claude/findings.md` AND `.agentic/findings.md` both on disk): refuse to migrate. Emit a **Major warning** in the diff preview block listing each conflicting pair: `WARNING (Major): both .claude/<name>.md and .agentic/<name>.md exist for <name>. Cannot decide which is canonical. Resolve manually (remove or merge one) before re-running /init-project.` Do NOT proceed to apply any changes — block the "Proceed? [y/N]" confirmation until the conflict is resolved.
+    - **Only legacy `.claude/<name>.md` exists**: plan to migrate via `git mv .claude/<name>.md .agentic/<name>.md`. Before planning the `git mv`, run `git status --porcelain` to verify the working tree is clean of staged or unstaged changes. If dirty, block with: `Cannot migrate legacy .claude/ config while the working tree is dirty. Commit or stash first, then re-run /init-project.` Do NOT stash or commit on behalf of the user.
+    - **Only `.agentic/<name>.md` exists** (the normal post-migration state): no action needed.
+    - **Neither exists**: no action for this step (creation of the file, if applicable, is handled by items 6-8 above).
+    List each planned `git mv` in the diff preview under a `Legacy migration:` heading so the user sees the moves before confirming.
 
 **Present the diff:**
 
@@ -243,13 +250,13 @@ Here's what I'd update:
     - Migrate ## Linear to new shape (Workspace: [value], QA assignee ID: [value or "not set"])
     - Append to ## Tools: [new entry]
 
-  .claude/qa.md:
+  .agentic/qa.md:
     - Create (not found, web UI detected as [framework] on port [N])
 
-  .claude/deploy.md:
+  .agentic/deploy.md:
     - Create (not found, release signal detected: [type])
 
-  .claude/findings.md:
+  .agentic/findings.md:
     - Create (not found)
 
   docs/research/:
@@ -339,13 +346,13 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   - On the first interaction of a new session, silently check that `/init-project` scaffolding exists. Check each item only if its precondition holds:
     - Root `AGENTS.md` has required sections (`## Tools`, `## Docs`, `## Conventions`, `## Session start`) - always check.
     - `.claude/settings.json` - always check.
-    - `.claude/findings.md` - always check.
+    - `.agentic/findings.md` (or legacy `.claude/findings.md`) - always check; the resolver tries `.agentic/` first and falls back to `.claude/` for back-compat.
     - `docs/{planning,research,technical,overview}/` - always check.
     - Seeded `MEMORY.md` at `<cwd>/.agentic/memory/MEMORY.md` - always check.
-    - `.claude/qa.md` - only if this project has a web UI.
-    - `.claude/deploy.md` - only if release signals apply to this project.
-    - `.claude/tracking.md` - only if a tracker was confirmed during `/init-project`.
-  - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.claude/qa.md`, `[track]/.claude/deploy.md`) are out of scope for this session-start check - do not flag them.
+    - `.agentic/qa.md` (or legacy `.claude/qa.md`) - only if this project has a web UI.
+    - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
+    - `.agentic/tracking.md` (or legacy `.claude/tracking.md`) - only if a tracker was confirmed during `/init-project`.
+  - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.agentic/qa.md`, `[track]/.agentic/deploy.md`) are out of scope for this session-start check - do not flag them.
   - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6d creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
   - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
   - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or Enter defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
@@ -377,9 +384,9 @@ Only create if it does not already exist. Content:
 
 MCP servers are not added by default - prefer CLI tools (`gh`, `psql`, etc.). Only add MCP blocks if there is a specific reason.
 
-### 6. Create `.claude/qa.md`
+### 6. Create `.agentic/qa.md`
 
-Only create if the user confirmed a web UI in Step 1 AND the user did not decline web UI in Step 1 (`no web UI` / `skip web UI`). Only create if the file does not already exist. If web UI was declined, skip this step entirely — do not prompt for port, command, or staging URL.
+Only create if the user confirmed a web UI in Step 1 AND the user did not decline web UI in Step 1 (`no web UI` / `skip web UI`). Only create if the file does not already exist at either `.agentic/qa.md` (preferred) or the legacy `.claude/qa.md` (back-compat). Writers always write to `.agentic/qa.md`. If web UI was declined, skip this step entirely — do not prompt for port, command, or staging URL.
 
 Fill in `command` and `port` from the Step 1 confirmation results. If discovery populated these values and the user confirmed them, use those values directly. Use `TODO` placeholders only for values that were neither discovered nor provided.
 
@@ -402,24 +409,24 @@ prefer: local
 
 The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
 
-**Multi-track projects.** If two or more tracks have detected web UIs (distinct ports / dev scripts), create a per-track qa.md at `<track>/.claude/qa.md` for EACH track with its own command/port/URL, AND create a root `.claude/qa.md` that is an index listing the tracks with pointers. Example root:
+**Multi-track projects.** If two or more tracks have detected web UIs (distinct ports / dev scripts), create a per-track qa.md at `<track>/.agentic/qa.md` for EACH track with its own command/port/URL, AND create a root `.agentic/qa.md` that is an index listing the tracks with pointers. Example root:
 
 ```markdown
 # QA Config (Multi-track Index)
 
 This project has multiple web UIs. Per-track qa.md files:
-- admin/.claude/qa.md - admin panel (port 4322)
-- dashboard/.claude/qa.md - ops dashboard (port 4321)
-- verify/.claude/qa.md - public verify page (port 4324)
+- admin/.agentic/qa.md - admin panel (port 4322)
+- dashboard/.agentic/qa.md - ops dashboard (port 4321)
+- verify/.agentic/qa.md - public verify page (port 4324)
 
 qa-engineer: pick the track based on which one the diff touches.
 ```
 
-When `qa-engineer` runs, it reads the root first. If the root is an index, it picks the track matching the diff's file paths and reads that track's qa.md for command/port/URLs.
+When `qa-engineer` runs, it reads the root first (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the root is an index, it picks the track matching the diff's file paths and reads that track's qa.md for command/port/URLs.
 
-### 6a. Create `.claude/deploy.md`
+### 6a. Create `.agentic/deploy.md`
 
-Only create if release signals were detected in Step 0 AND the user has not suppressed the signal ("no release") AND the file does not already exist.
+Only create if release signals were detected in Step 0 AND the user has not suppressed the signal ("no release") AND the file does not already exist at either `.agentic/deploy.md` (preferred) or the legacy `.claude/deploy.md` (back-compat). Writers always write to `.agentic/deploy.md`.
 
 Fill in the `command` from the detected release type where possible. Use `TODO` for values that were not detected or confirmed.
 
@@ -448,11 +455,11 @@ prefer: production
 
 The `release-orchestrator` agent reads this file the same way `qa-engineer` reads `qa.md` — it uses these values as defaults for target environment, deploy command, and rollback procedure. Fill in `staging` if the project has a staging environment. Update `command` once the exact deploy command is confirmed.
 
-**Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.claude/deploy.md` for EACH track that deploys, AND create a root `.claude/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first; if index, pick the track matching the diff.
+**Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.agentic/deploy.md` for EACH track that deploys, AND create a root `.agentic/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first via resolver (`.agentic/` preferred, `.claude/` fallback); if index, pick the track matching the diff.
 
-### 6b. Create `.claude/findings.md`
+### 6b. Create `.agentic/findings.md`
 
-Always create. No signal required - the findings flywheel applies to every project regardless of stack or release setup. Only create if the file does not already exist.
+Always create. No signal required - the findings flywheel applies to every project regardless of stack or release setup. Only create if the file does not already exist at either `.agentic/findings.md` (preferred) or the legacy `.claude/findings.md` (back-compat). Writers always write to `.agentic/findings.md`.
 
 Content template:
 
@@ -468,9 +475,9 @@ Architect reads this file at plan time to surface prior lessons and cites applic
 
 Full spec: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`
 
-### 6c. Create `.claude/tracking.md`
+### 6c. Create `.agentic/tracking.md`
 
-Always create when a tracker was confirmed in Step 1 (Linear or Jira). Only create if the file does not already exist.
+Always create when a tracker was confirmed in Step 1 (Linear or Jira). Only create if the file does not already exist at either `.agentic/tracking.md` (preferred) or the legacy `.claude/tracking.md` (back-compat). Writers always write to `.agentic/tracking.md`.
 
 This is the operational ticket-tracking surface used by the `orchestration-planner` agent and any command that routes work against tickets. It is separate from the tracker metadata in `AGENTS.md` (which declares team/workspace/project). `tracking.md` is where active work, sprint notes, ticket-status conventions, and any project-specific ticket-flow instructions live.
 
@@ -594,16 +601,28 @@ Add any framework-specific entries if the stack is already known (e.g. `.next/` 
 
 If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
 
-Regardless of whether `.gitignore` is new or existing: check whether it already contains `.agentic/`. If not, append the following block to it. If `.gitignore` does not exist, the entry above creates it - ensure this block is included in the new file's contents.
+Regardless of whether `.gitignore` is new or existing: check whether the targeted `.agentic/` runtime-artifact block below is present. If not, append it. If `.gitignore` does not exist, the entry above creates it - ensure this block is included in the new file's contents.
 
 ```
-# Agentic engineering runtime artifacts (must not be committed)
-# .agentic/ covers: loop-state.json (cross-session resume state), hud/ (per-worker HUD files),
-# and tasks.jsonl (multi-unit task coordination). All are runtime data, not source.
-.agentic/
+# Agentic engineering runtime artifacts (must not be committed).
+# The .agentic/ directory holds BOTH runtime artifacts (runtime-only, gitignored)
+# AND tool-agnostic config files (qa.md, deploy.md, findings.md, tracking.md)
+# that ARE checked in. The entries below ignore only the runtime artifacts.
+.agentic/loop-state.json
+.agentic/hud/
+.agentic/tasks.jsonl
+.agentic/context.md
+.agentic/memory/
+.agentic/memory.md
+.agentic/wrap.lock/
+.agentic/preferences.json
+.agentic/compression-state.json
+# Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
+# .agentic/findings.md, .agentic/tracking.md - these are tool-agnostic agent
+# config and belong in source control.
 ```
 
-The `.agentic/` directory-level entry covers all runtime artifacts: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), and `tasks.jsonl` (multi-unit task coordination). None of these should be committed.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), and `compression-state.json` (compression bookkeeping). The four tool-agnostic config files (`qa.md`, `deploy.md`, `findings.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
 
 ### 10. Create `docs/` structure
 
@@ -717,9 +736,9 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
-7. Update `.claude/qa.md` with your staging URL once a staging environment is available - show only if `.claude/qa.md` was created (and therefore web UI was not declined)
-8. *(If `.claude/deploy.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.claude/deploy.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
-9. `.claude/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time.
+7. Update `.agentic/qa.md` with your staging URL once a staging environment is available - show only if `.agentic/qa.md` was created (and therefore web UI was not declined)
+8. *(If `.agentic/deploy.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.agentic/deploy.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
+9. `.agentic/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time. *(Back-compat window: the resolver falls back to legacy `.claude/findings.md` for 2 minor releases (~6 weeks) after this migration shipped. New projects and update-mode migrations always write to `.agentic/`; the legacy path remains readable during the deprecation window.)*
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.

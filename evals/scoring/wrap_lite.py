@@ -116,7 +116,7 @@ _ROUTE_CREDIT = {
 _LOCK_PATH = ".agentic/wrap.lock"
 _CONTEXT_PATH = ".agentic/context.md"
 _MEMORY_PATH = ".agentic/memory.md"
-_FINDINGS_PATH = ".claude/findings.md"
+_FINDINGS_PATH = ".agentic/findings.md"
 
 # Fixture authors use bare filenames as keys in expected_substrings
 # (e.g. "context.md", "memory.md", "findings.md"). Resolve those to the
@@ -146,7 +146,8 @@ _ALWAYS_OK_EXTRAS = {
     ".agentic/session-transcript.md",  # fixture seed, not a /wrap output
     ".claude/settings.json",           # Claude Code runtime config
     ".claude/settings.local.json",     # Claude Code runtime config
-    ".claude/tracking.md",             # init-project preflight migration artifact
+    ".agentic/tracking.md",            # init-project preflight migration artifact (post-migration path)
+    ".claude/tracking.md",             # legacy init-project preflight migration artifact (back-compat window)
 }
 
 # Files that /wrap's standard route legitimately produces as the route's
@@ -156,7 +157,7 @@ _ALWAYS_OK_EXTRAS = {
 # appearance remains a real over-capture signal and does count.
 _STANDARD_ROUTE_SENTINELS = {
     ".agentic/memory.md",
-    ".claude/findings.md",
+    ".agentic/findings.md",
 }
 
 
