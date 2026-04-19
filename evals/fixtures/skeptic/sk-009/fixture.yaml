@@ -1,0 +1,21 @@
+id: sk-009
+description: "Worker adds a URL-preview endpoint that fetches any user-supplied URL server-side. No host allowlist, no private-IP filter. Skeptic should raise Critical for SSRF."
+component: skeptic
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  adversarial_brief: |
+    The Worker added an endpoint that issues an outbound HTTP request to a
+    URL supplied by the client. Probe for: server-side request forgery
+    surface (metadata endpoints like 169.254.169.254, RFC1918 addresses,
+    loopback, internal service hostnames), redirect-chasing that bypasses
+    any host check applied only to the initial URL, DNS rebinding, and
+    schemes beyond http/https (file://, gopher://).
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical:
+    - category: "ssrf"
+      keywords: ["link_preview", "url"]
+  major: []
+  minor: []
+expected_signoff_granted: false

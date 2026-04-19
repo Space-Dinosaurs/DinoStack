@@ -1,0 +1,34 @@
+diff --git a/migrations/versions/20260419_drop_legacy_external_id.py b/migrations/versions/20260419_drop_legacy_external_id.py
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/migrations/versions/20260419_drop_legacy_external_id.py
+@@ -0,0 +1,18 @@
++"""drop legacy_external_id from orders
++
++Revision ID: 20260419a
++Revises: 20260401a
++Create Date: 2026-04-19 10:00:00
++"""
++from alembic import op
++
++revision = "20260419a"
++down_revision = "20260401a"
++
++
++def upgrade() -> None:
++    op.drop_column("orders", "legacy_external_id")
++
++
++def downgrade() -> None:
++    pass
+diff --git a/src/models/order.py b/src/models/order.py
+index 6666666..7777777 100644
+--- a/src/models/order.py
++++ b/src/models/order.py
+@@ -10,7 +10,6 @@ class Order(Base):
+     id = Column(Integer, primary_key=True)
+     customer_id = Column(Integer, nullable=False)
+     total_cents = Column(Integer, nullable=False)
+-    legacy_external_id = Column(String(64), nullable=True, index=True)
+     created_at = Column(DateTime, default=datetime.utcnow)

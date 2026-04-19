@@ -1,0 +1,21 @@
+id: sk-013
+description: "Post-rebase leftover: feature-flag was fully rolled out and removed from the config, but a gating check on the removed flag remains in the handler, making the code path permanently dead. Skeptic should raise Major for dead/unreachable code from refactor leftover."
+component: skeptic
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  adversarial_brief: |
+    The Worker submitted a rebase of a stale feature branch on top of main.
+    Probe for: references to feature flags, config keys, constants, or
+    imports that no longer exist at the target they resolve against;
+    unreachable branches introduced by stale gating logic; TODO markers
+    that survived the rebase unresolved; and any drift between the
+    handler's behavior and what the current config actually supplies.
+  worker_output_file: worker_output.md
+  diff_file: diff.patch
+expected_findings:
+  critical: []
+  major:
+    - category: "dead code"
+      keywords: ["enable_v2_checkout"]
+  minor: []
+expected_signoff_granted: false

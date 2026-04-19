@@ -1,0 +1,42 @@
+diff --git a/src/checkout/handler.py b/src/checkout/handler.py
+index 8b8b8b8..9c9c9c9 100644
+--- a/src/checkout/handler.py
++++ b/src/checkout/handler.py
+@@ -1,12 +1,15 @@
+ from src.config import feature_flags
+ from src.checkout.v2 import checkout_v2
+ from src.checkout.v1 import checkout_v1
+
+
+ def handle_checkout(request):
+     cart = request.json["cart"]
+     user = request.user
+-    if feature_flags.enable_v2_checkout:
++    if feature_flags.get("enable_v2_checkout", False):
+         return checkout_v2(user, cart, promo=request.json.get("promo"))
++    # TODO: once v2 is 100% rolled out, delete v1 path and the flag.
+     return checkout_v1(user, cart)
+diff --git a/src/config/feature_flags.py b/src/config/feature_flags.py
+index aaaaaaa..bbbbbbb 100644
+--- a/src/config/feature_flags.py
++++ b/src/config/feature_flags.py
+@@ -1,9 +1,8 @@
+ """
+ Purpose: Feature flag registry. Values come from env at boot.
+
+-Public API: module attributes per flag name.
++Public API: get(name: str, default: bool = False) -> bool
+ """
+ import os
+
+-enable_v2_checkout = os.environ.get("ENABLE_V2_CHECKOUT", "1") == "1"
+ enable_promo_stacking = os.environ.get("ENABLE_PROMO_STACKING", "0") == "1"
+diff --git a/tests/checkout/test_handler.py b/tests/checkout/test_handler.py
+index ccccccc..ddddddd 100644
+--- a/tests/checkout/test_handler.py
++++ b/tests/checkout/test_handler.py
+@@ -5,7 +5,7 @@ def test_handle_checkout_uses_v2(monkeypatch):
+-    monkeypatch.setattr("src.checkout.handler.feature_flags.enable_v2_checkout", True)
++    monkeypatch.setitem(feature_flags._store, "enable_v2_checkout", True)
+     resp = handle_checkout(_req())
+     assert resp["version"] == "v2"
