@@ -1,6 +1,9 @@
 # Claude Code - local settings contain secrets
 .claude/settings.local.json
 
+# ScheduleWakeup runtime lock (per-session, not shared)
+.claude/scheduled_tasks.lock
+
 # Dependencies
 node_modules/
 
