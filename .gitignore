@@ -26,3 +26,8 @@ docs/brainstorm/
 # TSV files under evals/results/ ARE committed (see docs/planning/p2-self-improving-harness.md).
 evals/.worktrees/
 evals/results/*.runlog.jsonl
+
+# /auto-harness: per-run lock + per-run state. Ledger TSV at
+# evals/results/auto-harness.tsv IS committed.
+evals/.auto-harness.lock
+evals/auto/state/
