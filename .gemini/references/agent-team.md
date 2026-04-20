@@ -13,7 +13,7 @@
 | `architect` | Pre-implementation design. Reads the codebase, produces a structured technical plan. | No |
 | `orchestration-planner` | Team composition and sequencing. Given a goal, produces a structured execution plan: which agents to spawn, in what order, with what handoffs, and where Skeptic review is needed. | No |
 | `engineer` | Implements the change. Reads conventions, writes code, runs quality gates, reports clearly. | Yes |
-| `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.claude/qa.md`. Verifies changes in a real browser, returns structured pass/fail report. Appends learned quirks to `.claude/qa.md` Knowledge section. | No (appends to qa.md only) |
+| `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.agentic/qa.md` (resolved via resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). Verifies changes in a real browser, returns structured pass/fail report. Appends learned quirks to the resolved qa.md's Knowledge section. | No (appends to qa.md only) |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
 The `skeptic` is the cross-cutting review layer - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
@@ -33,7 +33,7 @@ engineer (implement)  ←── re-routes findings
     ↓
 skeptic (review)
     ↓ sign-off
-qa-engineer (verify)  ←── conditional: only if .claude/qa.md trigger patterns match the diff
+qa-engineer (verify)  ←── conditional: only if .agentic/qa.md trigger patterns match the diff (resolver: .agentic/ preferred, legacy .claude/ fallback)
     ↓ pass
 done
 ```
@@ -51,7 +51,7 @@ skeptic (review)
     ↓ sign-off
 security-auditor (audit)
     ↓
-qa-engineer (verify)  ←── conditional: only if .claude/qa.md trigger patterns match the diff
+qa-engineer (verify)  ←── conditional: only if .agentic/qa.md trigger patterns match the diff (resolver: .agentic/ preferred, legacy .claude/ fallback)
     ↓ pass
 done (or route findings back to engineer if Critical/High)
 ```
@@ -153,9 +153,9 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - Skip when a shallow CVE check as part of a security audit is sufficient - the `security-auditor` covers that path
 
 **Use `qa-engineer` when:**
-- Skeptic has signed off AND the project has `.claude/qa.md` with trigger patterns matching the diff
+- Skeptic has signed off AND the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff
 - User explicitly asks to verify, test, or QA a change ("run QA", "check the feature works", "verify in the browser", "does it work")
-- Do NOT use when: no `.claude/qa.md` exists, the change is backend-only (no matching patterns), or the change is Low risk
+- Do NOT use when: no qa.md exists at either resolver path, the change is backend-only (no matching patterns), or the change is Low risk
 
 **When the architect returns a plan, spawn a Skeptic to review it before proceeding.** This is mandatory - do not spawn engineers, run the orchestration-planner, or take any action on the plan until the Skeptic grants sign-off. Use the "Document synthesis, architecture, and planning" adversarial brief. A flawed plan propagates errors through every downstream Worker; the plan review Skeptic is the gate that prevents this.
 
@@ -217,7 +217,7 @@ When spawning `dependency-auditor`, include:
 
 When spawning `qa-engineer`, include:
 - The unit's acceptance criteria as the test plan
-- The `.claude/qa.md` config (dev server command, port, URLs)
+- The qa.md config (dev server command, port, URLs) — resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback
 - Which pages/features to verify based on the files changed
 - The qa-engineer uses `agent-browser` for all browser interaction
 - QA returns a structured pass/fail report with bugs and evidence
