@@ -1,0 +1,16 @@
+id: cw-004
+component: cleanup-worktrees
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Orphaned worktree-agent-* branches with pre-pruned metadata; both must be deleted."
+inputs:
+  repo_dir: repo/
+  home_config: {}
+expected:
+  expected_removals: []
+  expected_preservations: []
+  expected_branch_deletions:
+    - worktree-agent-orphan-a
+    - worktree-agent-orphan-b
+  expected_branch_preservations: []
+  must_contain: []
+  must_not_contain: []

@@ -117,6 +117,35 @@ def _run_fixture(
                 fixture_repo_dir=fixture_repo_dir,
                 home_config=home_config,
             ) as (worktree, fake_home):
+                # Optional per-fixture seed hook: some components (e.g.
+                # cleanup-worktrees) need to realize a git-state topology
+                # that cannot be captured by a static `repo/` snapshot
+                # alone. If the fixture directory contains a `seed.sh`,
+                # run it with cwd=worktree and HOME=fake_home BEFORE the
+                # CLI is spawned. The seed script is expected to be
+                # idempotent-per-fixture and may write files under
+                # $HOME/bin/ (e.g. a `gh` stub).
+                seed_script = fixture.dir / "seed.sh"
+                if seed_script.exists():
+                    import os as _os
+                    seed_env = _os.environ.copy()
+                    seed_env["HOME"] = str(fake_home)
+                    seed_env["PATH"] = f"{fake_home}/bin:" + seed_env.get("PATH", "")
+                    seed_result = subprocess.run(
+                        ["bash", str(seed_script)],
+                        cwd=str(worktree),
+                        capture_output=True,
+                        text=True,
+                        env=seed_env,
+                        timeout=60,
+                    )
+                    if seed_result.returncode != 0:
+                        _log.error(
+                            "Seed hook failed for fixture %s: rc=%d stderr=%s",
+                            fixture.id,
+                            seed_result.returncode,
+                            (seed_result.stderr or "").strip()[-500:],
+                        )
                 prompt_text = pr_mod.build_prompt(manifest.name, fixture)
                 run_record = inv_mod.invoke_run(
                     prompt_text,
