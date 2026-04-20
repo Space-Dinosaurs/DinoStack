@@ -47,6 +47,19 @@ def stage_fixture_files(fixture: Fixture, worktree: Path) -> Path:
         if not src.exists():
             raise FileNotFoundError(f"Fixture companion file missing: {src}")
         shutil.copy2(src, stage_dir / Path(rel).name)
+    # Investigator-style fixtures ship a seed/ subtree of source files the
+    # agent will Read/Glob/Grep. Copy the seed subtree verbatim into the
+    # worktree at the SAME relative path (e.g. fixture/seed/ -> worktree/seed/)
+    # so the prompt can reference paths as "seed/..." consistently.
+    seed_rel = fixture.inputs.get("seed_dir")
+    if seed_rel:
+        src_seed = fixture.dir / seed_rel
+        if not src_seed.exists():
+            raise FileNotFoundError(f"Fixture seed dir missing: {src_seed}")
+        dest_seed = worktree / seed_rel
+        if dest_seed.exists():
+            shutil.rmtree(dest_seed)
+        shutil.copytree(src_seed, dest_seed)
     return stage_dir
 
 
@@ -808,6 +821,43 @@ def build_release_orchestrator_prompt(fixture: Fixture) -> str:
     return "\n".join(p for p in parts if p is not None) + "\n"
 
 
+def build_investigator_prompt(fixture: Fixture) -> str:
+    """Build the Investigator brief.
+
+    The named investigator subagent already has its role, output-format
+    contract, and rules loaded from content/agents/investigator.md. This
+    prompt supplies the investigation question, scope hint, and points the
+    agent at the seeded source tree under ./seed/ in the worktree. The
+    prompt MUST NOT restate rules from the role - it describes situational
+    facts (per LEARNINGS telegraphing rule).
+    """
+    inputs = fixture.inputs or {}
+    question = (inputs.get("question") or "").rstrip()
+    scope_hint = (inputs.get("scope_hint") or "").rstrip()
+    seed_rel = inputs.get("seed_dir") or "seed"
+
+    parts = [
+        "## Investigation question",
+        question,
+        "",
+        "## Codebase context",
+        (
+            f"The code under investigation is staged at ./{seed_rel}/ relative "
+            "to your current working directory. Use Read, Glob, and Grep to "
+            "explore. Bash is available for read-only structural commands. "
+            "The seed tree is self-contained - do not search outside it."
+        ),
+    ]
+    if scope_hint:
+        parts.extend(["", "## Scope hint", scope_hint])
+    parts.extend([
+        "",
+        "Produce your investigation brief using the exact output format "
+        "specified in your role.",
+    ])
+    return "\n".join(parts) + "\n"
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
@@ -817,6 +867,7 @@ BUILDERS = {
     "qa-engineer": build_qa_engineer_prompt,
     "architect": build_architect_prompt,
     "release-orchestrator": build_release_orchestrator_prompt,
+    "investigator": build_investigator_prompt,
 }
 
 
