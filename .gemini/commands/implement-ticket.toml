@@ -508,7 +508,7 @@ Note: the escalation format surfaces findings and history only. The conductor do
 
 **Cap independence:** Phase 6 and Phase 6b caps are independent - exhausting the Phase 6 Skeptic cap (3 fix passes) does not consume Phase 6b QA cap budget, and vice versa. Each phase gets its own 3-fix-pass budget evaluated separately.
 
-**Trigger:** `.claude/qa.md` exists AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
+**Trigger:** qa.md exists at either resolver path (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
 
 - **If not triggered:** skip directly to Phase 6c.
 - **If triggered:** proceed with the QA loop contract below.
@@ -539,7 +539,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `qa-engineer` with ticket context, diff, and `.claude/qa.md` config. On iteration 2+, prepend the "Prior QA failures" section to the brief:
+**Step 1.** Spawn `qa-engineer` with ticket context, diff, and the resolved qa.md config (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
 ```
 ## Prior QA failures
@@ -573,6 +573,8 @@ The following failures were identified and fix attempts were made in earlier ite
 ## Phase 6c: Promote findings
 
 Apply the post-sign-off finding promotion rule from `agent-methodology.md` §Post-sign-off finding promotion. The rule is not `/implement-ticket`-specific - it fires after every Skeptic sign-off in any context. Full promotion criteria, entry format, and size-cap rules: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
+
+**Path resolution (findings.md):** read via resolver — try `.agentic/findings.md` first, then fall back to legacy `.claude/findings.md` for back-compat. Writers always write promoted entries to `.agentic/findings.md`. If the resolver fell back to the legacy path, copy its content as the baseline and write the merged result to `.agentic/findings.md` (leave the legacy file untouched; `/init-project` or `/wrap` preflight will migrate it when the working tree is clean).
 
 ---
 

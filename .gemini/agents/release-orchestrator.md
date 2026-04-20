@@ -30,9 +30,9 @@ Your spawn prompt must contain:
 
 Read all four before starting. Do not infer a target environment or deploy command - require them explicitly.
 
-**Check `.claude/deploy.md` for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check if `.claude/deploy.md` exists in the project root. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
+**Check deploy.md for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check for deploy.md in the project root via the resolver: try `.agentic/deploy.md` first, then fall back to legacy `.claude/deploy.md`. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
 
-**Multi-track resolution.** If the root `.claude/deploy.md` is an index (lists tracks with pointers to per-track deploy.md files), identify which track the release targets. Use the spawn prompt's target environment or the diff's file paths as the signal. When unclear, report NEEDS_CONTEXT with the detected candidate tracks listed. Always prefer the most-specific deploy.md (track > root-index).
+**Multi-track resolution.** If the root deploy.md is an index (lists tracks with pointers to per-track deploy.md files), identify which track the release targets. Use the spawn prompt's target environment or the diff's file paths as the signal. When unclear, report NEEDS_CONTEXT with the detected candidate tracks listed. Always prefer the most-specific deploy.md (track > root-index). Track-level reads also use the resolver: `<track>/.agentic/deploy.md` preferred, legacy `<track>/.claude/deploy.md` fallback.
 
 ## Pre-flight checklist
 
