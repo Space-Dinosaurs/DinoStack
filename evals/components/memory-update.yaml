@@ -1,0 +1,14 @@
+name: memory-update
+tier: 2
+content_glob:
+  - content/commands/memory-update.md
+  - content/rules/agent-methodology.md
+scoring_module: evals.scoring.memory_update_lite
+fixture_dir: evals/fixtures/memory-update
+n_runs: 3
+parallelism: serial
+timeout_seconds: 600
+invoke:
+  agent_name: null
+  mode: "command"
+  command_file: content/commands/memory-update.md

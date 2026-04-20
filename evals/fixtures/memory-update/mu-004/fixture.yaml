@@ -1,0 +1,20 @@
+id: mu-004
+component: memory-update
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Does-not-qualify: conversational meeting scheduling; MEMORY.md must not be created"
+repo_archetype: "node-ts"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+  decision_context: |
+    Decided to move the weekly team sync from Thursday 10am to Tuesday 2pm
+    starting next week. Tyson and Priya both prefer Tuesday, Ed is flexible.
+    Will update the calendar invite after standup.
+expected_outputs:
+  must_exist: []
+  must_not_exist:
+    - ".agentic/memory/MEMORY.md"
+  expected_entry_shape: null
+  required_substrings: []
+  forbidden_substrings: []

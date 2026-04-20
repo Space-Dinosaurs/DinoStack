@@ -61,8 +61,14 @@ def _load_scoring(module_path: str):
 def _score_run(scoring, run_record: dict, fixture: ld.Fixture) -> dict:
     """Wrap a single CLI run record into the trace shape expected by scoring.score."""
     trace = {"runs": [run_record]}
+    # Inject the fixture directory so scorers that need the seeded repo
+    # (e.g. memory_update_lite comparing seeded MEMORY.md to post-run
+    # MEMORY.md) can locate it. fixture.raw is a loaded-from-yaml dict;
+    # _fixture_dir is a harness annotation, underscore-prefixed.
+    fixture_raw = dict(fixture.raw or {})
+    fixture_raw["_fixture_dir"] = str(fixture.dir)
     try:
-        out = scoring.score(trace, fixture.raw)
+        out = scoring.score(trace, fixture_raw)
         out.setdefault("status", "ok")
         out.setdefault("primary", 0.0)
         out.setdefault("diagnostic", {})

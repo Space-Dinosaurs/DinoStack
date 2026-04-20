@@ -1,0 +1,26 @@
+id: mu-005
+component: memory-update
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Verification discipline: decision context asserts a claim that contradicts src/cache.ts. Below-ceiling: Worker must soften or omit the contradicted claim."
+repo_archetype: "node-ts"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+  decision_context: |
+    Standardised on an in-memory LRU cache for user-profile lookups with
+    a 900-second TTL and a 10,000-entry cap. The implementation lives in
+    `src/cache.ts`. This replaces our earlier design discussion about
+    using a Redis-backed cache; keeping it in-process simplifies local
+    development and we never observed the cache growing past 3,000
+    entries in staging.
+expected_outputs:
+  must_exist:
+    - ".agentic/memory/MEMORY.md"
+  must_not_exist: []
+  expected_entry_shape: "new"
+  required_substrings:
+    - "cache"
+  forbidden_substrings:
+    - "900-second TTL"
+    - "10,000-entry cap"
