@@ -1101,6 +1101,226 @@ def build_memory_update_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_implement_ticket_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for an /implement-ticket eval run.
+
+    `/implement-ticket` is a slash command and is not discoverable under a
+    redirected HOME (see evals/LEARNINGS.md "Slash commands are not
+    discoverable under redirected HOME"). We inline the verbatim body of
+    content/commands/implement-ticket.md into the prompt, wrapped by:
+
+      - a synthetic auto-memory banner (the command's Phase 2 reads it)
+      - a FIXTURE_CONTEXT preface declaring plan-only mode, TRACKER=none,
+        and no gh auth
+      - a SYNTHETIC_TICKET block standing in for Phase 1's tracker fetch
+      - a NON_INTERACTIVITY_DIRECTIVE enumerating Phases 4/5/6/7/8/12 to
+        execute, Phases 9/10/11 to skip, and a git pre-setup sequence to
+        bootstrap the seeded repo
+      - a PHASE_SCOPE block restating which phases are in-scope
+      - a VOCABULARY block enumerating loop-state enum values (status,
+        termination_reason, phase) so the scorer can match exact strings
+      - a REQUIRED_OUTPUTS block enumerating the artifacts the scorer
+        will inspect
+      - the verbatim COMMAND_BODY
+      - a COMPLETION_MARKER "IMPLEMENT_TICKET_DONE"
+
+    Fail-fast: raise if the seeded AGENTS.md does not carry the opt-in
+    marker (activation preflight will no-op). Raise if the seeded
+    AGENTS.md contains a `## Tracker` or `## Linear` section - the eval
+    only supports TRACKER=none and a seeded tracker would make Phase 1
+    attempt an MCP call that cannot succeed in the isolated environment.
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected_outputs") or {}
+
+    repo_dir_rel = inputs.get("repo_dir")
+    if not repo_dir_rel:
+        raise ValueError(
+            f"implement-ticket fixture {fixture.id} missing inputs.repo_dir"
+        )
+    agents_md_path = fixture.dir / repo_dir_rel / "AGENTS.md"
+    if not agents_md_path.exists():
+        raise FileNotFoundError(
+            f"implement-ticket fixture {fixture.id}: seeded AGENTS.md missing "
+            f"at {agents_md_path}"
+        )
+    agents_md_text = agents_md_path.read_text(encoding="utf-8")
+    if "agentic-engineering: opt-in" not in agents_md_text:
+        raise ValueError(
+            f"implement-ticket fixture {fixture.id}: seeded AGENTS.md does not "
+            "contain the literal line 'agentic-engineering: opt-in'. The "
+            "command's Activation preflight will no-op without that marker."
+        )
+    for banned_section in ("\n## Tracker", "\n## Linear"):
+        if banned_section in agents_md_text:
+            raise ValueError(
+                f"implement-ticket fixture {fixture.id}: seeded AGENTS.md "
+                f"contains a '{banned_section.strip()}' section. This eval only "
+                "supports TRACKER=none. Remove the section from the fixture or "
+                "promote this fixture to a tracker-aware eval variant."
+            )
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "implement-ticket.md"
+    if not command_path.exists():
+        raise FileNotFoundError(
+            f"implement-ticket command body missing: {command_path}"
+        )
+    command_body = command_path.read_text(encoding="utf-8")
+
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    base_branch = inputs.get("base_branch") or "main"
+    ticket_description = (inputs.get("ticket_description") or "").rstrip()
+    acs = inputs.get("acceptance_criteria") or []
+    ac_lines = "\n".join(f"- {ac}" for ac in acs) if acs else "- (none stated)"
+
+    fixture_context = (
+        "You are running the /implement-ticket command against the "
+        "repository rooted at the current working directory. Your $HOME is "
+        "redirected for this session and there is no live Linear/Jira "
+        "MCP, no GitHub CLI authentication, and no remote configured. "
+        "TRACKER is 'none'. Operate in local-artifact mode only - no "
+        "network calls, no PR creation, no tracker updates."
+    )
+
+    synthetic_ticket = (
+        "## Ticket description\n"
+        f"{ticket_description}\n"
+        "\n"
+        "## Acceptance criteria\n"
+        f"{ac_lines}"
+    )
+
+    non_interactivity = (
+        "Do not prompt the user at any point. Where the command body "
+        "instructs you to confirm or ask (Phase 1 TRACKER=none 'describe "
+        "what you want to implement' prompt, BASE_BRANCH resolution "
+        "prompts, resume prompts, etc.), proceed with the auto-discovered "
+        "defaults. Use the SYNTHETIC_TICKET above as the Phase 1 ticket "
+        "content. Use BASE_BRANCH=" + base_branch + ". Never block waiting "
+        "for input.\n\n"
+        "PRE-SETUP (run before any Phase): the seeded repo is not yet a "
+        "git repo. Run these commands once at the start:\n"
+        "  git init -q\n"
+        "  git add -A\n"
+        "  git -c user.email=eval@local -c user.name=eval commit -q -m 'fixture seed'\n"
+        "  git branch -M " + base_branch + "\n"
+        "\n"
+        "PHASE EXECUTION:\n"
+        "- Execute Phase 2 (read the codebase; abbreviated is fine - no "
+        "  live investigator spawn needed).\n"
+        "- Execute Phase 3 (architecture plan); the architect can be "
+        "  inlined as a planning pass rather than a separate Task spawn.\n"
+        "- Execute Phase 4 (create branch from " + base_branch + ").\n"
+        "- Execute Phase 5 (implement the ticket as a single unit; no "
+        "  fan-out; no worktrees).\n"
+        "- Execute Phase 6 (Skeptic loop); inline Skeptic review is "
+        "  acceptable. Write .agentic/loop-state.json at loop init and at "
+        "  each state transition per the VOCABULARY below.\n"
+        "- Execute Phase 7 (quality gate); run the AGENTS.md QUALITY_CMD "
+        "  if present. On failure, the one-engineer-pass rule applies.\n"
+        "- Execute Phase 8 (commit only; DO NOT run `git push`). Stage "
+        "  specific files (no `git add -A` / `git add .`). The commit "
+        "  message must include the substrings listed under "
+        "  REQUIRED_OUTPUTS so the scorer can confirm the change narrative.\n"
+        "- SKIP Phase 9 (gh pr create). There is no remote and no gh "
+        "  authentication; attempting this will fail and waste turns.\n"
+        "- SKIP Phase 10 (CI Test URL polling). No CI is configured.\n"
+        "- SKIP Phase 11 (tracker post). TRACKER=none.\n"
+        "- Execute Phase 12 (loop-state cleanup): set status to "
+        "  'complete' on .agentic/loop-state.json (atomic write) as the "
+        "  final act."
+    )
+
+    phase_scope = (
+        "In-scope phases (execute): 2, 3, 4, 5, 6, 7, 8 (commit only), 12.\n"
+        "Out-of-scope phases (skip entirely): 9, 10, 11."
+    )
+
+    vocabulary = (
+        ".agentic/loop-state.json must be a JSON object with these fields:\n"
+        "- `status`: exactly one of `\"active\"`, `\"interrupted\"`, "
+        "`\"complete\"`, `\"stalled\"`.\n"
+        "- `loop_state.phase`: exactly one of `\"skeptic\"` or `\"qa\"`.\n"
+        "- `loop_state.termination_reason`: exactly one of `\"clean\"`, "
+        "`\"cap_reached\"`, `\"convergence_failure\"`, `\"blocked\"`, or "
+        "`null`.\n"
+        "These are the machine-parseable labels the scorer matches. Do "
+        "not paraphrase them or invent new values."
+    )
+
+    branch_prefix = expected.get("branch_prefix") or ""
+    must_touch = list(expected.get("must_touch_any_of") or [])
+    commit_must_contain = list(expected.get("commit_message_must_contain") or [])
+    max_loc = expected.get("max_loc")
+    must_not_exist = list(expected.get("must_not_exist") or [])
+
+    req_lines: list[str] = []
+    if branch_prefix:
+        req_lines.append(
+            f"- The working branch name must start with `{branch_prefix}` "
+            f"and must not equal the base branch `{base_branch}`."
+        )
+    if must_touch:
+        req_lines.append("- The diff from the base must touch at least one of:")
+        for p in must_touch:
+            req_lines.append(f"    - `{p}`")
+    if commit_must_contain:
+        req_lines.append(
+            "- The HEAD commit message (Phase 8) must contain each of these substrings:"
+        )
+        for s in commit_must_contain:
+            req_lines.append(f"    - `{s}`")
+    if max_loc:
+        req_lines.append(
+            f"- The total diff (additions + deletions) should stay <= {max_loc} "
+            "lines of code. Avoid refactoring out-of-scope modules."
+        )
+    if must_not_exist:
+        req_lines.append("- The following files MUST NOT be created:")
+        for p in must_not_exist:
+            req_lines.append(f"    - `{p}`")
+    req_lines.append(
+        "- `.agentic/loop-state.json` must be well-formed per VOCABULARY above."
+    )
+    required_outputs_block = "\n".join(req_lines).rstrip()
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        fixture_context,
+        "",
+        "<SYNTHETIC_TICKET>",
+        synthetic_ticket,
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<PHASE_SCOPE>",
+        phase_scope,
+        "",
+        "<VOCABULARY>",
+        vocabulary,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/implement-ticket.md follows. "
+        "Execute the in-scope phases against this repository:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: IMPLEMENT_TICKET_DONE",
+    ]
+    return "\n".join(parts) + "\n"
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
@@ -1113,6 +1333,7 @@ BUILDERS = {
     "investigator": build_investigator_prompt,
     "security-auditor": build_security_auditor_prompt,
     "memory-update": build_memory_update_prompt,
+    "implement-ticket": build_implement_ticket_prompt,
 }
 
 

@@ -97,6 +97,17 @@ architect:
   max_iterations: 10
   whole_file_replacement: false
 
+qa-engineer:
+  editable:
+    - content/agents/qa-engineer.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
 release-orchestrator:
   editable:
     - content/agents/release-orchestrator.md
@@ -109,36 +120,26 @@ release-orchestrator:
   max_iterations: 10
   whole_file_replacement: false
 
-investigator:
+implement-ticket:
   editable:
-    - content/agents/investigator.md
+    - content/commands/implement-ticket.md
   locked:
     - content/rules/agent-methodology.md
+    - content/rules/skeptic-protocol.md
     - content/rules/module-manifest.md
     - evals/**
-  max_edit_loc: 20
+  max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
-security-auditor:
+implement-ticket:
   editable:
-    - content/agents/security-auditor.md
+    - content/commands/implement-ticket.md
   locked:
     - content/rules/agent-methodology.md
     - content/rules/skeptic-protocol.md
-    - evals/**
-  max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
-  max_iterations: 10
-  whole_file_replacement: false
-
-memory-update:
-  editable:
-    - content/commands/memory-update.md
-  locked:
-    - content/rules/agent-methodology.md
-    - content/rules/skeptic-protocol.md
+    - content/rules/module-manifest.md
     - evals/**
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
