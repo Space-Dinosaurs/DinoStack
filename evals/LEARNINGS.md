@@ -410,3 +410,57 @@ README.
   wr-002 as the working discrimination signal and the substring axis
   proven by wr-002's below-ceiling baseline rather than by a passing
   probe.
+
+## P3 /auto-harness MVP: karpathy loop proof of concept
+
+Shipped `/auto-harness` (commit b8e208d) as a standalone Python CLI
+under `evals/auto/`. 11 modules + 4 test modules, 23 tests passing,
+2036 LOC. One-component-per-invocation design: editor-agent (Claude
+with Read/Grep/Glob only) proposes a diff, `apply.py` validates
+against editable/locked globs and max_edit_loc, runner re-scores,
+keep/revert on `delta >= max(pooled_stdev, 0.02)`. TSV ledger at
+`evals/results/auto-harness.tsv`, lock at `evals/.auto-harness.lock`,
+state at `evals/auto/state/<branch>.json`.
+
+**First dry-run proof (2026-04-20, branch auto/skeptic-20260420T044453):**
+
+Preflight passed with 15 Skeptic baseline rows at HEAD 9bc4d40.
+Baseline scalar (median-of-fixture-medians): 0.5000 with pooled_stdev
+0.1486. Editor-agent proposed this edit to `content/agents/skeptic.md`:
+
+```
++ For each off-brief finding, apply a stricter bar before listing it:
++ would a senior engineer reviewing this diff cold - without the
++ adversarial brief - independently flag it as blocking? If the answer
++ is "maybe" or "only given the brief's framing," downgrade to Minor
++ or remove it.
+```
+
+Overfitting verdict: pass. The rationale did not reference any
+fixture ID. The proposed edit targets the dominant Skeptic-score
+failure mode: false-positive penalties from off-brief over-flagging,
+which cap many fixtures at 0.5 under the v2 scorer's FP_cap rule.
+
+Loop exited `dry_run_complete` without applying - this was the
+smoke-test path. The same invocation without `--dry-run` would have
+applied the diff, run n=3 on all 15 fixtures, computed after-median,
+and kept-or-reverted per the delta rule.
+
+**What the proof demonstrates:**
+1. The preflight gate actually fires (clean tree + not-main + baseline).
+2. The editor-agent receives enough context (baseline TSV, brief, rule,
+   editable/locked globs) to propose a defensible edit.
+3. The diff validator accepts a well-formed proposal.
+4. The Overfitting verdict parser works.
+5. The loop terminates cleanly and writes the expected summary.
+
+**What the proof does NOT yet demonstrate:**
+- A real keep-or-revert cycle (needs `--max-iterations N` without `--dry-run`).
+- The runner shim aggregating an after-score correctly.
+- Multi-iteration plateau detection (3 consecutive reverts -> exit).
+- Budget exhaustion termination.
+
+A subsequent session should run `python -m evals.auto.cli run skeptic
+--max-iterations 5 --time-budget-sec 1800` on a clean working branch
+to exercise the full keep-or-revert path. MVP is ready; the karpathy
+pattern is wired.
