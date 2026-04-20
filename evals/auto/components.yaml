@@ -96,3 +96,14 @@ architect:
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
+
+qa-engineer:
+  editable:
+    - content/agents/qa-engineer.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false

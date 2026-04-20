@@ -1,0 +1,53 @@
+diff --git a/src/pages/admin/reports.tsx b/src/pages/admin/reports.tsx
+index aaaaaaa..bbbbbbb 100644
+--- a/src/pages/admin/reports.tsx
++++ b/src/pages/admin/reports.tsx
+@@ -1,8 +1,17 @@
+ import { AdminLayout } from "../../components/AdminLayout";
++import { ExportButton } from "../../components/ExportButton";
+
+ export default function Reports() {
+   return (
+     <AdminLayout>
+       <h1>Reports</h1>
++      <ExportButton
++        endpoint="/api/admin/export-sessions"
++        className="bg-teal-900/40 text-teal-400 border-teal-500 hover:bg-teal-900/60 px-4 py-2 rounded"
++        filename="sessions-last-30d.csv"
++      >
++        Export CSV
++      </ExportButton>
+     </AdminLayout>
+   );
+ }
+diff --git a/src/components/ExportButton.tsx b/src/components/ExportButton.tsx
+new file mode 100644
+index 0000000..ccccccc
+--- /dev/null
++++ b/src/components/ExportButton.tsx
+@@ -0,0 +1,28 @@
++import { useState } from "react";
++
++export function ExportButton({ endpoint, filename, className, children }) {
++  const [loading, setLoading] = useState(false);
++  const handleClick = async () => {
++    setLoading(true);
++    try {
++      const res = await fetch(endpoint);
++      const blob = await res.blob();
++      const url = URL.createObjectURL(blob);
++      const a = document.createElement("a");
++      a.href = url;
++      a.download = filename;
++      a.click();
++      URL.revokeObjectURL(url);
++    } finally {
++      setLoading(false);
++    }
++  };
++  return (
++    <button onClick={handleClick} disabled={loading} className={className}>
++      {children}
++    </button>
++  );
++}
