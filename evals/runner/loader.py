@@ -346,12 +346,99 @@ def _validate_debugger_fixture(data: dict, path: Path) -> None:
         )
 
 
+def _validate_qa_engineer_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"qa-engineer fixture at {path} missing keys: {sorted(missing)}")
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"qa-engineer fixture at {path}: inputs must be a mapping")
+    acs = inputs.get("acceptance_criteria")
+    if not isinstance(acs, list) or not acs:
+        raise ValueError(
+            f"qa-engineer fixture at {path}: inputs.acceptance_criteria must be a non-empty list"
+        )
+    for ac in acs:
+        if not isinstance(ac, dict) or "id" not in ac or "text" not in ac:
+            raise ValueError(
+                f"qa-engineer fixture at {path}: each acceptance_criteria entry must have id and text"
+            )
+    expected = data.get("expected") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(f"qa-engineer fixture at {path}: expected must be a mapping")
+    verdict = expected.get("verdict")
+    if verdict not in ("PASS", "FAIL", "PARTIAL", "BLOCKED"):
+        raise ValueError(
+            f"qa-engineer fixture at {path}: expected.verdict must be one of "
+            "'PASS', 'FAIL', 'PARTIAL', 'BLOCKED'"
+        )
+
+
+_ARCHITECT_APPROACH_CLASSES = {
+    "in_place_migration",
+    "online_backfill",
+    "dual_write",
+    "middleware_insertion",
+    "algorithmic_rewrite",
+    "event_sourced_append",
+    "additive_endpoint",
+}
+
+
+def _validate_architect_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"architect fixture at {path} missing keys: {sorted(missing)}")
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"architect fixture at {path}: inputs must be a mapping")
+    for key in ("task_description", "codebase_context"):
+        if not inputs.get(key):
+            raise ValueError(
+                f"architect fixture at {path}: inputs.{key} is required (non-empty)"
+            )
+    expected = data.get("expected") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(f"architect fixture at {path}: expected must be a mapping")
+    ac = expected.get("approach_class")
+    if ac is not None and ac not in _ARCHITECT_APPROACH_CLASSES:
+        raise ValueError(
+            f"architect fixture at {path}: approach_class '{ac}' not in "
+            f"{sorted(_ARCHITECT_APPROACH_CLASSES)} (null is also allowed)"
+        )
+    for list_key in (
+        "required_api_symbols",
+        "required_file_paths",
+        "forbidden_patterns",
+    ):
+        val = expected.get(list_key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"architect fixture at {path}: expected.{list_key} must be a list"
+            )
+    kws = expected.get("required_keywords_by_section")
+    if kws is not None and not isinstance(kws, dict):
+        raise ValueError(
+            f"architect fixture at {path}: expected.required_keywords_by_section must be a mapping"
+        )
+    oq = expected.get("open_questions_required")
+    if oq is not None and oq not in ("none", "required"):
+        raise ValueError(
+            f"architect fixture at {path}: expected.open_questions_required must be "
+            "'none', 'required', or null"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
     "init-project": _validate_init_project_fixture,
     "wrap": _validate_wrap_fixture,
     "debugger": _validate_debugger_fixture,
+    "qa-engineer": _validate_qa_engineer_fixture,
+    "architect": _validate_architect_fixture,
 }
 
 
