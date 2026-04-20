@@ -304,11 +304,54 @@ def _validate_wrap_fixture(data: dict, path: Path) -> None:
         )
 
 
+def _validate_debugger_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_confidence"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"debugger fixture at {path} missing keys: {sorted(missing)}")
+    ec = data.get("expected_confidence")
+    if ec not in ("High", "Medium", "Low"):
+        raise ValueError(
+            f"debugger fixture at {path}: expected_confidence must be one of "
+            "'High', 'Medium', 'Low'"
+        )
+    hint = data.get("root_cause_location_hint", "code")
+    if hint not in ("code", "config"):
+        raise ValueError(
+            f"debugger fixture at {path}: root_cause_location_hint must be "
+            "'code' or 'config'"
+        )
+    for key in (
+        "diagnosis_keywords",
+        "fix_brief_must_mention",
+        "root_cause_negative_paths",
+    ):
+        val = data.get(key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"debugger fixture at {path}: {key} must be a list"
+            )
+    mh = data.get("min_hypotheses")
+    if mh is not None and not isinstance(mh, int):
+        raise ValueError(
+            f"debugger fixture at {path}: min_hypotheses must be an int"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"debugger fixture at {path}: inputs must be a mapping")
+    if "bug_report" not in inputs:
+        raise ValueError(
+            f"debugger fixture at {path}: inputs.bug_report is required "
+            "(free-text summary of the failure)"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
     "init-project": _validate_init_project_fixture,
     "wrap": _validate_wrap_fixture,
+    "debugger": _validate_debugger_fixture,
 }
 
 

@@ -1,0 +1,22 @@
+id: db-002
+description: "handleRequest dereferences req.session.activeOrg on unauthenticated routes where session is undefined."
+component: debugger
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  bug_report: |
+    Production error log shows a TypeError being thrown on requests to
+    unauthenticated endpoints like GET /health. The stack trace is in
+    stack_trace.txt; the handler source is in source.js. The endpoint
+    does not require auth, yet the handler is attempting to read session
+    state.
+  source_file: source.js
+  stack_trace_file: stack_trace.txt
+expected_confidence: High
+root_cause_location_hint: code
+diagnosis_keywords:
+  - "undefined"
+  - "session"
+fix_brief_must_mention:
+  - "req.session"
+  - "handleRequest"
+min_hypotheses: 2

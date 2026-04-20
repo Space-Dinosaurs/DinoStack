@@ -1,0 +1,21 @@
+$ pytest tests/test_window.py -q
+F
+================================== FAILURES ===================================
+________________________ test_consecutive_windows_no_double_count ______________
+
+    def test_consecutive_windows_no_double_count():
+        samples = [(0, 1.0), (100, 2.0), (200, 3.0), (300, 4.0)]
+        # Two back-to-back windows covering [0, 200) and [200, 400).
+        first = compute_window(samples, 0, 200)
+        second = compute_window(samples, 200, 400)
+        assert first == [1.0, 2.0]
+        # The sample at ts=200 belongs to the SECOND window only; the
+        # first window must not include it.
+>       assert first == [1.0, 2.0], f"first={first}"
+E       AssertionError: first=[1.0, 2.0, 3.0]
+E       assert [1.0, 2.0, 3.0] == [1.0, 2.0]
+
+tests/test_window.py:14: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_window.py::test_consecutive_windows_no_double_count
+1 failed in 0.03s

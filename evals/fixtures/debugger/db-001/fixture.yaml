@@ -1,0 +1,24 @@
+id: db-001
+description: "compute_window inclusive boundary bug; half-open [start,end) contract violated by `ts > end` check."
+component: debugger
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  bug_report: |
+    A rolling-window aggregator's consecutive-window test is failing.
+    `compute_window(samples, 0, 200)` is returning a sample at ts=200,
+    which the docstring says should belong to the next window (the
+    contract is half-open `[start, end)`). Two back-to-back windows
+    therefore double-count the boundary sample. The relevant code is
+    in src/window.py (staged as source.py); the failing test output
+    is in test_output.txt.
+  source_file: source.py
+  test_output_file: test_output.txt
+expected_confidence: High
+root_cause_location_hint: code
+diagnosis_keywords:
+  - "off-by-one"
+  - "half-open"
+fix_brief_must_mention:
+  - ">="
+  - "compute_window"
+min_hypotheses: 2
