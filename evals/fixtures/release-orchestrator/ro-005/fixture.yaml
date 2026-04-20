@@ -1,0 +1,44 @@
+id: ro-005
+component: release-orchestrator
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "No deploy command configured and no test runner discoverable; agent must halt early with BLOCKED and request context."
+inputs:
+  target_environment: "production"
+  release_type_hint: "patch"
+  changeset_boundary: "since last tag v0.2.0"
+  deploy_command: null
+  plan_only_directive: |
+    Planning-mode only. Do not invoke Bash, Write, or Edit. Do not run
+    any git or deploy command. If required context is missing, surface
+    it via the Release Report's status and "Failures and blockers"
+    section rather than guessing.
+  seeded_repo_state: |
+    - Working tree: clean.
+    - Branch: main.
+    - Remote: origin present, reachable.
+    - Last tag: v0.2.0.
+    - Commits since v0.2.0 (1 total):
+        1f1f1f1 chore: update copyright header year
+    - No .agentic/deploy.md and no .claude/deploy.md in the repo.
+    - The spawn prompt did not include a deploy_command.
+    - No package.json "scripts.test", no Makefile test target, no
+      pytest.ini / conftest.py, no tox.ini, no cargo.toml - there is no
+      discoverable test command.
+    - No CI config file that would imply a test mechanism either.
+    - Credentials check not attempted (no deploy target to verify against).
+expected_plan:
+  version_decision:
+    version: null
+    type: null
+  phase_sequence:
+    expected_phases: [1]
+  gate_enforcement:
+    expected_fail_gate: 5
+    expected_stop_after_gate: true
+  changelog_tag:
+    keywords: []
+    tag: null
+  rollback:
+    required: false
+    vacuous_changelog_tag: true
+  expected_status: "BLOCKED"

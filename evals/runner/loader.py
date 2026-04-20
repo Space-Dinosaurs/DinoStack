@@ -431,6 +431,60 @@ def _validate_architect_fixture(data: dict, path: Path) -> None:
         )
 
 
+_RELEASE_ORCH_STATUSES = {"SUCCESS", "FAILED", "ROLLED_BACK", "BLOCKED"}
+_RELEASE_ORCH_TYPES = {"patch", "minor", "major"}
+
+
+def _validate_release_orchestrator_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_plan"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"release-orchestrator fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"release-orchestrator fixture at {path}: inputs must be a mapping"
+        )
+    if not inputs.get("plan_only_directive"):
+        raise ValueError(
+            f"release-orchestrator fixture at {path}: inputs.plan_only_directive "
+            "is required (the eval runs in planning-mode only; every fixture "
+            "must forbid actual git tag/push and deploy command execution at "
+            "the prompt layer)."
+        )
+    plan = data.get("expected_plan") or {}
+    if not isinstance(plan, dict):
+        raise ValueError(
+            f"release-orchestrator fixture at {path}: expected_plan must be a mapping"
+        )
+    vd = plan.get("version_decision")
+    if vd is not None:
+        if not isinstance(vd, dict):
+            raise ValueError(
+                f"release-orchestrator fixture at {path}: expected_plan.version_decision must be a mapping"
+            )
+        t = vd.get("type")
+        if t is not None and (not isinstance(t, str) or t.lower() not in _RELEASE_ORCH_TYPES):
+            raise ValueError(
+                f"release-orchestrator fixture at {path}: version_decision.type "
+                f"must be one of {sorted(_RELEASE_ORCH_TYPES)} or omitted"
+            )
+    for key in ("phase_sequence", "gate_enforcement", "rollback", "changelog_tag"):
+        val = plan.get(key)
+        if val is not None and not isinstance(val, dict):
+            raise ValueError(
+                f"release-orchestrator fixture at {path}: expected_plan.{key} must be a mapping"
+            )
+    st = plan.get("expected_status")
+    if st is not None and st not in _RELEASE_ORCH_STATUSES:
+        raise ValueError(
+            f"release-orchestrator fixture at {path}: expected_plan.expected_status "
+            f"must be one of {sorted(_RELEASE_ORCH_STATUSES)} or omitted"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
@@ -439,6 +493,7 @@ _FIXTURE_VALIDATORS = {
     "debugger": _validate_debugger_fixture,
     "qa-engineer": _validate_qa_engineer_fixture,
     "architect": _validate_architect_fixture,
+    "release-orchestrator": _validate_release_orchestrator_fixture,
 }
 
 
