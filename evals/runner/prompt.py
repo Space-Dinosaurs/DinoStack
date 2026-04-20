@@ -732,6 +732,82 @@ def build_architect_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_release_orchestrator_prompt(fixture: Fixture) -> str:
+    """Build the release-orchestrator planning-mode brief.
+
+    The release-orchestrator agent's production role performs real writes
+    (version bump, tag, push, deploy). The eval runs in Tier 1 read-only
+    isolation, so the brief operates in PLAN-ONLY mode: the agent must
+    produce the mandated release-report structure from
+    content/agents/release-orchestrator.md as if it had walked the
+    release, but must NOT invoke Bash/Write/Edit to mutate the repo or
+    push tags. The scorer enforces the same invariant on the trace side
+    (see evals/scoring/release_orchestrator_lite.py).
+    """
+    inputs = fixture.inputs or {}
+    target_environment = inputs.get("target_environment") or "(unspecified)"
+    release_type_hint = inputs.get("release_type_hint") or "(none - infer from changeset)"
+    changeset_boundary = inputs.get("changeset_boundary") or "since last tag"
+    deploy_command = inputs.get("deploy_command") or "(none provided)"
+    plan_only_directive = (inputs.get("plan_only_directive") or "").rstrip()
+    seeded_state = (inputs.get("seeded_repo_state") or "").rstrip()
+
+    parts = [
+        "You are being invoked as the release-orchestrator subagent for an "
+        "eval run. Follow content/agents/release-orchestrator.md.",
+        "",
+        "## Plan-only mode",
+        "This invocation is in PLAN-ONLY mode. You MUST NOT invoke Bash, "
+        "Write, or Edit. You MUST NOT run git tag, git push, git commit, "
+        "or any deploy command. Your job is to produce the Release Report "
+        "as if you had walked the release, reflecting the observed repo "
+        "state described below. Any real write is a hard defect.",
+        "",
+        plan_only_directive if plan_only_directive else "",
+        "",
+        "## Spawn inputs",
+        f"- Target environment: {target_environment}",
+        f"- Release type hint: {release_type_hint}",
+        f"- Changeset boundary: {changeset_boundary}",
+        f"- Deploy command: {deploy_command}",
+        "",
+        "## Observed repo state",
+        seeded_state if seeded_state else "(none provided - infer from the spawn inputs above)",
+        "",
+        "## Output contract",
+        "Produce your final response as the full Release Report specified "
+        "in your role (content/agents/release-orchestrator.md, 'Report "
+        "structure' section). The report MUST:",
+        "",
+        "1. Open with the literal header `# Release Report: vX.Y.Z` "
+        "(substitute the actual version you decide on; if the release "
+        "aborts before a version decision, use `v(n/a)`).",
+        "2. Include a `## Status:` line whose value is exactly one of "
+        "`SUCCESS`, `FAILED`, `ROLLED_BACK`, `BLOCKED`.",
+        "3. Include `Version: vX.Y.Z (patch|minor|major)` and "
+        "`Tag: vX.Y.Z` lines under '## What shipped' (omit Tag only if "
+        "no tag would be created, e.g. a pre-tag abort).",
+        "4. Walk each applicable release phase as a `### Phase N - <name>` "
+        "sub-heading, in the order Phase 1 through whichever phase the "
+        "release reaches or stops at. For each pre-flight gate you "
+        "evaluate, emit a `Gate N - <name> : PASS` or "
+        "`Gate N - <name> : FAIL` line so the outcome is mechanically "
+        "parseable.",
+        "5. Include a `## Rollback` section with the platform-rollback "
+        "command listed BEFORE the git-revert command (per your role's "
+        "Rollback Protocol). If rollback is not applicable (e.g. "
+        "pre-flight abort before any deploy), still include the "
+        "`## Rollback` section and record the rollback command that "
+        "WOULD have been used.",
+        "6. NEVER include `--no-verify`, `--force`, or `--skip-ci` in "
+        "any command. These are forbidden by your role.",
+        "",
+        "End your response with the Release Report. Do not add "
+        "commentary after it.",
+    ]
+    return "\n".join(p for p in parts if p is not None) + "\n"
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
@@ -740,6 +816,7 @@ BUILDERS = {
     "debugger": build_debugger_prompt,
     "qa-engineer": build_qa_engineer_prompt,
     "architect": build_architect_prompt,
+    "release-orchestrator": build_release_orchestrator_prompt,
 }
 
 

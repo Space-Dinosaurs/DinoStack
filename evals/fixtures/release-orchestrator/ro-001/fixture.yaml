@@ -1,0 +1,46 @@
+id: ro-001
+component: release-orchestrator
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Clean patch release 1.4.2 -> 1.4.3; all gates pass; normal full 9-phase sequence."
+inputs:
+  target_environment: "production"
+  release_type_hint: "patch"
+  changeset_boundary: "since last tag v1.4.2"
+  deploy_command: "vercel --prod --yes"
+  plan_only_directive: |
+    This is a planning-mode rehearsal. Do not invoke Bash, Write, or Edit.
+    Do not run git tag, git push, git commit, or vercel. Produce the
+    Release Report as if you had walked every phase against the observed
+    state below; treat all tool-level actions as narrated, not executed.
+  seeded_repo_state: |
+    - Working tree: clean (git status --porcelain empty).
+    - Branch: main, 0 commits ahead / 0 behind origin/main.
+    - Remote: origin -> git@github.com:acme/webapp.git (reachable).
+    - Last tag: v1.4.2 (previous release).
+    - Commits since v1.4.2 (3 total):
+        abc1234 fix: handle null user_id in session lookup
+        def5678 fix: retry transient Redis timeout with exponential backoff
+        9012abc docs: clarify RETRY_MAX env var in README
+    - Tests: `npm test` green (all 142 passing).
+    - Lint: `npm run lint` clean; no new warnings since v1.4.2.
+    - Credentials: `vercel whoami` returns the expected 'acmebiz' account.
+    - CHANGELOG.md present; last entry is v1.4.2.
+    - Version source: package.json ("version": "1.4.2").
+    - Runbook / deploy.md: present at .agentic/deploy.md; production
+      deploy command is `vercel --prod --yes`; rollback is `vercel rollback`.
+expected_plan:
+  version_decision:
+    version: "1.4.3"
+    type: "patch"
+  phase_sequence:
+    expected_phases: [1, 2, 3, 4, 5, 6, 7, 8]
+  gate_enforcement:
+    expected_fail_gate: null
+    expected_stop_after_gate: false
+  changelog_tag:
+    keywords: ["1.4.3", "null user_id", "Redis timeout", "RETRY_MAX"]
+    tag: "v1.4.3"
+  rollback:
+    required: true
+    vacuous_changelog_tag: false
+  expected_status: "SUCCESS"
