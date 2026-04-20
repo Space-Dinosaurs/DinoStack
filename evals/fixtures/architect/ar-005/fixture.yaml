@@ -1,0 +1,71 @@
+id: ar-005
+description: "Add a feature to an event-sourced system - below-ceiling; anti-pattern trap if the plan introduces a mutable row table."
+component: architect
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  task_description: |
+    Product wants a new feature: every Booking should expose its
+    current `upgrade_status` (one of: none, offered, accepted,
+    rejected), derived from user actions. The API needs to return
+    upgrade_status on GET /bookings/:id and list endpoints. When a
+    customer accepts or rejects an upgrade offer, downstream billing
+    and comms systems must see the new state within 5 seconds.
+    Historical bookings (before this feature) should report
+    upgrade_status = "none".
+  codebase_context: |
+    The booking service is event-sourced. The only persistence is an
+    append-only `booking_events` table (fields: id bigserial, booking_id
+    uuid, event_type text, payload jsonb, occurred_at timestamptz,
+    seq_no bigint). State is never updated in place; every behavior
+    change emits a new event. Read models are projected asynchronously
+    by a pool of `Projector` workers (src/projections/) that consume
+    the event stream and write denormalized read-model rows into
+    separate tables per projection - all of those are also treated as
+    caches that can be dropped and rebuilt from the event log. The
+    existing read model for bookings lives in
+    src/projections/booking_summary.py projecting into
+    `booking_summary_rm` (treated as a rebuildable cache - never
+    written to directly by request handlers). Feature flags are
+    provided via the in-house `Flags` module; the team ALWAYS gates
+    behavioral changes behind a flag until projection backfill is
+    verified. The codebase has an internal ADR (docs/adrs/0004-event-
+    sourcing.md) explicitly prohibiting request handlers from writing
+    state outside the event log.
+  constraints: |
+    - Request handlers must not mutate any state outside the event log.
+    - Historical bookings must report the new field correctly after
+      backfill.
+    - Downstream billing/comms must observe the state change within
+      5 seconds of the user action.
+expected:
+  approach_class: event_sourced_append
+  required_api_symbols:
+    - "upgrade_status"
+    - "booking_events"
+    - "booking_summary_rm"
+  required_file_paths:
+    - "src/projections/booking_summary.py"
+  required_keywords_by_section:
+    "Codebase context":
+      - "append-only"
+      - "projection"
+    "Data model":
+      - "event"
+    "Implementation steps":
+      - "event"
+      - "projection"
+      - "flag"
+    "Trade-offs and constraints":
+      - "ordering"
+  forbidden_patterns:
+    - pattern: "(?:new |add (?:a )?)mutable.{0,30}table"
+      severity: major
+    - pattern: "update.{0,10}in.{0,5}place"
+      severity: major
+    - pattern: "bypass.{0,20}event log"
+      severity: major
+    - pattern: "write.{0,20}state.{0,30}request handler"
+      severity: minor
+  must_commit_single_approach: true
+  must_list_alternatives: true
+  open_questions_required: required

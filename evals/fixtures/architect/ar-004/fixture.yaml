@@ -1,0 +1,68 @@
+id: ar-004
+description: "Optimize a hot-path ranker function - below-ceiling fixture; anti-pattern trap if the plan proposes a full rewrite."
+component: architect
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  task_description: |
+    The search result ranker is the dominant CPU cost in the search
+    service - 62% of total CPU time per the latest flamegraph. Product
+    wants p95 search latency cut from 430ms to under 250ms. Your job is
+    to plan the change that gets us there. Functional output must not
+    change: the ranker's outputs are contract-tested against a golden
+    file of 4,800 query/result pairs, and that contract must still pass
+    byte-for-byte after the change ships. Ranker lives in
+    src/search/ranker.py, 340 lines, one public function
+    `rank(query: Query, candidates: list[Candidate]) -> list[Ranked]`.
+  codebase_context: |
+    Python 3.11 FastAPI service, Poetry-managed. The hot function is
+    `_score_candidate()` inside ranker.py - per the py-spy sample
+    profile linked in the ticket, 74% of ranker CPU is spent in that
+    one function, and within it 58% is in a tight loop that computes
+    cosine similarity between the query embedding and each candidate's
+    embedding using `numpy.dot` inside a Python `for` loop over
+    candidates. Embeddings are np.float32 arrays of shape (768,). The
+    surrounding code (feature extraction, the final sort, the
+    metadata-enrichment calls, the response envelope) is not hot. There
+    is already a vectorized helper `batched_cosine(query_vec,
+    candidate_matrix)` in src/search/vector_ops.py used elsewhere in
+    the codebase for a different pipeline; it takes a query vector and
+    a stacked candidate matrix and returns a vector of cosine scores.
+    The golden-file test is test_ranker_golden.py; contract is byte-
+    identical output. There is no GPU available in production.
+  constraints: |
+    - Output must be byte-identical to current (golden test passes).
+    - No new dependencies; stay within numpy + stdlib.
+    - Plan the smallest viable change that achieves the latency goal.
+      A maintainer reviewing the plan should be able to reject any
+      proposal that touches code outside the measured hot path.
+expected:
+  approach_class: algorithmic_rewrite
+  required_api_symbols:
+    - "_score_candidate"
+    - "batched_cosine"
+    - "rank"
+  required_file_paths:
+    - "src/search/ranker.py"
+    - "src/search/vector_ops.py"
+    - "test_ranker_golden.py"
+  required_keywords_by_section:
+    "Codebase context":
+      - "batched_cosine"
+      - "hot"
+    "Implementation steps":
+      - "vector"
+      - "golden"
+    "Trade-offs and constraints":
+      - "scope"
+  forbidden_patterns:
+    - pattern: "rewrite (?:the )?entire (?:ranker|module|file)"
+      severity: major
+    - pattern: "replace (?:the )?(?:whole|entire) ranker"
+      severity: major
+    - pattern: "introduce (?:a new )?ml framework"
+      severity: major
+    - pattern: "gpu"
+      severity: minor
+  must_commit_single_approach: true
+  must_list_alternatives: true
+  open_questions_required: none

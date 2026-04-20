@@ -1,0 +1,72 @@
+id: ar-003
+description: "Insert a new auth middleware into an existing chain - API-fidelity heavy."
+component: architect
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  task_description: |
+    Add a request-scoped service-token verification step to the
+    authenticated API routes. The service token (header
+    X-Service-Token) must be verified against a short-TTL JWKS endpoint
+    at https://auth.internal/.well-known/jwks.json; on success the
+    decoded claims must be attached to the request under
+    `req.serviceCtx` so downstream controllers can read
+    `req.serviceCtx.service_name` and `req.serviceCtx.scopes`. Requests
+    without the header should continue to work - the new check is
+    additive and only enforced when the header is present. When present
+    and invalid, respond 401 with the existing `{error: {code, message}}`
+    shape.
+  codebase_context: |
+    TypeScript Express 4.x service. The auth chain today is three
+    middlewares, composed in src/api/middleware/index.ts and applied in
+    order: `requestId`, `sessionAuth`, `rateLimit`. They are exported
+    individually and applied to the authenticated subrouter at
+    src/api/router.ts via `authRouter.use(requestId, sessionAuth,
+    rateLimit)`. Each middleware follows a shared signature
+    `(req: Req, res: Res, next: NextFn) => Promise<void>` and attaches
+    its context under a typed namespace on `Req`
+    (`req.sessionCtx`, `req.rateLimitCtx`). Type augmentation lives in
+    src/api/types/request.d.ts via `declare module 'express-serve-static-core'`.
+    JWKS fetch + caching utility already exists in
+    src/infra/auth/jwks.ts exporting `verifyWithJwks(token, issuer)`;
+    it's used by `sessionAuth`. Error envelope helpers in
+    src/api/errors.ts.
+  constraints: |
+    - Do not break existing request flow for clients that do not send
+      the header.
+    - Middleware ordering must be stable and documented - verification
+      must run AFTER session auth (so sessionCtx is available) but
+      BEFORE rate limit (so service tokens are rate-limited per
+      service_name not per session).
+expected:
+  approach_class: middleware_insertion
+  required_api_symbols:
+    - "X-Service-Token"
+    - "req.serviceCtx"
+    - "verifyWithJwks"
+    - "service_name"
+    - "scopes"
+  required_file_paths:
+    - "src/api/middleware/index.ts"
+    - "src/api/router.ts"
+    - "src/api/types/request.d.ts"
+    - "src/infra/auth/jwks.ts"
+  required_keywords_by_section:
+    "Codebase context":
+      - "sessionAuth"
+      - "rateLimit"
+    "API / interface design":
+      - "serviceCtx"
+      - "X-Service-Token"
+    "Implementation steps":
+      - "ordering"
+      - "middleware"
+    "Trade-offs and constraints":
+      - "order"
+  forbidden_patterns:
+    - pattern: "replace (?:the )?sessionAuth"
+      severity: major
+    - pattern: "rewrite.*auth chain"
+      severity: major
+  must_commit_single_approach: true
+  must_list_alternatives: true
+  open_questions_required: none
