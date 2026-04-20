@@ -1,0 +1,66 @@
+id: ar-002
+description: "Schema migration with no-downtime backfill - below-ceiling fixture that forces an online migration class decision."
+component: architect
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+inputs:
+  task_description: |
+    Introduce a `tenant_id uuid` column on the `documents` table and
+    populate it for all 82M existing rows. Going forward every read and
+    write to `documents` must filter by tenant_id. The rollout cannot
+    take the API offline and cannot hold a long exclusive lock on
+    `documents` - product has a 99.95% monthly availability SLA and a
+    previous migration that locked `documents` for 40 seconds triggered
+    a page. The backfill source of truth is the `document_owners.org_id`
+    column which maps 1:1 to tenant.
+  codebase_context: |
+    Rails 7 monolith on Postgres 15 using the `strong_migrations` gem
+    (which already refuses `add_column` with a default on a large table).
+    Active user traffic: ~1,200 req/s at peak against `documents`. The
+    service has an existing pattern for backfilling large tables - a
+    `BackfillJob` sidekiq worker that processes in batches of 5,000 rows
+    with a 50ms sleep between batches - used twice before for similar
+    migrations on `users` (12M rows) and `invoices` (28M rows). Reads and
+    writes go through a single `DocumentsRepository` class
+    (app/repositories/documents_repository.rb). Feature flags are
+    available via the existing Flipper setup. There is no read-replica
+    split today; all queries hit primary. The team's post-mortem from
+    the prior lock-timeout incident explicitly recommends "phased
+    rollout with dual-read verification" for any future nullable-to-
+    non-null column migration on documents.
+  constraints: |
+    - Zero downtime. No exclusive lock longer than the Postgres default
+      lock_timeout (2 seconds).
+    - All new writes after step N must populate tenant_id; no
+      stragglers.
+    - Rollback plan required at each phase boundary.
+expected:
+  approach_class: online_backfill
+  required_api_symbols:
+    - "tenant_id"
+    - "BackfillJob"
+    - "DocumentsRepository"
+  required_file_paths:
+    - "app/repositories/documents_repository.rb"
+  required_keywords_by_section:
+    "Codebase context":
+      - "strong_migrations"
+      - "BackfillJob"
+    "Data model":
+      - "tenant_id"
+      - "nullable"
+    "Implementation steps":
+      - "batch"
+      - "backfill"
+      - "flag"
+    "Trade-offs and constraints":
+      - "lock"
+  forbidden_patterns:
+    - pattern: "add_column.*not null.*default"
+      severity: major
+    - pattern: "take.{0,20}(?:site|service|api).{0,20}offline"
+      severity: major
+    - pattern: "exclusive lock"
+      severity: minor
+  must_commit_single_approach: true
+  must_list_alternatives: true
+  open_questions_required: required
