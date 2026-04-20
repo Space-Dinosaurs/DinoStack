@@ -1,0 +1,26 @@
+id: mu-002
+component: memory-update
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Update-in-place; seeded rate-limiter bullet at 100 rps; decision bumps to 250 rps"
+repo_archetype: "node-ts"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+  decision_context: |
+    Bumped the public API rate limit from 100 requests/sec per token to 250
+    requests/sec per token. Rationale: we finished the Redis cluster upgrade
+    last week and measured sustained p99 latency < 80 ms at 400 rps synthetic
+    load. 250 rps gives us a 1.6x safety margin while unblocking the three
+    enterprise customers that asked for a higher cap. Same 60-second fixed
+    window, same per-token key; only the limit constant changes.
+expected_outputs:
+  must_exist:
+    - ".agentic/memory/MEMORY.md"
+  must_not_exist: []
+  expected_entry_shape: "update"
+  required_substrings:
+    - "250"
+    - "rate limit"
+  forbidden_substrings:
+    - "100 requests/sec"

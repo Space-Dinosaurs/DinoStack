@@ -1,0 +1,22 @@
+id: mu-003
+component: memory-update
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Noop: same decision already captured in seeded MEMORY.md. Below-ceiling: Worker may duplicate."
+repo_archetype: "python"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+  decision_context: |
+    Confirmed we are sticking with Alembic for database migrations rather
+    than switching to Django-style auto-generated migrations. We already
+    have a working Alembic setup under migrations/ and the team is familiar
+    with manually reviewing generated SQL.
+expected_outputs:
+  must_exist:
+    - ".agentic/memory/MEMORY.md"
+  must_not_exist: []
+  expected_entry_shape: "noop"
+  required_substrings:
+    - "Alembic"
+  forbidden_substrings: []

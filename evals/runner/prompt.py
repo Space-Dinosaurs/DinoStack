@@ -970,6 +970,137 @@ def build_security_auditor_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_memory_update_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for a /memory-update eval run.
+
+    /memory-update in production is a thin main-agent dispatcher that
+    spawns a background `general-purpose` Worker to verify and write a
+    single date-stamped bullet to `.agentic/memory/MEMORY.md`. The eval
+    cannot reproduce the background-spawn channel under a redirected
+    HOME, so this prompt collapses the main-agent dispatcher and the
+    Worker body into a single inline session. The scorer measures the
+    one side-effect: the resulting MEMORY.md file. This proxy is
+    documented in the component README.
+
+    Fail-fast: raises if the seeded AGENTS.md lacks the
+    'agentic-engineering: opt-in' marker (Activation preflight would
+    no-op and the run would silently score 0) or if the fixture does
+    not supply inputs.decision_context (the $ARGUMENTS payload).
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected_outputs") or {}
+
+    repo_dir_rel = inputs.get("repo_dir")
+    if not repo_dir_rel:
+        raise ValueError(f"memory-update fixture {fixture.id} missing inputs.repo_dir")
+    agents_md_path = fixture.dir / repo_dir_rel / "AGENTS.md"
+    if not agents_md_path.exists():
+        raise FileNotFoundError(
+            f"memory-update fixture {fixture.id}: seeded AGENTS.md missing at {agents_md_path}"
+        )
+    agents_md_text = agents_md_path.read_text(encoding="utf-8")
+    if "agentic-engineering: opt-in" not in agents_md_text:
+        raise ValueError(
+            f"memory-update fixture {fixture.id}: seeded AGENTS.md at "
+            f"{agents_md_path} does not contain 'agentic-engineering: opt-in'. "
+            "The Activation preflight will no-op without that marker; "
+            "refusing to run to prevent silent zero-scoring."
+        )
+
+    decision_context = (inputs.get("decision_context") or "").rstrip()
+    if not decision_context:
+        raise ValueError(
+            f"memory-update fixture {fixture.id}: inputs.decision_context is "
+            "required (the $ARGUMENTS payload the command receives)."
+        )
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "memory-update.md"
+    if not command_path.exists():
+        raise FileNotFoundError(f"memory-update command body missing: {command_path}")
+    command_body = command_path.read_text(encoding="utf-8")
+
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    fixture_context = (
+        "You are running the /memory-update command against the repository "
+        "rooted at the current working directory. Your $HOME is redirected "
+        "for this session; a project-level config lives at "
+        "$HOME/.claude/agentic-engineering.json and may already be seeded."
+    )
+
+    non_interactivity = (
+        "Do not prompt the user. The command body below is nominally a main-"
+        "agent dispatcher that spawns a background general-purpose Worker. "
+        "Under this eval, execute the Worker brief INLINE in the current "
+        "session instead of spawning a subagent: run Part 1 (relevance "
+        "filter), Part 2 (verify claims against the seeded repo files "
+        "using Read / Grep as needed), Part 3 (draft), and Part 4 (write "
+        "to disk via the Write or Edit tool directly). Do not call the "
+        "Task tool. Do not run `git` or attempt to commit. The canonical "
+        "MEMORY.md path for this session is "
+        "`.agentic/memory/MEMORY.md` relative to the current working "
+        "directory; create the parent directory if it does not exist."
+    )
+
+    must_exist = list(expected.get("must_exist") or [])
+    must_not_exist = list(expected.get("must_not_exist") or [])
+
+    required_outputs_lines: list[str] = []
+    if must_exist:
+        required_outputs_lines.append("The following files must exist after you finish:")
+        for p in must_exist:
+            required_outputs_lines.append(f"- {p}")
+        required_outputs_lines.append("")
+    if must_not_exist:
+        required_outputs_lines.append(
+            "The following files MUST NOT be present when you finish:"
+        )
+        for p in must_not_exist:
+            required_outputs_lines.append(f"- {p}")
+        required_outputs_lines.append("")
+    if not required_outputs_lines:
+        required_outputs_lines.append(
+            "No explicit required-output paths for this scenario - follow "
+            "the relevance filter in the command body and write only what "
+            "it prescribes."
+        )
+    required_outputs_block = "\n".join(required_outputs_lines).rstrip()
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        fixture_context,
+        "",
+        "<DECISION_CONTEXT>",
+        "The decision context below is the $ARGUMENTS payload the command "
+        "receives. Substitute it wherever the command body references "
+        "$ARGUMENTS.",
+        "",
+        decision_context,
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/memory-update.md follows. "
+        "Execute it against this repository under the inline-execution "
+        "directive above:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: MEMORY_UPDATE_DONE",
+    ]
+    return "\n".join(parts) + "\n"
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
@@ -981,6 +1112,7 @@ BUILDERS = {
     "release-orchestrator": build_release_orchestrator_prompt,
     "investigator": build_investigator_prompt,
     "security-auditor": build_security_auditor_prompt,
+    "memory-update": build_memory_update_prompt,
 }
 
 

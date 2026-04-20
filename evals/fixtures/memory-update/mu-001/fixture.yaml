@@ -1,0 +1,28 @@
+id: mu-001
+component: memory-update
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "New-entry happy path; no seeded MEMORY.md; event-store PostgreSQL+JSONB decision"
+repo_archetype: "node-ts"
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+  decision_context: |
+    Decided to use PostgreSQL with a JSONB event payload column for the
+    event store (table `events`), instead of the dedicated EventStoreDB we
+    evaluated earlier. Rationale: ops already runs Postgres in prod,
+    JSONB gives us the schema flexibility we need for evolving event
+    payloads, and we avoid onboarding a second stateful dependency.
+    Tradeoff: no native event-stream subscriptions; consumers poll the
+    `events` table ordered by `sequence_no`.
+expected_outputs:
+  must_exist:
+    - ".agentic/memory/MEMORY.md"
+  must_not_exist: []
+  expected_entry_shape: "new"
+  required_substrings:
+    - "PostgreSQL"
+    - "JSONB"
+    - "events"
+  forbidden_substrings:
+    - "EventStoreDB"

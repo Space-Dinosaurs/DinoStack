@@ -304,6 +304,49 @@ def _validate_wrap_fixture(data: dict, path: Path) -> None:
         )
 
 
+_MEMORY_UPDATE_SHAPES = {"new", "update", "noop"}
+
+
+def _validate_memory_update_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"memory-update fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"memory-update fixture at {path}: inputs must be a mapping"
+        )
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"memory-update fixture at {path}: inputs.repo_dir is required"
+        )
+    if not inputs.get("decision_context"):
+        raise ValueError(
+            f"memory-update fixture at {path}: inputs.decision_context is "
+            "required (the $ARGUMENTS payload the command receives)"
+        )
+    expected = data.get("expected_outputs") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"memory-update fixture at {path}: expected_outputs must be a mapping"
+        )
+    shape = expected.get("expected_entry_shape")
+    if shape is not None and shape not in _MEMORY_UPDATE_SHAPES:
+        raise ValueError(
+            f"memory-update fixture at {path}: expected_entry_shape must be "
+            f"one of {sorted(_MEMORY_UPDATE_SHAPES)} or null"
+        )
+    for key in ("must_exist", "must_not_exist", "required_substrings", "forbidden_substrings"):
+        val = expected.get(key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"memory-update fixture at {path}: expected_outputs.{key} must be a list"
+            )
+
+
 def _validate_debugger_fixture(data: dict, path: Path) -> None:
     required = {"id", "component", "protocol_sha", "inputs", "expected_confidence"}
     missing = required - set(data)
@@ -600,6 +643,7 @@ _FIXTURE_VALIDATORS = {
     "release-orchestrator": _validate_release_orchestrator_fixture,
     "investigator": _validate_investigator_fixture,
     "security-auditor": _validate_security_auditor_fixture,
+    "memory-update": _validate_memory_update_fixture,
 }
 
 
