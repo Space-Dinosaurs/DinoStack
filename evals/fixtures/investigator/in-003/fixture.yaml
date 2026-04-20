@@ -1,0 +1,32 @@
+id: in-003
+component: investigator
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+description: "Multi-file data-flow; trace user-submitted comment body from HTTP entry to DB row; structure + answer primary"
+archetype: multi-file-data-flow
+inputs:
+  seed_dir: seed
+  question: |
+    A user submits a comment via POST. Trace the exact transformation
+    sequence the comment body undergoes from the HTTP entry point to the
+    row that reaches the database. Name every function the value flows
+    through and what each one does to it.
+expected_investigation:
+  answer_keywords:
+    - "post_comment"
+    - "parse_comment_form"
+    - "store_comment"
+    - "strip_html_tags"
+    - "insert_row"
+  expected_citations:
+    - "seed/web/handlers.py"
+    - "seed/web/forms.py"
+    - "seed/domain/comments.py"
+    - "seed/domain/sanitize.py"
+    - "seed/infra/db.py"
+  blast_radius_paths: []
+  acceptable_confidence:
+    - "High"
+    - "Medium"
+  gaps_nonempty: false
+  vacuous_axes:
+    - "blast"
