@@ -1,0 +1,21 @@
+id: cw-001
+component: cleanup-worktrees
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Clean multi-worktree: 1 clean isolation + 1 dirty isolation + 1 merged feature."
+inputs:
+  repo_dir: repo/
+  home_config: {}
+expected:
+  expected_removals:
+    - worktree-agent-clean
+    - feature/merged-pr
+  expected_preservations:
+    - worktree-agent-dirty
+  expected_branch_deletions:
+    - worktree-agent-clean
+    - feature/merged-pr
+  expected_branch_preservations:
+    - worktree-agent-dirty
+  must_contain:
+    - "worktree-agent-dirty"
+  must_not_contain: []

@@ -632,6 +632,42 @@ def _validate_security_auditor_fixture(data: dict, path: Path) -> None:
         )
 
 
+def _validate_cleanup_worktrees_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"cleanup-worktrees fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"cleanup-worktrees fixture at {path}: inputs must be a mapping"
+        )
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"cleanup-worktrees fixture at {path}: inputs.repo_dir is required"
+        )
+    expected = data.get("expected") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"cleanup-worktrees fixture at {path}: expected must be a mapping"
+        )
+    for key in (
+        "expected_removals",
+        "expected_preservations",
+        "expected_branch_deletions",
+        "expected_branch_preservations",
+        "must_contain",
+        "must_not_contain",
+    ):
+        val = expected.get(key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"cleanup-worktrees fixture at {path}: expected.{key} must be a list"
+            )
+
+
 def _validate_prune_harness_fixture(data: dict, path: Path) -> None:
     required = {"id", "component", "protocol_sha", "inputs", "expected"}
     missing = required - set(data)
@@ -753,6 +789,7 @@ _FIXTURE_VALIDATORS = {
     "memory-update": _validate_memory_update_fixture,
     "implement-ticket": _validate_implement_ticket_fixture,
     "prune-harness": _validate_prune_harness_fixture,
+    "cleanup-worktrees": _validate_cleanup_worktrees_fixture,
 }
 
 

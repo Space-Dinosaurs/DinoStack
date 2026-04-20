@@ -1,0 +1,17 @@
+id: cw-005
+component: cleanup-worktrees
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Below-ceiling: unknown branch shape experiment/spike-xyz preserved and reported as skipped."
+inputs:
+  repo_dir: repo/
+  home_config: {}
+expected:
+  expected_removals: []
+  expected_preservations:
+    - experiment/spike-xyz
+  expected_branch_deletions: []
+  expected_branch_preservations:
+    - experiment/spike-xyz
+  must_contain:
+    - "experiment/spike-xyz"
+  must_not_contain: []

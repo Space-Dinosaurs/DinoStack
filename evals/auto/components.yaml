@@ -120,24 +120,22 @@ release-orchestrator:
   max_iterations: 10
   whole_file_replacement: false
 
-prune-harness:
+cleanup-worktrees:
   editable:
-    - content/commands/prune-harness.md
+    - content/commands/cleanup-worktrees.md
   locked:
     - content/rules/agent-methodology.md
-    - content/commands/update-agentic-engineering.md
     - evals/**
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
-prune-harness:
+cleanup-worktrees:
   editable:
-    - content/commands/prune-harness.md
+    - content/commands/cleanup-worktrees.md
   locked:
     - content/rules/agent-methodology.md
-    - content/commands/update-agentic-engineering.md
     - evals/**
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"

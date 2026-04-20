@@ -1101,6 +1101,125 @@ def build_memory_update_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_cleanup_worktrees_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for a /cleanup-worktrees eval run.
+
+    Same proxy pattern as /init-project and /wrap: slash-command dispatch
+    is unreachable under a redirected HOME, so the verbatim body of
+    content/commands/cleanup-worktrees.md is inlined. The non-
+    interactivity directive tells the CLI to (a) prepend $HOME/bin to
+    PATH so the per-fixture `gh` stub shadows any real `gh`, (b) treat
+    the current worktree as the target repository, and (c) not block
+    waiting for user input when the command's report asks for it.
+
+    The seed.sh that builds the target worktree topology is NOT invoked
+    from inside the prompt; the runner stages it before the CLI spawns
+    (see evals/runner/cli.py cleanup-worktrees seed hook).
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected") or {}
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "cleanup-worktrees.md"
+    if not command_path.exists():
+        raise FileNotFoundError(
+            f"cleanup-worktrees command body missing: {command_path}"
+        )
+    command_body = command_path.read_text(encoding="utf-8")
+
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    fixture_context = (
+        "You are running the /cleanup-worktrees command against the git "
+        "repository rooted at the current working directory. The "
+        "repository has been pre-seeded with a mixture of isolation "
+        "worktrees, feature worktrees, and local branches; your PATH "
+        "may include a stubbed `gh` binary at $HOME/bin/gh that returns "
+        "deterministic `gh pr list` output for this run."
+    )
+
+    non_interactivity = (
+        "Do not prompt the user at any point. Where the command body "
+        "below says to 'report to the user and skip removal', do so in "
+        "your final summary text but never pause for confirmation. If a "
+        "worktree is dirty, report it and move on. If `gh` is "
+        "unavailable, follow the command's 'needs manual review - gh "
+        "CLI not available' branch. At the start of the run, run "
+        "`export PATH=\"$HOME/bin:$PATH\"` in your first Bash call so "
+        "any fixture-provided gh stub is on PATH. Work in the current "
+        "working directory only; never cd out of it. Never block "
+        "waiting for input."
+    )
+
+    required_outputs_lines: list[str] = []
+    must_contain = list(expected.get("must_contain") or [])
+    must_not_contain = list(expected.get("must_not_contain") or [])
+    exp_removals = list(expected.get("expected_removals") or [])
+    exp_preservations = list(expected.get("expected_preservations") or [])
+    if exp_removals:
+        required_outputs_lines.append(
+            "Your final summary must report that each of these branches' "
+            "worktrees was removed:"
+        )
+        for b in exp_removals:
+            required_outputs_lines.append(f"- {b}")
+        required_outputs_lines.append("")
+    if exp_preservations:
+        required_outputs_lines.append(
+            "Your final summary must report that each of these branches' "
+            "worktrees was PRESERVED (skipped, not removed):"
+        )
+        for b in exp_preservations:
+            required_outputs_lines.append(f"- {b}")
+        required_outputs_lines.append("")
+    if must_contain:
+        required_outputs_lines.append(
+            "Your final summary must include each of these substrings "
+            "(case-insensitive):"
+        )
+        for s in must_contain:
+            required_outputs_lines.append(f"- {s!r}")
+        required_outputs_lines.append("")
+    if must_not_contain:
+        required_outputs_lines.append(
+            "Your final summary must NOT include any of these substrings:"
+        )
+        for s in must_not_contain:
+            required_outputs_lines.append(f"- {s!r}")
+        required_outputs_lines.append("")
+    required_outputs_lines.append(
+        "The main worktree (the current working directory) MUST be "
+        "preserved. Removing it is a hard defect."
+    )
+    required_outputs_block = "\n".join(required_outputs_lines).rstrip()
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        fixture_context,
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/cleanup-worktrees.md "
+        "follows. Execute it against this repository:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: CLEANUP_WORKTREES_DONE",
+    ]
+    _ = inputs
+    return "\n".join(parts) + "\n"
+
+
 def build_prune_harness_prompt(fixture: Fixture) -> str:
     """Build the command-mode prompt for a /prune-harness eval run.
 
@@ -1476,6 +1595,7 @@ BUILDERS = {
     "memory-update": build_memory_update_prompt,
     "implement-ticket": build_implement_ticket_prompt,
     "prune-harness": build_prune_harness_prompt,
+    "cleanup-worktrees": build_cleanup_worktrees_prompt,
 }
 
 

@@ -179,6 +179,11 @@ def invoke_run(
     if home is not None:
         env = os.environ.copy()
         env["HOME"] = str(home)
+        # Prepend $HOME/bin so per-fixture stubs (e.g. a `gh` stub placed
+        # by a seed hook) shadow any matching binary on the developer's
+        # real PATH. This is the Tier 2 proxy boundary for CLI tools the
+        # command body shells out to.
+        env["PATH"] = f"{home}/bin:" + env.get("PATH", "")
 
     t0 = time.monotonic()
     status = "ok"
