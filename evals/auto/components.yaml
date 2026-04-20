@@ -26,10 +26,38 @@ skeptic:
   whole_file_replacement: false
 
 conductor:
-  TODO: "populate after skeptic MVP lands. Editable likely includes content/agents/orchestration-planner.md only; locked includes content/rules/agent-methodology.md and evals/**."
+  editable:
+    - content/agents/orchestration-planner.md
+  locked:
+    - content/rules/agent-methodology.md
+    - content/rules/skeptic-protocol.md
+    - content/commands/implement-ticket.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
 
 init-project:
-  TODO: "populate after skeptic MVP lands. Editable likely includes content/commands/init-project.md only; locked includes evals/** and content/rules/**."
+  editable:
+    - content/commands/init-project.md
+  locked:
+    - content/rules/agent-methodology.md
+    - content/rules/skeptic-protocol.md
+    - evals/**
+  max_edit_loc: 40
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
 
 wrap:
-  TODO: "populate after skeptic MVP lands. Editable likely includes content/commands/wrap.md only; locked includes evals/** and content/rules/**."
+  editable:
+    - content/commands/wrap.md
+  locked:
+    - content/rules/agent-methodology.md
+    - content/rules/skeptic-protocol.md
+    - evals/**
+  max_edit_loc: 40
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
