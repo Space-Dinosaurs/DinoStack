@@ -632,6 +632,69 @@ def _validate_security_auditor_fixture(data: dict, path: Path) -> None:
         )
 
 
+def _validate_prune_harness_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"prune-harness fixture at {path} missing keys: {sorted(missing)}")
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"prune-harness fixture at {path}: inputs must be a mapping")
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"prune-harness fixture at {path}: inputs.repo_dir is required"
+        )
+    if "proposal_date" not in inputs:
+        raise ValueError(
+            f"prune-harness fixture at {path}: inputs.proposal_date is required "
+            "(the YYYY-MM-DD string substituted into the proposal filename)"
+        )
+    expected = data.get("expected") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"prune-harness fixture at {path}: expected must be a mapping"
+        )
+    if not expected.get("proposal_path"):
+        raise ValueError(
+            f"prune-harness fixture at {path}: expected.proposal_path is required"
+        )
+    tps = expected.get("expected_true_positives")
+    if tps is not None and not isinstance(tps, list):
+        raise ValueError(
+            f"prune-harness fixture at {path}: expected.expected_true_positives must be a list"
+        )
+    for i, tp in enumerate(tps or []):
+        if not isinstance(tp, dict):
+            raise ValueError(
+                f"prune-harness fixture at {path}: expected_true_positives[{i}] must be a mapping"
+            )
+        if not tp.get("file"):
+            raise ValueError(
+                f"prune-harness fixture at {path}: expected_true_positives[{i}].file is required"
+            )
+        conf = (tp.get("confidence") or "").upper()
+        if conf not in ("HIGH", "MEDIUM", "LOW"):
+            raise ValueError(
+                f"prune-harness fixture at {path}: expected_true_positives[{i}].confidence "
+                f"must be HIGH, MEDIUM, or LOW"
+            )
+    skips = expected.get("expected_signal_skips")
+    if skips is not None and not isinstance(skips, list):
+        raise ValueError(
+            f"prune-harness fixture at {path}: expected.expected_signal_skips must be a list"
+        )
+    for s in skips or []:
+        if not isinstance(s, int):
+            raise ValueError(
+                f"prune-harness fixture at {path}: expected_signal_skips entries must be ints"
+            )
+    seed_hashes = expected.get("seed_content_hashes")
+    if seed_hashes is not None and not isinstance(seed_hashes, dict):
+        raise ValueError(
+            f"prune-harness fixture at {path}: expected.seed_content_hashes must be a mapping"
+        )
+
+
 def _validate_implement_ticket_fixture(data: dict, path: Path) -> None:
     required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
     missing = required - set(data)
@@ -689,6 +752,7 @@ _FIXTURE_VALIDATORS = {
     "security-auditor": _validate_security_auditor_fixture,
     "memory-update": _validate_memory_update_fixture,
     "implement-ticket": _validate_implement_ticket_fixture,
+    "prune-harness": _validate_prune_harness_fixture,
 }
 
 

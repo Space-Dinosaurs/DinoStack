@@ -1101,6 +1101,147 @@ def build_memory_update_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_prune_harness_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for a /prune-harness eval run.
+
+    The eval measures Step 1 (analyst spawn) + Step 2 (proposal artifact).
+    Step 0 git-sync is explicitly skipped (the isolated worktree has no
+    remote and a divergence check would block). Step 4 dispatch to
+    /update-agentic-engineering is OUT OF SCOPE.
+
+    Because the command body spawns a Worker subagent in production, this
+    eval instructs the top-level session NOT to spawn a Task subagent.
+    Instead it writes the proposal inline. This is an intentional proxy
+    (documented in the component README): we measure the signal-checklist
+    walk + the proposal artifact, not the subagent-spawn plumbing.
+
+    Fail-fast: the fixture's seeded AGENTS.md must carry the literal
+    "agentic-engineering: opt-in" line. Without it, the /prune-harness
+    Activation preflight no-ops and the run produces nothing.
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected") or {}
+
+    repo_dir_rel = inputs.get("repo_dir")
+    if not repo_dir_rel:
+        raise ValueError(f"prune-harness fixture {fixture.id} missing inputs.repo_dir")
+    agents_md_path = fixture.dir / repo_dir_rel / "AGENTS.md"
+    if not agents_md_path.exists():
+        raise FileNotFoundError(
+            f"prune-harness fixture {fixture.id}: seeded AGENTS.md missing at {agents_md_path}"
+        )
+    agents_md_text = agents_md_path.read_text(encoding="utf-8")
+    if "agentic-engineering: opt-in" not in agents_md_text:
+        raise ValueError(
+            f"prune-harness fixture {fixture.id}: seeded AGENTS.md at {agents_md_path} "
+            "does not contain the literal line 'agentic-engineering: opt-in'. "
+            "The /prune-harness Activation preflight will no-op without that "
+            "marker; refusing to run to prevent silent zero-scoring."
+        )
+
+    proposal_date = inputs.get("proposal_date")
+    if not proposal_date:
+        raise ValueError(
+            f"prune-harness fixture {fixture.id} missing inputs.proposal_date"
+        )
+    proposal_path = expected.get("proposal_path") or (
+        f"docs/planning/harness-pruning-{proposal_date}.md"
+    )
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "prune-harness.md"
+    if not command_path.exists():
+        raise FileNotFoundError(f"prune-harness command body missing: {command_path}")
+    command_body = command_path.read_text(encoding="utf-8")
+
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    fixture_context = (
+        "You are running the /prune-harness command against the synthetic "
+        "methodology corpus at the current working directory. The "
+        "content/ tree below is deliberately small for eval reproducibility; "
+        "treat it as the full corpus to analyze. Your $HOME is redirected "
+        "for this session. Step 0 (git-sync) of the command body is "
+        "SKIPPED for this run."
+    )
+
+    non_interactivity = (
+        "Do not prompt the user at any point. Skip Step 0 (git-sync "
+        "preflight) entirely - there is no remote to fetch. Do NOT spawn "
+        "a Task subagent for Step 1; instead, apply the Signal Checklist "
+        "yourself and write the proposal document inline. Stop immediately "
+        "after writing the proposal. Step 2 (user approval) and Step 4 "
+        "(dispatch to /update-agentic-engineering) are OUT OF SCOPE for "
+        "this eval - do not present, do not approve, do not dispatch."
+    )
+
+    required_outputs_lines = [
+        f"Write the proposal document to exactly this path: {proposal_path}",
+        "",
+        "The proposal MUST contain these four section headings verbatim:",
+        "- `# Harness Pruning Proposal - YYYY-MM-DD` (top-level title; "
+        f"substitute {proposal_date})",
+        "- `## Signal summary`",
+        "- `## Deletion candidates`",
+        "- `## Recommended action sequence`",
+        "",
+        "For each candidate under `## Deletion candidates`, emit a `### "
+        "<candidate title>` sub-heading followed by these fields (each on "
+        "its own line), in this order:",
+        "- `Confidence: HIGH | MEDIUM | LOW`  (emit exactly one of these "
+        "three tokens; HIGH for Signal 1 firings, MEDIUM for Signals 2/3/5/7 "
+        "when evidence is unambiguous, LOW for Signal 6 complexity concerns)",
+        "- `File: <content-relative path>`  (e.g. "
+        "`File: content/rules/agent-methodology.md`)",
+        "- `Signal(s): <which numbered signals fired>`",
+        "- `Rationale: <one-paragraph evidence>`",
+        "- `Risk if wrong: <what breaks if this deletion is incorrect>`",
+        "- `Suggested action: delete | consolidate into X | simplify`",
+        "",
+        "If a signal is skipped (e.g. Signal 4 when no findings.md exists "
+        "at either `.agentic/findings.md` or `.claude/findings.md`), state "
+        "the skip in `## Signal summary` using the phrase `Signal N "
+        "skipped:` followed by the rationale. The scorer extracts skip "
+        "numbers from that exact phrasing.",
+        "",
+        "If no candidates are found after applying all applicable signals, "
+        "the proposal still writes and states this explicitly with "
+        "rationale under `## Deletion candidates` - an empty proposal is "
+        "a valid output, but silently returning nothing is not.",
+        "",
+        "Do NOT modify any file under `content/`. The command is analysis "
+        "only. Any write outside the single proposal path is a forbidden "
+        "write and is scored as such.",
+    ]
+    required_outputs_block = "\n".join(required_outputs_lines)
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        fixture_context,
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/prune-harness.md follows. "
+        "Execute it against this repository, subject to the Step 0 skip "
+        "and no-Task-spawn directives above:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: PRUNE_HARNESS_DONE",
+    ]
+    return "\n".join(parts) + "\n"
+
+
 def build_implement_ticket_prompt(fixture: Fixture) -> str:
     """Build the command-mode prompt for an /implement-ticket eval run.
 
@@ -1334,6 +1475,7 @@ BUILDERS = {
     "security-auditor": build_security_auditor_prompt,
     "memory-update": build_memory_update_prompt,
     "implement-ticket": build_implement_ticket_prompt,
+    "prune-harness": build_prune_harness_prompt,
 }
 
 
