@@ -32,7 +32,7 @@ cd agentic-engineering
 bash .claude/install.sh
 ```
 
-For other tools (Cursor, Codex, Gemini), see the install instructions in each adapter's README.
+For other tools (Cursor, Codex, Gemini, OpenCode), see the install instructions in each adapter's README.
 
 ## Installation modes
 
@@ -48,7 +48,7 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The same flag works for `.cursor/install.sh`, `.codex/install.sh`, and `.gemini/install.sh` - the config file is shared across adapters.
+The same flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, and `.opencode/install.sh` - the config file is shared across adapters.
 
 **Per-project marker:** add a single line to the project's root `AGENTS.md`:
 
@@ -98,7 +98,7 @@ Do a clean refresh of agentic-engineering - uninstall, pull, then reinstall
 ```
 cd ~/agentic-engineering
 git pull
-bash .claude/install.sh    # and/or .cursor/install.sh
+bash .claude/install.sh    # and/or .cursor/install.sh, .opencode/install.sh
 ```
 
 For a clean manual refresh:
@@ -120,6 +120,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | Codex CLI | `.codex/` | See [.codex/README.md](.codex/README.md) |
 | Gemini CLI | `.gemini/` | See [.gemini/README.md](.gemini/README.md) |
 | Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
+| OpenCode | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
@@ -152,6 +153,7 @@ agentic-engineering/
   .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
   .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
+  .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters

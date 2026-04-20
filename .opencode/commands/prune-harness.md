@@ -1,0 +1,135 @@
+---
+description: /prune-harness
+agent: build
+---
+# /prune-harness
+
+> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+
+Performs a periodic analysis pass over methodology files to surface deletion candidates - rules whose motivating assumptions have expired as Claude has become more capable.
+
+**When to use:** After each Claude model upgrade, or quarterly. This command is analysis only. It writes a proposal document and stops. No methodology files are changed. Actual deletions go through `/update-agentic-engineering` separately, one candidate at a time.
+
+**Do not use to:** make changes, validate a specific rule's necessity, or replace judgment. The output is a proposal, not a verdict.
+
+## Safety model
+
+The prune analyst Worker is instructed not to write to `content/` and to restrict writes to the single output path in `docs/planning/`. This is enforced by Worker brief compliance, NOT by a harness-level technical barrier. The `tool_scope` field in the execution contract is documentation only - per the Worker preamble section of `agent-methodology.md`, it does not physically prevent writes. The analyst is instructed not to write to `content/`, and any violation would surface as a diff the conductor rejects before moving to Step 4. The authoritative gate is the Skeptic review on each subsequent deletion via `/update-agentic-engineering`. Do not describe this mechanism as "physically cannot delete" - it cannot and does not make that guarantee.
+
+## Step 0 - Preflight git sync
+
+Run the Step 0 preflight from `/update-agentic-engineering` verbatim (fetch origin, check clean tree, check divergence, refuse dirty tree). Git state decisions require main-agent judgment; do not delegate this step.
+
+## Step 1 - Spawn the prune analyst
+
+Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `agent-methodology.md`):
+
+*"You are a Worker agent. Produce a pruning proposal for the agentic-engineering methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
+
+- outputs: a pruning proposal document written to `docs/planning/harness-pruning-YYYY-MM-DD.md` (substitute today's date)
+- budget: ~40 tool calls
+- tool_scope: Read, Glob, Grep, Write (Write restricted to the single output path - documentation only, Worker brief compliance)
+- completion_conditions: every file under `content/rules/`, `content/references/`, `content/agents/`, `content/commands/` read; signal checklist applied section-by-section; proposal document written using the template below; no `content/` file modified; if no candidates are found after applying all signals, the proposal still writes and states this explicitly with rationale (an empty proposal is a valid output)
+- output_paths: `docs/planning/harness-pruning-YYYY-MM-DD.md`
+
+Pass the signal checklist verbatim in the spawn prompt (see Signal Checklist below). The analyst applies the checklist section-by-section and writes candidates incrementally to its output document rather than holding all findings in memory.
+
+## Signal checklist (verbatim - this is the binding contract)
+
+The analyst applies each signal to every file in scope and flags candidates as they are found. No signal is skipped except Signal 4 when findings.md is absent at both resolver paths (see Signal 4).
+
+**Signal 1 - explicit model-version reference.** Candidate if the named version is older than the current deployed model. NOTE: on the current corpus, no model-version references exist in rules/references/agents - this signal is primarily a forward-looking guard. If it fires, flag with HIGH confidence.
+
+**Signal 2 - "because the model forgets" framing.** Candidate if that failure class has not appeared in findings.md (resolved via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback) in the last 6 months, or the rule has no known firing instance. MEDIUM confidence.
+
+**Signal 3 - verbatim duplication across files.** Flag the duplicate, not the canonical (usually the longer or more detailed version). EXCEPTION: cross-reference duplication is NOT a candidate. Intentional repetition - a preamble appearing in both a rule file AND the command that instructs agents to follow the rule, the execution contract appearing in both `agent-methodology.md` AND `implement-ticket.md`, the Skeptic sign-off format appearing in both `skeptic-protocol.md` AND `agent-methodology.md` - is load-bearing structural redundancy, not accidental bloat. The analyst must explicitly test: "would deleting this copy break a cross-reference another doc depends on?" If yes, not a candidate. MEDIUM confidence when the duplication is genuinely accidental.
+
+**Signal 4 - contradiction with findings.md entries.** Resolve findings.md via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback. If neither path exists (as is currently the case for this repo), SKIP this signal entirely and note "Signal 4 skipped: findings.md does not exist at either resolver path in this repo" in the proposal's signal summary. Do not produce false candidates.
+
+**Signal 5 - orphaned fallback text.** Sections labeled "fallback", "legacy", or "if the agent cannot" where the older behavior no longer occurs. MEDIUM confidence.
+
+**Signal 6 - rule complexity exceeding the behavior it constrains.** LOW confidence - the analyst flags these with an explicit "low-confidence" marker and explicitly defers to human judgment. Not a standalone deletion candidate - only a "consider simplifying" suggestion. The analyst must NOT propose outright deletion on Signal 6 alone.
+
+**Signal 7 - reference doc that is a strict subset of another.** MEDIUM confidence. Flag for consolidation, not outright deletion, unless the subset is empty (no unique content).
+
+**Explicit non-signals:**
+- Short rules - length is not a deletion signal
+- "This could be inferred" - theoretical deducibility is not a signal; affirmative evidence of expiration is required
+- Intentional cross-reference duplication (see Signal 3 exception)
+
+## Confidence tiers
+
+Every candidate in the proposal carries a confidence tier:
+
+- **HIGH** - Signal 1 (named model version is stale). Also used when multiple MEDIUM signals fire on the same candidate.
+- **MEDIUM** - Signals 2, 3, 5, 7 when the evidence is unambiguous.
+- **LOW** - Signal 6 (complexity) only. Always accompanied by an explicit "consider simplifying" suggestion rather than a deletion proposal.
+
+Mixed-signal candidates take the highest confidence among the triggering signals.
+
+## Proposal document template
+
+The analyst writes the proposal using this exact structure:
+
+```
+# Harness Pruning Proposal - YYYY-MM-DD
+
+## Signal summary
+- Total candidates: N (H high / M medium / L low confidence)
+- Signals that fired: [list]
+- Signals skipped: [list, with reason - e.g., "Signal 4: findings.md absent at both resolver paths"]
+- Signals that produced no candidates: [list]
+
+## Deletion candidates
+
+### [Candidate title]
+- Confidence: HIGH | MEDIUM | LOW
+- File: content/path/to/file.md (lines N-M)
+- Signal(s): [which signals fired]
+- Rationale: [why this is a candidate, specific evidence]
+- Risk if wrong: [what breaks if this is deleted incorrectly]
+- Suggested action: [delete / consolidate into X / simplify]
+
+(repeat per candidate)
+
+## Notable checks that passed
+[Optional: rules reviewed and explicitly kept, with brief rationale - only if especially relevant]
+
+## Recommended action sequence
+[Ordered list of candidates to action, one per /update-agentic-engineering invocation - see Step 4]
+```
+
+## Step 2 - Present to user
+
+After the analyst returns, the conductor:
+
+1. Reads the proposal file.
+2. Presents inline: candidate count by confidence tier, top 3 candidates with one-line description each, and the full proposal file path.
+3. Waits for explicit user approval of SPECIFIC candidates before moving to Step 4. The user may approve a subset, defer others, or reject all.
+
+Do not proceed to Step 4 without a clear "approve candidate X" (or equivalent) from the user.
+
+## Step 3 - (deliberately not automated)
+
+There is no Step 3 that runs automatically. The proposal is a human-reviewed artifact. Each approved candidate moves to Step 4 individually.
+
+## Step 4 - Action approved candidates
+
+**One `/update-agentic-engineering` invocation per approved candidate.** Each deletion gets its own Worker + Skeptic cycle.
+
+If the user approves N candidates, the conductor runs `/update-agentic-engineering` exactly N times, one per candidate, sequentially. Each call gets its own Worker spawn for the specific deletion, its own Skeptic review on the single-file diff, and its own commit. Batching deletions into a single Worker scope collapses the per-deletion review gate and is prohibited.
+
+**Why this matters:** each deletion is an independent content decision. A Skeptic reviewing a single-file, single-deletion diff can check that nothing else references the deleted rule. A Skeptic reviewing 5 deletions at once has scope bleed and may miss cross-references.
+
+## docs/planning/ - Vercel note
+
+`docs/planning/` is inside the Vercel static deploy tree (per project MEMORY.md). Proposal files written there will be published to the deployed site. This is intentional - the pruning audit trail is a design artifact. If the deployed site's nav does not link `docs/planning/`, the files are accessible only by direct URL. Do not treat proposal files as sensitive.
+
+If you want to avoid publishing a given proposal, move or delete the file from `docs/planning/` before deploying - but this is optional and not required by default.
+
+## Risks and failure modes
+
+- **Over-pruning (analyst flags an active, necessary rule):** mitigated by per-candidate user approval and a fresh independent Skeptic on each `/update-agentic-engineering` deletion. The Skeptic's cross-reference check is the last line of defense.
+- **Under-pruning (0 candidates):** a valid output. The proposal must state that all signals were applied and explain which signals were checked. Silently returning an empty proposal without rationale is not acceptable.
+- **False-positive on Signal 3 (intentional duplication flagged):** the signal explicitly lists the cross-reference exception. If the analyst flags a known intentional duplicate, it is a proposal error - reject the candidate in Step 2.
+- **Signal 6 subjectivity:** clamped to "consider simplifying" suggestions only, never outright deletion proposals. Human judgment is required; the analyst is not authorized to propose deletion on Signal 6 alone.
