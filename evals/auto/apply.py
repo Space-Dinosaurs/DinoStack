@@ -127,20 +127,42 @@ def count_changed_loc(diff: str) -> int:
 
 
 def apply_diff(repo_root: Path, diff: str) -> Dict[str, object]:
-    """Apply the diff via `git apply --index`. Returns status + git output."""
+    """Apply the diff via `git apply --index`. Returns status + git output.
+
+    Editor-agent diffs frequently have off-by-one hunk counts and whitespace
+    drift. We try three increasingly lenient modes:
+    1. strict  (--index --whitespace=nowarn)
+    2. recount (adds --recount so git recomputes @@ line counts)
+    3. 3way    (adds --3way to fall back to 3-way merge on context mismatch)
+    """
     if not diff.endswith("\n"):
         diff = diff + "\n"
-    # --index stages the changes so they are ready for commit.
-    r = subprocess.run(
+    attempts = [
         ["git", "apply", "--index", "--whitespace=nowarn", "-"],
-        cwd=str(repo_root),
-        input=diff,
-        capture_output=True,
-        text=True,
-    )
+        ["git", "apply", "--index", "--whitespace=nowarn", "--recount", "-"],
+        ["git", "apply", "--index", "--whitespace=nowarn", "--recount", "--3way", "-"],
+    ]
+    last = None
+    for cmd in attempts:
+        r = subprocess.run(
+            cmd,
+            cwd=str(repo_root),
+            input=diff,
+            capture_output=True,
+            text=True,
+        )
+        last = r
+        if r.returncode == 0:
+            mode = "strict" if "--recount" not in cmd else ("3way" if "--3way" in cmd else "recount")
+            return {
+                "ok": True,
+                "reason": f"applied_mode_{mode}",
+                "stdout": r.stdout,
+                "stderr": r.stderr,
+            }
     return {
-        "ok": r.returncode == 0,
-        "reason": "" if r.returncode == 0 else f"git_apply_exit_{r.returncode}",
-        "stdout": r.stdout,
-        "stderr": r.stderr,
+        "ok": False,
+        "reason": f"git_apply_exit_{last.returncode}_all_modes_failed",
+        "stdout": last.stdout,
+        "stderr": last.stderr,
     }
