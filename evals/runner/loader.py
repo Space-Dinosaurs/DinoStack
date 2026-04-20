@@ -485,6 +485,49 @@ def _validate_release_orchestrator_fixture(data: dict, path: Path) -> None:
         )
 
 
+def _validate_investigator_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_investigation"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"investigator fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"investigator fixture at {path}: inputs must be a mapping")
+    if "question" not in inputs:
+        raise ValueError(
+            f"investigator fixture at {path}: inputs.question is required"
+        )
+    if "seed_dir" not in inputs:
+        raise ValueError(
+            f"investigator fixture at {path}: inputs.seed_dir is required "
+            "(relative path to the seeded source subtree under the fixture dir)"
+        )
+    expected = data.get("expected_investigation") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"investigator fixture at {path}: expected_investigation must be a mapping"
+        )
+    for key in (
+        "answer_keywords",
+        "expected_citations",
+        "blast_radius_paths",
+        "acceptable_confidence",
+        "vacuous_axes",
+    ):
+        val = expected.get(key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"investigator fixture at {path}: expected_investigation.{key} must be a list"
+            )
+    gne = expected.get("gaps_nonempty")
+    if gne is not None and not isinstance(gne, bool):
+        raise ValueError(
+            f"investigator fixture at {path}: expected_investigation.gaps_nonempty must be a bool"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
@@ -494,6 +537,7 @@ _FIXTURE_VALIDATORS = {
     "qa-engineer": _validate_qa_engineer_fixture,
     "architect": _validate_architect_fixture,
     "release-orchestrator": _validate_release_orchestrator_fixture,
+    "investigator": _validate_investigator_fixture,
 }
 
 
