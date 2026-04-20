@@ -3,3 +3,4 @@ timestamp_utc	component	branch	iteration	base_commit	proposed_commit	baseline_me
 2026-04-20T05:31:31Z	skeptic	auto-harness/skeptic-20260420T053052Z	1	93b41e98826654c727880d0bca2d50793524bf12		0.500000			0.148578	reject	"apply_failed:git_apply_exit_128:error: corrupt patch at line 12
 "	pass	0.137942
 2026-04-20T06:09:03Z	skeptic	auto-harness/skeptic-20260420T053824Z	1	69d83089461c582316b7ba9c7ae54fef98212218	79ae9184bbc98bd3e80ed49b84c6ecc68de1ac84	0.500000			0.148578	revert	runner_failed_rc-1: timeout after 1800s	pass	0.128749
+2026-04-20T07:38:43Z	skeptic	auto-harness/skeptic-20260420T064034Z	1	77dd2f60147f36d845532ea94289034696931682	b61ad3f5e510156b1dafe8e97f724d0f7ee098e2	0.500000	0.500000	0.000000	0.283839	revert	delta=0.0000<threshold=0.2838	pass	0.127223
