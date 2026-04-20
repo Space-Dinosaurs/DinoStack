@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")/hooks/risk-reminder.sh\"",
+            "command": "bash \"$(dirname \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")\")/hooks/risk-reminder.sh\"",
             "statusMessage": "Checking risk classification"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")/hooks/stop-context-codex.js\"",
+            "command": "node \"$(dirname \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")\")/hooks/stop-context-codex.js\"",
             "timeout": 10,
             "statusMessage": "Saving session context"
           }

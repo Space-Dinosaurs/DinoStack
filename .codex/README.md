@@ -7,7 +7,7 @@
 - **Global skill** - `~/.agents/skills/agentic-engineering/` with SKILL.md and bundled references
 - **Global AGENTS.md** - `~/.codex/AGENTS.md` symlinked to `.codex/AGENTS.md` for global session loading
 - **Named agents** - `~/.codex/agents/` symlinked to `.codex/agents/` - 13 agent TOML files generated from `content/agents/*.md`
-- **Lifecycle hooks** - `~/.codex/hooks.json` symlinked to `.codex/hooks.json` - UserPromptSubmit (risk reminder) and Stop (context save)
+- **Lifecycle hooks** - `~/.codex/hooks.json` symlinked to `.codex/config/hooks.json` - UserPromptSubmit (risk reminder) and Stop (context save)
 - **Command templates** - `.codex/commands/` contains the workflow templates for `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, and `update-agentic-engineering`
 
 ## Installation
@@ -29,10 +29,11 @@ This:
 2. Symlinks `.codex/skill/` to `~/.agents/skills/agentic-engineering/` (the correct Codex user-scope skill path per Codex docs)
 3. Symlinks `.codex/AGENTS.md` to `~/.codex/AGENTS.md` (global instructions, loaded by Codex in every session)
 4. Symlinks `.codex/agents/` to `~/.codex/agents/` (named agent TOML files, loaded by Codex for subagent spawning)
-5. Symlinks `.codex/hooks.json` to `~/.codex/hooks.json` (lifecycle hooks for risk reminder and context save)
+5. Symlinks `.codex/config/hooks.json` to `~/.codex/hooks.json` (lifecycle hooks for risk reminder and context save without project-local auto-loading)
 6. Adds `codex_hooks = true` under `[features]` in `~/.codex/config.toml` if not already present (required to activate hooks)
 
 If `~/.codex/AGENTS.md` already exists and is not a symlink, the installer backs it up to `~/.codex/AGENTS.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning. The uninstaller restores the most recent backup if one exists.
+Existing installs that still point `~/.codex/hooks.json` at the legacy `.codex/hooks.json` source are migrated automatically on reinstall.
 
 To remove:
 
@@ -84,7 +85,7 @@ Codex also ships three built-in agents (`default`, `worker`, `explorer`). If you
 
 ### Lifecycle hooks
 
-Hooks are shell/JS commands that run at key points in the Codex agentic loop. They are configured in `.codex/hooks.json` (symlinked to `~/.codex/hooks.json` by the installer) and require `codex_hooks = true` under `[features]` in `~/.codex/config.toml` (added automatically by the installer).
+Hooks are shell/JS commands that run at key points in the Codex agentic loop. They are configured in `.codex/config/hooks.json` and symlinked into `~/.codex/hooks.json` by the installer. The source file intentionally lives outside `.codex/hooks.json` so opening this repo in Codex does not auto-register the same hook twice. Re-running the installer migrates legacy installs that still point at the old `.codex/hooks.json` path. Hooks require `codex_hooks = true` under `[features]` in `~/.codex/config.toml` (added automatically by the installer).
 
 Two hooks are wired:
 
@@ -143,7 +144,7 @@ Run after `git pull` to regenerate artifacts from updated source files. The pre-
 This adapter is designed to run alongside the Claude Code adapter without collision:
 
 - **Config paths are disjoint:** Codex uses `~/.codex/`, Claude Code uses `~/.claude/`
-- **Install writes to `~/.agents/skills/`, `~/.codex/AGENTS.md`, `~/.codex/agents/`, and `~/.codex/hooks.json`** - it may also add `codex_hooks = true` to `~/.codex/config.toml` when enabling hooks
+- **Install writes to `~/.agents/skills/`, `~/.codex/AGENTS.md`, `~/.codex/agents/`, and `~/.codex/hooks.json`** - it may also add `codex_hooks = true` to `~/.codex/config.toml` when enabling hooks. The source hooks file remains in `.codex/config/hooks.json` so the repo itself does not self-register hooks locally.
 - **Hook scripts:** The Claude Code `hooks/stop-context.js` writes to `~/.claude/projects/`. The Codex adapter has a parallel `.codex/hooks/stop-context-codex.js` that writes to `~/.codex/projects/` instead. The two paths are disjoint and do not collide.
 - **AGENTS.md vs CLAUDE.md:** Codex reads `AGENTS.md` natively. Claude Code reads `CLAUDE.md` and supports importing `AGENTS.md` via a one-line `CLAUDE.md` containing `@AGENTS.md`. This repo treats `AGENTS.md` as the canonical source; Claude Code users should keep a thin `CLAUDE.md` that imports it. No collision risk.
 

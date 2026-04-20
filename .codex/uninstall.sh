@@ -13,13 +13,18 @@ AGENTS_DST="$HOME/.codex/AGENTS.md"
 NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
 NAMED_AGENTS_DST="$HOME/.codex/agents"
 
-HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
+HOOKS_SRC="$REPO_DIR/.codex/config/hooks.json"
+LEGACY_HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
 HOOKS_DST="$HOME/.codex/hooks.json"
 
 CONFIG_FILE="$HOME/.codex/config.toml"
 HOOKS_FLAG_MARKER="$HOME/.codex/.agentic-eng-added-codex-hooks-flag"
 LEGACY_PROMPTS_OLD_SRC_PREFIX="$HOME/agentic-engineering/.codex/prompts"
 LEGACY_PROMPTS_DST="$HOME/.codex/prompts"
+
+canonicalize_path() {
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
 
 # ---------------------------------------------------------------------------
 # Remove the agentic-engineering skill symlink from ~/.agents/skills/
@@ -112,7 +117,10 @@ echo "Removing hooks.json..."
 
 if [[ -L "$HOOKS_DST" ]]; then
   current_target="$(readlink "$HOOKS_DST")"
-  if [[ "$current_target" == "$HOOKS_SRC" ]]; then
+  current_target_canonical="$(canonicalize_path "$current_target")"
+  hooks_src_canonical="$(canonicalize_path "$HOOKS_SRC")"
+  legacy_hooks_src_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC")"
+  if [[ "$current_target_canonical" == "$hooks_src_canonical" || "$current_target_canonical" == "$legacy_hooks_src_canonical" ]]; then
     rm "$HOOKS_DST"
     echo "  - ~/.codex/hooks.json symlink removed"
 
@@ -193,9 +201,15 @@ else
   if [[ -L "$HOOKS_DST" ]]; then
     hooks_dst_target="$(readlink "$HOOKS_DST")"
   fi
+  hooks_dst_target_canonical=""
+  if [[ -n "$hooks_dst_target" ]]; then
+    hooks_dst_target_canonical="$(canonicalize_path "$hooks_dst_target")"
+  fi
+  hooks_src_canonical="$(canonicalize_path "$HOOKS_SRC")"
+  legacy_hooks_src_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC")"
   if [[ -f "$CONFIG_FILE" ]] \
      && grep -qE '^[[:space:]]*codex_hooks[[:space:]]*=[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null \
-     && [[ "$hooks_dst_target" == "$HOOKS_SRC" ]]; then
+     && [[ "$hooks_dst_target_canonical" == "$hooks_src_canonical" || "$hooks_dst_target_canonical" == "$legacy_hooks_src_canonical" ]]; then
     echo "  ! Marker file missing; leaving codex_hooks flag in config.toml. Remove manually if desired."
   else
     echo "  = No install marker found - codex_hooks flag was not added by this installer"
@@ -244,7 +258,7 @@ echo ""
 echo "Note: The following files were NOT removed (they are part of the repo, not installed):"
 echo "  .codex/AGENTS.md       - stays in the repo"
 echo "  .codex/agents/         - stays in the repo (generated TOML files)"
-echo "  .codex/hooks.json      - stays in the repo"
+echo "  .codex/config/hooks.json - stays in the repo"
 echo "  .codex/hooks/          - stays in the repo (hook scripts)"
 echo "  .codex/references/     - stays in the repo"
 echo "  .codex/commands/       - stays in the repo"

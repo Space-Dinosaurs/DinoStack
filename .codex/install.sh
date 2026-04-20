@@ -194,23 +194,35 @@ else
   echo "  + ~/.codex/agents/ linked to $NAMED_AGENTS_SRC"
 fi
 
-HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
+HOOKS_SRC="$REPO_DIR/.codex/config/hooks.json"
+LEGACY_HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
 HOOKS_DST="$HOME/.codex/hooks.json"
 
 CONFIG_FILE="$HOME/.codex/config.toml"
 
+canonicalize_path() {
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
 # ---------------------------------------------------------------------------
-# Symlink ~/.codex/hooks.json to .codex/hooks.json
-# Codex discovers hooks.json next to config layers; ~/.codex/hooks.json is
-# the user-scope location that applies globally.
+# Symlink ~/.codex/hooks.json to the non-auto-discovered source file in
+# .codex/config/. Keeping the canonical source out of .codex/hooks.json avoids
+# double registration when developing agentic-engineering inside this repo.
 # ---------------------------------------------------------------------------
 
 echo "Linking hooks.json..."
 
 if [[ -L "$HOOKS_DST" ]]; then
   current_target="$(readlink "$HOOKS_DST")"
-  if [[ "$current_target" == "$HOOKS_SRC" ]]; then
+  current_target_canonical="$(canonicalize_path "$current_target")"
+  hooks_src_canonical="$(canonicalize_path "$HOOKS_SRC")"
+  legacy_hooks_src_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC")"
+  if [[ "$current_target_canonical" == "$hooks_src_canonical" ]]; then
     echo "  = ~/.codex/hooks.json (already linked)"
+  elif [[ "$current_target_canonical" == "$legacy_hooks_src_canonical" ]]; then
+    rm "$HOOKS_DST"
+    ln -s "$HOOKS_SRC" "$HOOKS_DST"
+    echo "  + ~/.codex/hooks.json migrated from legacy source to $HOOKS_SRC"
   else
     echo "  ! ~/.codex/hooks.json (symlink points elsewhere: $current_target - skipping)"
   fi
@@ -314,7 +326,7 @@ echo ""
 echo "What is available in the repo:"
 echo "  .codex/AGENTS.md       - Source for the global ~/.codex/AGENTS.md symlink"
 echo "  .codex/agents/         - Generated named agent TOML files (source: content/agents/*.md)"
-echo "  .codex/hooks.json      - Hooks configuration (UserPromptSubmit + Stop)"
+echo "  .codex/config/hooks.json - Source hooks configuration for ~/.codex/hooks.json"
 echo "  .codex/hooks/          - Hook scripts (risk-reminder.sh, stop-context-codex.js)"
 echo "  .codex/commands/       - Source command templates (hardlinks from content/commands/)"
 echo "  .codex/references/     - Local copies of reference docs"
