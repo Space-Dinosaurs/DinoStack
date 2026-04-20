@@ -16,7 +16,7 @@ inputs:
 expected_findings:
   critical:
     - category: "credential in logs"
-      keywords: ["authorization"]
+      keywords: ["authorization", "bearer"]
   major: []
   minor: []
 expected_signoff_granted: false
