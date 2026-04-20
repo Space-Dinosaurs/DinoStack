@@ -1,0 +1,11 @@
+name: security-auditor
+tier: 1
+content_glob:
+  - content/agents/security-auditor.md
+scoring_module: evals.scoring.security_auditor_lite
+fixture_dir: evals/fixtures/security-auditor
+n_runs: 3
+parallelism: serial
+timeout_seconds: 300
+invoke:
+  agent_name: security-auditor

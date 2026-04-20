@@ -858,6 +858,118 @@ def build_investigator_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_security_auditor_prompt(fixture: Fixture) -> str:
+    """Build the security-auditor brief for a Tier 1 eval run.
+
+    The agent's production role grants Read, Glob, Grep, Bash. Tier 1
+    isolation does not provide Bash, so the subagent runs effectively
+    read-only (the brief acknowledges this explicitly). Code files are
+    inlined into the prompt so the auditor can cite file:line even
+    without tooling access; the files are also staged under
+    ./evals-fixture/code/ for any in-environment Read access the
+    subagent does retain.
+
+    Vocabulary enforcement: the prompt lists the exact severity section
+    headings the scorer matches against (Critical findings / High
+    findings / Medium findings / Informational / OWASP Top 10 coverage)
+    - scorer hits these by regex, so paraphrasing ("Critical issues"
+    instead of "Critical findings") is a format-gate failure.
+    """
+    inputs = fixture.inputs or {}
+    code_dir_rel = inputs.get("code_dir")
+    if not code_dir_rel:
+        raise ValueError(
+            f"security-auditor fixture {fixture.id} missing inputs.code_dir"
+        )
+    code_dir = fixture.dir / code_dir_rel
+    if not code_dir.exists() or not code_dir.is_dir():
+        raise FileNotFoundError(
+            f"security-auditor fixture {fixture.id}: code_dir missing at {code_dir}"
+        )
+    files: list[Path] = []
+    for p in sorted(code_dir.rglob("*")):
+        if p.is_file():
+            files.append(p)
+    if not files:
+        raise ValueError(
+            f"security-auditor fixture {fixture.id}: code_dir {code_dir} contains no files"
+        )
+
+    code_blocks: list[str] = []
+    for fp in files:
+        rel = fp.relative_to(fixture.dir)
+        try:
+            content = fp.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        numbered = "\n".join(
+            f"{i + 1:4d}  {line}" for i, line in enumerate(content.splitlines())
+        )
+        code_blocks.append(f"### {rel}\n```\n{numbered}\n```")
+
+    security_domain = inputs.get("security_domain") or "(unspecified)"
+    prior_mitigations = (inputs.get("prior_mitigations") or "").rstrip()
+
+    static_notice = (
+        "This is an eval run. Bash tooling is not available in this "
+        "environment - work from the file contents inlined below. Each "
+        "file is shown with line numbers in the left column so you can "
+        "cite `file:line` accurately without running grep. Do not "
+        "attempt to execute shell commands; they will fail."
+    )
+
+    parts = [
+        "You are being invoked as the security-auditor subagent for an "
+        "eval run. Follow content/agents/security-auditor.md.",
+        "",
+        "## Security domain",
+        security_domain,
+        "",
+        "## Prior mitigations",
+        prior_mitigations or "(none declared - assume nothing)",
+        "",
+        "## Evaluation mode",
+        static_notice,
+        "",
+        "## Code to audit",
+    ]
+    parts.extend(code_blocks)
+    parts.extend([
+        "",
+        "## Required output format",
+        "",
+        "Produce the audit using the exact section structure mandated by "
+        "your role. The scorer parses these section headings by regex "
+        "and will treat paraphrased headings as a format-gate failure. "
+        "Use these EXACT headings (case matters on the words, level 2 "
+        "for the title, level 3 for the sub-sections):",
+        "",
+        "- `## Security Audit: <component/feature>`",
+        "- `### Threat model`",
+        "- `### Critical findings`",
+        "- `### High findings`",
+        "- `### Medium findings`",
+        "- `### Informational`",
+        "- `### Positive controls noted`",
+        "- `### OWASP Top 10 coverage`",
+        "- `### Dependency scan`",
+        "",
+        "For each finding in a severity section, emit a bullet that "
+        "includes: the vulnerability name, a CWE-NN identifier where "
+        "one applies, a `file.ext:line` citation, the impact, and a "
+        "remediation. A severity section with no findings must contain "
+        "the literal line `None`.",
+        "",
+        "In the `### OWASP Top 10 coverage` section, list each applicable "
+        "OWASP category by its short code (e.g. `A01`, `A03`, `A07`) "
+        "with a one-line status - the scorer matches these short codes "
+        "directly.",
+        "",
+        "Do not write, edit, or create files. This is read-only.",
+    ])
+    return "\n".join(parts) + "\n"
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
@@ -868,6 +980,7 @@ BUILDERS = {
     "architect": build_architect_prompt,
     "release-orchestrator": build_release_orchestrator_prompt,
     "investigator": build_investigator_prompt,
+    "security-auditor": build_security_auditor_prompt,
 }
 
 

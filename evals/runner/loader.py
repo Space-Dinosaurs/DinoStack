@@ -528,6 +528,67 @@ def _validate_investigator_fixture(data: dict, path: Path) -> None:
         )
 
 
+_SECURITY_AUDITOR_SEVERITIES = {"critical", "high", "medium", "informational"}
+
+
+def _validate_security_auditor_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_findings"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"security-auditor fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"security-auditor fixture at {path}: inputs must be a mapping"
+        )
+    if not inputs.get("code_dir"):
+        raise ValueError(
+            f"security-auditor fixture at {path}: inputs.code_dir is required "
+            "(relative path to the code subtree under the fixture dir)"
+        )
+    if not inputs.get("security_domain"):
+        raise ValueError(
+            f"security-auditor fixture at {path}: inputs.security_domain is "
+            "required (e.g. 'API endpoint', 'authentication flow')"
+        )
+    ef = data.get("expected_findings") or {}
+    if not isinstance(ef, dict):
+        raise ValueError(
+            f"security-auditor fixture at {path}: expected_findings must be a mapping"
+        )
+    for sev, entries in ef.items():
+        if sev not in _SECURITY_AUDITOR_SEVERITIES:
+            raise ValueError(
+                f"security-auditor fixture at {path}: expected_findings key "
+                f"'{sev}' not in {sorted(_SECURITY_AUDITOR_SEVERITIES)}"
+            )
+        if not isinstance(entries, list):
+            raise ValueError(
+                f"security-auditor fixture at {path}: expected_findings.{sev} must be a list"
+            )
+        for e in entries:
+            if not isinstance(e, dict):
+                raise ValueError(
+                    f"security-auditor fixture at {path}: expected_findings.{sev} entries must be mappings"
+                )
+            if not e.get("id"):
+                raise ValueError(
+                    f"security-auditor fixture at {path}: each expected finding needs an id"
+                )
+            kws = e.get("keywords")
+            if kws is not None and not isinstance(kws, list):
+                raise ValueError(
+                    f"security-auditor fixture at {path}: keywords must be a list"
+                )
+    cats = data.get("expected_owasp_categories")
+    if cats is not None and not isinstance(cats, list):
+        raise ValueError(
+            f"security-auditor fixture at {path}: expected_owasp_categories must be a list"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
@@ -538,6 +599,7 @@ _FIXTURE_VALIDATORS = {
     "architect": _validate_architect_fixture,
     "release-orchestrator": _validate_release_orchestrator_fixture,
     "investigator": _validate_investigator_fixture,
+    "security-auditor": _validate_security_auditor_fixture,
 }
 
 
