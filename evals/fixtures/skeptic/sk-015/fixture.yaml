@@ -3,7 +3,7 @@ description: "Subtle finding with false-positive trap: Worker adds a logger.info
 component: skeptic
 protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
 inputs:
-  adversarial_brief: |
+  adversarial_brief: |+
     The Worker did a small cleanup pass on a request-logging middleware
     while adding one new log line. Probe for: credentials, tokens, session
     cookies, or personally-identifying data flowing into log destinations
