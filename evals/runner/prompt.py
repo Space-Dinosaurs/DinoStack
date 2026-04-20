@@ -39,7 +39,7 @@ def stage_fixture_files(fixture: Fixture, worktree: Path) -> Path:
     """
     stage_dir = worktree / "evals-fixture"
     stage_dir.mkdir(parents=True, exist_ok=True)
-    for key in ("diff_file", "worker_output_file"):
+    for key in ("diff_file", "worker_output_file", "observability_file"):
         rel = fixture.inputs.get(key)
         if not rel:
             continue
@@ -550,12 +550,196 @@ def build_debugger_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_qa_engineer_prompt(fixture: Fixture) -> str:
+    """Build the qa-engineer brief for a source-fallback eval run.
+
+    The eval has no live dev server, browser, test harness, or auth. A
+    synthetic observability bundle stands in for the live capture; the
+    prompt tells the agent to treat it as authoritative. Proxy caveat:
+    maintainer edits to browser-specific workflow language may not move
+    fixture scores.
+    """
+    inputs = fixture.inputs or {}
+    change_description = (inputs.get("change_description") or "").rstrip()
+    auth_state = inputs.get("auth_state") or "not_required"
+    qa_md_present = bool(inputs.get("qa_md_present", False))
+    acs = inputs.get("acceptance_criteria") or []
+
+    diff_text = _read_companion(fixture, "diff_file") if inputs.get("diff_file") else ""
+    worker_text = (
+        _read_companion(fixture, "worker_output_file") if inputs.get("worker_output_file") else ""
+    )
+    observability_text = (
+        _read_companion(fixture, "observability_file") if inputs.get("observability_file") else ""
+    )
+
+    ac_lines = []
+    for ac in acs:
+        aid = ac.get("id")
+        t = ac.get("text", "")
+        runtime_required = bool(ac.get("runtime_required", False))
+        tag = "runtime_required=true" if runtime_required else "runtime_required=false"
+        ac_lines.append(f"{aid}. [{tag}] {t}")
+    ac_block = "\n".join(ac_lines) if ac_lines else "(none)"
+
+    parts = [
+        "You are being invoked as the qa-engineer subagent for an eval run. "
+        "Follow content/agents/qa-engineer.md.",
+        "",
+        "## Mode",
+        "This is a source-fallback mode eval: there is NO live dev server, "
+        "NO browser, NO auth, and NO test runner available in this "
+        "environment. You will not be able to run agent-browser, "
+        "Playwright, or shell commands that contact a server. The file "
+        "./evals-fixture/observability.md is the authoritative capture of "
+        "what a browser session plus network log plus test-run would have "
+        "observed - treat it as if you had produced it yourself in a "
+        "prior live run. Do NOT attempt to start a dev server, curl a "
+        "URL, or launch a browser; those will fail. Source-verify any "
+        "STATIC criterion by reading the diff; cite observability.md for "
+        "any RUNTIME criterion. Apply the PASS/FAIL/PARTIAL/BLOCKED "
+        "rules from your role doc exactly, including the fallback-"
+        "discipline rules in section 4 (RUNTIME criteria must NOT be "
+        "source-verified - they must be marked SKIPPED-BLOCKED or "
+        "verified via the observability bundle).",
+        "",
+        "## Change description",
+        change_description or "(see diff)",
+        "",
+        "## Acceptance criteria",
+        ac_block,
+        "",
+        "## Environment (synthetic)",
+        f"auth_state: {auth_state}",
+        f"qa_md_present: {'true' if qa_md_present else 'false'}",
+        "dev_server: not_available (eval environment)",
+        "browser: not_available (source-fallback mode)",
+        "",
+        "## Artifacts",
+        "Diff (also at ./evals-fixture/diff.patch):",
+        "```",
+        diff_text.rstrip() if diff_text else "(no diff provided)",
+        "```",
+        "",
+        "Worker narrative (also at ./evals-fixture/worker_output.md):",
+        "```",
+        worker_text.rstrip() if worker_text else "(no worker narrative provided)",
+        "```",
+        "",
+        "Observability bundle (also at ./evals-fixture/observability.md) "
+        "- this is your authoritative capture of DOM / console / network "
+        "/ test-run state:",
+        "```",
+        observability_text.rstrip() if observability_text else "(no observability bundle provided)",
+        "```",
+        "",
+        "## Required output vocabulary",
+        "",
+        'Your top-line verdict MUST be exactly one of: "PASS", "FAIL", '
+        '"PARTIAL", "BLOCKED". Emit it on a line starting exactly with '
+        '"## Result: " followed by the verdict.',
+        "",
+        'Each per-criterion Result MUST be exactly one of: "PASS", '
+        '"FAIL", "SKIPPED" (or "SKIPPED-BLOCKED" - treated as SKIPPED '
+        'for scoring). Each per-criterion Method MUST be exactly one of: '
+        '"browser" or "source-verified". Use numbered "### N. <title>" '
+        'headings for criteria, and bold field labels "**Result:**", '
+        '"**Method:**", "**Evidence:**", "**Expected:**", "**Actual:**", '
+        '"**Location:**" exactly as specified in your role doc.',
+        "",
+        "These enum values are the machine-parseable labels the scorer "
+        "expects. Choose the single value that applies; do not paraphrase.",
+        "",
+        "## Task",
+        "Produce the complete QA Verification Report in the exact format "
+        "specified by content/agents/qa-engineer.md. Cover every "
+        "acceptance criterion by id. If any runtime-required criterion "
+        "cannot be verified from the observability bundle, mark it "
+        "SKIPPED-BLOCKED (not source-verified). Include a Blocking "
+        "Issues section if any criterion failed.",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+_ARCHITECT_APPROACH_ENUM = [
+    "in_place_migration",
+    "online_backfill",
+    "dual_write",
+    "middleware_insertion",
+    "algorithmic_rewrite",
+    "event_sourced_append",
+    "additive_endpoint",
+]
+
+
+def build_architect_prompt(fixture: Fixture) -> str:
+    """Build the Architect brief for a pre-implementation design task.
+
+    The architect eval presents a feature/change request plus codebase
+    context (as inline prose; no seeded repo) and asks the named architect
+    subagent to emit the 7-section plan skeleton mandated by
+    content/agents/architect.md. The prompt enforces vocabulary at the
+    prompt layer (per LEARNINGS lines 22-26) by listing the exact
+    approach_class enum values the scorer will match against.
+    """
+    raw = fixture.raw or {}
+    inputs = raw.get("inputs") or {}
+    task = (inputs.get("task_description") or "").rstrip()
+    codebase = (inputs.get("codebase_context") or "").rstrip()
+    constraints = (inputs.get("constraints") or "").rstrip()
+    enum_lines = [f'- "{v}"' for v in _ARCHITECT_APPROACH_ENUM]
+    parts = [
+        "You are being invoked as the architect subagent for an eval run. "
+        "Follow content/agents/architect.md and emit the 7-section plan "
+        "skeleton it mandates (Approach, Codebase context, Data model, "
+        "API / interface design, Implementation steps, Trade-offs and "
+        "constraints, Open questions). Use the exact `### <section>` "
+        "headings under a single `## Technical Plan: <feature>` title.",
+        "",
+        "## Task description",
+        task,
+        "",
+        "## Codebase context (inline)",
+        "Treat the following as an authoritative summary of what exists in "
+        "the codebase you would otherwise read. You have no live repo to "
+        "explore for this run - work from this prose.",
+        "",
+        codebase,
+    ]
+    if constraints:
+        parts.extend(["", "## Constraints", constraints])
+    parts.extend([
+        "",
+        "## Required output vocabulary",
+        "",
+        "Commit to exactly one approach in the Approach section. Name the "
+        "design class by using the matching token from this enum somewhere "
+        "in your Approach or Codebase context section:",
+        *enum_lines,
+        "",
+        "These enum values are the machine-parseable class labels the scorer "
+        "recognises. Do not invent new labels or paraphrase them. Do not "
+        "present a menu of options in Approach - the rejected alternatives "
+        "belong under Trade-offs and constraints.",
+        "",
+        "If no meaningful alternatives exist, state that explicitly in "
+        "Trade-offs with the phrase 'No meaningful alternatives' and name "
+        "the constraint that forced the choice.",
+        "",
+        "Return the plan as plain text (no outer code fence). Do not write, "
+        "edit, or create files - this is a read-only design task.",
+    ])
+    return "\n".join(parts) + "\n"
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
     "init-project": build_init_project_prompt,
     "wrap": build_wrap_prompt,
     "debugger": build_debugger_prompt,
+    "qa-engineer": build_qa_engineer_prompt,
+    "architect": build_architect_prompt,
 }
 
 
