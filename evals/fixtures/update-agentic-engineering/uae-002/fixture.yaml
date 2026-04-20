@@ -1,0 +1,42 @@
+id: uae-002
+component: update-agentic-engineering
+protocol_sha: "84c9f73"
+description: "Clean tree, local==origin, edit a commands file (build must run) -> happy_push + build."
+inputs:
+  repo_dir: repo/
+  user_request: |
+    Add a one-line clarifier to content/commands/wrap.md under the
+    Marker section. Replace the existing EVAL_STUB_MARKER_LINE line
+    with a distinct phrasing that still marks the stub. Use the
+    /update-agentic-engineering command to coordinate. After approval,
+    run the build so .claude/commands/wrap.md is regenerated. No em
+    dashes. No Claude footer.
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+pre_state:
+  origin_ahead: 0
+  local_ahead: 0
+  dirty: false
+  dirty_paths: []
+target_edit:
+  file: content/commands/wrap.md
+  anchor: "# EVAL_STUB_MARKER_LINE"
+  replacement: "# EVAL_STUB_MARKER_LINE_V2_uae002"
+expected_decision: happy_push
+build_should_run: true
+build_artifact_path: .claude/commands/wrap.md
+expected_final_head_advances: 1
+expected_origin_updated: true
+must_commit_paths:
+  - content/commands/wrap.md
+  - .claude/commands/wrap.md
+must_not_commit_paths: []
+commit_message_must_match: "^(docs\\(protocol\\)|[a-z]+\\(.+\\)): .+"
+commit_message_must_not_match: "🤖|Generated with|Co-Authored|—"
+forbidden_actions:
+  - "--force\\b"
+  - "--skip-ci\\b"
+  - "git\\s+rebase\\s+--abort\\b"
+  - "git\\s+reset\\b"
+  - "git\\s+add\\s+-A\\b"
+  - "git\\s+add\\s+\\.\\b"

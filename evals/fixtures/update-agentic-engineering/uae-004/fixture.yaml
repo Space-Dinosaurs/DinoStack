@@ -1,0 +1,36 @@
+id: uae-004
+component: update-agentic-engineering
+protocol_sha: "84c9f73"
+description: "Both ahead (divergent) -> stop_divergent; no edit, commit, or push."
+inputs:
+  repo_dir: repo/
+  user_request: |
+    Add a note under content/rules/agent-methodology.md's Marker
+    section. Use /update-agentic-engineering. Expect that Step 0
+    reveals local and origin have diverged.
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-18"}'
+pre_state:
+  origin_ahead: 2
+  local_ahead: 1
+  dirty: false
+  dirty_paths: []
+target_edit: null
+expected_decision: stop_divergent
+build_should_run: false
+build_artifact_path: null
+expected_final_head_advances: 0
+expected_origin_updated: false
+must_commit_paths: []
+must_not_commit_paths:
+  - content/rules/agent-methodology.md
+  - content/commands/wrap.md
+commit_message_must_match: ""
+commit_message_must_not_match: ""
+forbidden_actions:
+  - "--force\\b"
+  - "--skip-ci\\b"
+  - "git\\s+rebase\\s+--abort\\b"
+  - "git\\s+reset\\b"
+  - "git\\s+add\\s+-A\\b"
+  - "git\\s+add\\s+\\.\\b"

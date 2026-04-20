@@ -632,6 +632,82 @@ def _validate_security_auditor_fixture(data: dict, path: Path) -> None:
         )
 
 
+_UPDATE_AE_DECISIONS = {
+    "proceed",
+    "ff_pull",
+    "stop_divergent",
+    "stop_dirty",
+    "happy_push",
+}
+
+
+def _validate_update_agentic_engineering_fixture(data: dict, path: Path) -> None:
+    required = {
+        "id",
+        "component",
+        "protocol_sha",
+        "inputs",
+        "pre_state",
+        "expected_decision",
+    }
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: inputs must be a mapping"
+        )
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: inputs.repo_dir is required"
+        )
+    if "user_request" not in inputs:
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: inputs.user_request is required"
+        )
+    pre = data.get("pre_state") or {}
+    if not isinstance(pre, dict):
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: pre_state must be a mapping"
+        )
+    for k in ("origin_ahead", "local_ahead"):
+        v = pre.get(k, 0)
+        if not isinstance(v, int) or v < 0:
+            raise ValueError(
+                f"update-agentic-engineering fixture at {path}: "
+                f"pre_state.{k} must be a non-negative int"
+            )
+    if not isinstance(pre.get("dirty", False), bool):
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: pre_state.dirty must be a bool"
+        )
+    dp = pre.get("dirty_paths") or []
+    if not isinstance(dp, list):
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: pre_state.dirty_paths must be a list"
+        )
+    dec = data.get("expected_decision")
+    if dec not in _UPDATE_AE_DECISIONS:
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: expected_decision "
+            f"'{dec}' not in {sorted(_UPDATE_AE_DECISIONS)}"
+        )
+    te = data.get("target_edit")
+    if te is not None and not isinstance(te, dict):
+        raise ValueError(
+            f"update-agentic-engineering fixture at {path}: target_edit must be a mapping or null"
+        )
+    for lk in ("must_commit_paths", "must_not_commit_paths", "forbidden_actions"):
+        v = data.get(lk)
+        if v is not None and not isinstance(v, list):
+            raise ValueError(
+                f"update-agentic-engineering fixture at {path}: {lk} must be a list"
+            )
+
+
 def _validate_cleanup_worktrees_fixture(data: dict, path: Path) -> None:
     required = {"id", "component", "protocol_sha", "inputs", "expected"}
     missing = required - set(data)
@@ -790,6 +866,7 @@ _FIXTURE_VALIDATORS = {
     "implement-ticket": _validate_implement_ticket_fixture,
     "prune-harness": _validate_prune_harness_fixture,
     "cleanup-worktrees": _validate_cleanup_worktrees_fixture,
+    "update-agentic-engineering": _validate_update_agentic_engineering_fixture,
 }
 
 
