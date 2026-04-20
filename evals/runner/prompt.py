@@ -482,11 +482,80 @@ def build_wrap_prompt(fixture: Fixture) -> str:
 # field). Adding a new component eval means adding its builder here; the
 # invoker dispatches through this map and does not know about individual
 # components.
+def build_debugger_prompt(fixture: Fixture) -> str:
+    """Build the Debugger brief.
+
+    Assembles bug report + any payload files (stack_trace.txt, source.*,
+    test_output.txt, config.yaml) as quoted inline blocks. The subagent
+    has its role and output contract loaded from
+    content/agents/debugger.md; this prompt supplies the scenario and
+    the static-evidence directive.
+
+    Bash-withheld proxy caveat: content/agents/debugger.md grants Bash
+    so the agent can run tests and inspect a live repo. The eval
+    worktree has no live repo; payload files are the static evidence.
+    The prompt tells the agent to work from the staged evidence rather
+    than attempt to execute commands.
+    """
+    inputs = fixture.inputs or {}
+    bug_report = (inputs.get("bug_report") or "").rstrip()
+    payload_keys = [
+        "stack_trace_file",
+        "source_file",
+        "test_output_file",
+        "config_file",
+    ]
+    payload_blocks: list[str] = []
+    for k in payload_keys:
+        rel = inputs.get(k)
+        if not rel:
+            continue
+        src = fixture.dir / rel
+        if not src.exists():
+            raise FileNotFoundError(f"Debugger fixture payload missing: {src}")
+        content = src.read_text(encoding="utf-8", errors="replace")
+        payload_blocks.append(f"{k} ({rel}):\n```\n{content.rstrip()}\n```")
+    extra_files = inputs.get("extra_files") or []
+    for rel in extra_files:
+        src = fixture.dir / rel
+        if not src.exists():
+            raise FileNotFoundError(f"Debugger fixture extra payload missing: {src}")
+        content = src.read_text(encoding="utf-8", errors="replace")
+        payload_blocks.append(f"extra ({rel}):\n```\n{content.rstrip()}\n```")
+    static_notice = (
+        "This is a static evidence bundle. You are invoked for an eval "
+        "run - there is no live repo to reproduce against and shell "
+        "tooling is not available for this fixture. Diagnose from the "
+        "evidence below. If the evidence is genuinely insufficient to "
+        "identify a root cause, say so in the Confidence section "
+        "(use 'Low') and state in the Fix brief: 'Insufficient evidence "
+        "to write a fix brief.'"
+    )
+    parts = [
+        "## Bug report",
+        bug_report,
+        "",
+        "## Evidence bundle",
+        static_notice,
+        "",
+    ]
+    parts.extend(payload_blocks)
+    parts.append("")
+    parts.append(
+        "Produce your diagnosis using the exact 6-section output format "
+        "specified in your role (Diagnosis / Root cause / Evidence / "
+        "Hypotheses considered / Fix brief / Confidence). Do not omit "
+        "any section."
+    )
+    return "\n".join(parts) + "\n"
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
     "init-project": build_init_project_prompt,
     "wrap": build_wrap_prompt,
+    "debugger": build_debugger_prompt,
 }
 
 

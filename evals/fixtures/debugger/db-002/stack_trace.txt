@@ -1,0 +1,11 @@
+[2026-04-19T18:44:02.113Z] ERROR request failed path=/health method=GET
+TypeError: Cannot read properties of undefined (reading 'activeOrg')
+    at handleRequest (/app/src/gateway/handler.js:10:33)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at next (/app/node_modules/express/lib/router/route.js:144:13)
+    at Route.dispatch (/app/node_modules/express/lib/router/route.js:114:3)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at /app/node_modules/express/lib/router/index.js:284:15
+    at Function.process_params (/app/node_modules/express/lib/router/index.js:346:12)
+    at next (/app/node_modules/express/lib/router/index.js:280:10)
+    at /app/src/app.js:42:3

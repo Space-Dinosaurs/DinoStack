@@ -1,0 +1,11 @@
+$ # No failing unit tests; bug observed only in staging against live broker.
+$ # Symptom: message-redelivery count climbs steadily; consumer logs show
+$ # handle() completed for each message, but the broker metric
+$ # `unacked_messages_total` does not decrement.
+$
+$ # NOTE FOR DEBUGGER: for this investigation you do NOT have access to:
+$ #   - Bash (cannot run the consumer or reach the broker)
+$ #   - Context7 / web (cannot fetch someobscureq v3.2 release notes)
+$ #   - any local copy of the someobscureq library source
+$ # You have ONLY the bug report, the consumer source, and this note.
+$ # No other evidence exists in the fixture.
