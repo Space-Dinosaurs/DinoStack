@@ -52,7 +52,7 @@ def run_component(
     repo_root: Path,
     component: str,
     extra_env: Optional[Dict[str, str]] = None,
-    timeout_sec: int = 1800,
+    timeout_sec: int = 7200,
 ) -> Dict[str, object]:
     """Invoke `python -m evals.runner.cli run <component>` as a subprocess.
 
