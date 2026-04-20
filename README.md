@@ -66,6 +66,17 @@ Matching is case-insensitive. A leading `- ` (markdown list) is allowed. If both
 
 **Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.
 
+## Recommended permissions
+
+Agents need uninterrupted access to Bash, Edit, and Write - constant permission prompts break agent flow and cause subagents to stall. The Claude Code installer offers to configure `bypassPermissions` mode in `~/.claude/settings.json`:
+
+- `defaultMode: "bypassPermissions"` - agents use tools without prompting
+- **Allow list** - `Bash(*)`, `Write`, `Edit`, and write access to `~/.claude/` directories
+- **Deny list** (safety net for destructive commands) - `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `sudo rm`, `dd if=`, `shutdown`, `reboot`
+- **Additional directories** - `~/.claude/projects` for cross-session context
+
+The deny list merges with any existing deny rules. See [.claude/README.md](.claude/README.md#permissions) for details and [.cursor/README.md](.cursor/README.md), [.codex/README.md](.codex/README.md), [.gemini/README.md](.gemini/README.md) for the equivalent setup in other adapters.
+
 ## Updating
 
 Ask your agent:
@@ -108,6 +119,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | Cursor | `.cursor/` | See [.cursor/README.md](.cursor/README.md) |
 | Codex CLI | `.codex/` | See [.codex/README.md](.codex/README.md) |
 | Gemini CLI | `.gemini/` | See [.gemini/README.md](.gemini/README.md) |
+| Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
