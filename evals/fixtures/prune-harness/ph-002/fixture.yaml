@@ -1,0 +1,18 @@
+id: ph-002
+component: prune-harness
+protocol_sha: 84c9f73555aeb104036334bf1e1be36cf8f6dc82
+description: "No candidates: clean corpus; every signal applied; findings.md absent so Signal 4 must be skipped; proposal must state this explicitly"
+inputs:
+  repo_dir: repo/
+  proposal_date: "2026-04-20"
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-20"}'
+expected:
+  proposal_path: "docs/planning/harness-pruning-2026-04-20.md"
+  expected_true_positives:
+    []
+  expected_signal_skips: [4]
+  seed_content_hashes:
+    content/references/skeptic-protocol.md: 33c971fd23d38b84ba12e815188097922a8efdefe322cc73e9362db69d0e3822
+    content/references/subagent-protocol.md: 6ac0a9e73cc1e0999e4472e23926dde3ebc70eda6df51fbe6f83d5e95afc29d1
+    content/rules/agent-methodology.md: 7ce97144805079be0be06fe5bdbccd0ba4cfacfddd33252959d3a9a72e172275

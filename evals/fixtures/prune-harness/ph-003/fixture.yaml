@@ -1,0 +1,21 @@
+id: ph-003
+component: prune-harness
+protocol_sha: 84c9f73555aeb104036334bf1e1be36cf8f6dc82
+description: "Trap: shared preamble across agent-methodology.md and implement-ticket.md is Signal 3 cross-ref exception (NOT a candidate); skeptic-protocol.md legacy fallback IS a real Signal 5 TP"
+inputs:
+  repo_dir: repo/
+  proposal_date: "2026-04-20"
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-20"}'
+expected:
+  proposal_path: "docs/planning/harness-pruning-2026-04-20.md"
+  expected_true_positives:
+    - file: content/references/skeptic-protocol.md
+      confidence: MEDIUM
+      signal: 5
+  expected_signal_skips: [4]
+  seed_content_hashes:
+    content/commands/implement-ticket.md: 89ff36950feb715eac170c48a17f88b13f601ef8bc252865df54b8d8f070421d
+    content/references/skeptic-protocol.md: 7d616893be93f362c57dd6bcb5df32eb2228f41b2e93bc5166a0004be8d67b1f
+    content/references/subagent-protocol.md: 6ac0a9e73cc1e0999e4472e23926dde3ebc70eda6df51fbe6f83d5e95afc29d1
+    content/rules/agent-methodology.md: b323892d562f152322016a30078ff4d02607752995af5666f22885ffecc47663
