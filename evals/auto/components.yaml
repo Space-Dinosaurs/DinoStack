@@ -109,21 +109,24 @@ release-orchestrator:
   max_iterations: 10
   whole_file_replacement: false
 
-<<<<<<< HEAD
 investigator:
   editable:
     - content/agents/investigator.md
   locked:
     - content/rules/agent-methodology.md
     - content/rules/module-manifest.md
-=======
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
 security-auditor:
   editable:
     - content/agents/security-auditor.md
   locked:
     - content/rules/agent-methodology.md
     - content/rules/skeptic-protocol.md
->>>>>>> 831c97a (evals(security-auditor): Tier 1 eval - scorer v1 + 5 fixtures + manifest + prompt builder + auto-harness entry)
     - evals/**
   max_edit_loc: 20
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
