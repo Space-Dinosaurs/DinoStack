@@ -1,0 +1,25 @@
+id: in-001
+component: investigator
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+description: "Single-function trace; compute_fee None-tier fallback; citation accuracy primary, ceiling-capable"
+archetype: single-function-trace
+inputs:
+  seed_dir: seed
+  question: |
+    What happens when compute_fee is called for a customer whose tier is
+    None? Trace the exact code path and identify the numeric rate that ends
+    up being applied. Cite the file and line where the fallback decision is
+    made.
+expected_investigation:
+  answer_keywords:
+    - "DEFAULT_RATE"
+    - "0.04"
+  expected_citations:
+    - "seed/api/fee.py"
+    - "seed/api/tiers.py"
+  blast_radius_paths: []
+  acceptable_confidence:
+    - "High"
+  gaps_nonempty: false
+  vacuous_axes:
+    - "blast"
