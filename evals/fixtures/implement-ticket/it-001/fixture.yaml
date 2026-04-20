@@ -1,0 +1,29 @@
+id: it-001
+component: implement-ticket
+protocol_sha: 84c9f7300000000000000000000000000000000
+description: "Node simple function add (ceiling); add isEven helper to math-utils"
+repo_archetype: "node-ts"
+inputs:
+  repo_dir: repo/
+  base_branch: "main"
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-20"}'
+  ticket_description: |
+    Add an `isEven(n)` helper to `src/math-utils.ts` that returns true for
+    integer even numbers and false otherwise. Export it from the module.
+  acceptance_criteria:
+    - "isEven(2) returns true; isEven(3) returns false"
+    - "Function is exported from src/math-utils.ts"
+    - "Existing exports (isOdd) are not modified"
+expected_outputs:
+  branch_prefix: "feat/"
+  must_touch_any_of:
+    - "src/math-utils.ts"
+  commit_message_must_contain:
+    - "isEven"
+  max_loc: 30
+  must_not_exist:
+    - ".env"
+    - "secrets.txt"
+  loop_state_required: true
+  quality_required: true

@@ -632,6 +632,50 @@ def _validate_security_auditor_fixture(data: dict, path: Path) -> None:
         )
 
 
+def _validate_implement_ticket_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"implement-ticket fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"implement-ticket fixture at {path}: inputs must be a mapping"
+        )
+    for key in ("repo_dir", "base_branch", "ticket_description"):
+        if not inputs.get(key):
+            raise ValueError(
+                f"implement-ticket fixture at {path}: inputs.{key} is required"
+            )
+    acs = inputs.get("acceptance_criteria")
+    if acs is not None and not isinstance(acs, list):
+        raise ValueError(
+            f"implement-ticket fixture at {path}: inputs.acceptance_criteria must be a list"
+        )
+    expected = data.get("expected_outputs") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"implement-ticket fixture at {path}: expected_outputs must be a mapping"
+        )
+    for list_key in (
+        "must_touch_any_of",
+        "commit_message_must_contain",
+        "must_not_exist",
+    ):
+        val = expected.get(list_key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"implement-ticket fixture at {path}: expected_outputs.{list_key} must be a list"
+            )
+    max_loc = expected.get("max_loc")
+    if max_loc is not None and not isinstance(max_loc, int):
+        raise ValueError(
+            f"implement-ticket fixture at {path}: expected_outputs.max_loc must be an int"
+        )
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
@@ -644,6 +688,7 @@ _FIXTURE_VALIDATORS = {
     "investigator": _validate_investigator_fixture,
     "security-auditor": _validate_security_auditor_fixture,
     "memory-update": _validate_memory_update_fixture,
+    "implement-ticket": _validate_implement_ticket_fixture,
 }
 
 
