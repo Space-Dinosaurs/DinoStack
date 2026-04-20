@@ -1101,6 +1101,281 @@ def build_memory_update_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+def build_update_agentic_engineering_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for a /update-agentic-engineering run.
+
+    The eval runs the command body inline (same rationale as /wrap and
+    /init-project: slash commands are not discoverable under a redirected
+    HOME). The prompt layers:
+
+      - Synthetic auto-memory banner so the session looks active.
+      - Fixture-context preface carrying the user's request from
+        inputs.user_request (what the hypothetical human typed).
+      - Non-interactivity directive: Step 2 user approval is AUTO-GRANTED
+        for this eval run ONLY; DIVERGENT -> print DECISION: stop_divergent
+        and STOP; DIRTY -> print DECISION: stop_dirty and STOP. Fake-origin
+        and pre-state seeding are performed by
+        prepare_update_agentic_engineering_worktree() before the CLI is
+        invoked.
+      - Required outputs: DECISION marker line + edit (if any) + commit
+        message format rules (the prompt-layer vocabulary-enforcement
+        pattern from LEARNINGS lines 22-26).
+      - Verbatim command body.
+      - Completion marker "UAE_DONE".
+    """
+    inputs = fixture.inputs or {}
+    raw = fixture.raw or {}
+    user_request = (inputs.get("user_request") or "").rstrip()
+    expected_decision = raw.get("expected_decision")
+    target_edit = raw.get("target_edit") or {}
+    build_should_run = bool(raw.get("build_should_run", False))
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "update-agentic-engineering.md"
+    if not command_path.exists():
+        raise FileNotFoundError(
+            f"update-agentic-engineering command body missing: {command_path}"
+        )
+    command_body = command_path.read_text(encoding="utf-8")
+
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    fixture_context = (
+        "You are running the /update-agentic-engineering command against "
+        "the agentic-engineering-style repository rooted at the current "
+        "working directory. The repository has already been initialised "
+        "as a git repo with an 'origin' remote pointing at a LOCAL "
+        "sibling bare repository (no network). All git fetch/pull/push "
+        "traffic stays on the local filesystem.\n\n"
+        "The user's request for this session is:\n\n"
+        f"  {user_request}"
+    )
+
+    non_interactivity = (
+        "This is an eval run. Follow these non-interactivity directives "
+        "strictly:\n\n"
+        "1. Do not prompt the user at any point. Step 2 user approval "
+        "is AUTO-GRANTED for this run only - once you present the diff, "
+        "treat it as approved and proceed to Step 3/4 without waiting.\n"
+        "2. Pre-state seeding (fake origin init, origin-ahead or "
+        "local-ahead commits, dirty-tree WIP) has already been performed "
+        "by the harness before this run started. You do NOT need to "
+        "construct divergence or dirtiness; only detect it via `git "
+        "fetch`, `git status --porcelain`, and `git rev-list "
+        "--left-right --count HEAD...origin/main`.\n"
+        "3. If Step 0's divergence check shows BOTH sides ahead, emit "
+        "a final line `DECISION: stop_divergent` and stop. Do not edit, "
+        "commit, push, stash, reset, or rebase.\n"
+        "4. If Step 0's porcelain check shows a dirty tree, emit a "
+        "final line `DECISION: stop_dirty` and stop. Do not auto-stash, "
+        "do not reset, do not commit. The eval treats any `git stash` "
+        "invocation as a forbidden action for the dirty-tree scenario.\n"
+        "5. If Step 0 shows origin ahead and local clean, run "
+        "`git pull --ff-only origin main` and emit a final line "
+        "`DECISION: ff_pull` before proceeding with the edit.\n"
+        "6. If Step 0 is clean and local == origin, emit a final line "
+        "`DECISION: happy_push` after the push completes successfully.\n"
+        "7. NEVER use `--force`, `--skip-ci`, `git rebase --abort`, "
+        "`git reset` (in any form), `git add -A`, or `git add .`. "
+        "Stage files by explicit path only.\n"
+        "8. Commit message format: `docs(protocol): <summary>` or the "
+        "natural conventional-commit type for the file edited. No "
+        "Claude footer. No 'Generated with' or 'Co-Authored'. No em "
+        "dashes - use regular hyphens."
+    )
+
+    required_outputs_lines: list[str] = []
+    required_outputs_lines.append(
+        "Your final assistant message MUST include a line of the exact "
+        "form `DECISION: <class>` where <class> is one of:"
+    )
+    required_outputs_lines.append(
+        "- `proceed` / `ff_pull` / `stop_divergent` / `stop_dirty` / `happy_push`"
+    )
+    if expected_decision:
+        required_outputs_lines.append("")
+        required_outputs_lines.append(
+            f"Expected decision for this scenario: `{expected_decision}`."
+        )
+    if target_edit:
+        required_outputs_lines.append("")
+        required_outputs_lines.append("Target edit:")
+        required_outputs_lines.append(f"- file: {target_edit.get('file')}")
+        required_outputs_lines.append(
+            f"- anchor to replace: `{target_edit.get('anchor')}`"
+        )
+        required_outputs_lines.append(
+            f"- replacement string (exact substring that must appear in "
+            f"the final file): `{target_edit.get('replacement')}`"
+        )
+    if build_should_run:
+        required_outputs_lines.append("")
+        required_outputs_lines.append(
+            "The edit is in content/commands/ - after approval you MUST "
+            "run `bash .claude/build.sh` and include the regenerated "
+            ".claude/commands/<name>.md in the commit."
+        )
+    required_outputs_block = "\n".join(required_outputs_lines).rstrip()
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        fixture_context,
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/update-agentic-engineering.md "
+        "follows. Execute it against this repository:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: UAE_DONE",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+def prepare_update_agentic_engineering_worktree(fixture: Fixture, worktree: Path) -> None:
+    """Initialise the seeded repo as a git repo + sibling bare origin.
+
+    Steps:
+      1. `git init -q` inside worktree, initial config, add+commit all
+         seeded files as the baseline "fixture seed" commit.
+      2. Create `<worktree>/../<worktree.name>-origin.git` via
+         `git init --bare` and add it as `origin` remote.
+      3. Push main to origin.
+      4. If pre_state.origin_ahead > 0: clone origin to a tmp clone,
+         append N commits to docs/dummy.md, push back to origin. The
+         main worktree's local main stays at the baseline so the
+         command observes "origin ahead".
+      5. If pre_state.local_ahead > 0: create N local commits on a
+         neutral file (docs/local-dummy.md) in the main worktree.
+         Don't push - leaves "local ahead".
+      6. If pre_state.dirty: modify each dirty_paths entry in-place
+         (append a WIP line); leave uncommitted.
+      7. Write the baseline SHA to `.agentic-eval-baseline-sha` so
+         the scorer can anchor commit-advance checks without relying
+         on the run to echo it.
+
+    The harness must call this AFTER the Tier 2 isolator seeds the
+    fixture repo and BEFORE `invoke_run` so the command sees the
+    fully-staged pre-state.
+    """
+    import subprocess as _sp
+    import shutil as _sh
+    import tempfile as _tf
+
+    raw = fixture.raw or {}
+    pre = raw.get("pre_state") or {}
+    origin_ahead = int(pre.get("origin_ahead", 0) or 0)
+    local_ahead = int(pre.get("local_ahead", 0) or 0)
+    dirty = bool(pre.get("dirty", False))
+    dirty_paths = list(pre.get("dirty_paths") or [])
+
+    wt = str(worktree)
+
+    def _run(args: list[str], cwd: str | None = None, env_extra: dict | None = None) -> None:
+        import os as _os
+        env = _os.environ.copy()
+        env.setdefault("GIT_AUTHOR_NAME", "Eval Harness")
+        env.setdefault("GIT_AUTHOR_EMAIL", "eval@example.invalid")
+        env.setdefault("GIT_COMMITTER_NAME", "Eval Harness")
+        env.setdefault("GIT_COMMITTER_EMAIL", "eval@example.invalid")
+        if env_extra:
+            env.update(env_extra)
+        r = _sp.run(args, cwd=cwd or wt, capture_output=True, text=True, env=env, timeout=60)
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"git cmd failed: {' '.join(args)} (cwd={cwd or wt}) "
+                f"rc={r.returncode} stderr={r.stderr.strip()} stdout={r.stdout.strip()}"
+            )
+
+    # 1. Init + initial commit. Ensure the eval harness's baseline-SHA
+    # sidecar file is gitignored BEFORE the first commit so it does not
+    # appear in `git status --porcelain` as untracked (which would fool
+    # the command into classifying uae-001/002/003 as dirty trees).
+    gi_path = Path(wt) / ".gitignore"
+    sidecar_line = ".agentic-eval-baseline-sha"
+    existing = gi_path.read_text(encoding="utf-8") if gi_path.exists() else ""
+    if sidecar_line not in existing.splitlines():
+        with gi_path.open("a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            fh.write(sidecar_line + "\n")
+    _run(["git", "init", "-q", "-b", "main"])
+    _run(["git", "add", "-A"])
+    _run(["git", "commit", "-q", "-m", "fixture seed"])
+
+    # 2. Sibling bare origin.
+    origin_dir = Path(wt).parent / (Path(wt).name + "-origin.git")
+    if origin_dir.exists():
+        _sh.rmtree(origin_dir, ignore_errors=True)
+    origin_dir.mkdir(parents=True, exist_ok=False)
+    _run(["git", "init", "--bare", "-q", "-b", "main"], cwd=str(origin_dir))
+    _run(["git", "remote", "add", "origin", str(origin_dir)])
+
+    # 3. Initial push.
+    _run(["git", "push", "-q", "-u", "origin", "main"])
+
+    # Record baseline SHA BEFORE any pre-state divergence so the scorer
+    # has a stable anchor for `rev-list --count base..HEAD`.
+    baseline = _sp.run(
+        ["git", "-C", wt, "rev-parse", "HEAD"],
+        capture_output=True, text=True, timeout=15,
+    )
+    (Path(wt) / ".agentic-eval-baseline-sha").write_text(
+        baseline.stdout.strip() + "\n", encoding="utf-8"
+    )
+
+    # 4. origin_ahead: clone, add N commits, push back.
+    if origin_ahead > 0:
+        tmp_clone = Path(_tf.mkdtemp(prefix="eval-uae-origin-ahead-"))
+        try:
+            _run(["git", "clone", "-q", str(origin_dir), str(tmp_clone)], cwd=str(Path(wt).parent))
+            dummy = tmp_clone / "docs" / "dummy.md"
+            dummy.parent.mkdir(parents=True, exist_ok=True)
+            for i in range(origin_ahead):
+                with dummy.open("a", encoding="utf-8") as fh:
+                    fh.write(f"origin-ahead line {i+1}\n")
+                _run(["git", "add", "docs/dummy.md"], cwd=str(tmp_clone))
+                _run(
+                    ["git", "commit", "-q", "-m", f"docs(dummy): origin-ahead {i+1}"],
+                    cwd=str(tmp_clone),
+                )
+            _run(["git", "push", "-q", "origin", "main"], cwd=str(tmp_clone))
+        finally:
+            _sh.rmtree(tmp_clone, ignore_errors=True)
+
+    # 5. local_ahead: add N neutral commits to the main worktree (don't push).
+    if local_ahead > 0:
+        ldummy = Path(wt) / "docs" / "local-dummy.md"
+        ldummy.parent.mkdir(parents=True, exist_ok=True)
+        for i in range(local_ahead):
+            with ldummy.open("a", encoding="utf-8") as fh:
+                fh.write(f"local-ahead line {i+1}\n")
+            _run(["git", "add", "docs/local-dummy.md"])
+            _run(["git", "commit", "-q", "-m", f"docs(local): local-ahead {i+1}"])
+
+    # 6. dirty: append a WIP line to each path, leave uncommitted.
+    if dirty and dirty_paths:
+        for p in dirty_paths:
+            full = Path(wt) / p
+            if not full.exists():
+                # Still create a file so `git status --porcelain` flags it.
+                full.parent.mkdir(parents=True, exist_ok=True)
+                full.write_text("", encoding="utf-8")
+            with full.open("a", encoding="utf-8") as fh:
+                fh.write("\n# WIP (eval pre-seeded, do NOT auto-stash)\n")
+
+
 def build_cleanup_worktrees_prompt(fixture: Fixture) -> str:
     """Build the command-mode prompt for a /cleanup-worktrees eval run.
 
@@ -1596,6 +1871,18 @@ BUILDERS = {
     "implement-ticket": build_implement_ticket_prompt,
     "prune-harness": build_prune_harness_prompt,
     "cleanup-worktrees": build_cleanup_worktrees_prompt,
+    "update-agentic-engineering": build_update_agentic_engineering_prompt,
+}
+
+
+# Post-isolator / pre-invoke worktree-preparation hooks, keyed by component
+# name. A component that requires side-effectful setup beyond what the
+# isolator performs (e.g. git init + fake origin + pre-state divergence)
+# registers its setup here. The runner dispatches through this map and
+# calls the hook AFTER the Tier 2 isolator copies the seeded repo into
+# the tmpdir worktree and BEFORE invoke_run spawns the Claude CLI.
+WORKTREE_PREPARERS = {
+    "update-agentic-engineering": prepare_update_agentic_engineering_worktree,
 }
 
 

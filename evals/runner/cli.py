@@ -146,6 +146,17 @@ def _run_fixture(
                             seed_result.returncode,
                             (seed_result.stderr or "").strip()[-500:],
                         )
+                # Per-component worktree preparation hook. Runs AFTER the
+                # isolator copies the seeded repo into the tmpdir and
+                # BEFORE the Claude CLI is spawned. Used by
+                # update-agentic-engineering to perform `git init`, add
+                # a sibling bare repo as `origin`, and seed the fixture
+                # pre-state (origin-ahead commits, local-ahead commits,
+                # dirty-tree WIP) so the command sees a realistic repo
+                # on startup.
+                preparer = getattr(pr_mod, "WORKTREE_PREPARERS", {}).get(manifest.name)
+                if preparer is not None:
+                    preparer(fixture, worktree)
                 prompt_text = pr_mod.build_prompt(manifest.name, fixture)
                 run_record = inv_mod.invoke_run(
                     prompt_text,

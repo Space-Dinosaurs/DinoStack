@@ -120,22 +120,24 @@ release-orchestrator:
   max_iterations: 10
   whole_file_replacement: false
 
-cleanup-worktrees:
+update-agentic-engineering:
   editable:
-    - content/commands/cleanup-worktrees.md
+    - content/commands/update-agentic-engineering.md
   locked:
     - content/rules/agent-methodology.md
+    - .claude/build.sh
     - evals/**
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
-cleanup-worktrees:
+update-agentic-engineering:
   editable:
-    - content/commands/cleanup-worktrees.md
+    - content/commands/update-agentic-engineering.md
   locked:
     - content/rules/agent-methodology.md
+    - .claude/build.sh
     - evals/**
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
