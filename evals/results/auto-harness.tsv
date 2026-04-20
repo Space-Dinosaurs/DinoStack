@@ -1,0 +1,2 @@
+timestamp_utc	component	branch	iteration	base_commit	proposed_commit	baseline_metric	new_metric	delta	pooled_stdev	decision	reason	overfitting_verdict	cost_usd_cumulative
+2026-04-20T04:47:25Z	skeptic	auto/skeptic-20260420T044453	1	9bc4d40907592c680a54604e3f71a4e881c10ce6		0.500000			0.148578	dry_run_skip_apply	dry_run:loc=1:paths=content/agents/skeptic.md	pass	0.281113
