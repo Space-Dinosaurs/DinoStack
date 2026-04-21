@@ -1856,6 +1856,678 @@ def build_implement_ticket_prompt(fixture: Fixture) -> str:
     return "\n".join(parts) + "\n"
 
 
+
+# ---- perf-analyst ----
+_PERF_ANALYST_PATTERN_ENUM = [
+    "N+1 queries",
+    "Unbounded growth",
+    "Missing index",
+    "Repeated computation",
+    "Synchronous I/O in a hot path",
+    "Serialization overhead",
+    "GC pressure",
+    "None identified",
+]
+
+def build_perf_analyst_prompt(fixture: Fixture) -> str:
+    """Build the perf-analyst brief for a static-artifact eval run.
+
+    The Tier 1 isolator withholds Bash, so the agent cannot re-profile.
+    Each fixture's staged artifacts (profile.txt, query_log.txt,
+    flamegraph.txt, heap_snapshot.txt, source_excerpt.py) encode what a
+    live profiling session would have captured; the prompt tells the
+    agent to treat them as canonical. Proxy caveat documented in
+    evals/components/perf-analyst.README.md.
+    """
+    inputs = fixture.inputs or {}
+    target = (inputs.get("target") or "").rstrip()
+    repro = (inputs.get("repro_command") or "").rstrip()
+    perf_budget = inputs.get("perf_budget")
+    hypothesis = (inputs.get("hypothesis") or "").rstrip()
+
+    artifact_keys = [
+        ("profile_file", "profile output"),
+        ("query_log_file", "query log"),
+        ("flamegraph_file", "flamegraph aggregate"),
+        ("heap_snapshot_file", "heap snapshot"),
+        ("source_excerpt_file", "source excerpt"),
+    ]
+    artifact_blocks: list[str] = []
+    for key, label in artifact_keys:
+        rel = inputs.get(key)
+        if not rel:
+            continue
+        src = fixture.dir / rel
+        if not src.exists():
+            raise FileNotFoundError(f"perf-analyst fixture payload missing: {src}")
+        content = src.read_text(encoding="utf-8", errors="replace")
+        artifact_blocks.append(
+            f"{label} (./evals-fixture/{Path(rel).name}):\n"
+            f"```\n{content.rstrip()}\n```"
+        )
+
+    static_notice = (
+        "Target cannot be re-profiled; artifacts are canonical. You "
+        "are invoked for an eval run - there is no live target and "
+        "shell tooling is not available for this fixture. Diagnose "
+        "from the staged artifacts below. Do NOT attempt to run a "
+        "profiler, a benchmark, a curl, or a database query; those "
+        "will fail. If the artifacts are genuinely insufficient to "
+        "identify a hotspot, say so in the Confidence section (use "
+        "'Low') and state in the Fix brief for engineer: 'Do not "
+        "implement until root cause is confirmed with a second "
+        "measurement.'"
+    )
+
+    budget_line = (
+        f"- Perf budget: {perf_budget}"
+        if perf_budget
+        else "- Perf budget: (none provided - report N/A in the Perf budget verdict section)"
+    )
+
+    enum_lines = [f'- "{v}"' for v in _PERF_ANALYST_PATTERN_ENUM]
+
+    parts = [
+        "You are being invoked as the perf-analyst subagent for an eval "
+        "run. Follow content/agents/perf-analyst.md.",
+        "",
+        "## Mode",
+        static_notice,
+        "",
+        "## Spawn inputs",
+        f"- Target: {target}",
+        f"- Repro command (captured output below): {repro}",
+        budget_line,
+    ]
+    if hypothesis:
+        parts.append(f"- Hypothesis (treat as unconfirmed): {hypothesis}")
+    parts.extend([
+        "",
+        "## Staged artifacts",
+    ])
+    parts.extend(artifact_blocks)
+    parts.extend([
+        "",
+        "## Required output vocabulary",
+        "",
+        "Your Hotspot section MUST include a `Pattern:` line whose value "
+        "is exactly one of these enum tokens (case-insensitive substring "
+        "match is used by the scorer; pick the literal token rather than "
+        "paraphrasing):",
+        *enum_lines,
+        "",
+        "Your `### Perf budget verdict` section MUST emit exactly one of: "
+        "`PASS`, `FAIL`, or `N/A`. If the spawn inputs declare no perf "
+        "budget, emit `N/A` - do not invent a budget.",
+        "",
+        "Your `### Confidence` section MUST contain exactly one of: "
+        "`High`, `Medium`, `Low`. High is reserved for diagnoses where a "
+        "second measurement confirmed the hypothesis. When the artifacts "
+        "do not include a second measurement (e.g. only one profile run "
+        "is staged), Medium is the highest calibrated level.",
+        "",
+        "These enum values are the machine-parseable labels the scorer "
+        "recognises. Do not invent new labels or paraphrase them.",
+        "",
+        "## Task",
+        "Produce the complete Perf Analysis report in the exact format "
+        "specified by content/agents/perf-analyst.md (one `## Perf "
+        "Analysis: <one-line>` title plus the nine `### <section>` "
+        "sub-headings: Summary, Methodology, Measurements, Perf budget "
+        "verdict, Hotspot, Root cause, Evidence, Fix brief for "
+        "engineer, Confidence). Do not omit any section. Cite numeric "
+        "evidence from the staged artifacts inline in the Measurements "
+        "and Evidence sections.",
+    ])
+    return "\n".join(parts) + "\n"
+
+
+# ---- adr-generator ----
+def build_adr_generator_prompt(fixture: Fixture) -> str:
+    """Build the adr-generator brief for a decision-to-ADR task.
+
+    The adr-generator eval presents a decision brief (title, context,
+    decision, alternatives, stakeholders) plus a list of existing ADRs
+    under docs/adr/ (so the agent can pick the next sequential NNNN). The
+    agent is expected to emit a full ADR following its role doc at
+    content/agents/adr-generator.md.
+
+    The prompt does NOT enumerate the template's rules (frontmatter keys,
+    section names, coded-bullet shapes, filename pattern) - those are the
+    role doc's responsibility and enumerating them in the prompt would
+    telegraph the scoring rubric. The prompt does tell the agent to emit
+    the ADR inline in its final response AND, if writable, also save it
+    to docs/adr/. Under Tier 1 isolation the agent cannot write files; it
+    will emit inline. The scorer prefers on-disk but falls back to
+    final_text (see evals/scoring/adr_generator_lite.py).
+    """
+    raw = fixture.raw or {}
+    inputs = raw.get("inputs") or {}
+    brief = (inputs.get("decision_brief") or "").rstrip()
+    constraints = (inputs.get("constraints") or "").rstrip()
+    existing = inputs.get("existing_adrs") or []
+
+    if existing:
+        existing_lines = [
+            "The following ADRs already exist under `docs/adr/`:",
+        ]
+        for item in existing:
+            if isinstance(item, dict):
+                num = item.get("nnnn", "????")
+                title = item.get("title", "(no title)")
+                existing_lines.append(f"- `adr-{num}`: {title}")
+            else:
+                existing_lines.append(f"- {item}")
+        existing_block = "\n".join(existing_lines)
+    else:
+        existing_block = "There are no existing ADRs under `docs/adr/` yet."
+
+    constraints_block = (
+        f"\n## Constraints\n{constraints}\n" if constraints else ""
+    )
+
+    parts = [
+        "You are being invoked as the adr-generator subagent for an eval "
+        "run. Follow content/agents/adr-generator.md exactly (template, "
+        "required structure, filename convention, and coded-bullet format).",
+        "",
+        "## Decision brief",
+        brief,
+        constraints_block.rstrip(),
+        "",
+        "## Existing ADRs in this repository",
+        existing_block,
+        "",
+        "## Output contract",
+        "Produce the full ADR markdown document in your final response. "
+        "Include the YAML front matter block delimited by `---` fences "
+        "followed by the document sections your role doc mandates. If "
+        "your tool set permits file writes, also save the ADR to "
+        "`docs/adr/` using the filename convention from your role doc; "
+        "otherwise emit the ADR inline.",
+        "",
+        "Begin the response with a line starting exactly `Filename: ` "
+        "followed by the intended filename (e.g. `Filename: "
+        "adr-0003-auth-strategy.md`) so a downstream reviewer can save "
+        "it under the right path. Then emit the ADR content.",
+        "",
+        "Do not include any commentary after the ADR content.",
+    ]
+    return "\n".join(p for p in parts if p is not None) + "\n"
+
+
+# ---- adr-drift-detector ----
+def build_adr_drift_detector_prompt(fixture: Fixture) -> str:
+    """Build the adr-drift-detector brief.
+
+    The fixture's `inputs.repo_dir` is copied into the Tier 1 worktree
+    root by `stage_fixture_files`, so the seeded ADR markdown and source
+    tree appear at relative paths like `./docs/adr/0001-*.md` and
+    `./src/...` from the agent's CWD. The agent has Read, Glob, and
+    Grep available (no Bash at Tier 1 - see LEARNINGS.md "isolation
+    claims must match isolation mechanisms"). The production agent's
+    frontmatter grants Bash too, which is a known Tier 1 proxy caveat:
+    fixtures in this corpus are solvable with Read/Glob/Grep against a
+    seeded source tree.
+
+    The prompt names the 7 required top-level report sections so the
+    scorer's format-gate is detectable, but does not telegraph
+    classifications - the agent must read the ADRs and the source to
+    decide.
+    """
+    inputs = fixture.inputs or {}
+    repo_dir_rel = inputs.get("repo_dir")
+    if not repo_dir_rel:
+        raise ValueError(
+            f"adr-drift-detector fixture {fixture.id}: inputs.repo_dir is required"
+        )
+    # Smoke-check the seeded ADR dir exists so the eval fails loudly at
+    # prompt-build time rather than silently scoring zero after a 240s
+    # agent timeout.
+    fixture_repo = fixture.dir / repo_dir_rel
+    adr_candidates = ("docs/adr", "doc/adr", "adr", "docs/decisions", "docs/architecture/decisions")
+    for candidate in adr_candidates:
+        if (fixture_repo / candidate).exists():
+            break
+    else:
+        raise FileNotFoundError(
+            f"adr-drift-detector fixture {fixture.id}: no ADR directory found "
+            f"under {fixture_repo} (checked: {list(adr_candidates)}). The agent's "
+            "Phase 1 would stop immediately on this fixture."
+        )
+
+    parts = [
+        "You are being invoked as the adr-drift-detector subagent for an "
+        "eval run. Follow content/agents/adr-drift-detector.md.",
+        "",
+        "## Environment",
+        "Your current working directory is the eval runner's worktree. "
+        "The project you are auditing has been staged at "
+        "`./evals-fixture/repo/` inside that worktree. Treat "
+        "`./evals-fixture/repo/` as the project root for this run: "
+        "Architecture Decision Records live under "
+        "`./evals-fixture/repo/docs/adr/` (or one of the fallback "
+        "locations listed in your role doc, relative to that staging "
+        "root), and the source tree lives alongside them. All tool "
+        "paths in your Phase 1 through Phase 6 output should be "
+        "expressed relative to `./evals-fixture/repo/` (e.g. "
+        "`src/db/connection.py`, not `evals-fixture/repo/src/db/connection.py`).",
+        "",
+        "Ignore any files OUTSIDE `./evals-fixture/repo/` even though "
+        "they are readable - the worktree itself is a checkout of a "
+        "different project and those files are not part of the audit.",
+        "",
+        "At Tier 1 the Bash tool is not available. Use Glob, Read, and "
+        "Grep instead. Glob patterns like "
+        "`./evals-fixture/repo/docs/adr/*.md` replace `ls`; Grep with "
+        "a path argument replaces `grep -r`. Honour the exclusion list "
+        "(node_modules, .git, dist, build, vendor, __pycache__, .venv, "
+        "target, coverage).",
+        "",
+        "## Output contract",
+        "Produce the complete Drift Report exactly as specified in "
+        "Phase 6 of your role doc. Your response MUST include all seven "
+        "top-level sections verbatim, in this order, each as a "
+        "level-2 `##` heading:",
+        "",
+        "1. `## Summary`",
+        "2. `## Violations`",
+        "3. `## Partial Compliance`",
+        "4. `## Followed`",
+        "5. `## Unverifiable`",
+        "6. `## Proposed`",
+        "7. `## Skipped`",
+        "",
+        "If a section has no entries, write `[None]` under that heading. "
+        "Do not omit any section.",
+        "",
+        "The report header line must include the counts summary exactly "
+        "in the form `ADRs audited: N | Followed: N | Violated: N | "
+        "Partial: N | Unverifiable: N` so the counts are mechanically "
+        "parseable.",
+        "",
+        "For each ADR you classify, write the reference in the form "
+        "`ADR-NNNN` (zero-padded or plain digits, case-insensitive) so "
+        "the scorer can identify it. Place each ADR under exactly one "
+        "outcome section (Violations, Partial Compliance, Followed, "
+        "Unverifiable, Proposed, or Skipped).",
+        "",
+        "For Skipped ADRs whose frontmatter or body cites a "
+        "`superseded_by` target that does not exist in the ADR "
+        "directory, include a warning marker in that ADR's Skipped "
+        "line (e.g. `Superseding file <name> not found in ADR "
+        "directory`).",
+        "",
+        "Do not write or edit any files. Emit the report to stdout.",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+# ---- dependency-auditor ----
+def build_dependency_auditor_prompt(fixture: Fixture) -> str:
+    """Build the dependency-auditor brief for a Tier 1 pre-captured eval run.
+
+    The production dependency-auditor agent has Bash access and runs
+    `npm audit --json`, `pip-audit --format=json`, `cargo audit --json`
+    etc. live. The eval is Tier 1 read-only: no Bash, no network. Every
+    fixture ships a `repo/` subtree with real package.json / lockfiles
+    plus pre-captured tool JSON under `repo/.audit/*.json`. The prompt
+    inlines the manifest/lockfile heads and every audit payload, and
+    tells the agent to treat the staged audit JSON as authoritative.
+
+    Bash-denied proxy caveat (documented in the fixture README): the
+    agent's live `npm view <pkg> time.modified` / `npm view <pkg>
+    deprecated` registry round-trips also don't happen. Fixtures must
+    either (a) encode the needed maintenance signals inline in the
+    audit JSON, (b) pre-capture them as separate JSON files under
+    .audit/, or (c) accept that maintenance-signal axes are limited.
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected") or {}
+
+    scope = inputs.get("scope") or "full_audit"
+    repo_dir_rel = inputs.get("repo_dir")
+    if not repo_dir_rel:
+        raise ValueError(
+            f"dependency-auditor fixture {fixture.id} missing inputs.repo_dir"
+        )
+    repo_dir = fixture.dir / repo_dir_rel
+    if not repo_dir.exists():
+        raise FileNotFoundError(
+            f"dependency-auditor fixture {fixture.id}: repo dir missing at {repo_dir}"
+        )
+
+    known_constraints = (inputs.get("known_constraints") or "").rstrip()
+    single_dep_target = inputs.get("single_dep_target") or ""
+    upgrade_diff_text = inputs.get("upgrade_diff") or ""
+
+    manifest_candidates = [
+        "package.json",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "requirements.txt",
+        "pyproject.toml",
+        "poetry.lock",
+        "Cargo.toml",
+        "Cargo.lock",
+        "go.mod",
+        "go.sum",
+        "Gemfile",
+        "Gemfile.lock",
+    ]
+    manifest_blocks: list[str] = []
+    for name in manifest_candidates:
+        p = repo_dir / name
+        if not p.exists():
+            continue
+        try:
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if len(content) > 16000:
+            content = content[:16000] + "\n... [truncated]\n"
+        manifest_blocks.append(f"{name}:\n```\n{content.rstrip()}\n```")
+
+    audit_dir = repo_dir / ".audit"
+    audit_blocks: list[str] = []
+    if audit_dir.exists():
+        for jf in sorted(audit_dir.glob("*.json")):
+            try:
+                content = jf.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if len(content) > 16000:
+                content = content[:16000] + "\n... [truncated]\n"
+            audit_blocks.append(
+                f".audit/{jf.name} (authoritative - treat as live tool output):\n"
+                f"```json\n{content.rstrip()}\n```"
+            )
+
+    expected_ecosystems = list(expected.get("expected_ecosystems") or [])
+
+    if scope == "full_audit":
+        scope_block_lines = [
+            "Scope: full_audit. Audit every detected ecosystem in this repo.",
+        ]
+    elif scope == "single_dep":
+        scope_block_lines = [
+            f"Scope: single_dep. Focus on `{single_dep_target}`. State whether "
+            "it is safe to use given its CVE status, license, and maintenance "
+            "signals.",
+        ]
+    else:
+        scope_block_lines = [
+            "Scope: upgrade_diff. Audit every new or version-changed "
+            "dependency in the diff below.",
+            "",
+            "Upgrade diff:",
+            "```",
+            upgrade_diff_text.rstrip() if upgrade_diff_text else "(no diff provided)",
+            "```",
+        ]
+
+    parts = [
+        "You are being invoked as the dependency-auditor subagent for an "
+        "eval run. Follow content/agents/dependency-auditor.md.",
+        "",
+        "## Eval mode",
+        "This is a Tier 1 read-only eval. You have NO Bash tool, NO "
+        "network access, and no live registry. The role doc tells you to "
+        "run `npm audit --json`, `pip-audit`, `cargo audit`, etc. - in "
+        "this run those tools have ALREADY been run and their verbatim "
+        "JSON output is pinned below under `.audit/*.json`. Treat those "
+        "files as authoritative: they ARE your `npm audit --json` / "
+        "`pip-audit --format=json` / `cargo audit --json` output. Do not "
+        "attempt to run the scanners yourself - they are unavailable. Do "
+        "NOT invent CVE IDs from memory; every CVE ID you cite in your "
+        "report must appear in one of the staged .audit/*.json payloads "
+        "below. If a CVE is not in the staged output, it does not "
+        "exist for this run.",
+        "",
+        "## Spawn inputs",
+    ]
+    parts.extend(scope_block_lines)
+    parts.append("")
+    if known_constraints:
+        parts.append("Known constraints:")
+        parts.append(known_constraints)
+        parts.append("")
+    if expected_ecosystems:
+        parts.append(
+            "Ecosystems present in this project (from lockfile detection): "
+            + ", ".join(expected_ecosystems)
+        )
+        parts.append("")
+
+    parts.append("## Project manifests and lockfiles (verbatim)")
+    if manifest_blocks:
+        parts.extend(manifest_blocks)
+    else:
+        parts.append("(no standard manifests detected)")
+    parts.append("")
+
+    parts.append("## Pre-captured scanner output")
+    if audit_blocks:
+        parts.extend(audit_blocks)
+    else:
+        parts.append(
+            "(no .audit/*.json files staged - treat every ecosystem as a "
+            "scan gap and record it in the Scan gaps section of your report)"
+        )
+    parts.append("")
+
+    parts.append("## Output contract")
+    parts.append(
+        "Produce the Dependency Audit Report using the EXACT section "
+        "headers specified in your role doc: `## Dependency Audit "
+        "Report` (title), `### Summary`, `### Findings` with "
+        "`#### Critical`, `#### Major`, `#### Minor` sub-sections, "
+        "`### Upgrade plan`, `### Open questions`, `### Scan gaps`. Do "
+        "not paraphrase the headers - the scorer matches them "
+        "verbatim. Include the header-line metadata (Date, Project, "
+        "Ecosystems scanned, Tools run, CVE / license counts) as your "
+        "role doc specifies."
+    )
+    parts.append("")
+    parts.append(
+        "Every CVE you cite must come from the staged .audit/*.json. If "
+        "you cannot find any matching advisory for a package, do not "
+        "invent one - record the gap under `### Scan gaps`."
+    )
+
+    return "\n".join(parts) + "\n"
+
+
+# ---- representation-audit ----
+def build_representation_audit_prompt(fixture: Fixture) -> str:
+    """Build the command-mode prompt for a /representation-audit eval run.
+
+    The runner cannot invoke `/representation-audit` as a slash command under
+    a redirected HOME (same caveat as /init-project and /wrap; see
+    LEARNINGS). We inline the verbatim body of
+    content/commands/representation-audit.md into the prompt alongside:
+
+      - a synthetic auto-memory banner
+      - a fixture-context preface describing the seeded methodology corpus
+      - a non-interactivity directive that skips Step 0 (git-sync preflight),
+        instructs the agent to write the proposal inline (no Task spawn),
+        stop after the proposal, and treat Step 4 as out of scope
+      - a required-outputs block enumerating proposal path, required
+        sections, required per-candidate fields, and the enum values the
+        scorer expects for Signal, Priority, Meaning-preserved (vocabulary
+        enforcement at the prompt layer, per LEARNINGS)
+      - a completion marker REPRESENTATION_AUDIT_DONE
+
+    Fail-fast: if the fixture's seeded AGENTS.md does not carry the literal
+    "agentic-engineering: opt-in" line, the /representation-audit
+    Activation preflight will no-op and the run produces nothing. We raise
+    here before the CLI is spawned so the failure mode is visible in the
+    runner output rather than silently scoring zero.
+    """
+    inputs = fixture.inputs or {}
+    expected = (fixture.raw or {}).get("expected_outputs") or {}
+
+    repo_dir_rel = inputs.get("repo_dir")
+    if not repo_dir_rel:
+        raise ValueError(
+            f"representation-audit fixture {fixture.id} missing inputs.repo_dir"
+        )
+    agents_md_path = fixture.dir / repo_dir_rel / "AGENTS.md"
+    if not agents_md_path.exists():
+        raise FileNotFoundError(
+            f"representation-audit fixture {fixture.id}: seeded AGENTS.md "
+            f"missing at {agents_md_path}"
+        )
+    agents_md_text = agents_md_path.read_text(encoding="utf-8")
+    if "agentic-engineering: opt-in" not in agents_md_text:
+        raise ValueError(
+            f"representation-audit fixture {fixture.id}: seeded AGENTS.md "
+            f"at {agents_md_path} does not contain the literal line "
+            "'agentic-engineering: opt-in'. The /representation-audit "
+            "Activation preflight will no-op without that marker; "
+            "refusing to run to prevent silent zero-scoring."
+        )
+
+    command_path = _REPO_ROOT_P / "content" / "commands" / "representation-audit.md"
+    if not command_path.exists():
+        raise FileNotFoundError(
+            f"representation-audit command body missing: {command_path}"
+        )
+    command_body = command_path.read_text(encoding="utf-8")
+
+    auto_memory_banner = (
+        "This is a persistent auto memory directory at ./.agentic/memory/. "
+        "You can use it for notes that persist across sessions."
+    )
+
+    fixture_context = (
+        "You are running the /representation-audit command against the "
+        "repository rooted at the current working directory. The "
+        "methodology corpus under content/rules/ and content/references/ "
+        "is the audit scope. The proposal must be written to a new file "
+        "under docs/planning/."
+    )
+
+    # Step 0 (git-sync preflight) is out of scope for the eval: the
+    # worktree has no origin and no branching state. Step 4 (action
+    # approved candidates via /update-agentic-engineering) is also out of
+    # scope; the eval measures only the proposal artifact produced by
+    # Step 1.
+    non_interactivity = (
+        "Do not prompt the user at any point. SKIP Step 0 entirely - do "
+        "not run any git fetch, divergence check, or clean-tree check. "
+        "Do not attempt to spawn a Task subagent: write the proposal "
+        "directly yourself using Read / Glob / Grep / Write. The goal is "
+        "to produce the proposal markdown inline. Stop after the "
+        "proposal is written - do NOT proceed to Step 2 (present to "
+        "user), do NOT proceed to Step 4 (action approved candidates), "
+        "and do NOT invoke /update-agentic-engineering. Step 4 is "
+        "explicitly out of scope for this run."
+    )
+
+    proposal_glob = expected.get("proposal_glob") or "docs/planning/representation-audit-*.md"
+    proposal_min = expected.get("proposal_min_candidates", 3)
+    proposal_max = expected.get("proposal_max_candidates", 10)
+    required_sections = list(expected.get("required_sections") or [])
+    required_candidate_fields = list(expected.get("required_candidate_fields") or [])
+    valid_signals = list(expected.get("valid_signals") or ["R1", "R2", "R3", "R4", "R5", "R6", "R7"])
+    valid_priorities = list(expected.get("valid_priorities") or ["HIGH", "MEDIUM", "LOW"])
+    valid_meaning_preserved = list(
+        expected.get("valid_meaning_preserved") or ["HIGH", "MEDIUM", "LOW"]
+    )
+    allow_empty = bool(expected.get("allow_empty_with_rationale", False))
+
+    required_outputs_lines: list[str] = []
+    required_outputs_lines.append(
+        f"Write the proposal to a new file whose path matches the glob: `{proposal_glob}`"
+    )
+    required_outputs_lines.append(
+        "Substitute today's date in YYYY-MM-DD form for the datestamp."
+    )
+    required_outputs_lines.append("")
+    required_outputs_lines.append(
+        f"Total candidate count must be between {proposal_min} and {proposal_max} inclusive."
+    )
+    if allow_empty:
+        required_outputs_lines.append(
+            "If fewer than the minimum candidates pass HIGH or MEDIUM after "
+            "applying all signals, it is acceptable to return zero candidates "
+            "PROVIDED the proposal explicitly states this - include a line "
+            "`Total candidates: 0` and a rationale paragraph explaining why "
+            "no candidates were found (sparse corpus, nothing above LOW "
+            "confidence, etc.). A silent empty proposal is NOT acceptable."
+        )
+    required_outputs_lines.append("")
+    if required_sections:
+        required_outputs_lines.append(
+            "The proposal must contain these sections (as verbatim line "
+            "prefixes on a heading line):"
+        )
+        for s in required_sections:
+            required_outputs_lines.append(f"- {s!r}")
+        required_outputs_lines.append("")
+    if required_candidate_fields:
+        required_outputs_lines.append(
+            "Each candidate block (under a `### ` sub-heading inside the "
+            "candidates region) must contain each of these fields exactly "
+            "(field label followed by a colon on its own line, optionally "
+            "wrapped in a `- ` bullet or `**...**` bold):"
+        )
+        for f in required_candidate_fields:
+            required_outputs_lines.append(f"- {f}")
+        required_outputs_lines.append("")
+    required_outputs_lines.append(
+        "Required output vocabulary (the scorer does exact-match; do NOT "
+        "invent new labels or paraphrase these):"
+    )
+    required_outputs_lines.append(
+        f"- Signal labels on any 'Signal(s):' field line MUST be drawn from: "
+        f"{', '.join(valid_signals)}."
+    )
+    required_outputs_lines.append(
+        f"- Priority values on any 'Priority:' field line MUST be exactly "
+        f"one of: {', '.join(valid_priorities)}."
+    )
+    required_outputs_lines.append(
+        f"- Meaning-preserved values on any 'Meaning preserved:' field line "
+        f"MUST be exactly one of: {', '.join(valid_meaning_preserved)}."
+    )
+    required_outputs_lines.append("")
+    required_outputs_lines.append(
+        "Forbidden: do NOT write, edit, or create any file under `content/`. "
+        "The audit is analysis-only. Any modification to content/** is a "
+        "hard defect."
+    )
+
+    required_outputs_block = "\n".join(required_outputs_lines).rstrip()
+
+    parts = [
+        f"<SYNTHETIC_AUTO_MEMORY_BANNER>\n{auto_memory_banner}",
+        "",
+        "<FIXTURE_CONTEXT>",
+        fixture_context,
+        "",
+        "<NON_INTERACTIVITY_DIRECTIVE>",
+        non_interactivity,
+        "",
+        "<REQUIRED_OUTPUTS>",
+        required_outputs_block,
+        "",
+        "<COMMAND_BODY>",
+        "The verbatim body of content/commands/representation-audit.md "
+        "follows. Execute it against this repository, SKIPPING Step 0 and "
+        "STOPPING after Step 1:",
+        "",
+        command_body.rstrip(),
+        "",
+        "<COMPLETION_MARKER>",
+        "When finished, print a final line exactly: REPRESENTATION_AUDIT_DONE",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+
 BUILDERS = {
     "skeptic": build_skeptic_prompt,
     "conductor": build_conductor_prompt,
@@ -1872,6 +2544,12 @@ BUILDERS = {
     "prune-harness": build_prune_harness_prompt,
     "cleanup-worktrees": build_cleanup_worktrees_prompt,
     "update-agentic-engineering": build_update_agentic_engineering_prompt,
+    "perf-analyst": build_perf_analyst_prompt,
+    "adr-generator": build_adr_generator_prompt,
+    "adr-drift-detector": build_adr_drift_detector_prompt,
+    "dependency-auditor": build_dependency_auditor_prompt,
+    "representation-audit": build_representation_audit_prompt,
+
 }
 
 

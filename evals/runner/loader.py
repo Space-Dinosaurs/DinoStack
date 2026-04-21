@@ -851,6 +851,303 @@ def _validate_implement_ticket_fixture(data: dict, path: Path) -> None:
         )
 
 
+
+# ---- perf-analyst ----
+_PERF_ANALYST_BUDGET_VERDICTS = {"PASS", "FAIL", "N/A"}
+
+_PERF_ANALYST_CONFIDENCE_LEVELS = {"High", "Medium", "Low"}
+
+def _validate_perf_analyst_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"perf-analyst fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"perf-analyst fixture at {path}: inputs must be a mapping")
+    if not inputs.get("target"):
+        raise ValueError(
+            f"perf-analyst fixture at {path}: inputs.target is required "
+            "(the thing being profiled)"
+        )
+    for list_key in ("hotspot_keywords", "forbidden_patterns", "evidence_tokens"):
+        val = data.get(list_key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"perf-analyst fixture at {path}: {list_key} must be a list"
+            )
+    ep = data.get("expected_pattern")
+    if ep is not None and not isinstance(ep, str):
+        raise ValueError(
+            f"perf-analyst fixture at {path}: expected_pattern must be a string or null"
+        )
+    ebv = data.get("expected_budget_verdict")
+    if ebv:
+        norm = str(ebv).upper().replace(" ", "")
+        if norm not in {v.replace(" ", "") for v in _PERF_ANALYST_BUDGET_VERDICTS}:
+            raise ValueError(
+                f"perf-analyst fixture at {path}: expected_budget_verdict "
+                f"'{ebv}' must be one of {sorted(_PERF_ANALYST_BUDGET_VERDICTS)} "
+                "or omitted"
+            )
+    ec = data.get("expected_confidence")
+    if ec is not None and ec not in _PERF_ANALYST_CONFIDENCE_LEVELS:
+        raise ValueError(
+            f"perf-analyst fixture at {path}: expected_confidence '{ec}' "
+            f"must be one of {sorted(_PERF_ANALYST_CONFIDENCE_LEVELS)} or null"
+        )
+
+
+# ---- adr-generator ----
+def _validate_adr_generator_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"adr-generator fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"adr-generator fixture at {path}: inputs must be a mapping")
+    if not inputs.get("decision_brief"):
+        raise ValueError(
+            f"adr-generator fixture at {path}: inputs.decision_brief is required (non-empty)"
+        )
+    existing = inputs.get("existing_adrs")
+    if existing is not None and not isinstance(existing, list):
+        raise ValueError(
+            f"adr-generator fixture at {path}: inputs.existing_adrs must be a list"
+        )
+    expected = data.get("expected") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(f"adr-generator fixture at {path}: expected must be a mapping")
+    nnnn = expected.get("expected_nnnn")
+    if nnnn is not None and not (isinstance(nnnn, str) and nnnn.isdigit() and len(nnnn) == 4):
+        raise ValueError(
+            f"adr-generator fixture at {path}: expected.expected_nnnn must be a 4-digit "
+            f"string (e.g. '0003') or omitted, got {nnnn!r}"
+        )
+    amin = expected.get("alternatives_min")
+    if amin is not None and not isinstance(amin, int):
+        raise ValueError(
+            f"adr-generator fixture at {path}: expected.alternatives_min must be an int"
+        )
+    rsbs = expected.get("required_substrings_by_section")
+    if rsbs is not None and not isinstance(rsbs, dict):
+        raise ValueError(
+            f"adr-generator fixture at {path}: "
+            "expected.required_substrings_by_section must be a mapping"
+        )
+    cbf = expected.get("coded_bullet_floors")
+    if cbf is not None:
+        if not isinstance(cbf, dict):
+            raise ValueError(
+                f"adr-generator fixture at {path}: "
+                "expected.coded_bullet_floors must be a mapping"
+            )
+        for k, v in cbf.items():
+            if k.upper() not in {"POS", "NEG", "ALT", "IMP", "REF"}:
+                raise ValueError(
+                    f"adr-generator fixture at {path}: coded_bullet_floors key '{k}' "
+                    "must be one of POS, NEG, ALT, IMP, REF"
+                )
+            if not isinstance(v, int):
+                raise ValueError(
+                    f"adr-generator fixture at {path}: coded_bullet_floors[{k!r}] must be int"
+                )
+
+
+# ---- adr-drift-detector ----
+_ADR_DRIFT_CLASSES = {
+    "VIOLATED",
+    "PARTIAL",
+    "UNVERIFIABLE",
+    "FOLLOWED",
+    "SKIPPED",
+    "PROPOSED",
+}
+
+
+def _validate_adr_drift_detector_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_report"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"adr-drift-detector fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"adr-drift-detector fixture at {path}: inputs must be a mapping"
+        )
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"adr-drift-detector fixture at {path}: inputs.repo_dir is required "
+            "(relative path to the seeded repo subtree under the fixture dir; "
+            "the runner copies this tree into the Tier 1 worktree before the "
+            "agent is spawned)."
+        )
+    expected = data.get("expected_report") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"adr-drift-detector fixture at {path}: expected_report must be a mapping"
+        )
+    classifications = expected.get("expected_classifications") or []
+    if not isinstance(classifications, list):
+        raise ValueError(
+            f"adr-drift-detector fixture at {path}: expected_report.expected_classifications "
+            "must be a list"
+        )
+    for entry in classifications:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"adr-drift-detector fixture at {path}: each expected_classifications "
+                "entry must be a mapping with adr_id and classification"
+            )
+        if "adr_id" not in entry or "classification" not in entry:
+            raise ValueError(
+                f"adr-drift-detector fixture at {path}: each expected_classifications "
+                "entry requires adr_id and classification"
+            )
+        cls = str(entry["classification"]).upper()
+        if cls not in _ADR_DRIFT_CLASSES:
+            raise ValueError(
+                f"adr-drift-detector fixture at {path}: classification "
+                f"'{entry['classification']}' not in {sorted(_ADR_DRIFT_CLASSES)}"
+            )
+    evidence = expected.get("expected_violation_evidence")
+    if evidence is not None and not isinstance(evidence, list):
+        raise ValueError(
+            f"adr-drift-detector fixture at {path}: expected_report.expected_violation_evidence "
+            "must be a list"
+        )
+    missing_targets = expected.get("expected_superseded_missing")
+    if missing_targets is not None and not isinstance(missing_targets, list):
+        raise ValueError(
+            f"adr-drift-detector fixture at {path}: expected_report.expected_superseded_missing "
+            "must be a list"
+        )
+    vac = expected.get("vacuous_axes")
+    if vac is not None and not isinstance(vac, list):
+        raise ValueError(
+            f"adr-drift-detector fixture at {path}: expected_report.vacuous_axes must be a list"
+        )
+
+
+# ---- dependency-auditor ----
+def _validate_dependency_auditor_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"dependency-auditor fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"dependency-auditor fixture at {path}: inputs must be a mapping"
+        )
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"dependency-auditor fixture at {path}: inputs.repo_dir is required "
+            "(relative path to the seeded repo subtree containing package.json / "
+            "lockfiles / .audit/*.json pre-captured tool output)"
+        )
+    if "scope" not in inputs:
+        raise ValueError(
+            f"dependency-auditor fixture at {path}: inputs.scope is required "
+            "('full_audit', 'single_dep', or 'upgrade_diff' - matches the "
+            "role doc's 'Reading your spawn prompt' section)"
+        )
+    if inputs.get("scope") not in {"full_audit", "single_dep", "upgrade_diff"}:
+        raise ValueError(
+            f"dependency-auditor fixture at {path}: inputs.scope must be one of "
+            "'full_audit', 'single_dep', 'upgrade_diff'"
+        )
+    expected = data.get("expected") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"dependency-auditor fixture at {path}: expected must be a mapping"
+        )
+    for key in ("cve_findings", "license_findings", "maintenance_findings"):
+        val = expected.get(key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"dependency-auditor fixture at {path}: expected.{key} must be a list"
+            )
+        for entry in (val or []):
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"dependency-auditor fixture at {path}: each entry in "
+                    f"expected.{key} must be a mapping with a 'keywords' list"
+                )
+            kws = entry.get("keywords")
+            if not isinstance(kws, list) or not kws:
+                raise ValueError(
+                    f"dependency-auditor fixture at {path}: each entry in "
+                    f"expected.{key} must carry a non-empty 'keywords' list"
+                )
+    eco = expected.get("expected_ecosystems")
+    if eco is not None and not isinstance(eco, list):
+        raise ValueError(
+            f"dependency-auditor fixture at {path}: expected.expected_ecosystems "
+            "must be a list"
+        )
+
+
+# ---- representation-audit ----
+def _validate_representation_audit_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"representation-audit fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(
+            f"representation-audit fixture at {path}: inputs must be a mapping"
+        )
+    if "repo_dir" not in inputs:
+        raise ValueError(
+            f"representation-audit fixture at {path}: inputs.repo_dir is required "
+            "(relative path to the seeded repo subtree under the fixture dir)"
+        )
+    expected = data.get("expected_outputs") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"representation-audit fixture at {path}: expected_outputs must be a mapping"
+        )
+    if "proposal_glob" not in expected:
+        raise ValueError(
+            f"representation-audit fixture at {path}: expected_outputs.proposal_glob "
+            "is required (glob of the proposal artifact path under docs/planning/)"
+        )
+    for int_key in ("proposal_min_candidates", "proposal_max_candidates"):
+        v = expected.get(int_key)
+        if v is not None and not isinstance(v, int):
+            raise ValueError(
+                f"representation-audit fixture at {path}: expected_outputs.{int_key} "
+                "must be an int"
+            )
+    for list_key in (
+        "required_sections",
+        "required_candidate_fields",
+        "valid_signals",
+        "valid_priorities",
+        "valid_meaning_preserved",
+    ):
+        val = expected.get(list_key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"representation-audit fixture at {path}: expected_outputs.{list_key} "
+                "must be a list"
+            )
+
+
+
 _FIXTURE_VALIDATORS = {
     "skeptic": _validate_skeptic_fixture,
     "conductor": _validate_conductor_fixture,
@@ -867,6 +1164,12 @@ _FIXTURE_VALIDATORS = {
     "prune-harness": _validate_prune_harness_fixture,
     "cleanup-worktrees": _validate_cleanup_worktrees_fixture,
     "update-agentic-engineering": _validate_update_agentic_engineering_fixture,
+    "perf-analyst": _validate_perf_analyst_fixture,
+    "adr-generator": _validate_adr_generator_fixture,
+    "adr-drift-detector": _validate_adr_drift_detector_fixture,
+    "dependency-auditor": _validate_dependency_auditor_fixture,
+    "representation-audit": _validate_representation_audit_fixture,
+
 }
 
 
