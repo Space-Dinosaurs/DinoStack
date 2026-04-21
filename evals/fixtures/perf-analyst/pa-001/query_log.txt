@@ -1,0 +1,24 @@
+-- Application SQL log, one request to GET /orders?limit=50
+-- Captured at DEBUG level from src/db/session.py
+
+[t=0.004s] SELECT id, customer_id, total_cents, created_at FROM orders
+           ORDER BY created_at DESC LIMIT 50
+[t=0.021s] SELECT id, name, email FROM customers WHERE id = 1041
+[t=0.035s] SELECT id, name, email FROM customers WHERE id = 882
+[t=0.049s] SELECT id, name, email FROM customers WHERE id = 7711
+[t=0.063s] SELECT id, name, email FROM customers WHERE id = 102
+[t=0.077s] SELECT id, name, email FROM customers WHERE id = 5530
+... (45 more identical-shape customer lookups omitted for brevity) ...
+[t=0.794s] SELECT id, name, email FROM customers WHERE id = 993
+
+Summary:
+  total queries     = 47
+  orders query      = 1
+  customer queries  = 46 (one per unique order.customer_id, no IN clause)
+  total sql time    = 787 ms
+  per-customer-q    = 14 ms median round-trip (local postgres)
+
+Notes:
+  The test dataset has 50 orders across 46 distinct customers; the loop
+  issues one customer query per order, skipping the hydration cache on
+  a cold-start request. Warm requests see the same 47-query pattern.

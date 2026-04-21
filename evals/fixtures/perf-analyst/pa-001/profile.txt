@@ -1,0 +1,28 @@
+py-spy record --rate 100 --duration 10 -- python bench/run_orders.py
+Collected 1013 samples. Wrote flamegraph to /tmp/pa001.svg.
+
+Function-level cumulative time (top 10):
+  94.1%  src/orders/handlers.py:list_orders
+  91.2%  src/orders/handlers.py:load_customer_inline
+  88.7%  src/db/session.py:Session.execute
+  82.3%  sqlalchemy/engine/base.py:Connection._execute_clauseelement
+  40.2%  socket.recv_into
+   3.1%  json/encoder.py:_iterencode_dict
+   1.7%  src/orders/serializers.py:order_to_dict
+   0.4%  werkzeug/wrappers/request.py:get_json
+
+Self-time leaders:
+  62.5%  socket.recv_into
+   8.3%  sqlalchemy result marshalling
+   2.9%  handlers.py loop body (excluding callee)
+
+Request latency (hyperfine, 20 runs, warmup 3):
+  median  820 ms
+  min     742 ms
+  max     1014 ms
+  p99     997 ms
+
+Per-request wall breakdown:
+  sql_roundtrips  787 ms (96.0%)
+  serialize         22 ms
+  framework         11 ms

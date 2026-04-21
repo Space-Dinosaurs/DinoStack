@@ -1,0 +1,10 @@
+{
+  "name": "da-001-api-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fixture: minimal express service seeded with an old express that pulls vulnerable qs transitively.",
+  "license": "MIT",
+  "dependencies": {
+    "express": "4.17.1"
+  }
+}

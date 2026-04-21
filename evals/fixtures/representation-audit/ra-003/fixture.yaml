@@ -1,0 +1,31 @@
+id: ra-003
+component: representation-audit
+protocol_sha: 86b4cd5db464a2edd2fc46171d00743ad72f42b7
+description: "Over-density below-ceiling fixture; 30+ plausible R1/R2/R6 blocks across two files; caps force a rank-and-drop. In-range expected but not guaranteed - discriminates on analyst's ability to enforce the 3-10 cap."
+inputs:
+  repo_dir: repo/
+  home_config:
+    agentic-engineering.json: '{"mode":"opt-in","set_at":"2026-04-20"}'
+expected_outputs:
+  proposal_glob: "docs/planning/representation-audit-*.md"
+  proposal_min_candidates: 3
+  proposal_max_candidates: 10
+  required_sections:
+    - "## Signal summary"
+    - "## Rewrite candidates"
+    - "## Files reviewed with no rewrites proposed"
+    - "## Recommended action sequence"
+  required_candidate_fields:
+    - "File"
+    - "Current form"
+    - "Proposed form"
+    - "Signal"
+    - "Meaning preserved"
+    - "Priority"
+    - "Priority rationale"
+    - "Risk of meaning shift"
+  valid_signals: ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]
+  valid_priorities: ["HIGH", "MEDIUM", "LOW"]
+  valid_meaning_preserved: ["HIGH", "MEDIUM", "LOW"]
+  allow_empty_with_rationale: false
+  forbidden_content_write: true

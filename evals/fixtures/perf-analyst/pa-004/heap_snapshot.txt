@@ -1,0 +1,21 @@
+guppy-style heap snapshot, captured at request 10000 (after 192 MB peak):
+
+Partition of a set of 4210389 objects. Total size = 198213056 bytes.
+ Index  Count   %   Size   %  Cumulative   %  Kind (class / dict of class)
+     0  832140 19.8  87.9 MB 44.3%   87.9 MB 44.3%  dict (SessionCache._store)
+     1  832140 19.8  39.1 MB 19.7%  127.0 MB 64.1%  str (session token values)
+     2  832140 19.8  26.6 MB 13.4%  153.7 MB 77.5%  tuple (session rows)
+     3   94211  2.2  12.1 MB  6.1%  165.8 MB 83.6%  dict (SQLAlchemy result)
+     4   41022  1.0   6.5 MB  3.3%  172.3 MB 86.9%  str (misc)
+
+Dominant retained size:
+  SessionCache._store     ~152 MB retained (including values)
+  Everything else          ~46 MB
+
+Unique session tokens generated during the run: 10013.
+Entries in SessionCache._store at snapshot: 10013.
+Entries in SessionCache._store at startup:       1 (bootstrap fixture).
+
+Conclusion from snapshot alone: the _store dict grows by one entry per
+unique session token and is never pruned. The auth middleware is the
+sole writer (grep: SessionCache.put appears only in middleware.py).

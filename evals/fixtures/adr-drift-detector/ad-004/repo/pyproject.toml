@@ -1,0 +1,6 @@
+[project]
+name = "ad-004-fp-trap"
+version = "0.1.0"
+dependencies = [
+  "psycopg2-binary>=2.9.0",
+]

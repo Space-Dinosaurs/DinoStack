@@ -1,0 +1,4 @@
+[
+  {"Name": "requests", "Version": "2.32.3", "License": "Apache-2.0"},
+  {"Name": "pyyaml", "Version": "6.0.2", "License": "MIT"}
+]

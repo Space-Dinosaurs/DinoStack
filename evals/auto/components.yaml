@@ -97,17 +97,6 @@ architect:
   max_iterations: 10
   whole_file_replacement: false
 
-qa-engineer:
-  editable:
-    - content/agents/qa-engineer.md
-  locked:
-    - content/rules/agent-methodology.md
-    - evals/**
-  max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
-  max_iterations: 10
-  whole_file_replacement: false
-
 release-orchestrator:
   editable:
     - content/agents/release-orchestrator.md
@@ -132,12 +121,123 @@ update-agentic-engineering:
   max_iterations: 10
   whole_file_replacement: false
 
-update-agentic-engineering:
+perf-analyst:
   editable:
-    - content/commands/update-agentic-engineering.md
+    - content/agents/perf-analyst.md
   locked:
     - content/rules/agent-methodology.md
-    - .claude/build.sh
+    - content/rules/module-manifest.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+adr-generator:
+  editable:
+    - content/agents/adr-generator.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 25
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+adr-drift-detector:
+  editable:
+    - content/agents/adr-drift-detector.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 30
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+dependency-auditor:
+  editable:
+    - content/agents/dependency-auditor.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+representation-audit:
+  editable:
+    - content/commands/representation-audit.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 40
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+investigator:
+  editable:
+    - content/agents/investigator.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+security-auditor:
+  editable:
+    - content/agents/security-auditor.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 20
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+memory-update:
+  editable:
+    - content/commands/memory-update.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 40
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+implement-ticket:
+  editable:
+    - content/commands/implement-ticket.md
+  locked:
+    - content/rules/agent-methodology.md
+    - content/rules/module-manifest.md
+    - evals/**
+  max_edit_loc: 40
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+prune-harness:
+  editable:
+    - content/commands/prune-harness.md
+  locked:
+    - content/rules/agent-methodology.md
+    - evals/**
+  max_edit_loc: 40
+  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  max_iterations: 10
+  whole_file_replacement: false
+
+cleanup-worktrees:
+  editable:
+    - content/commands/cleanup-worktrees.md
+  locked:
+    - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"

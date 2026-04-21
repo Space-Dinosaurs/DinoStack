@@ -1,0 +1,20 @@
+{
+  "name": "lodash-es",
+  "description": "Lodash exported as ES modules.",
+  "homepage": "https://lodash.com/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lodash/lodash.git"
+  },
+  "license": "MIT",
+  "time": {
+    "created": "2015-09-03T04:32:22.000Z",
+    "modified": "2021-02-20T15:42:16.000Z",
+    "4.17.21": "2021-02-20T15:42:16.000Z"
+  },
+  "deprecated": null,
+  "dist-tags": {
+    "latest": "4.17.21"
+  },
+  "downloads_weekly": 10450000
+}

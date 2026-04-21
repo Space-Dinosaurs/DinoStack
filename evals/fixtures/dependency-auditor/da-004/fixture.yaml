@@ -1,0 +1,13 @@
+id: da-004
+description: "Scan gap: Cargo.lock present but no cargo-audit output staged. Agent must record the gap; no CVEs expected. BELOW-CEILING - scan_coverage axis exercised."
+component: dependency-auditor
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+inputs:
+  scope: full_audit
+  repo_dir: repo
+  known_constraints: ""
+expected:
+  cve_findings: []
+  license_findings: []
+  maintenance_findings: []
+  expected_ecosystems: ["cargo"]

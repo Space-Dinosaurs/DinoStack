@@ -1,0 +1,11 @@
+name: perf-analyst
+tier: 1
+content_glob:
+  - content/agents/perf-analyst.md
+scoring_module: evals.scoring.perf_analyst_lite
+fixture_dir: evals/fixtures/perf-analyst
+n_runs: 3
+parallelism: serial
+timeout_seconds: 240
+invoke:
+  agent_name: perf-analyst
