@@ -413,7 +413,7 @@ Skip Part E entirely if Parts B, C, and D all reported no changes (no new memory
 
 Skip any target that does not exist.
 
-**State file:** `[cwd]/.claude/compression-state.json`. Schema:
+**State file:** `[cwd]/.agentic/compression-state.json`. Schema:
 
     {
       "targets": {
@@ -472,7 +472,7 @@ Otherwise skip that target silently.
    - (b) Write a rolling snapshot `FILE.pre-YYYY-MM-DD-HHMMSS.md` (using the current UTC timestamp at write time) from the current (pre-compression) file content. Always write; never skip.
    - (c) Prune rolling snapshots: keep only the 3 most recent `FILE.pre-*.md` snapshots for this target (by timestamp in filename). Delete older ones.
    - (d) Overwrite `FILE.md` with the compressed content.
-   - (e) Update `[cwd]/.claude/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file (and `.claude/` directory if needed) if it does not exist.
+   - (e) Update `[cwd]/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file (and `.agentic/` directory if needed) if it does not exist.
 
 **Step 5 — Worktree cleanup.**
 
