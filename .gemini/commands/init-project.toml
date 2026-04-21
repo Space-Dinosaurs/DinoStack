@@ -21,7 +21,7 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 **0a. Global activation mode** — read this before any other discovery work.
 
-Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`.
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out` and `profile=default`.
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 
@@ -35,6 +35,8 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
     ## Activation
     agentic-engineering: opt-in
     ```
+
+  - After the activation marker, optionally add `agentic-engineering-profile: <relaxed|default|strict>`. Only add this if the user explicitly requests a profile during Step 1 or if a global profile is set in `~/.claude/agentic-engineering.json`. If the user does not mention a profile, do not add the marker (the global default will apply).
 
   - On **no**: stop `/init-project` here. Print: "Skipped - no scaffolding written. Rerun `/init-project` to activate later, or set `--mode=opt-out` via a reinstall." Exit.
 
@@ -799,5 +801,5 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
-13. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, add `agentic-engineering: opt-out` to `AGENTS.md` (under `## Activation` or as a bare line near the top). *(If global mode was `opt-in` and the user activated)* This project has `agentic-engineering: opt-in` in `AGENTS.md`; remove that line to deactivate here later.
+13. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, add `agentic-engineering: opt-out` to `AGENTS.md` (under `## Activation` or as a bare line near the top). *(If global mode was `opt-in` and the user activated)* This project has `agentic-engineering: opt-in` in `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, add `agentic-engineering-profile: relaxed` (or `default` or `strict`) to `AGENTS.md`.
 """
