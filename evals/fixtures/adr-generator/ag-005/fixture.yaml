@@ -1,0 +1,65 @@
+id: ag-005
+description: "Service mesh adoption. Below-ceiling trap: generator may conflate the rejected alternatives, reducing the alternatives block count or skipping rejection reasons."
+component: adr-generator
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+inputs:
+  decision_brief: |
+    Decision title: Service-to-service traffic management for the
+    internal Kubernetes cluster.
+
+    Context: We currently rely on kube-proxy plus a small set of
+    hand-written retry decorators in each service's HTTP client. Teams
+    have independently implemented inconsistent retry/timeout/circuit-
+    breaker policies. Observability of east-west traffic is limited to
+    per-service logs - we have no centralized view of cross-service
+    latency, error rates, or mTLS posture. Security has requested
+    pod-to-pod mTLS by end of quarter.
+
+    Decision: Adopt Linkerd as our service mesh. Enable automatic mTLS
+    cluster-wide, standardized retry/timeout policies via the mesh, and
+    unified golden-metrics scraping.
+
+    Alternatives considered:
+
+    1. Istio. Rejected because its sidecar resource overhead (~200MB
+       per pod) breaks the budget for our high-density namespaces, and
+       the operational footprint exceeds our platform-team's on-call
+       capacity.
+
+    2. Cilium in service-mesh mode (eBPF-based). Rejected because it
+       requires kernel version upgrades on two of our three node pools,
+       and the upgrade cadence on our managed Kubernetes offering is
+       outside our control.
+
+    3. Stay with hand-rolled client decorators plus cert-manager for
+       mTLS. Rejected because it leaves the retry/timeout consistency
+       problem unsolved and observability unchanged - this is the "do
+       nothing" baseline and does not meet the end-of-quarter mTLS
+       requirement.
+
+    Stakeholders: platform-team (authors), security-team (mTLS
+    requirement owner), every service team (affected).
+  constraints: |
+    - Pod-to-pod mTLS must be cluster-wide by end of quarter.
+    - Must not require a custom CNI replacement on existing node pools.
+    - Must not exceed 50MB memory overhead per meshed pod.
+  existing_adrs: []
+expected:
+  expected_nnnn: "0001"
+  alternatives_min: 3
+  required_substrings_by_section:
+    "Context":
+      - "kube-proxy"
+      - "mTLS"
+    "Decision":
+      - "Linkerd"
+    "Alternatives Considered":
+      - "Istio"
+      - "Cilium"
+      - "hand-rolled"
+  coded_bullet_floors:
+    POS: 2
+    NEG: 2
+    ALT: 3
+    IMP: 2
+    REF: 1

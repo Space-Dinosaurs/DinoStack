@@ -1,0 +1,24 @@
+id: pa-002
+description: "Synchronous requests.get blocks the event loop; 78% of wall time in network wait on the currency-rate refresh."
+component: perf-analyst
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+archetype: sync_io_hot_path
+inputs:
+  target: "refresh_rates() worker task (src/workers/rates.py)"
+  repro_command: "(captured) python -m cProfile -o /tmp/p.pstats bench/refresh_rates_once.py"
+  profile_file: profile.txt
+  source_excerpt_file: source_excerpt.py
+  perf_budget: "< 500 ms per refresh cycle"
+  hypothesis: "Unclear - worker is single-threaded async but a dependency may be blocking."
+hotspot_keywords:
+  - "requests.get"
+  - "refresh_rates"
+  - "rates.py"
+expected_pattern: "Synchronous I/O"
+forbidden_patterns: []
+evidence_tokens:
+  - "78"
+  - "2140"
+  - "requests.get"
+expected_budget_verdict: "FAIL"
+expected_confidence: "High"

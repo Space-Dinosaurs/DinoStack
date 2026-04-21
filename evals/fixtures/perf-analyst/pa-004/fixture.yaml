@@ -1,0 +1,25 @@
+id: pa-004
+description: "SessionCache never evicts; heap grows 12MB -> 192MB over 10k requests; unbounded dict in AuthMiddleware."
+component: perf-analyst
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+archetype: memory_leak_unbounded_growth
+inputs:
+  target: "AuthMiddleware session cache (src/auth/middleware.py)"
+  repro_command: "(captured) memray run --native bench/load_10k.py"
+  profile_file: profile.txt
+  heap_snapshot_file: heap_snapshot.txt
+  source_excerpt_file: source_excerpt.py
+  perf_budget: "< 64 MB resident steady-state"
+  hypothesis: "Someone suspects a connection-pool leak."
+hotspot_keywords:
+  - "SessionCache"
+  - "AuthMiddleware"
+  - "middleware.py"
+expected_pattern: "Unbounded growth"
+forbidden_patterns: []
+evidence_tokens:
+  - "192"
+  - "12"
+  - "10000"
+expected_budget_verdict: "FAIL"
+expected_confidence: "High"

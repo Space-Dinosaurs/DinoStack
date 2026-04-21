@@ -1,0 +1,58 @@
+id: ag-002
+description: "Authentication strategy for an existing monolith. Numbering-aware: two prior ADRs exist (0001, 0002); expected NNNN = 0003."
+component: adr-generator
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+inputs:
+  decision_brief: |
+    Decision title: Authentication strategy for the public API.
+
+    Context: Our API currently uses long-lived bearer tokens stored as
+    opaque database rows. Tokens do not expire and cannot be revoked
+    per-client without hitting the DB on every request, which is creating
+    cache-eviction churn and unnecessary outbound calls to the auth
+    service from every API pod.
+
+    Decision: Move to short-lived JWTs signed with RS256, issued by the
+    existing auth service via an OIDC /token endpoint. Access tokens
+    expire in 15 minutes; refresh tokens expire in 30 days and are
+    rotation-tracked server-side for revocation.
+
+    Alternatives considered: keep opaque tokens with a distributed cache
+    (rejected - pushes the eviction problem sideways and still requires
+    a central lookup on cache miss), HMAC-signed tokens with HS256
+    (rejected - symmetric key distribution does not fit our multi-team
+    verifier model), mutual TLS at the edge (rejected - raises client-side
+    complexity for third-party integrators).
+
+    Stakeholders: platform-team (authors), api-team (consumers),
+    security-team (reviewers).
+  constraints: |
+    - Must support per-client revocation within 5 minutes.
+    - Must not require a synchronous call to the auth service on every
+      API request in the happy path.
+    - Must be compatible with our existing OIDC provider.
+  existing_adrs:
+    - nnnn: "0001"
+      title: "Order-ledger datastore selection"
+    - nnnn: "0002"
+      title: "Logging and trace-id propagation"
+expected:
+  expected_nnnn: "0003"
+  alternatives_min: 3
+  required_substrings_by_section:
+    "Context":
+      - "bearer token"
+      - "revoke"
+    "Decision":
+      - "JWT"
+      - "RS256"
+    "Alternatives Considered":
+      - "opaque"
+      - "HMAC"
+      - "mutual TLS"
+  coded_bullet_floors:
+    POS: 2
+    NEG: 2
+    ALT: 3
+    IMP: 2
+    REF: 1

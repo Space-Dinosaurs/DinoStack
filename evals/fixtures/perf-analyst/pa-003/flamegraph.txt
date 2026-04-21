@@ -1,0 +1,22 @@
+py-spy dump --flamegraph --format text (collapsed stack aggregates):
+
+# samples   stack
+8912        score_document;_build_vocab;spacy.Language.__call__;...
+2431        score_document;_tf_idf_vector
+738         score_document;_cosine
+51          score_document;_build_vocab;spacy.Language.__call__;tokenizer.Tokenizer.__call__
+43          score_document;other
+11          __main__;bench/score_batch.py
+
+Parent-counts (aggregated one level up from leaf):
+  _build_vocab      8963 samples (71.3%)
+  _tf_idf_vector    2431 samples (19.3%)
+  _cosine            738 samples (5.9%)
+  <other>            425 samples (3.4%)
+
+Observation: _build_vocab is called 1000 times (once per document) but
+only ever returns the same vocabulary - the input corpus does not
+change across the batch. The recomputation is the dominant cost.
+
+There is no loop of database queries in this trace. The only I/O is
+one spaCy model load at import time (not per-call).

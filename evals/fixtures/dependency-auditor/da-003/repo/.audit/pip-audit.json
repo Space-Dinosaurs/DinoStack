@@ -1,0 +1,14 @@
+{
+  "dependencies": [
+    {
+      "name": "requests",
+      "version": "2.32.3",
+      "vulns": []
+    },
+    {
+      "name": "pyyaml",
+      "version": "6.0.2",
+      "vulns": []
+    }
+  ]
+}

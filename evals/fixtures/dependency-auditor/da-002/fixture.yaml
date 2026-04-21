@@ -1,0 +1,17 @@
+id: da-002
+description: "License violation: GPL-3.0-licensed dep (readline-sync) in a proprietary project. Expected a Major license finding; no CVEs."
+component: dependency-auditor
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+inputs:
+  scope: full_audit
+  repo_dir: repo
+  known_constraints: |
+    This is a proprietary commercial project. GPL-family licenses (GPL-2.0,
+    GPL-3.0, AGPL-3.0, LGPL) are not allowed. MIT/Apache-2.0/BSD/ISC only.
+expected:
+  cve_findings: []
+  license_findings:
+    - category: "GPL license"
+      keywords: ["GPL", "readline-sync"]
+  maintenance_findings: []
+  expected_ecosystems: ["npm"]

@@ -1,0 +1,16 @@
+{
+  "chalk@4.1.2": {
+    "licenses": "MIT",
+    "repository": "https://github.com/chalk/chalk",
+    "publisher": "",
+    "path": "node_modules/chalk",
+    "licenseFile": "node_modules/chalk/license"
+  },
+  "readline-sync@1.4.10": {
+    "licenses": "GPL-3.0",
+    "repository": "https://github.com/anseki/readline-sync",
+    "publisher": "anseki",
+    "path": "node_modules/readline-sync",
+    "licenseFile": "node_modules/readline-sync/LICENSE"
+  }
+}

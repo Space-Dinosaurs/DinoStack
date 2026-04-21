@@ -1,0 +1,20 @@
+id: pa-005
+description: "Clean control: compute_checksum is already near the theoretical floor; no hotspot, budget passes."
+component: perf-analyst
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+archetype: clean_control
+inputs:
+  target: "compute_checksum() batch path (src/util/checksum.py)"
+  repro_command: "(captured) hyperfine 'python bench/checksum_10mb.py'"
+  profile_file: profile.txt
+  source_excerpt_file: source_excerpt.py
+  perf_budget: "< 250 ms for a 10 MB input"
+  hypothesis: "The team suspects there might be a hotspot; asked for a sanity check."
+hotspot_keywords: []
+expected_pattern: ""
+forbidden_patterns: []
+evidence_tokens:
+  - "182"
+  - "10"
+expected_budget_verdict: "PASS"
+expected_confidence: "High"

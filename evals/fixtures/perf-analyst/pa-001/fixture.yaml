@@ -1,0 +1,26 @@
+id: pa-001
+description: "N+1 query on orders list endpoint; 47 queries per request, 94% of latency in the loop."
+component: perf-analyst
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+archetype: n_plus_one
+inputs:
+  target: "GET /orders endpoint (src/orders/handlers.py:list_orders)"
+  repro_command: "(captured) hyperfine --warmup 3 'curl -s http://localhost:8000/orders?limit=50'"
+  profile_file: profile.txt
+  query_log_file: query_log.txt
+  source_excerpt_file: source_excerpt.py
+  perf_budget: "< 200 ms p99, <= 3 SQL queries per request"
+  hypothesis: "The /orders endpoint loads each order's customer separately."
+hotspot_keywords:
+  - "list_orders"
+  - "customer"
+  - "handlers.py"
+expected_pattern: "N+1"
+forbidden_patterns:
+  - "Serialization overhead"
+evidence_tokens:
+  - "47"
+  - "94"
+  - "820"
+expected_budget_verdict: "FAIL"
+expected_confidence: "Medium"

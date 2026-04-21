@@ -1,0 +1,64 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "qs": {
+      "name": "qs",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1087414,
+          "name": "qs",
+          "dependency": "qs",
+          "title": "qs vulnerable to Prototype Pollution",
+          "url": "https://github.com/advisories/GHSA-hrpp-h998-j3pp",
+          "severity": "high",
+          "cwe": ["CWE-1321"],
+          "cvss": {"score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"},
+          "range": "<6.9.7",
+          "cve": ["CVE-2022-24999"]
+        }
+      ],
+      "effects": ["express"],
+      "range": "<6.9.7",
+      "nodes": ["node_modules/qs"],
+      "fixAvailable": {
+        "name": "express",
+        "version": "4.18.2",
+        "isSemVerMajor": false
+      }
+    },
+    "express": {
+      "name": "express",
+      "severity": "high",
+      "isDirect": true,
+      "via": ["qs"],
+      "effects": [],
+      "range": "4.0.0-rc1 - 4.17.3",
+      "nodes": ["node_modules/express"],
+      "fixAvailable": {
+        "name": "express",
+        "version": "4.18.2",
+        "isSemVerMajor": false
+      }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 2,
+      "critical": 0,
+      "total": 2
+    },
+    "dependencies": {
+      "prod": 30,
+      "dev": 0,
+      "optional": 0,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 30
+    }
+  }
+}

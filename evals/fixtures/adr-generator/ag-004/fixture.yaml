@@ -1,0 +1,57 @@
+id: ag-004
+description: "Library versioning policy. Below-ceiling: paraphrase risk - generator may rewrite 'semver' as 'semantic versioning' and miss required substrings."
+component: adr-generator
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+inputs:
+  decision_brief: |
+    Decision title: Versioning policy for internal shared libraries.
+
+    Context: We publish ~40 internal shared libraries to an Artifactory
+    npm registry. Today each library uses ad-hoc versioning: some follow
+    CalVer (YYYY.MM.DD), some use sequential integers, a few follow
+    semver but inconsistently (breaking changes land on minor bumps).
+    Consumers pin to exact versions because they cannot predict the
+    upgrade risk of a range selector. Security patches are painful
+    because pinned deep dependencies must be PRed individually.
+
+    Decision: Adopt strict semver 2.0.0 across every internal library.
+    Major bump MUST accompany any breaking API change. Minor bumps are
+    additive-only. Patch bumps are bugfix-only. Deprecation: mark with
+    a console.warn for one full major cycle before removal.
+
+    Alternatives considered: CalVer across all libraries (rejected -
+    does not signal compatibility, forces manual changelog reading on
+    every upgrade), keep per-library policies (rejected - status quo
+    is what produced the current pain), zero-ver lock at 0.x indefinitely
+    (rejected - signals instability to auditors and blocks adoption
+    outside platform).
+
+    Stakeholders: platform-team (authors), all consuming service teams
+    (affected), security-team (benefit from easier patch flows).
+  constraints: |
+    - Policy must be mechanically enforceable in CI (no lint-only rules).
+    - Libraries currently at CalVer must have a documented migration path.
+    - Must not require consumers to change their registry configuration.
+  existing_adrs: []
+expected:
+  expected_nnnn: "0001"
+  alternatives_min: 3
+  required_substrings_by_section:
+    "Context":
+      - "CalVer"
+      - "pin"
+    "Decision":
+      - "semver"
+      - "major"
+      - "minor"
+      - "patch"
+    "Alternatives Considered":
+      - "CalVer"
+      - "per-library"
+      - "0.x"
+  coded_bullet_floors:
+    POS: 2
+    NEG: 2
+    ALT: 3
+    IMP: 2
+    REF: 1

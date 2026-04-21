@@ -1,0 +1,27 @@
+id: pa-003
+description: "score_document recomputes the tokenizer vocabulary on every call; 71% self-time in _build_vocab."
+component: perf-analyst
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+archetype: repeated_computation
+inputs:
+  target: "score_document() batch scoring pipeline (src/nlp/scorer.py)"
+  repro_command: "(captured) python -m cProfile -o /tmp/p.pstats bench/score_batch.py"
+  profile_file: profile.txt
+  flamegraph_file: flamegraph.txt
+  source_excerpt_file: source_excerpt.py
+  perf_budget: null
+  hypothesis: "Someone said 'feels like database thrashing'."
+hotspot_keywords:
+  - "_build_vocab"
+  - "score_document"
+  - "scorer.py"
+expected_pattern: "Repeated computation"
+forbidden_patterns:
+  - "N+1"
+  - "Unbounded growth"
+evidence_tokens:
+  - "71"
+  - "1000"
+  - "_build_vocab"
+expected_budget_verdict: "N/A"
+expected_confidence: "Medium"

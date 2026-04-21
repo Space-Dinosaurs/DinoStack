@@ -1,0 +1,16 @@
+id: ad-003
+component: adr-drift-detector
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+description: "Below-ceiling: ADR requires strict TS mode AND no-implicit-any; strict is true but noImplicitAny override turns off one piece. Partial compliance."
+archetype: partial-compliance-below-ceiling
+inputs:
+  repo_dir: repo
+expected_report:
+  expected_classifications:
+    - adr_id: 1
+      classification: PARTIAL
+    - adr_id: 2
+      classification: FOLLOWED
+  vacuous_axes:
+    - evidence
+    - superseded

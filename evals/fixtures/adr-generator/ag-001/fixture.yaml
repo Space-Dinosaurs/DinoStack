@@ -1,0 +1,51 @@
+id: ag-001
+description: "Choose the primary datastore for a new service. Ceiling-capable baseline: clean scope, clear constraints, no prior ADRs."
+component: adr-generator
+protocol_sha: 04d817c093f8b65bac38855733f34ecb001c14b7
+inputs:
+  decision_brief: |
+    Decision title: Primary datastore selection for the order-ledger service.
+
+    Context: We are spinning up a new order-ledger microservice that will
+    record every customer order with strong consistency requirements (no
+    double-charges, idempotent write path, audit-grade history). Expected
+    write volume is ~200 TPS steady state with 1000 TPS peak during sales.
+    Read traffic is heavily dominated by point-lookups by order_id and
+    range scans by customer_id + date.
+
+    Decision: Adopt PostgreSQL 15 on managed RDS as the primary datastore.
+    Use a single-writer architecture with read replicas for range-scan
+    reporting.
+
+    Alternatives considered: DynamoDB (rejected for weaker transactional
+    guarantees across item boundaries and painful secondary-index cost),
+    CockroachDB (rejected for operational maturity risk - team has no prior
+    Cockroach production experience), MySQL 8 (rejected for weaker JSONB
+    tooling and less familiar operational tooling in our infra).
+
+    Stakeholders: platform-team (authors), payments-team (consumers),
+    sre-team (operators).
+  constraints: |
+    - Must support serializable isolation for the write path.
+    - Must be supported by our existing RDS observability stack.
+    - Must allow schema evolution without requiring table rewrites.
+  existing_adrs: []
+expected:
+  expected_nnnn: "0001"
+  alternatives_min: 3
+  required_substrings_by_section:
+    "Context":
+      - "200 TPS"
+      - "order_id"
+    "Decision":
+      - "PostgreSQL"
+    "Alternatives Considered":
+      - "DynamoDB"
+      - "CockroachDB"
+      - "MySQL"
+  coded_bullet_floors:
+    POS: 2
+    NEG: 2
+    ALT: 3
+    IMP: 2
+    REF: 1
