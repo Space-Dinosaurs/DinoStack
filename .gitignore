@@ -19,6 +19,12 @@ node_modules/
 # Local agent config (project-level tier-map and task state)
 .agentic/
 
+# AI assistant adapter directories (local-only, not committed)
+.hermes/
+
+# Claude Code feature worktrees created by the eval harness (ephemeral)
+.claude/worktrees/
+
 # Local-only brainstorming / scratchpads
 docs/brainstorm/
 
