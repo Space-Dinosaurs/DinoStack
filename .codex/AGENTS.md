@@ -531,6 +531,13 @@ The main working tree stays on `development` (or `develop`) at all times. All fe
 2. Fall back to `development` if it exists.
 3. Otherwise create `develop` from `main` (fall back to `master` if `main` does not exist).
 
+**Conductor preflight** - run this checklist before any work begins. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene.
+1. What branch is the working tree on? (`git branch --show-current`)
+2. Does this branch already contain unrelated commits? If yes, create a new worktree/branch instead of piling on.
+3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
+4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
+5. Does this task need a new worktree? Any new feature, fix, or chore gets its own worktree branched from the resolved base branch.
+
 **Feature worktrees:** Each task or feature gets one worktree branched from `origin/development` (or `origin/develop`). Run `git fetch origin` before creating any worktree. Edit directly in the worktree - do not create sub-worktrees for individual changes.
 
 **Parallel agent work:** When multiple agents need to work simultaneously on the same task, each parallel agent gets its own sub-worktree branching from the feature branch. Sub-worktrees are the parallelism tool, not the default for every edit.
