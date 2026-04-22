@@ -33,7 +33,7 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 
 ## Git Workflow
 
-The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees. Exception: `~/agentic-engineering` is exempt - commit and push directly to `main` without a worktree or PR.
+The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees.
 
 **Base branch resolution** - resolve in this order before any work begins:
 1. Use `develop` if it exists.
