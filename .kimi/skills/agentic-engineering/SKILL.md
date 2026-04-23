@@ -35,9 +35,24 @@ Kimi Code CLI provides three built-in subagent types. Map agentic-engineering ro
 - **`explore`** - Use for fast read-only codebase exploration (maps to `investigator`, `dependency-auditor`, `adr-drift-detector`).
 - **`plan`** - Use for implementation planning and architecture design (maps to `architect`, `orchestration-planner`, `adr-generator`).
 
-When spawning a subagent, include the full agent role description from `references/agent-team.md` in the spawn prompt so the subagent knows its responsibilities, constraints, and reporting format. The named agent definitions in `references/agent-team.md` are reference material - Kimi uses the built-in subagent types above with detailed role prompts.
+When spawning a subagent, read the corresponding **detailed agent file** from `agents/<name>.md` and include its full instructions in the spawn prompt. The agent files contain role-specific constraints, reporting formats, and workflow rules that `references/agent-team.md` does not cover in detail.
 
-For the **Skeptic** role, spawn a `coder` subagent but prepend the skeptic instructions from `references/skeptic-protocol.md` and restrict its task to read-only review (do not grant write access).
+| Agentic role | File to read | Kimi subagent type |
+|---|---|---|
+| `engineer` | `agents/engineer.md` | `coder` |
+| `debugger` | `agents/debugger.md` | `coder` |
+| `qa-engineer` | `agents/qa-engineer.md` | `coder` |
+| `perf-analyst` | `agents/perf-analyst.md` | `coder` |
+| `investigator` | `agents/investigator.md` | `explore` |
+| `dependency-auditor` | `agents/dependency-auditor.md` | `explore` |
+| `adr-drift-detector` | `agents/adr-drift-detector.md` | `explore` |
+| `architect` | `agents/architect.md` | `plan` |
+| `orchestration-planner` | `agents/orchestration-planner.md` | `plan` |
+| `adr-generator` | `agents/adr-generator.md` | `plan` |
+| `security-auditor` | `agents/security-auditor.md` | `explore` or `coder` |
+| `release-orchestrator` | `agents/release-orchestrator.md` | `coder` |
+
+For the **Skeptic** role, spawn a `coder` subagent but prepend the skeptic instructions from `agents/skeptic.md` (or `references/skeptic-protocol.md` for the protocol overview) and restrict its task to read-only review (do not grant write access).
 
 ## Rules (read these files)
 
