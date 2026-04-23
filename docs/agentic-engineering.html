@@ -519,6 +519,172 @@
     top: 4px;
   }
 
+  /* ── Infographics ── */
+  .infographic-stack {
+    display: grid;
+    gap: 18px;
+    margin-top: 20px;
+  }
+  .infographic-card {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 22px 22px 18px;
+    background:
+      radial-gradient(circle at top right, rgba(181, 69, 31, 0.05), transparent 34%),
+      radial-gradient(circle at bottom left, rgba(90, 61, 138, 0.05), transparent 30%),
+      linear-gradient(180deg, rgba(255,255,255,0.45), rgba(255,255,255,0)) ,
+      var(--bg-surface);
+    box-shadow: 0 14px 30px rgba(53, 42, 29, 0.05);
+  }
+  .infographic-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(135deg, rgba(255,255,255,0.16), transparent 36%);
+  }
+  .infographic-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 10px;
+    position: relative;
+    z-index: 1;
+  }
+  .infographic-kicker {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .infographic-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 5px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border-faint);
+    background: rgba(255,255,255,0.5);
+    white-space: nowrap;
+  }
+  .infographic-title {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    position: relative;
+    z-index: 1;
+  }
+  .infographic-copy {
+    font-size: 16px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    max-width: 78ch;
+    position: relative;
+    z-index: 1;
+  }
+  .infographic-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    margin-top: 18px;
+    position: relative;
+    z-index: 1;
+  }
+  .infographic-svg text {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    fill: var(--text-primary);
+  }
+  .infographic-svg .svg-mono {
+    font-family: 'DM Mono', monospace;
+    fill: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+  .infographic-svg .svg-label {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .infographic-svg .svg-copy {
+    font-size: 12px;
+    fill: var(--text-secondary);
+  }
+  .infographic-svg .svg-pill {
+    font-size: 11px;
+    fill: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+  }
+  .infographic-svg .svg-strong {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+  }
+  .infographic-svg .svg-center {
+    text-anchor: middle;
+  }
+  .infographic-svg .bg-cream { fill: #fbf8f1; }
+  .infographic-svg .bg-ink   { fill: #f4efe4; }
+  .infographic-svg .bg-cyan  { fill: rgba(26, 90, 122, 0.08); }
+  .infographic-svg .bg-violet{ fill: rgba(90, 61, 138, 0.08); }
+  .infographic-svg .bg-green { fill: rgba(45, 90, 61, 0.08); }
+  .infographic-svg .bg-gold  { fill: rgba(181, 69, 31, 0.08); }
+  .infographic-svg .bg-rose  { fill: rgba(168, 58, 42, 0.08); }
+  .infographic-svg .stroke-default { stroke: var(--border-default); stroke-width: 1.3; }
+  .infographic-svg .stroke-faint   { stroke: var(--border-faint); stroke-width: 1.1; }
+  .infographic-svg .stroke-gold    { stroke: var(--gold); stroke-width: 1.8; }
+  .infographic-svg .stroke-violet  { stroke: var(--violet); stroke-width: 1.8; }
+  .infographic-svg .stroke-cyan    { stroke: var(--cyan); stroke-width: 1.8; }
+  .infographic-svg .stroke-green   { stroke: var(--green); stroke-width: 1.8; }
+  .infographic-svg .stroke-rose    { stroke: var(--rose); stroke-width: 1.8; }
+  .infographic-svg .dash {
+    stroke-dasharray: 5 6;
+  }
+  .atlas-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .atlas-chip {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.5);
+    border: 1px solid var(--border-faint);
+  }
+  @media (max-width: 768px) {
+    .infographic-card {
+      padding: 18px 16px 16px;
+      border-radius: 12px;
+    }
+    .infographic-meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .infographic-title {
+      font-size: 23px;
+    }
+    .atlas-chips {
+      gap: 6px;
+    }
+    .atlas-chip {
+      font-size: 11px;
+      padding: 6px 8px;
+    }
+  }
+
   /* ── Inline code ── */
   code {
     font-family: 'DM Mono', monospace;
@@ -649,9 +815,10 @@
 <!-- ═══ Side Navigation ═══ -->
 <nav class="side-nav">
   <div class="side-nav-brand">AE</div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 0 6px;">Last updated: Apr 23, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Apr 23, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
+  <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
   <a href="#signals"><span class="nav-dot" style="background: var(--gold);"></span> Is It Working?</a>
   <a href="#config"><span class="nav-dot" style="background: var(--cyan);"></span> Configuration</a>
   <a href="#protocols"><span class="nav-dot" style="background: var(--violet);"></span> Protocol Rules</a>
@@ -699,6 +866,286 @@
 </nav>
 
 <div class="diagram">
+
+<!-- ═══ VISUAL ATLAS: Core concepts at a glance ═══ -->
+<div id="infographics" class="section">
+  <div class="section-title" data-num="00"><h2>Infographics</h2><h3>Three visual maps of the ideas that make the harness work</h3></div>
+  <p class="desc">The methodology is more than "use lots of agents." These diagrams show the real center of gravity: operator-attention routing, strict risk-based delegation, and durable review loops that survive long-running work.</p>
+  <div class="atlas-chips">
+    <span class="atlas-chip">Conductor stays free</span>
+    <span class="atlas-chip">Fresh Skeptic every round</span>
+    <span class="atlas-chip">When in doubt: Elevated</span>
+    <span class="atlas-chip">Loop state survives interruptions</span>
+  </div>
+
+  <div class="infographic-stack">
+    <figure class="infographic-card">
+      <div class="infographic-meta">
+        <span class="infographic-kicker">Attention Architecture</span>
+        <span class="infographic-tag">conductor, not player</span>
+      </div>
+      <figcaption class="infographic-title">How the system routes scarce human attention</figcaption>
+      <p class="infographic-copy">The human supplies intent and judgment. The conductor classifies risk, keeps context light, fans work out to specialists, and only lets reviewed output move forward. Memory flows back into the next session so the system compounds instead of restarting cold.</p>
+      <svg class="infographic-svg" viewBox="0 0 1180 500" role="img" aria-label="A diagram showing human intent flowing through risk classification and a conductor to specialist agents, then through skeptic review, QA, and memory feedback into the next session.">
+        <defs>
+          <marker id="ae-arrow-gold-1" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#b5451f"></path>
+          </marker>
+          <marker id="ae-arrow-violet-1" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#5a3d8a"></path>
+          </marker>
+          <marker id="ae-arrow-green-1" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#2d5a3d"></path>
+          </marker>
+        </defs>
+
+        <rect x="18" y="18" width="1144" height="464" rx="24" class="bg-cream stroke-faint"></rect>
+
+        <rect x="48" y="80" width="172" height="112" rx="20" class="bg-gold stroke-gold"></rect>
+        <text x="74" y="112" class="svg-mono">OPERATOR INPUT</text>
+        <text x="74" y="139" class="svg-label">Goal + constraints</text>
+        <text x="74" y="162" class="svg-copy">The human spends</text>
+        <text x="74" y="179" class="svg-copy">attention on direction,</text>
+        <text x="74" y="196" class="svg-copy">approval, and judgment.</text>
+
+        <rect x="254" y="97" width="150" height="78" rx="18" class="bg-rose stroke-rose"></rect>
+        <text x="329" y="123" class="svg-mono svg-center">RISK ROUTER</text>
+        <text x="329" y="150" class="svg-label svg-center">classify first</text>
+        <text x="329" y="168" class="svg-copy svg-center">direct vs delegated</text>
+
+        <path d="M220 136 H254" class="stroke-gold" fill="none" marker-end="url(#ae-arrow-gold-1)"></path>
+
+        <rect x="450" y="54" width="274" height="166" rx="26" class="bg-violet stroke-violet"></rect>
+        <text x="487" y="92" class="svg-mono">MAIN SESSION AGENT</text>
+        <text x="487" y="126" class="svg-strong">Conductor stays available</text>
+        <text x="487" y="154" class="svg-copy">Does not disappear into implementation work.</text>
+        <text x="487" y="173" class="svg-copy">Decomposes, delegates, narrates progress,</text>
+        <text x="487" y="192" class="svg-copy">and keeps the user-facing thread responsive.</text>
+        <path d="M404 136 H450" class="stroke-violet" fill="none" marker-end="url(#ae-arrow-violet-1)"></path>
+
+        <text x="587" y="268" class="svg-mono svg-center">PARALLEL BACKGROUND SPECIALISTS</text>
+
+        <rect x="118" y="296" width="144" height="74" rx="16" class="bg-cyan stroke-cyan"></rect>
+        <text x="190" y="325" class="svg-label svg-center">investigator</text>
+        <text x="190" y="347" class="svg-copy svg-center">maps unfamiliar terrain</text>
+
+        <rect x="286" y="296" width="144" height="74" rx="16" class="bg-cyan stroke-cyan"></rect>
+        <text x="358" y="325" class="svg-label svg-center">architect</text>
+        <text x="358" y="347" class="svg-copy svg-center">designs before coding</text>
+
+        <rect x="454" y="296" width="144" height="74" rx="16" class="bg-cyan stroke-cyan"></rect>
+        <text x="526" y="325" class="svg-label svg-center">planner</text>
+        <text x="526" y="347" class="svg-copy svg-center">sequences the team</text>
+
+        <rect x="622" y="296" width="144" height="74" rx="16" class="bg-green stroke-green"></rect>
+        <text x="694" y="325" class="svg-label svg-center">engineer</text>
+        <text x="694" y="347" class="svg-copy svg-center">implements and verifies</text>
+
+        <rect x="790" y="296" width="144" height="74" rx="16" class="bg-green stroke-green"></rect>
+        <text x="862" y="325" class="svg-label svg-center">debugger</text>
+        <text x="862" y="347" class="svg-copy svg-center">diagnoses before fixing</text>
+
+        <rect x="958" y="296" width="144" height="74" rx="16" class="bg-green stroke-green"></rect>
+        <text x="1030" y="325" class="svg-label svg-center">security / QA</text>
+        <text x="1030" y="347" class="svg-copy svg-center">domain and runtime checks</text>
+
+        <path d="M587 220 V276" class="stroke-violet" fill="none" marker-end="url(#ae-arrow-violet-1)"></path>
+
+        <path d="M190 296 C190 260, 420 246, 587 246" class="stroke-faint dash" fill="none"></path>
+        <path d="M358 296 C358 262, 460 252, 587 246" class="stroke-faint dash" fill="none"></path>
+        <path d="M526 296 C526 262, 548 252, 587 246" class="stroke-faint dash" fill="none"></path>
+        <path d="M694 296 C694 262, 626 252, 587 246" class="stroke-faint dash" fill="none"></path>
+        <path d="M862 296 C862 260, 742 246, 587 246" class="stroke-faint dash" fill="none"></path>
+        <path d="M1030 296 C1030 258, 796 242, 587 246" class="stroke-faint dash" fill="none"></path>
+
+        <rect x="908" y="88" width="206" height="96" rx="20" class="bg-violet stroke-violet"></rect>
+        <text x="1011" y="114" class="svg-mono svg-center">QUALITY GATE</text>
+        <text x="1011" y="141" class="svg-label svg-center">fresh Skeptic review</text>
+        <text x="1011" y="161" class="svg-copy svg-center">No self-review path</text>
+        <text x="1011" y="177" class="svg-copy svg-center">for Elevated work.</text>
+
+        <path d="M766 333 C876 333, 914 220, 1011 184" class="stroke-green" fill="none" marker-end="url(#ae-arrow-green-1)"></path>
+
+        <rect x="912" y="210" width="202" height="74" rx="18" class="bg-gold stroke-gold"></rect>
+        <text x="1013" y="237" class="svg-label svg-center">sign-off, re-route,</text>
+        <text x="1013" y="258" class="svg-label svg-center">or escalate</text>
+
+        <rect x="200" y="404" width="780" height="50" rx="25" class="bg-ink stroke-default"></rect>
+        <text x="222" y="435" class="svg-mono">FEEDBACK LANE</text>
+        <text x="394" y="435" class="svg-copy">/wrap promotes durable learning into</text>
+        <text x="646" y="435" class="svg-label">AGENTS.md</text>
+        <text x="742" y="435" class="svg-copy">+</text>
+        <text x="772" y="435" class="svg-label">MEMORY.md</text>
+        <text x="879" y="435" class="svg-copy">+</text>
+        <text x="907" y="435" class="svg-label">findings.md</text>
+
+        <path d="M1011 284 V356 C1011 390, 944 429, 980 429" class="stroke-gold" fill="none"></path>
+        <path d="M980 429 C1058 429, 1086 370, 1086 292" class="stroke-gold" fill="none"></path>
+        <path d="M980 429 C964 429, 956 429, 944 429" class="stroke-gold" fill="none" marker-end="url(#ae-arrow-gold-1)"></path>
+        <path d="M200 429 C106 429, 94 246, 142 192" class="stroke-gold" fill="none" marker-end="url(#ae-arrow-gold-1)"></path>
+      </svg>
+    </figure>
+
+    <figure class="infographic-card">
+      <div class="infographic-meta">
+        <span class="infographic-kicker">Decision System</span>
+        <span class="infographic-tag">risk drives orchestration</span>
+      </div>
+      <figcaption class="infographic-title">The risk router decides the whole shape of execution</figcaption>
+      <p class="infographic-copy">The methodology does not ask, "How many lines is this?" It asks what kind of mistake is possible. One Elevated signal is enough to move the task into Worker plus Skeptic territory, and the default under uncertainty is to classify upward, not downward.</p>
+      <svg class="infographic-svg" viewBox="0 0 1180 560" role="img" aria-label="A risk classification flowchart showing an initial risk check leading to Trivial, Low, and Elevated paths, with a narrow debugger-backed tight-fix path under Elevated.">
+        <defs>
+          <marker id="ae-arrow-rose-2" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#a83a2a"></path>
+          </marker>
+          <marker id="ae-arrow-cyan-2" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#1a5a7a"></path>
+          </marker>
+          <marker id="ae-arrow-violet-2" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#5a3d8a"></path>
+          </marker>
+        </defs>
+
+        <rect x="24" y="20" width="1132" height="520" rx="24" class="bg-cream stroke-faint"></rect>
+
+        <text x="590" y="72" class="svg-mono svg-center">FIRST QUESTION, BEFORE ANY TOOL CALL</text>
+        <polygon points="590,112 714,204 590,296 466,204" class="bg-rose stroke-rose"></polygon>
+        <text x="590" y="185" class="svg-label svg-center">Any Elevated signal?</text>
+        <text x="590" y="208" class="svg-copy svg-center">behavioral effect, new file, architecture,</text>
+        <text x="590" y="225" class="svg-copy svg-center">config, unfamiliar area, high stakes, shared utility</text>
+
+        <rect x="892" y="120" width="192" height="66" rx="16" class="bg-rose stroke-rose"></rect>
+        <text x="988" y="148" class="svg-label svg-center">When in doubt</text>
+        <text x="988" y="170" class="svg-label svg-center">classify as Elevated</text>
+
+        <path d="M714 204 H820" class="stroke-rose" fill="none" marker-end="url(#ae-arrow-rose-2)"></path>
+        <text x="760" y="190" class="svg-pill svg-center">YES</text>
+
+        <rect x="746" y="264" width="336" height="160" rx="24" class="bg-violet stroke-violet"></rect>
+        <text x="774" y="302" class="svg-mono">ELEVATED PATH</text>
+        <text x="774" y="336" class="svg-strong">Worker + fresh Skeptic</text>
+        <text x="774" y="364" class="svg-copy">Declare risk before acting. The conductor routes</text>
+        <text x="774" y="383" class="svg-copy">implementation to a Worker and review to an</text>
+        <text x="774" y="402" class="svg-copy">independent Skeptic until sign-off or escalation.</text>
+
+        <path d="M590 296 V338 H746" class="stroke-violet" fill="none" marker-end="url(#ae-arrow-violet-2)"></path>
+
+        <rect x="760" y="445" width="306" height="64" rx="18" class="bg-gold stroke-gold"></rect>
+        <text x="913" y="470" class="svg-mono svg-center">NARROW EXCEPTION</text>
+        <text x="913" y="491" class="svg-copy svg-center">tight-fix path: debugger brief, bug fix only, existing test coverage,</text>
+        <text x="913" y="507" class="svg-copy svg-center">single-file scope, no security or data-loss surface</text>
+        <path d="M914 424 V445" class="stroke-gold" fill="none" marker-end="url(#ae-arrow-violet-2)"></path>
+
+        <path d="M466 204 H360" class="stroke-cyan" fill="none" marker-end="url(#ae-arrow-cyan-2)"></path>
+        <text x="418" y="190" class="svg-pill svg-center">NO</text>
+
+        <polygon points="360,256 470,334 360,412 250,334" class="bg-cyan stroke-cyan"></polygon>
+        <text x="360" y="320" class="svg-label svg-center">All Trivial signals?</text>
+        <text x="360" y="343" class="svg-copy svg-center">single-file cosmetic or copy,</text>
+        <text x="360" y="360" class="svg-copy svg-center">no logic, no shared surface</text>
+
+        <path d="M250 334 H150" class="stroke-cyan" fill="none" marker-end="url(#ae-arrow-cyan-2)"></path>
+        <text x="200" y="320" class="svg-pill svg-center">YES</text>
+
+        <rect x="58" y="266" width="164" height="128" rx="20" class="bg-green stroke-green"></rect>
+        <text x="140" y="296" class="svg-mono svg-center">TRIVIAL</text>
+        <text x="140" y="326" class="svg-label svg-center">direct if conductor free</text>
+        <text x="140" y="347" class="svg-copy svg-center">If other subagents are active,</text>
+        <text x="140" y="364" class="svg-copy svg-center">spawn one solo engineer.</text>
+
+        <path d="M360 412 V458 H498" class="stroke-cyan" fill="none" marker-end="url(#ae-arrow-cyan-2)"></path>
+        <text x="404" y="444" class="svg-pill svg-center">NO</text>
+
+        <rect x="500" y="430" width="196" height="86" rx="20" class="bg-cyan stroke-cyan"></rect>
+        <text x="598" y="458" class="svg-mono svg-center">LOW</text>
+        <text x="598" y="485" class="svg-label svg-center">direct action + self-check</text>
+        <text x="598" y="504" class="svg-copy svg-center">Re-read in full; reclassify if concerns appear.</text>
+
+        <rect x="58" y="438" width="384" height="74" rx="18" class="bg-ink stroke-default"></rect>
+        <text x="86" y="466" class="svg-mono">RATIONALIZATIONS THE PROTOCOL REJECTS</text>
+        <text x="86" y="490" class="svg-copy">"It's just one file." "It looks simple." "I'll review it myself."</text>
+      </svg>
+    </figure>
+
+    <figure class="infographic-card">
+      <div class="infographic-meta">
+        <span class="infographic-kicker">Durability</span>
+        <span class="infographic-tag">bounded loops, recoverable state</span>
+      </div>
+      <figcaption class="infographic-title">Long-running implementation loops can stop, resume, and keep their memory</figcaption>
+      <p class="infographic-copy">The distinctive move here is not just review, but durable review. The conductor tracks loop state at phase boundaries, carries findings forward across attempts, and promotes lessons into future planning so the system gets harder to fool over time.</p>
+      <svg class="infographic-svg" viewBox="0 0 1180 560" role="img" aria-label="A loop diagram showing engineer, skeptic, and QA in a bounded 3-pass cycle, with durable state files that allow resume and future planning.">
+        <defs>
+          <marker id="ae-arrow-gold-3" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#b5451f"></path>
+          </marker>
+          <marker id="ae-arrow-green-3" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#2d5a3d"></path>
+          </marker>
+          <marker id="ae-arrow-violet-3" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto">
+            <path d="M0,0 L10,5.5 L0,11 Z" fill="#5a3d8a"></path>
+          </marker>
+        </defs>
+
+        <rect x="24" y="20" width="1132" height="520" rx="24" class="bg-cream stroke-faint"></rect>
+
+        <circle cx="346" cy="278" r="152" class="bg-ink stroke-default"></circle>
+        <circle cx="346" cy="278" r="104" class="bg-cream stroke-faint"></circle>
+
+        <rect x="256" y="108" width="182" height="72" rx="18" class="bg-green stroke-green"></rect>
+        <text x="347" y="137" class="svg-mono svg-center">PHASE 1</text>
+        <text x="347" y="161" class="svg-label svg-center">engineer</text>
+        <text x="347" y="178" class="svg-copy svg-center">implement or fix</text>
+
+        <rect x="140" y="322" width="176" height="72" rx="18" class="bg-violet stroke-violet"></rect>
+        <text x="228" y="351" class="svg-mono svg-center">PHASE 2</text>
+        <text x="228" y="375" class="svg-label svg-center">fresh Skeptic</text>
+        <text x="228" y="392" class="svg-copy svg-center">review independently</text>
+
+        <rect x="384" y="322" width="164" height="72" rx="18" class="bg-cyan stroke-cyan"></rect>
+        <text x="466" y="351" class="svg-mono svg-center">PHASE 3</text>
+        <text x="466" y="375" class="svg-label svg-center">QA gate</text>
+        <text x="466" y="392" class="svg-copy svg-center">browser or runtime verification</text>
+
+        <path d="M436 180 C520 198, 536 286, 490 322" class="stroke-green" fill="none" marker-end="url(#ae-arrow-green-3)"></path>
+        <path d="M384 358 C326 428, 252 430, 228 394" class="stroke-violet" fill="none" marker-end="url(#ae-arrow-violet-3)"></path>
+        <path d="M228 322 C176 248, 212 164, 256 144" class="stroke-gold" fill="none" marker-end="url(#ae-arrow-gold-3)"></path>
+
+        <text x="346" y="258" class="svg-mono svg-center">BOUNDED LOOP</text>
+        <text x="346" y="288" class="svg-strong svg-center">3-pass cap</text>
+        <text x="346" y="316" class="svg-copy svg-center">same-finding re-raise can trigger</text>
+        <text x="346" y="334" class="svg-copy svg-center">convergence escalation earlier</text>
+
+        <rect x="630" y="78" width="468" height="142" rx="24" class="bg-violet stroke-violet"></rect>
+        <text x="664" y="112" class="svg-mono">DURABLE PHASE MEMORY</text>
+        <text x="664" y="144" class="svg-label">.agentic/loop-state.json</text>
+        <text x="664" y="167" class="svg-copy">Written atomically at each transition. Resume key = last committed phase boundary,</text>
+        <text x="664" y="186" class="svg-copy">so rate limits or session exits do not erase work already performed.</text>
+
+        <rect x="630" y="244" width="226" height="124" rx="20" class="bg-gold stroke-gold"></rect>
+        <text x="656" y="274" class="svg-mono">MULTI-UNIT TRACKING</text>
+        <text x="656" y="301" class="svg-label">.agentic/tasks.jsonl</text>
+        <text x="656" y="322" class="svg-copy">The conductor owns task status,</text>
+        <text x="656" y="339" class="svg-copy">dependencies, merge order, and</text>
+        <text x="656" y="356" class="svg-copy">fan-out coordination.</text>
+
+        <rect x="876" y="244" width="222" height="124" rx="20" class="bg-cyan stroke-cyan"></rect>
+        <text x="902" y="274" class="svg-mono">RECURRING LESSONS</text>
+        <text x="902" y="301" class="svg-label">.agentic/findings.md</text>
+        <text x="902" y="322" class="svg-copy">Patterns promoted after review</text>
+        <text x="902" y="339" class="svg-copy">feed back into future architect</text>
+        <text x="902" y="356" class="svg-copy">plans as known anti-patterns.</text>
+
+        <rect x="630" y="396" width="468" height="94" rx="22" class="bg-ink stroke-default"></rect>
+        <text x="664" y="427" class="svg-mono">SESSION CONTINUITY</text>
+        <text x="664" y="454" class="svg-label">same cwd -> same memory surfaces -> sharper next run</text>
+        <text x="664" y="475" class="svg-copy">AGENTS.md captures architecture, MEMORY.md captures stable facts, context.md captures recent shape.</text>
+
+        <path d="M498 278 H610" class="stroke-faint dash" fill="none" marker-end="url(#ae-arrow-violet-3)"></path>
+      </svg>
+    </figure>
+  </div>
+</div>
 
 <!-- ═══ ORIENTATION: How to tell the protocol is running ═══ -->
 <div id="signals" class="section persistence-layer">
@@ -1038,7 +1485,7 @@
       <div>
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2);">
           <h4 style="color: #5a3d8a;">The Team</h4>
-          <p class="desc">10 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, perf-analyst, release-orchestrator, dependency-auditor). Only the engineer and release-orchestrator write files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">11 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, perf-analyst, release-orchestrator, dependency-auditor). Only the engineer and release-orchestrator write files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1411,6 +1858,60 @@
           <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
           <li>Cleans up stale worktrees as final step - backed by the <code>/cleanup-worktrees</code> skill</li>
         </ul>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 20px;">
+    <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: #5a3d8a; margin-bottom: 10px; letter-spacing: 0.01em;">Using the scaffolded docs/ tree</div>
+    <div class="rel-card" style="border-color: rgba(90,61,138,0.2);">
+      <h4 style="color: var(--violet);">How to use <code>docs/overview</code>, <code>docs/research</code>, <code>docs/planning</code>, and <code>docs/technical</code></h4>
+      <p class="desc" style="font-size: 15px; margin-top: 0; max-width: none;">
+        <code>/init-project</code> creates these folders as distinct documentation surfaces, not as four generic buckets. A good default workflow is:
+        explore in <code>research/</code>, decide in <code>planning/</code>, codify the accepted implementation truth in <code>technical/</code>, and publish the stable high-level summary in <code>overview/</code>.
+        For feature work, reuse the same progression with a feature-specific file or subdirectory instead of inventing a new structure.
+      </p>
+      <div class="two-col" style="margin-top: 14px;">
+        <div class="rel-card" style="padding: 16px; background: rgba(26,90,122,0.04); border-color: rgba(26,90,122,0.2);">
+          <h4 style="color: var(--cyan);"><code>docs/overview/</code> = what this is</h4>
+          <ul>
+            <li>High-level project or feature summaries for humans and agents who need orientation fast</li>
+            <li>Good home for onboarding docs, system maps, domain glossaries, and "start here" explanations</li>
+            <li>Should stay short, stable, and low-detail; link outward to deeper docs instead of duplicating them</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="padding: 16px; background: rgba(181,69,31,0.04); border-color: rgba(181,69,31,0.2);">
+          <h4 style="color: var(--gold);"><code>docs/research/</code> = what we learned before deciding</h4>
+          <ul>
+            <li>Exploratory notes, option comparisons, constraints gathering, source material, and open questions</li>
+            <li>Use when investigating a new subsystem, evaluating libraries, or collecting evidence before design</li>
+            <li>Can be messy and provisional; once a direction is chosen, the conclusion should graduate into <code>planning/</code> or <code>technical/</code></li>
+          </ul>
+        </div>
+        <div class="rel-card" style="padding: 16px; background: rgba(90,61,138,0.04); border-color: rgba(90,61,138,0.2);">
+          <h4 style="color: var(--violet);"><code>docs/planning/</code> = what we intend to build</h4>
+          <ul>
+            <li>Pre-implementation design artifacts: feature specs, project plans, ADR drafts, ticket decomposition, migration plans</li>
+            <li>This is the working surface for Architect and orchestration-planner output before code lands</li>
+            <li>Keep open questions, trade-offs, and acceptance criteria here; once settled and implemented, move enduring truth into <code>technical/</code> and summarize outcomes in <code>overview/</code></li>
+          </ul>
+        </div>
+        <div class="rel-card" style="padding: 16px; background: rgba(45,90,61,0.04); border-color: rgba(45,90,61,0.2);">
+          <h4 style="color: var(--green);"><code>docs/technical/</code> = how it actually works</h4>
+          <ul>
+            <li>Canonical implementation docs, contracts, runbooks, deployment details, invariants, and architecture that must match reality</li>
+            <li>Write here after a design is accepted or a system is already in production and needs a durable reference</li>
+            <li>Should read as current truth, not proposal text; remove unresolved debate language once a decision is made</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note" style="border-left-color: var(--violet); margin-top: 14px;">
+        <strong>Practical pattern for project and feature work:</strong>
+        start a new initiative in <code>docs/research/feature-name.md</code> if the problem is still fuzzy; promote the chosen shape to <code>docs/planning/feature-name.md</code> when you need a spec the team can execute; once implementation stabilizes, capture the lasting design in <code>docs/technical/feature-name.md</code>; if new teammates will need a short orientation, add <code>docs/overview/feature-name.md</code> as the front door.
+      </div>
+      <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
+        <strong>Protocol fit:</strong>
+        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/wrap</code> should then promote the durable parts of those decisions into <code>AGENTS.md</code>, <code>MEMORY.md</code>, and (when relevant) <code>findings.md</code> so future sessions inherit the outcome without rereading every planning file.
       </div>
     </div>
   </div>
