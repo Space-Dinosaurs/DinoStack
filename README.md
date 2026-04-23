@@ -79,19 +79,7 @@ The deny list merges with any existing deny rules. See [.claude/README.md](.clau
 
 ## Updating
 
-Ask your agent:
-
-```
-Pull the latest changes to agentic-engineering and re-run the installer
-```
-
-The agent handles the git pull and runs the installer. It's idempotent - existing symlinks and settings are preserved, new ones are added, and build artifacts are regenerated.
-
-For a clean refresh that also prunes stale symlinks for files removed upstream, ask:
-
-```
-Do a clean refresh of agentic-engineering - uninstall, pull, then reinstall
-```
+**Run `./update.sh`:** quickly update this repo and refresh `.claude`, with optional adapters like Cursor, Codex, Gemini, and OpenCode available from the interactive menu.
 
 **Or update manually:**
 
@@ -107,6 +95,20 @@ For a clean manual refresh:
 bash .claude/uninstall.sh
 git pull
 bash .claude/install.sh
+```
+
+You can also ask your coding agent:
+
+```
+Pull the latest changes to agentic-engineering and re-run the installer
+```
+
+The agent handles the git pull and runs the installer. It's idempotent - existing symlinks and settings are preserved, new ones are added, and build artifacts are regenerated.
+
+For a clean refresh that also prunes stale symlinks for files removed upstream, ask:
+
+```
+Do a clean refresh of agentic-engineering - uninstall, pull, then reinstall
 ```
 
 ## Adapters
