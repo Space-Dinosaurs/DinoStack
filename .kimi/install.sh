@@ -81,7 +81,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Global skill symlink (optional - project-level skills work automatically)
+# Global skill install (optional - project-level skills work automatically)
+#
+# We copy SKILL.md and use absolute symlinks for commands/references/rules
+# instead of symlinking the whole skill directory. This ensures the global
+# skill stays valid even when you switch git branches (e.g. to a branch that
+# doesn't have the .kimi/ adapter yet).
 # ---------------------------------------------------------------------------
 
 SKILL_SRC="$REPO_DIR/.kimi/skills/agentic-engineering"
@@ -90,21 +95,37 @@ SKILL_DST="$HOME/.kimi/skills/agentic-engineering"
 echo ""
 echo "Global skill install (optional)..."
 
-mkdir -p "$(dirname "$SKILL_DST")"
+mkdir -p "$SKILL_DST"
 
-if [[ -L "$SKILL_DST" ]]; then
-  current_target="$(readlink "$SKILL_DST")"
-  if [[ "$current_target" == "$SKILL_SRC" ]]; then
-    echo "  = agentic-engineering (already linked in ~/.kimi/skills/)"
+# Copy SKILL.md so it survives branch switches
+cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
+echo "  + SKILL.md copied to ~/.kimi/skills/agentic-engineering/"
+
+# Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/
+link_abs() {
+  local src="$1"
+  local dst="$2"
+  if [[ -L "$dst" ]]; then
+    local current
+    current="$(readlink "$dst")"
+    if [[ "$current" == "$src" ]]; then
+      echo "  = $(basename "$dst") (already linked)"
+    else
+      rm "$dst"
+      ln -s "$src" "$dst"
+      echo "  ~ $(basename "$dst") (re-linked)"
+    fi
+  elif [[ -e "$dst" ]]; then
+    echo "  ! $(basename "$dst") exists and is not a symlink - leaving it"
   else
-    echo "  ! agentic-engineering (symlink points elsewhere: $current_target - skipping)"
+    ln -s "$src" "$dst"
+    echo "  + $(basename "$dst")"
   fi
-elif [[ -e "$SKILL_DST" ]]; then
-  echo "  ! agentic-engineering (real file/directory exists at ~/.kimi/skills/agentic-engineering - skipping)"
-else
-  ln -s "$SKILL_SRC" "$SKILL_DST"
-  echo "  + agentic-engineering skill linked to ~/.kimi/skills/agentic-engineering"
-fi
+}
+
+link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
+link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"
+link_abs "$REPO_DIR/content/rules"      "$SKILL_DST/rules"
 
 echo ""
 echo "Kimi adapter install complete."
@@ -113,3 +134,12 @@ echo "Project-level usage: .kimi/AGENTS.md and .kimi/skills/ are automatically"
 echo "discovered when working in this repository."
 echo ""
 echo "Global usage: the skill is now available in all projects via ~/.kimi/skills/."
+echo ""
+echo "NOTE: If you edit files in content/, run 'bash .kimi/build.sh' to regenerate"
+echo "AGENTS.md. The global skill's symlinks will pick up content changes instantly,"
+echo "but SKILL.md changes require re-running install.sh."
+echo ""
+echo "IMPORTANT: Kimi does not support custom slash commands like /init-project."
+echo "Invoke commands via: /skill:agentic-engineering <command-name>"
+echo "   Example: /skill:agentic-engineering init-project"
+echo "Or just ask: 'run init-project'"

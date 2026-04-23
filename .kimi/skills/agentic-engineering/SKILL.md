@@ -7,6 +7,19 @@ description: >
   any task that involves reading, writing, or reasoning about code and systems.
 ---
 
+## How to use this skill in Kimi Code CLI
+
+**Auto-trigger:** The skill loads automatically when you describe software development work.
+
+**Explicit load:** Type `/skill:agentic-engineering` followed by your request.
+Example: `/skill:agentic-engineering init-project`
+
+**IMPORTANT:** Kimi does NOT support custom slash commands like `/init-project` or `/wrap`.
+Those are Claude Code conventions. In Kimi, always use `/skill:agentic-engineering <command>`
+or natural language ("run init-project", "do a wrap").
+
+---
+
 The Agentic Engineering system defines how to plan, delegate, review, and ship software using a
 structured multi-agent workflow. It covers risk classification, adversarial review, task
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
