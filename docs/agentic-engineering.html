@@ -649,7 +649,7 @@
 <!-- ═══ Side Navigation ═══ -->
 <nav class="side-nav">
   <div class="side-nav-brand">AE</div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 0 6px;">Last updated: Apr 21, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 0 6px;">Last updated: Apr 23, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#signals"><span class="nav-dot" style="background: var(--gold);"></span> Is It Working?</a>
@@ -747,7 +747,7 @@
   </div>
   <div class="note">
     <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, findings-flywheel.md)<br>
-    <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), and Gemini CLI (<code>.gemini/</code>) - the same methodology in each tool's native format.<br>
+    <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), and Pi/oh-my-pi (<code>.omp/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
@@ -951,7 +951,7 @@
           <ul>
             <li><strong>Module manifest check</strong> - flags missing or stale manifests on non-trivial modules as a <strong style="color: var(--gold);">Major</strong> finding. Non-trivial = exports a public symbol, ~50+ LOC, or side-effecting. Blocks sign-off.</li>
             <li><strong>Regression test verification</strong> - before granting sign-off when a Critical/Major finding was fixed, verifies a regression test was added (or a documented exception given). Missing test without explanation is a <strong style="color: var(--gold);">Major</strong> finding.</li>
-            <li><strong>Findings pattern check</strong> - if <code>.claude/findings.md</code> exists, treat its entries as known anti-patterns. Repeating a documented pattern is a <strong style="color: var(--gold);">Major</strong> finding.</li>
+            <li><strong>Findings pattern check</strong> - if <code>.agentic/findings.md</code> exists, treat its entries as known anti-patterns. Repeating a documented pattern is a <strong style="color: var(--gold);">Major</strong> finding.</li>
           </ul>
         </div>
       </div>
@@ -961,7 +961,7 @@
       The brief must be passed verbatim - never softened. Sign-off requires 4 elements: Reviewed, Findings, Active search attestation, and explicit sign-off statement.
     </div>
     <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
-      <strong>Findings Flywheel:</strong> Every Critical/Major finding that gets fixed without a regression test is a latent regression. Two loops close this gap: (1) <strong>per-finding regression test</strong> - Worker adds a test that would have caught the failure; Skeptic verifies before sign-off. (2) <strong>pattern promotion</strong> - recurring or high-impact patterns are written to <code>.claude/findings.md</code>; Architect reads this file at plan time so prior lessons shape future plans. The conductor runs the promote step (Phase 6c in <code>/implement-ticket</code>) after sign-off.
+      <strong>Findings Flywheel:</strong> Every Critical/Major finding that gets fixed without a regression test is a latent regression. Two loops close this gap: (1) <strong>per-finding regression test</strong> - Worker adds a test that would have caught the failure; Skeptic verifies before sign-off. (2) <strong>pattern promotion</strong> - recurring or high-impact patterns are written to <code>.agentic/findings.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback); Architect reads this file at plan time so prior lessons shape future plans. The conductor runs the promote step (Phase 6c in <code>/implement-ticket</code>) after sign-off.
     </div>
   </div>
 
@@ -1032,7 +1032,7 @@
   <div style="margin-bottom: 8px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 10 agent roles, 4 composed flows, decision rules, and spawn instructions.</div>
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 11 agent roles, 5 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
@@ -1082,8 +1082,8 @@
         <h4 style="color: var(--green);">Planning and Analysis Agents</h4>
         <ul>
           <li><strong>investigator</strong> - traces data flow, maps blast radius, and explores unfamiliar areas. Used when you need to understand code before deciding how to change it. Returns an investigation brief for the conductor to hand to architect or engineer.</li>
-          <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Reads <code>.claude/findings.md</code> at plan time and cites applicable entries in the plan's constraints section. Its output MUST be Skeptic-reviewed before any downstream work.</li>
-          <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious. Checks for <code>.claude/tracking.md</code> in the project root and follows its instructions when present.</li>
+          <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Reads <code>.agentic/findings.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback) at plan time and cites applicable entries in the plan's constraints section. Its output MUST be Skeptic-reviewed before any downstream work.</li>
+          <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious. Checks for <code>.agentic/tracking.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback) in the project root and follows its instructions when present.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -1098,13 +1098,13 @@
       <div class="rel-card" style="border-left: 2px solid var(--gold);">
         <h4 style="color: var(--gold);">Implementation Agent</h4>
         <ul>
-          <li><strong>engineer</strong> - the only agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Writes module manifests on non-trivial files and adds regression tests when fixing Critical/Major findings. Receives the architect's plan, file paths, acceptance criteria, and session context. Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
+          <li><strong>engineer</strong> - the primary agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Writes module manifests on non-trivial files and adds regression tests when fixing Critical/Major findings. Receives the architect's plan, file paths, acceptance criteria, and session context. Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
         <h4 style="color: var(--violet);">Review Agent</h4>
         <ul>
-          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files (missing/stale = Major) and verifies regression tests were added for any Critical/Major fixes. Reads <code>.claude/findings.md</code> and flags repetition of documented patterns. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files (missing/stale = Major) and verifies regression tests were added for any Critical/Major fixes. Reads <code>.agentic/findings.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback) and flags repetition of documented patterns. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -1123,7 +1123,7 @@
   <div class="note">
     <strong>Key constraint:</strong> Only the main session agent (conductor) spawns agents. No agent spawns other agents.<br>
     <strong>Isolation:</strong> Agents run in background by default. Can use <code>isolation: "worktree"</code> for git-isolated work.<br>
-    <strong>Only engineer writes files.</strong> All other agents are read-only analysis/planning. Gold left border = writes files.
+    <strong>engineer and release-orchestrator write files.</strong> All other agents are read-only analysis/planning. Gold left border = writes files.
   </div>
 </div>
 
@@ -1207,6 +1207,25 @@
         <span class="flow-box" style="background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-faint);">self-check</span>
       </div>
     </div>
+
+    <div class="flow-section">
+      <div class="flow-title">Trivial change</div>
+      <div class="flow-row">
+        <span class="flow-label" style="margin-right: 10px; font-style: italic;">[no subagents running]</span>
+        <span class="flow-box fb-conductor">Conductor edits directly</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-faint);">done (commit required)</span>
+      </div>
+      <div class="flow-row" style="margin-top: 6px;">
+        <span class="flow-label" style="margin-right: 10px; font-style: italic;">[subagents running]</span>
+        <span class="flow-box fb-agent">solo engineer Worker</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box" style="background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-faint);">done (commit required)</span>
+      </div>
+      <div class="flow-row" style="margin-left: 0; margin-top: 4px;">
+        <span class="flow-label">Bypasses Skeptic entirely. Conductor availability drives the Worker/direct split.</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1220,11 +1239,14 @@
         <h4 style="color: var(--green);">Dev Workflow Skills</h4>
         <ul>
           <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
+          <li><strong>/implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and skeptic phases in sequence for a scoped ticket.</li>
           <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
-          <li><strong>/simplify</strong> - spawns 3 parallel review agents (code reuse, quality, efficiency) to clean up recently changed files. Used in the Elevated + Cleanup path after Skeptic sign-off.</li>
           <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, AGENTS.md updates, and findings.md promotions. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
-          <li><strong>/audit-protocols</strong> - full system audit of protocol compliance. Checks whether rules are being followed across the session.</li>
+          <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
+          <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
+          <li><strong>/prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
+          <li><strong>/representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
         </ul>
       </div>
     </div>
@@ -1348,8 +1370,8 @@
           <li>Root <code>AGENTS.md</code> (under 40 lines - lean by design)</li>
           <li><code>[track]/AGENTS.md</code> per subdirectory (backend, frontend, etc.)</li>
           <li><code>.claude/settings.json</code> + <code>settings.local.json</code></li>
-          <li><code>.claude/qa.md</code> (always created - TODO placeholders for unknown values)</li>
-          <li><code>.claude/tracking.md</code> (always created - read by orchestration-planner at planning time)</li>
+          <li><code>.agentic/qa.md</code> (always created - TODO placeholders for unknown values)</li>
+          <li><code>.agentic/tracking.md</code> (always created - read by orchestration-planner at planning time)</li>
           <li><code>MEMORY.md</code> seed in <code><cwd>/.agentic/memory/</code></li>
           <li><code>.gitignore</code> with secrets protection</li>
           <li><code>docs/</code> structure (overview, technical, planning, research)</li>
@@ -1376,7 +1398,7 @@
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
           <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
           <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
-          <li><strong>findings.md promotions</strong> - recurring or high-blast-radius Skeptic findings get promoted to <code>.claude/findings.md</code> for the Architect to read at plan time</li>
+          <li><strong>findings.md promotions</strong> - recurring or high-blast-radius Skeptic findings get promoted to <code>.agentic/findings.md</code> for the Architect to read at plan time</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
@@ -1522,7 +1544,9 @@
       "Write(**/.claude/*.md)","Edit(**/.claude/*.md)",
       "Write(**/.claude/*.json)","Edit(**/.claude/*.json)",
       "Write(.claude/qa.md)",    "Edit(.claude/qa.md)",
-      "Write(.claude/findings.md)","Edit(.claude/findings.md)"
+      "Write(.claude/findings.md)","Edit(.claude/findings.md)",
+      "Write(.agentic/qa.md)",   "Edit(.agentic/qa.md)",
+      "Write(.agentic/findings.md)","Edit(.agentic/findings.md)"
     ],
     "deny": [
       "Bash(git push --force*)",
@@ -1539,7 +1563,7 @@
     "defaultMode": "bypassPermissions"
   }
 }</code></pre>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/init-project</code> and <code>/wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The two exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>) exist because the <code>**/</code> prefix in the broader <code>.claude/*.md</code> glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> dir don't match - without these, <code>/init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/init-project</code> and <code>/wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>, <code>.agentic/qa.md</code>, <code>.agentic/findings.md</code>) exist because the <code>**/</code> prefix in the broader glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> or <code>.agentic/</code> dir don't match - without these, <code>/init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
       </div>
     </div>
   </div>

@@ -134,16 +134,16 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (4 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (5 files) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
 - Design goals - system design principles and intent
 
-**Agents** (10) - named specialist roles:
+**Agents** (13) - named specialist roles:
 architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 
-**Commands** (5) - workflow shortcuts:
+**Commands** (9) - workflow shortcuts:
 skeptic, memory-update, wrap, init-project, implement-ticket
 
 **Hooks** - lifecycle event handlers for risk reminders and session context saving
