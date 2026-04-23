@@ -2,6 +2,17 @@
 
 Adapter for [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli).
 
+## Quick start
+
+Kimi Code CLI does **not** support custom slash commands like `/init-project`.
+Instead, use one of these methods:
+
+- **Explicit skill load:** `/skill:agentic-engineering init-project`
+- **Natural language:** "run init-project" or "initialize agentic-engineering in this repo"
+
+The skill auto-triggers when you mention software development tasks, but explicitly
+loading it with `/skill:agentic-engineering` guarantees the methodology is active.
+
 ## Concept mapping
 
 | Concept | Claude Code | Kimi Code CLI |
@@ -80,3 +91,4 @@ This regenerates AGENTS.md and verifies symlinks. Run this after editing files i
 - **No custom slash commands**: Kimi Code CLI does not support user-defined slash commands. Commands are invoked via `/skill:agentic-engineering <command>` or natural language requests.
 - **Agent definitions are reference material**: Kimi's `Agent` tool uses built-in subagent types (`coder`, `explore`, `plan`). The named agent roles from `content/agents/` are mapped to these types with detailed prompts rather than distinct subagent configurations.
 - **Hook scripts are manual**: Kimi requires hooks to be configured in `config.toml`. The installer does not modify `~/.kimi/config.toml` automatically.
+- **Global install copies SKILL.md**: The installer copies `SKILL.md` to `~/.kimi/skills/` and uses absolute symlinks for `content/`. This makes the global skill survive git branch switches, but means you must re-run `install.sh` after updating `SKILL.md` itself.
