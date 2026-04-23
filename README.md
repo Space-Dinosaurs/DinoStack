@@ -141,10 +141,10 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Design goals - system design principles and intent
 
 **Agents** (13) - named specialist roles:
-architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
+architect, debugger, engineer, investigator, orchestration-planner, perf-analyst, dependency-auditor, release-orchestrator, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 
 **Commands** (9) - workflow shortcuts:
-skeptic, memory-update, wrap, init-project, implement-ticket
+skeptic, implement-ticket, init-project, wrap, memory-update, cleanup-worktrees, update-agentic-engineering, prune-harness, representation-audit
 
 **Hooks** - lifecycle event handlers for risk reminders and session context saving
 
