@@ -126,6 +126,7 @@ link_abs() {
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"
 link_abs "$REPO_DIR/content/rules"      "$SKILL_DST/rules"
+link_abs "$REPO_DIR/content/agents"     "$SKILL_DST/agents"
 
 echo ""
 echo "Kimi adapter install complete."

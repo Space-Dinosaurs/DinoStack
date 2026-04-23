@@ -100,5 +100,6 @@ symlink_dir() {
 symlink_dir "../../../content/references" "$SKILL_DST/references"
 symlink_dir "../../../content/rules"     "$SKILL_DST/rules"
 symlink_dir "../../../content/commands"  "$SKILL_DST/commands"
+symlink_dir "../../../content/agents"    "$SKILL_DST/agents"
 
 echo "Kimi adapter build complete."
