@@ -32,7 +32,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 ## Delegation
 
-**The main session agent is a conductor, not a player.** It stays lightweight, available, and responsive to the user at all times. All substantial work is delegated to subagents.
+**The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays lightweight, available, and responsive to the user at all times.
 
 **All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification.
 
@@ -524,12 +524,12 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 
 ## Git Workflow
 
-The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees.
+The primary checkout stays on `main` at all times. All feature, fix, and chore work happens in separate worktrees branched from `main`.
 
 **Base branch resolution** - resolve in this order before any work begins:
-1. Use `develop` if it exists.
-2. Fall back to `development` if it exists.
-3. Otherwise create `develop` from `main` (fall back to `master` if `main` does not exist).
+1. Use `main` if it exists.
+2. Fall back to `master` only if `main` does not exist.
+3. If neither exists, stop and ask the user which branch should be treated as the integration branch.
 
 **Conductor preflight** - run this checklist before any work begins. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene.
 1. What branch is the working tree on? (`git branch --show-current`)
@@ -538,19 +538,19 @@ The main working tree stays on `development` (or `develop`) at all times. All fe
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Does this task need a new worktree? Any new feature, fix, or chore gets its own worktree branched from the resolved base branch.
 
-**Feature worktrees:** Each task or feature gets one worktree branched from `origin/development` (or `origin/develop`). Run `git fetch origin` before creating any worktree. Edit directly in the worktree - do not create sub-worktrees for individual changes.
+**Feature worktrees:** Each task or feature gets one worktree branched from `origin/main` (or local `main` if no remote exists). Run `git fetch origin` before creating any worktree when a remote is configured. Edit directly in the worktree - do not create sub-worktrees for individual changes. Do not branch new work from an in-progress feature branch unless the user explicitly wants stacked dependent work.
 
 **Parallel agent work:** When multiple agents need to work simultaneously on the same task, each parallel agent gets its own sub-worktree branching from the feature branch. Sub-worktrees are the parallelism tool, not the default for every edit.
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
 
-**Merging:** Always open a PR from the feature branch into `develop`/`development` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
+**Merging:** Always open a PR from the feature branch into `main` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
-**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the main tree should be on `development` with no active worktrees.
+**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the primary checkout should be on `main` with no task work in progress there.
 
-**Commit each fix immediately during testing.** Never accumulate uncommitted changes on the main working tree (`development`/`develop`) during live testing sessions. After each validated fix: create fix branch, commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
+**Commit each fix immediately during testing.** Never accumulate uncommitted changes in the primary checkout on `main` during live testing sessions. After each validated fix: create a `main`-based worktree and branch, commit, PR, merge, pull `main` - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `development`. The main tree stays on `development` as neutral ground - never move it to a feature branch.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `main`. The primary checkout stays on `main` as neutral ground - never move it to a feature branch and never use it for feature edits.
 
 ## Multi-developer coordination
 
@@ -560,7 +560,7 @@ The rules above address one developer running multiple Claude sessions on the sa
 
 **Shared `decisions.md` ownership:** `decisions.md` is a single-writer file by convention (per the Memory Protocol). When two developers' Claude sessions both want to write to it, the second write can clobber the first. Before adding a decision: pull latest, append the new entry, then push immediately. Never batch multiple decisions into one uncommitted edit session. If a conflict occurs, merge it manually - do not let an agent auto-resolve a `decisions.md` conflict.
 
-**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `develop`/`development` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `develop`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
+**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `main` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `main`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
 
 **Worktree ownership:** Each developer maintains their own worktrees on their own machine. Worktrees are not shared. If two developers need to collaborate on the same feature branch, they coordinate via the remote - each pulls from and pushes to `origin`. They do not share or mount each other's local worktrees.
 

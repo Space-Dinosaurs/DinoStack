@@ -815,7 +815,7 @@
 <!-- ═══ Side Navigation ═══ -->
 <nav class="side-nav">
   <div class="side-nav-brand">AE</div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Apr 23, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Apr 24, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -882,7 +882,7 @@
     <figure class="infographic-card">
       <div class="infographic-meta">
         <span class="infographic-kicker">Attention Architecture</span>
-        <span class="infographic-tag">conductor, not player</span>
+        <span class="infographic-tag">conductor, not implementer</span>
       </div>
       <figcaption class="infographic-title">How the system routes scarce human attention</figcaption>
       <p class="infographic-copy">The human supplies intent and judgment. The conductor classifies risk, keeps context light, fans work out to specialists, and only lets reviewed output move forward. Memory flows back into the next session so the system compounds instead of restarting cold.</p>
@@ -1216,7 +1216,7 @@
       <div class="rel-card">
         <h4>agent-methodology.md <span class="load-badge always">always loaded</span></h4>
         <ul>
-          <li>Delegation model: conductor never plays</li>
+          <li>Delegation model: conductor delegates, never implements</li>
           <li>Risk classification: Low vs Elevated</li>
           <li>Spawn threshold decision table</li>
           <li>Task decomposition: one agent, one task</li>
@@ -1468,7 +1468,7 @@
       </div>
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
-      <strong>Core principle:</strong> "The main agent is a conductor, never a player. Its job is to decompose work, spawn subagents, stay available, and synthesize results."
+      <strong>Core principle:</strong> "The main agent is a conductor, never an implementer. The conductor is the main session agent: it decomposes work, spawns subagents that do the implementation and investigation, stays available to the user, and synthesizes results when those subagents report back."
       The Subagent Protocol is the outer frame (should I delegate?). The Skeptic Protocol is the inner loop (is the output correct?).
     </div>
   </div>
@@ -2205,7 +2205,7 @@
             <span style="color: var(--text-muted); font-size: 13px;">Human provides direction, agents provide labor</span>
           </td>
           <td style="padding: 10px 12px; color: #2d5a3d; vertical-align: top;">
-            "The main session agent is a conductor, not a player."<br>
+            "The main session agent is a conductor, not an implementer."<br>
             All substantial work delegated to subagents in background.<br>
             User gives high-level intent; system handles decomposition and execution.
           </td>

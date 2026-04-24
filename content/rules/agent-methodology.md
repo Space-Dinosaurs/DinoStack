@@ -22,7 +22,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 ## Delegation
 
-**The main session agent is a conductor, not a player.** It stays lightweight, available, and responsive to the user at all times. All substantial work is delegated to subagents.
+**The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays lightweight, available, and responsive to the user at all times.
 
 **All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification.
 

@@ -285,7 +285,7 @@ The primary agent's role is coordination, not implementation. It stays available
 
 **Multiple Workers can run concurrently** on independent tasks. The primary agent tracks their state and synthesizes results when they return. Concurrency is the primary performance lever — use it whenever tasks are independent.
 
-**The primary agent is a conductor, not a player.** Its value is in decomposing work correctly, writing precise adversarial briefs, routing findings accurately, and making good decisions when escalation is required. It should resist the temptation to implement directly even when implementation looks simple - simple-looking tasks are often where unreviewed errors accumulate.
+**The primary agent is a conductor, not an implementer.** Its value is in decomposing work correctly, writing precise adversarial briefs, routing findings accurately, and making good decisions when escalation is required. It should resist the temptation to implement directly even when implementation looks simple - simple-looking tasks are often where unreviewed errors accumulate.
 
 ### Review scope: decompose implementation, not review
 
