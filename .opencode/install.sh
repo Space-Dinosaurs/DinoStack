@@ -16,6 +16,7 @@ bash "$REPO_DIR/.opencode/build.sh"
 # ---------------------------------------------------------------------------
 
 AE_MODE_FLAG=""
+AE_PROFILE_FLAG=""
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -23,6 +24,12 @@ for arg in "$@"; do
       ;;
     --mode=*)
       echo "  ! ignoring unknown --mode value: ${arg#--mode=} (expected opt-in or opt-out)"
+      ;;
+    --profile=relaxed|--profile=default|--profile=strict)
+      AE_PROFILE_FLAG="${arg#--profile=}"
+      ;;
+    --profile=*)
+      echo "  ! ignoring unknown --profile value: ${arg#--profile=} (expected relaxed, default, or strict)"
       ;;
   esac
 done
@@ -42,12 +49,43 @@ except Exception:
 " 2>/dev/null)"
 fi
 
+AE_EXISTING_PROFILE=""
+if [[ -f "$AE_CONFIG_PATH" ]]; then
+  AE_EXISTING_PROFILE="$(python3 -c "
+import json, sys
+try:
+    with open('$AE_CONFIG_PATH') as f:
+        print(json.load(f).get('profile', ''))
+except Exception:
+    print('')
+" 2>/dev/null)"
+fi
+
 ae_write_mode() {
   local mode="$1"
   python3 - "$AE_CONFIG_PATH" "$mode" <<'PYEOF'
 import json, sys, datetime
 path, mode = sys.argv[1], sys.argv[2]
-data = {"mode": mode, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+try:
+    with open(path) as f:
+        existing = json.load(f)
+except Exception:
+    existing = {}
+profile = existing.get("profile", "default")
+data = {"mode": mode, "profile": profile, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PYEOF
+}
+
+ae_write_config() {
+  local mode="$1"
+  local profile="$2"
+  python3 - "$AE_CONFIG_PATH" "$mode" "$profile" <<'PYEOF'
+import json, sys, datetime
+path, mode, profile = sys.argv[1], sys.argv[2], sys.argv[3]
+data = {"mode": mode, "profile": profile, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
@@ -78,6 +116,35 @@ else
   ae_write_mode "opt-out"
   echo "  + non-interactive install: defaulted to mode=opt-out (wrote $AE_CONFIG_PATH)"
   echo "    Override later with: bash .opencode/install.sh --mode=opt-in"
+fi
+
+echo ""
+echo "Risk profile..."
+if [[ -n "$AE_PROFILE_FLAG" ]]; then
+  AE_CURRENT_MODE="$(python3 -c "
+import json, sys
+try:
+    with open('$AE_CONFIG_PATH') as f:
+        print(json.load(f).get('mode', 'opt-out'))
+except Exception:
+    print('opt-out')
+" 2>/dev/null)"
+  ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
+  echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
+elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
+  echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
+else
+  AE_CURRENT_MODE="$(python3 -c "
+import json, sys
+try:
+    with open('$AE_CONFIG_PATH') as f:
+        print(json.load(f).get('mode', 'opt-out'))
+except Exception:
+    print('opt-out')
+" 2>/dev/null)"
+  ae_write_config "$AE_CURRENT_MODE" "default"
+  echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
+  echo "    Override with: bash .opencode/install.sh --profile=relaxed|default|strict"
 fi
 
 # ---------------------------------------------------------------------------
