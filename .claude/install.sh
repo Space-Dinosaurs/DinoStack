@@ -252,7 +252,7 @@ already_correct = False
 for entry in stop_star["hooks"]:
     cmd = entry.get("command", "")
     if "stop-context.js" in cmd:
-        if "agentic-engineering" in cmd:
+        if cmd == STOP_CMD:
             already_correct = True
         else:
             entry["command"] = STOP_CMD

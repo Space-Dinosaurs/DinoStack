@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKILL_DST="$HOME/.omp/agent/skills/agentic-engineering"
+AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
+
+removed=()
+skipped=()
+
+remove_if_ours() {
+  local path="$1"
+  local expected_target="$2"
+  if [[ -L "$path" ]]; then
+    local current
+    current="$(readlink "$path")"
+    if [[ "$current" == "$expected_target" ]]; then
+      rm "$path"
+      removed+=("$path")
+    else
+      skipped+=("$path (symlink points elsewhere: $current)")
+    fi
+  elif [[ -e "$path" ]]; then
+    skipped+=("$path (not a symlink - manual removal required)")
+  fi
+}
+
+echo "Uninstalling Pi (oh-my-pi) adapter..."
+
+# Remove global skill directory/symlink
+if [[ -L "$SKILL_DST" ]]; then
+  remove_if_ours "$SKILL_DST" "$REPO_DIR/.omp/skills/agentic-engineering"
+elif [[ -d "$SKILL_DST" ]]; then
+  # Remove copied SKILL.md
+  if [[ -f "$SKILL_DST/SKILL.md" ]]; then
+    rm "$SKILL_DST/SKILL.md"
+    removed+=("$SKILL_DST/SKILL.md")
+  fi
+
+  # Remove the four symlinks if they are ours
+  remove_if_ours "$SKILL_DST/commands"   "$REPO_DIR/content/commands"
+  remove_if_ours "$SKILL_DST/references" "$REPO_DIR/content/references"
+  remove_if_ours "$SKILL_DST/rules"      "$REPO_DIR/content/rules"
+  remove_if_ours "$SKILL_DST/agents"     "$REPO_DIR/content/agents"
+
+  # Try to remove the directory if empty
+  if rmdir "$SKILL_DST" 2>/dev/null; then
+    removed+=("$SKILL_DST")
+  else
+    skipped+=("$SKILL_DST (directory not empty - manual removal required)")
+  fi
+fi
+
+# Optionally remove activation config
+if [[ -f "$AE_CONFIG_PATH" ]]; then
+  echo ""
+  read -p "Remove activation config ($AE_CONFIG_PATH)? [y/N] " REMOVE_CONFIG
+  if [[ "$REMOVE_CONFIG" =~ ^[Yy]$ ]]; then
+    rm "$AE_CONFIG_PATH"
+    removed+=("$AE_CONFIG_PATH")
+  else
+    skipped+=("$AE_CONFIG_PATH (kept)")
+  fi
+fi
+
+echo ""
+if [[ ${#removed[@]} -gt 0 ]]; then
+  echo "Removed:"
+  for item in "${removed[@]}"; do
+    echo "  - $item"
+  done
+fi
+if [[ ${#skipped[@]} -gt 0 ]]; then
+  echo "Skipped:"
+  for item in "${skipped[@]}"; do
+    echo "  = $item"
+  done
+fi
+
+echo ""
+echo "Pi (oh-my-pi) adapter uninstalled."
+echo "Note: .omp/ directory in the repo was NOT removed. Delete it manually if desired."

@@ -6,7 +6,7 @@ This document captures the design intent of the claude-protocols system. It is w
 
 ## Goal 1 — Main agent stays maximally responsive
 
-**The main session agent is a conductor, not a player.** Its value is in decomposing work correctly, passing precise context to Workers, and synthesizing results when they return. It must remain free to respond to the user at any point — including while background work is running. Any time the main agent does substantial work synchronously, the user waits. Any time the main agent handles multi-step work inline rather than delegating, it bypasses review and blocks the conversation.
+**The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work correctly, passes precise context to Workers (the subagents that do the actual implementation, investigation, and review), and synthesizes results when those Workers report back. It must remain free to respond to the user at any point — including while background work is running. Any time the main agent does substantial work synchronously, the user waits. Any time the main agent handles multi-step work inline rather than delegating, it bypasses review and blocks the conversation.
 
 **What this means in practice:**
 
@@ -73,7 +73,7 @@ The "Decisions & Context" section of `~/.claude/CLAUDE.md` operationalizes this 
 
 **Always-loaded instruction files must be as small as possible while preserving correct autonomous behavior.** The global `~/.claude/CLAUDE.md` is loaded into every conversation. Every line consumes context on every task, whether relevant or not. The system separates content into two categories using a trigger-pointer pattern:
 
-**Inline content** - present in the always-loaded file because the agent needs it before making any decision. This includes: risk signal lists, delegation decision tables, core behavioral rules (conductor/player, background-by-default), and cross-cutting conventions (writing style, tool usage). These pass the chicken-and-egg test: removing them would cause the agent to miss a risk signal or behavioral rule before it knows to read anything else.
+**Inline content** - present in the always-loaded file because the agent needs it before making any decision. This includes: risk signal lists, delegation decision tables, core behavioral rules (conductor/implementer, background-by-default), and cross-cutting conventions (writing style, tool usage). These pass the chicken-and-egg test: removing them would cause the agent to miss a risk signal or behavioral rule before it knows to read anything else.
 
 **Deferred content** - needed only after a trigger condition is met. This includes: protocol procedural details (Skeptic loop steps, sign-off format, adversarial briefs), escalation mechanics, worktree rules, and detailed rationale. Deferred content lives in canonical spec files and command files; the always-loaded file contains a pointer with a trigger condition, file path, and one-line summary.
 

@@ -7,12 +7,13 @@ alwaysApply: true
 
 Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to two file reads with no subagent spawn and no LLM reasoning.
 
-1. **Read the global mode.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`.
+1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`.
 2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
-3. **Scan for the marker line.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
+3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
    - `agentic-engineering: opt-in`
    - `agentic-engineering: opt-out`
    If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
+   Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the global profile.
 4. **Activation decision.**
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
@@ -27,14 +28,13 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 ## Delegation
 
-**The main session agent is a conductor, not a player.** It stays lightweight, available, and responsive to the user at all times. All substantial work is delegated to subagents.
+**The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays lightweight, available, and responsive to the user at all times.
 
 **All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> conductor edits directly if no subagents are running; otherwise spawn a single `engineer` Worker in foreground with no Skeptic. When in doubt, classify as Elevated.
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
-
 
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step.
 
@@ -111,6 +111,8 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 - "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
 - "This qualifies as the tight-fix path, so I can skip Skeptic" - Valid only when every checklist item is explicitly satisfied AND declared. An incomplete declaration, a stale debugger brief, Low debugger confidence, or any disqualifier reverts to standard Elevated. The default when uncertain is standard Elevated.
+
+**Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
 
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -196,7 +198,36 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
-**Elevated signals (any single one triggers adversarial review):** any code edit to file contents (excluding diagnostic-only logging); security / auth / crypto / payments / secrets; irreversible operations; architecture decisions that constrain future choices; modifies protocol or infrastructure files; production or shared state; multi-file changes; new file creation; external APIs or services; unfamiliar codebase area; logic with emergent cross-component interactions; user signals high stakes; configuration changes; research that produces a document, recommendation, or plan to be acted on; changes to shared utilities used across many call sites (single-file but high blast radius); anything where a mistake costs time or data.
+### Risk profiles
+
+The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
+
+- **`relaxed`** — minimal Skeptic overhead. Use for rapid iteration on well-understood UI or local bug fixes.
+- **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
+- **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
+
+#### Profile deltas
+
+The existing signal lists below represent the `default` profile. These deltas apply:
+
+**`relaxed` (additional Low overrides):**
+- **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated.
+  - Definition: touches exactly one file; modifies local behavior (e.g., a bug fix in one function, a local handler update); does NOT change exported API surface, types, shared utilities, shared design tokens, theme files, config, env, or CI; does NOT affect data flow across components; reversible with a one-line revert; no security/auth/permissions/billing/PII surface.
+- **Multi-file pure-UI-only changes** are treated as **Low** instead of Elevated.
+  - Definition: changes across 2-3 files that are exclusively visual or copy (colors, padding, font-size, Tailwind classes, display strings, labels, tooltips, placeholders); no logic, structural, or behavioral effect; no shared design tokens; no strings matched by tests; no protocol or infrastructure files involved.
+
+**`default` (compared to legacy):**
+- **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated (same definition as `relaxed` above). All other signals remain at their legacy levels.
+
+**`strict` (removed Low overrides):**
+- **UI-only copy changes** are treated as **Elevated**; the Low override is removed.
+- **File renaming** is treated as **Elevated**; the Low override is removed.
+- **Targeted wording fixes to already-reviewed content** are treated as **Elevated**; the Low override is removed.
+- **Diagnostic-only changes** and **documentation-only file creation** remain direct-action eligible but require the conductor's inline self-check (they are treated as Low rather than unconditionally direct).
+
+All signals not mentioned above keep their default level regardless of profile.
+
+**Elevated signals (any single one triggers adversarial review):** any code edit to file contents (excluding diagnostic-only logging) — **in `relaxed` and `default` profiles, single-file locally-scoped edits are Low per the profile deltas above**; security / auth / crypto / payments / secrets; irreversible operations; architecture decisions that constrain future choices; modifies protocol or infrastructure files; production or shared state; multi-file changes — **in `relaxed` profile, multi-file pure-UI-only changes are Low per the profile deltas above**; new file creation; external APIs or services; unfamiliar codebase area; logic with emergent/non-obvious cross-component interactions; user signals high stakes; configuration changes; research that produces a document, recommendation, or plan to be acted on; changes to shared utilities used across many call sites (single-file but high blast radius); anything where a mistake costs time or data.
 
 **Trivial signals (ALL must hold - any single disqualifier pushes to Elevated):** touches exactly one file (or one file plus its colocated test/snapshot); no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports (exported symbols, public CSS classes, route paths); reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved. Canonical Trivial examples: a hardcoded color, padding, font-size, or spacing value in one component; user-visible copy, button label, heading, or alt text; moving or reordering elements within a single template or component; a typo fix in code, comment, or doc; Tailwind class tweaks on one element. NOT Trivial even if it feels small: edits to `tailwind.config.*`, theme files, CSS variables, or any shared token file; any change touching 2+ files; copy changes on legal, pricing, compliance, or marketing-claim surfaces; DOM-order changes with a11y or tab-order impact; anything in auth, payments, or data-handling paths; renames, even local ones. When in doubt between Trivial and Elevated, choose Elevated.
 
@@ -238,7 +269,7 @@ If pre-commit tests fail, standard Elevated loop applies.
 
 **Fallback is automatic.** Any BLOCKED status, failed baseline, failed verify, or disqualifier reverts the task to standard Elevated with a Skeptic. This is not an escape hatch - it is the safe default that fires on any deviation.
 
-**Low signals:** clearly reversible reads (reads with no writes); exploration / research / draft work - only when the output is understanding, not a decision-driving artifact; **diagnostic-only changes** (pure logging additions - console.log, .catch() for error visibility, test interceptors) across any number of files, where every change has zero behavioral effect; **documentation-only file creation** (new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the "new file creation" Elevated signal for this case only); **targeted wording fixes to already-reviewed content** (phrasing adjustments where the substance was already Skeptic-approved in the current or a recent session - e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration; does not apply to new decisions, new recommendations, or new content not previously reviewed; does not override the "modifies protocol or infrastructure files" Elevated signal; overrides the single-file edit and new file Elevated signals for this case only); **file renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the operation is Elevated because the rename changes behavior without changing file contents); **UI-only copy changes** (rewording display strings, labels, tooltips, or placeholder text where the change has no logic, structural, or behavioral effect - e.g., "The path is clear" to "The path seems clear"; does not apply to strings matched by tests, error messages that drive control flow, or protocol/infrastructure files; overrides the "any code edit with behavioral effect" Elevated signal for this case only).
+**Low signals:** clearly reversible reads (reads with no writes); exploration / research / draft work - only when the output is understanding, not a decision-driving artifact; **diagnostic-only changes** (pure logging additions - console.log, .catch() for error visibility, test interceptors) across any number of files, where every change has zero behavioral effect — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **documentation-only file creation** (new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the "new file creation" Elevated signal for this case only) — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **targeted wording fixes to already-reviewed content** (phrasing adjustments where the substance was already Skeptic-approved in the current or a recent session - e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration; does not apply to new decisions, new recommendations, or new content not previously reviewed; does not override the "modifies protocol or infrastructure files" Elevated signal; overrides the single-file edit and new file Elevated signals for this case only) — **in `strict` profile, this override is removed; treat as Elevated**; **file renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the operation is Elevated because the rename changes behavior without changing file contents) — **in `strict` profile, this override is removed; treat as Elevated**; **UI-only copy changes** (rewording display strings, labels, tooltips, or placeholder text where the change has no logic, structural, or behavioral effect - e.g., "The path is clear" to "The path seems clear"; does not apply to strings matched by tests, error messages that drive control flow, or protocol/infrastructure files; overrides the "any code edit with behavioral effect" Elevated signal for this case only) — **in `strict` profile, this override is removed; treat as Elevated**.
 
 **Mid-task reclassification:** If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point.
 

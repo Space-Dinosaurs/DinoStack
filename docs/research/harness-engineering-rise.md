@@ -90,7 +90,7 @@ The `~/agentic-engineering` repo is essentially a hand-crafted harness for Claud
 | Execution contracts (required outputs, budgets, permissions, completion conditions, output paths) | Worker preambles, adversarial briefs, Skeptic sign-off format, phase breadcrumbs, risk-classification table. Less formal than NLH's function-signature framing, same role |
 | Ablation-friendly runtime/harness split (IHR vs NLH) | Adapter layout (`.claude`, `.cursor`, `.codex`) against shared methodology content is runtime/harness separation - methodology is the NLH, adapters are the IHR |
 | Context-window discipline (harness as pruning) | `design-goals.md` Goal 4 - the "chicken-and-egg" inline-vs-deferred rule is exactly this discipline |
-| Harness is orchestration, not reasoning (~90% of compute through delegated children) | "The main agent is a conductor, not a player" - `design-goals.md` Goal 1 verbatim |
+| Harness is orchestration, not reasoning (~90% of compute through delegated children) | "The main agent is a conductor, not an implementer" - `design-goals.md` Goal 1 verbatim |
 
 ### Where the research pushes past the current system
 

@@ -24,6 +24,23 @@ Install agentic-engineering
 
 The agent runs the installer, walks you through optional tool setup, and keeps existing customizations intact.
 
+### How to know it's working
+
+Once installed, start Claude in any project and give it a task. The system activates automatically for engineering work - there's nothing extra to configure or enable.
+
+You'll see the agent narrate its routing decisions as it goes:
+
+```
+Routing this through orchestration-planner first...
+Spawning architect to produce a plan...
+Handing the architect's plan to engineer...
+Handing off to skeptic for adversarial review...
+Spawning debugger on the failing test...
+QA engineer verifying acceptance criteria in the browser...
+```
+
+If you see none of this, the task was classified as a small, reversible direct action and handled without spawning subagents. That's the protocol working correctly on a cheap task - not a sign that it's off.
+
 **Or install manually:**
 
 ```
@@ -48,7 +65,7 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The same flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, and `.opencode/install.sh` - the config file is shared across adapters.
+The same flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, and `.omp/install.sh` - the config file is shared across adapters.
 
 **Per-project marker:** add a single line to the project's root `AGENTS.md`:
 
@@ -123,6 +140,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | Gemini CLI | `.gemini/` | See [.gemini/README.md](.gemini/README.md) |
 | Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
 | OpenCode | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
+| Pi (oh-my-pi) | `.omp/` | See [.omp/README.md](.omp/README.md) |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
@@ -133,17 +151,17 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (4 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (5 files) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
 - Design goals - system design principles and intent
 
-**Agents** (10) - named specialist roles:
-architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
+**Agents** (13) - named specialist roles:
+architect, debugger, engineer, investigator, orchestration-planner, perf-analyst, dependency-auditor, release-orchestrator, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 
-**Commands** (5) - workflow shortcuts:
-skeptic, memory-update, wrap, init-project, implement-ticket
+**Commands** (9) - workflow shortcuts:
+skeptic, implement-ticket, init-project, wrap, memory-update, cleanup-worktrees, update-agentic-engineering, prune-harness, representation-audit
 
 **Hooks** - lifecycle event handlers for risk reminders and session context saving
 
@@ -157,6 +175,7 @@ agentic-engineering/
   .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
   .kimi/                Kimi Code CLI adapter (AGENTS.md, skill, commands, install/uninstall)
   .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
+  .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters
