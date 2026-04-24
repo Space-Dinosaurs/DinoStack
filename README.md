@@ -24,6 +24,23 @@ Install agentic-engineering
 
 The agent runs the installer, walks you through optional tool setup, and keeps existing customizations intact.
 
+### How to know it's working
+
+Once installed, start Claude in any project and give it a task. The system activates automatically for engineering work - there's nothing extra to configure or enable.
+
+You'll see the agent narrate its routing decisions as it goes:
+
+```
+Routing this through orchestration-planner first...
+Spawning architect to produce a plan...
+Handing the architect's plan to engineer...
+Handing off to skeptic for adversarial review...
+Spawning debugger on the failing test...
+QA engineer verifying acceptance criteria in the browser...
+```
+
+If you see none of this, the task was classified as a small, reversible direct action and handled without spawning subagents. That's the protocol working correctly on a cheap task - not a sign that it's off.
+
 **Or install manually:**
 
 ```

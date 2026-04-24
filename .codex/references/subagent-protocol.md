@@ -4,7 +4,7 @@
 
 The Subagent Protocol is the outer orchestration frame for multi-agent sessions. It governs when and how the main session agent delegates work to subagents, with one non-negotiable objective: **the main session agent must always remain free to respond to the user**.
 
-The core principle: **the main agent is a conductor, never a player.** Its job is to decompose work, spawn subagents, stay available, and synthesize results. It does not implement, investigate, or run multi-step operations inline.
+The core principle: **the main agent is a conductor, never an implementer.** The conductor is the main session agent: it decomposes work, spawns specialist subagents that do the implementation and investigation, stays available to the user, and synthesizes results when those subagents report back. It does not implement, investigate, or run multi-step operations inline.
 
 The Skeptic Protocol is a specific review pattern orchestrated by the main agent after a Worker returns. The main agent spawns the Worker, reads the result, then spawns a fresh Skeptic to review it. The Subagent Protocol is the outer frame that determines whether and how to delegate; The Skeptic Protocol determines how the main agent reviews Worker output before accepting it.
 
@@ -18,7 +18,7 @@ The principles are system-agnostic and apply to any orchestration agent capable 
 
 **All delegated tasks run in background by default. Foreground is permitted only for the direct-action cases listed in Rule 7.**
 
-A foreground subagent blocks the main agent entirely. The main agent cannot respond to the user, cannot process other completions, and cannot provide progress updates while a foreground task is running. This is the most severe violation of the protocol — it converts the conductor into a blocked player.
+A foreground subagent blocks the main agent entirely. The main agent cannot respond to the user, cannot process other completions, and cannot provide progress updates while a foreground task is running. This is the most severe violation of the protocol — it converts the conductor into a blocked implementer.
 
 Background tasks free the main agent immediately. The main agent gives the user an upfront status update, stays available for follow-up questions, and checks task output via TaskOutput when the task completes or when the result is needed.
 
@@ -269,7 +269,7 @@ The principle: overusing Skeptics dilutes their value. Narrow Workers improve im
 
 **Mid-task re-decomposition:** If a Worker discovers its scope is still too broad during execution, it returns partial output with a decomposition request. The conductor then decomposes further and re-spawns focused Workers. See Skeptic Protocol Section 5.
 
-At no point in this sequence does the main agent become a player. All steps are conductor actions.
+At no point in this sequence does the main agent become an implementer. All steps are conductor actions.
 
 ---
 
