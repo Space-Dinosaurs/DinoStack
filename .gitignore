@@ -20,6 +20,8 @@ node_modules/
 .agentic/
 
 # AI assistant adapter directories (local-only, not committed)
+.agents/
+.goose/
 .hermes/
 
 # Claude Code feature worktrees created by the eval harness (ephemeral)
@@ -37,3 +39,4 @@ evals/results/*.runlog.jsonl
 # evals/results/auto-harness.tsv IS committed.
 evals/.auto-harness.lock
 evals/auto/state/
+evals/auto/editor-logs/
