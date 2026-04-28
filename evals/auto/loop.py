@@ -201,6 +201,25 @@ def _budget_exhausted(cost_spent: float, budget: float) -> bool:
     return budget > 0 and cost_spent >= budget
 
 
+def _preserve_results_across_reset(repo_root: Path) -> Dict[Path, str]:
+    """Read current content of result TSVs and runlogs so they survive
+    git reset --hard. Returns a dict of {path: content}."""
+    preserved: Dict[Path, str] = {}
+    results_dir = repo_root / "evals" / "results"
+    if results_dir.exists():
+        for path in results_dir.glob("*.tsv"):
+            preserved[path] = path.read_text(encoding="utf-8")
+        for path in results_dir.glob("*.runlog.jsonl"):
+            preserved[path] = path.read_text(encoding="utf-8")
+    return preserved
+
+
+def _restore_results(repo_root: Path, preserved: Dict[Path, str]) -> None:
+    """Write preserved content back after git reset --hard."""
+    for path, content in preserved.items():
+        path.write_text(content, encoding="utf-8")
+
+
 def _build_editor_context(cfg: LoopConfig) -> Dict[str, Any]:
     editable = cfg.component_cfg.get("editable") or []
     locked = cfg.component_cfg.get("locked") or []
@@ -425,7 +444,9 @@ def _one_iteration(
     rr = runner_shim.run_component(cfg.repo_root, cfg.component)
     if not rr["ok"]:
         # Revert the proposed commit; record reject.
+        preserved = _preserve_results_across_reset(cfg.repo_root)
         git_ops.reset_hard(cfg.repo_root, base_commit)
+        _restore_results(cfg.repo_root, preserved)
         return {
             "row": {
                 "timestamp_utc": _now_utc_iso(),
@@ -467,7 +488,9 @@ def _one_iteration(
     else:
         decision = "revert"
         reason = f"delta={delta:.4f}<threshold={threshold:.4f}"
+        preserved = _preserve_results_across_reset(cfg.repo_root)
         git_ops.reset_hard(cfg.repo_root, base_commit)
+        _restore_results(cfg.repo_root, preserved)
 
     return {
         "row": {
