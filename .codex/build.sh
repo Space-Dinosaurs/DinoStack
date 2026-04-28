@@ -22,7 +22,7 @@ get_inode() {
 # ---------------------------------------------------------------------------
 # Build AGENTS.md
 #
-# Flattens all 3 rules files from content/rules/ into a single AGENTS.md,
+# Flattens all 4 rules files from content/rules/ into a single AGENTS.md,
 # which Codex loads automatically from the project root. A header and
 # protocol reference footer are prepended/appended.
 # ---------------------------------------------------------------------------
@@ -52,6 +52,10 @@ HEADER
   echo "---"
   echo ""
   cat "$CONTENT/rules/conventions.md"
+  echo ""
+  echo "---"
+  echo ""
+  cat "$CONTENT/rules/module-manifest.md"
 
   cat <<'FOOTER'
 
