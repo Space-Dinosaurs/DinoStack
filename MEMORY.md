@@ -8,10 +8,11 @@
 
 - **2026-04-28:** This project uses `main` as the sole integration branch. Do not use `develop`/`development` branching model for this repository - all feature/fix/chore work branches from `main` and merges back to `main`.
 
-## Session Learnings (2026-04-26/27)
+## Session Learnings (2026-04-26/28)
 
+- **2026-04-28: Tier 2 isolator HOME redirect broke Claude CLI auth.** Every command-mode component (implement-ticket, wrap, init-project, prune-harness, memory-update, cleanup-worktrees, update-agentic-engineering, representation-audit) was scoring the 0.2 floor (forbidden_credit only) because the CLI couldn't find auth in the redirected HOME (macOS keychain / Linux .credentials.json). All "command-mode baselines" predating PR #12 are invalid - they measured the floor, not the agents. Re-baseline required before any auto-harness run on command-mode components. Fixed in PR #12 via narrow auth-preservation symlinks in `evals/runner/isolator.py`.
 - **Auto-harness success pattern:** Works reliably for agent-mode components with clear scoring headroom and consistent fixture variance. security-auditor (0.750→0.866) and debugger (0.830→1.000) both shipped improvements via the harness.
-- **Auto-harness failure pattern (command-mode):** Command-mode components (implement-ticket, update-agentic-engineering, memory-update) consistently fail auto-harness due to editor diff generation issues — either timeouts (>600s) or malformed hunks that `git apply --recount --3way` cannot resolve. The editor does not handle command-file briefs well.
+- **Auto-harness failure pattern (command-mode editor) - HISTORICAL, may need re-validation:** Command-mode components were observed to fail auto-harness via editor timeouts or malformed hunks. Re-validation needed now that auth works - prior diagnoses may have conflated editor failure with the auth bug above.
 - **Auto-harness failure pattern (variance inflation):** A single high-variance fixture can inflate `pooled_stdev` so much that the threshold becomes unreachable. architect (threshold ~0.20) and security-auditor retry (threshold ~0.35) both found real improvements that were reverted due to variance.
 - **Skeptic structural cap:** The skeptic scorer's `fp_cap = max(max_credit, 1.0) * 0.5` creates a hard 0.500 ceiling when `raw_fp ≥ 0.5`. Prompt edits cannot break through this mathematical cap. Scorer recalibration is required before skeptic can be improved via harness.
 - **Wrap component failure:** wrap auto-harness hit plateau after one iteration degraded the score (-0.352) and two others had editor failures. The 0.742 baseline may be near the prompt's local optimum.
@@ -21,8 +22,10 @@
 
 ## Next Session Checklist
 
-1. ~~**Fix command-mode auto-harness editor** — either increase editor timeout beyond 1200s, switch to whole-file replacement for command files, or fix the diff generation pipeline so malformed hunks stop appearing~~ ✅ DONE (whole-file replacement implemented for 8 command-mode components)
-2. **Recalibrate skeptic scorer** — remove or raise the 0.5 FP cap so skeptic can be improved via harness
-3. **Fix release-orchestrator fixtures** ro-002 and ro-005 — they consistently produce `invalid_format`; need to understand why and adjust fixture or agent config
-4. **Add harder fixtures to at-ceiling components** — conductor, init-project, qa-engineer, perf-analyst, cleanup-worktrees all have medians ≥0.90 and need more challenging fixtures to create headroom
-5. **Run auto-harness on remaining command-mode components** after editor fix — update-agentic-engineering (0.43), prune-harness (0.45), memory-update (0.60), implement-ticket (0.20) all have baselines but couldn't enter the harness due to editor issues
+1. ~~**Fix command-mode auto-harness editor**~~ ✅ DONE (whole-file replacement)
+2. ~~**Fix Tier 2 HOME redirect breaking CLI auth**~~ ✅ DONE 2026-04-28 (PR #12)
+3. **Re-baseline 8 command-mode components** under fixed isolator: implement-ticket, wrap, init-project, prune-harness, memory-update, cleanup-worktrees, update-agentic-engineering, representation-audit. Old baselines were the 0.2 floor and are invalid.
+4. **Recalibrate skeptic scorer** — remove or raise the 0.5 FP cap so skeptic can be improved via harness
+5. **Fix release-orchestrator fixtures** ro-002 and ro-005 — they consistently produce `invalid_format`
+6. **Add harder fixtures to at-ceiling components** — conductor, init-project, qa-engineer, perf-analyst, cleanup-worktrees, adr-generator, investigator (medians ≥0.90, no headroom)
+7. **Run auto-harness on command-mode components** after re-baselining (step 3) and after re-validating the editor pattern
