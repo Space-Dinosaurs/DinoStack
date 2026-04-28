@@ -288,7 +288,14 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 10. **`.agentic/preferences.json`** — if the file does not exist: plan to create it with `{}` as content.
 
-11. **Legacy path migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`:
+11. **`@` auto-imports** — check whether the existing `AGENTS.md` ends with the two lines:
+    ```
+    @.agentic/context.md
+    @.agentic/memory/MEMORY.md
+    ```
+    If either line is absent: plan to append the missing line(s) at the end of `AGENTS.md`. These `@`-imports cause Claude Code to auto-inject session context and memory before the first agent turn. Never remove or reorder existing `@`-import lines.
+
+12. **Legacy path migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`:
     - **Both paths exist** (e.g. `.claude/findings.md` AND `.agentic/findings.md` both on disk): refuse to migrate. Emit a **Major warning** in the diff preview block listing each conflicting pair: `WARNING (Major): both .claude/<name>.md and .agentic/<name>.md exist for <name>. Cannot decide which is canonical. Resolve manually (remove or merge one) before re-running /init-project.` Do NOT proceed to apply any changes — block the "Proceed? [y/N]" confirmation until the conflict is resolved.
     - **Only legacy `.claude/<name>.md` exists**: plan to migrate via `git mv .claude/<name>.md .agentic/<name>.md`. Before planning the `git mv`, run `git status --porcelain` to verify the working tree is clean of staged or unstaged changes. If dirty, block with: `Cannot migrate legacy .claude/ config while the working tree is dirty. Commit or stash first, then re-run /init-project.` Do NOT stash or commit on behalf of the user.
     - **Only `.agentic/<name>.md` exists** (the normal post-migration state): no action needed.
@@ -304,6 +311,7 @@ Here's what I'd update:
   AGENTS.md:
     - Migrate ## Linear to new shape (Workspace: [value], QA assignee ID: [value or "not set"])
     - Append to ## Tools: [new entry]
+    - Append @-import lines (@.agentic/context.md, @.agentic/memory/MEMORY.md not yet present)
 
   .agentic/qa.md:
     - Create (not found, web UI detected as [framework] on port [N])
@@ -357,9 +365,10 @@ Read the existing `AGENTS.md` and identify two groups of content:
 - `## Docs`
 - `## Conventions`
 - `## Session start` (tool-agnostic session-agent scaffolding check; see template block below)
+- `@.agentic/context.md` and `@.agentic/memory/MEMORY.md` auto-imports (at end of file, after all sections)
 
 **Spawn a fresh Skeptic** after the Worker returns with this adversarial brief:
-> "Is the curated AGENTS.md under 45 lines? Does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
+> "Is the curated AGENTS.md under 45 lines (excluding the 2 trailing @-import lines)? Does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
 
 Require sign-off format:
 ```
@@ -413,7 +422,14 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or Enter defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
   ```
 
-Keep it under 45 lines.
+After all sections, append these two lines to the generated `AGENTS.md`. Claude Code processes `@`-imports at load time, so session context and memory are auto-injected before the first agent turn - agents cannot skip them:
+
+```
+@.agentic/context.md
+@.agentic/memory/MEMORY.md
+```
+
+Keep it under 45 lines (the 2 trailing @-import lines are excluded from this count).
 
 If the project shows parallel fan-out signals (3 or more distinct modules or tracks, complex orchestration history in git log, or prior multi-unit plans visible in docs/planning/), add a note in the scaffolded root AGENTS.md under `## Conventions`: "`.agentic/tasks.jsonl` is the task coordination surface for multi-unit orchestration plans."
 
