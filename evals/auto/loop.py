@@ -43,6 +43,85 @@ from . import state as state_mod
 
 _LEDGER_PATH_PARTS = ("evals", "results", "auto-harness.tsv")
 
+# Output format instructions injected into program.md via {{OUTPUT_FORMAT_INSTRUCTIONS}}.
+_DIFF_MODE_INSTRUCTIONS = """\
+Respond with EXACTLY these two elements, in order, nothing else:
+
+1. A single fenced diff block in unified-diff format that `git apply`
+   can consume. File headers must use `a/` and `b/` prefixes (standard
+   `git diff` output). Example:
+
+```diff
+--- a/content/agents/skeptic.md
++++ b/content/agents/skeptic.md
+@@ -10,3 +10,4 @@
+ existing line
+ existing line
++new line added
+ existing line
+```
+
+2. On its own line, immediately after the diff block:
+
+```
+Overfitting Rule verdict: yes|no because <one-sentence rationale>
+```
+
+If you cannot propose a plausible improvement this iteration, output:
+
+```diff
+```
+
+(an empty diff block) and
+
+```
+Overfitting Rule verdict: no because no-op proposed
+```
+
+The loop will record a no-op and advance. A no-op is better than an
+overfitting edit."""
+
+_WHOLE_FILE_MODE_INSTRUCTIONS = """\
+When editing large command files, output the COMPLETE new file content.
+Do NOT use unified-diff format. Do NOT omit unchanged sections.
+
+Respond with EXACTLY these two elements, in order, nothing else:
+
+1. A single fenced markdown block containing the full rewritten file.
+   The first non-empty line inside the block must be the file path,
+   e.g. `content/commands/implement-ticket.md`. The rest is the full
+   file content.
+
+   Example:
+
+   ```markdown
+   content/commands/implement-ticket.md
+   # File header...
+   ...full content...
+   ```
+
+2. On its own line, immediately after the markdown block:
+
+```
+Overfitting Rule verdict: yes|no because <one-sentence rationale>
+```
+
+If you cannot propose a plausible improvement, output an empty markdown
+block (` ```markdown\n``` `) and
+
+```
+Overfitting Rule verdict: no because no-op proposed
+```
+
+The loop will record a no-op and advance. A no-op is better than an
+overfitting edit."""
+
+
+def _format_instructions(component: str, whole_file_mode: bool) -> str:
+    """Return the output-format instructions for the editor program template."""
+    return _WHOLE_FILE_MODE_INSTRUCTIONS if whole_file_mode else _DIFF_MODE_INSTRUCTIONS
+
+
 LEDGER_HEADER: tuple = (
     "timestamp_utc",
     "component",
@@ -125,6 +204,7 @@ def _budget_exhausted(cost_spent: float, budget: float) -> bool:
 def _build_editor_context(cfg: LoopConfig) -> Dict[str, Any]:
     editable = cfg.component_cfg.get("editable") or []
     locked = cfg.component_cfg.get("locked") or []
+    is_whole_file = cfg.component_cfg.get("whole_file_replacement", False)
     return {
         "COMPONENT": cfg.component,
         "EDITABLE_FILES": "\n".join(f"  - {p}" for p in editable),
@@ -132,6 +212,9 @@ def _build_editor_context(cfg: LoopConfig) -> Dict[str, Any]:
         "BASELINE_METRIC": _fmt(cfg.baseline_metric),
         "POOLED_STDEV": _fmt(cfg.baseline_pooled_stdev),
         "MAX_EDIT_LOC": str(cfg.component_cfg.get("max_edit_loc", 20)),
+        "WHOLE_FILE_MODE": "true" if is_whole_file else "false",
+        "EDITOR_TIMEOUT_SEC": str(cfg.editor_timeout_sec),
+        "OUTPUT_FORMAT_INSTRUCTIONS": _format_instructions(cfg.component, is_whole_file),
     }
 
 
@@ -182,31 +265,65 @@ def _one_iteration(
         }
 
     text = er.get("text") or ""
-    diff = apply_mod.extract_diff(text) or ""
+    is_whole_file = cfg.component_cfg.get("whole_file_replacement", False)
+
+    if is_whole_file:
+        extracted = apply_mod.extract_whole_file(text)
+        path = ""
+        new_content = ""
+        if extracted:
+            path, new_content = extracted
+        diff_for_overfit = new_content
+        editable_paths = list(cfg.component_cfg.get("editable") or [])
+        locked_paths = list(cfg.component_cfg.get("locked") or [])
+        validation = {"ok": True, "reason": "", "paths": []}
+        loc = 0
+        if extracted is not None and path:
+            validation = apply_mod.validate_single_path(
+                path, editable=editable_paths, locked=locked_paths
+            )
+            loc = apply_mod.count_changed_loc_for_whole_file(
+                cfg.repo_root, path, new_content
+            )
+    else:
+        diff = apply_mod.extract_diff(text) or ""
+        diff_for_overfit = diff
+        validation = apply_mod.validate_paths(
+            diff,
+            editable=list(cfg.component_cfg.get("editable") or []),
+            locked=list(cfg.component_cfg.get("locked") or []),
+        )
+        loc = apply_mod.count_changed_loc(diff)
+
+    max_loc = int(cfg.component_cfg.get("max_edit_loc", 20))
 
     # Overfitting check: parse verdict line AND scan both rationale and diff.
-    verdict = overfit.parse_verdict(text, diff=diff)
-    # Validate paths and LOC before applying.
-    validation = apply_mod.validate_paths(
-        diff,
-        editable=list(cfg.component_cfg.get("editable") or []),
-        locked=list(cfg.component_cfg.get("locked") or []),
-    )
-    max_loc = int(cfg.component_cfg.get("max_edit_loc", 20))
-    loc = apply_mod.count_changed_loc(diff)
+    verdict = overfit.parse_verdict(text, diff=diff_for_overfit)
 
     # Pre-apply decision: if any of these fail, record reject and skip runner.
     reject_reason = ""
     if not er["ok"]:
         reject_reason = f"editor_failed_rc{er.get('returncode')}"
-    elif not diff.strip():
-        reject_reason = "empty_or_noop_diff"
-    elif verdict["verdict"] != "pass":
-        reject_reason = f"overfitting:{verdict.get('reason','')}"
-    elif not validation["ok"]:
-        reject_reason = f"validation:{validation.get('reason','')}"
-    elif loc > max_loc:
-        reject_reason = f"loc_exceeds_budget:{loc}>{max_loc}"
+    elif is_whole_file:
+        if extracted is None:
+            reject_reason = "empty_or_noop_diff"
+        elif not path:
+            reject_reason = "whole_file_missing_path"
+        elif verdict["verdict"] != "pass":
+            reject_reason = f"overfitting:{verdict.get('reason','')}"
+        elif not validation["ok"]:
+            reject_reason = f"validation:{validation.get('reason','')}"
+        elif loc > max_loc:
+            reject_reason = f"loc_exceeds_budget:{loc}>{max_loc}"
+    else:
+        if not diff.strip():
+            reject_reason = "empty_or_noop_diff"
+        elif verdict["verdict"] != "pass":
+            reject_reason = f"overfitting:{verdict.get('reason','')}"
+        elif not validation["ok"]:
+            reject_reason = f"validation:{validation.get('reason','')}"
+        elif loc > max_loc:
+            reject_reason = f"loc_exceeds_budget:{loc}>{max_loc}"
 
     if reject_reason:
         return {
@@ -234,9 +351,13 @@ def _one_iteration(
         }
 
     if cfg.dry_run:
-        # Print the diff for operator inspection and return without applying.
-        print("----- DRY RUN: PROPOSED DIFF -----")
-        print(diff)
+        if is_whole_file:
+            print("----- DRY RUN: PROPOSED WHOLE FILE -----")
+            print(f"Path: {path}")
+            print(new_content)
+        else:
+            print("----- DRY RUN: PROPOSED DIFF -----")
+            print(diff)
         print("----- Overfitting verdict:", verdict["verdict"], "-----")
         return {
             "row": {
@@ -262,8 +383,10 @@ def _one_iteration(
             "fatal": False,
         }
 
-    # Apply the diff.
-    ar = apply_mod.apply_diff(cfg.repo_root, diff)
+    if is_whole_file:
+        ar = apply_mod.apply_whole_file(cfg.repo_root, path, new_content)
+    else:
+        ar = apply_mod.apply_diff(cfg.repo_root, diff)
     if not ar["ok"]:
         return {
             "row": {
