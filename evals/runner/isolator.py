@@ -4,27 +4,47 @@ Purpose: Provide component-tier isolation for eval runs. Tier 1 = git worktree
          redirect for commands that write to the fixture (/init-project, /wrap).
          Tier 3 is a stub for Docker-sandboxed code execution.
 
+         NOTE on Tier 2 auth preservation: Tier 2 redirects $HOME to a fresh
+         tmpdir to keep the developer's real ~/.claude/ uncontaminated. The
+         Claude CLI, however, resolves auth relative to $HOME (macOS keychain
+         at ~/Library/Keychains/login.keychain-db, Linux at
+         ~/.claude/.credentials.json). A bare HOME redirect produces "Not
+         logged in" failures. To resolve this without giving the eval write
+         access to the real ~/.claude/, Tier 2 creates narrow read-through
+         symlinks for ONLY the auth artifacts:
+           - macOS: fake_home/Library/Keychains -> real ~/Library/Keychains
+           - all:   fake_home/.claude/.credentials.json -> real one (if any)
+                    fake_home/.claude/.credentials.json.bak -> real one (if any)
+         home_config seeded files take precedence over the symlinks (existence
+         check before symlinking). __exit__ uses shutil.rmtree which removes
+         symlinks without following them, so the real keychain and real
+         credentials file are never touched on cleanup.
+
 Public API: make_isolator(tier: int, **kwargs) -> Isolator,
             Tier1Worktree (context manager yielding a worktree Path),
             Tier2HomeRedirect (context manager yielding (worktree, fake_home)),
             IsolatorBase abstract contract.
 
-Upstream deps: stdlib subprocess, pathlib, tempfile, shutil, uuid, os, json.
+Upstream deps: stdlib subprocess, pathlib, tempfile, shutil, uuid, os, sys, json.
 
 Downstream consumers: evals.runner.cli, evals.runner.invoker.
 
 Failure modes: raises RuntimeError if git worktree creation fails. Cleanup
                best-effort; stale dirs under evals/.worktrees/ and the
                per-run fake-HOME temp dir are logged with a warning if
-               removal fails.
+               removal fails. Auth-symlink creation failures are logged but
+               do not raise - the eval still runs, may fall back to
+               ANTHROPIC_API_KEY env if propagated.
 
 Performance: worktree add/remove is O(repo size); fake-HOME creation is
-             O(1) plus a handful of small file writes.
+             O(1) plus a handful of small file writes plus 1-3 symlinks.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import uuid
 from abc import ABC, abstractmethod
@@ -155,6 +175,42 @@ class Tier2HomeRedirect(IsolatorBase):
         claude_dir.mkdir(parents=True, exist_ok=True)
         for name, content in self.home_config.items():
             (claude_dir / name).write_text(content, encoding="utf-8")
+
+        # Auth preservation: narrow symlinks so Claude CLI can resolve auth
+        # via $HOME without exposing the rest of the developer's real config.
+        # See module docstring for rationale.
+        real_home = Path(os.path.expanduser("~"))
+
+        # macOS keychain: symlink the entire Keychains directory so sub-keychain
+        # files remain accessible to the Security framework.
+        if sys.platform == "darwin":
+            real_keychains = real_home / "Library" / "Keychains"
+            if real_keychains.exists():
+                fake_library = fake_home / "Library"
+                fake_library.mkdir(parents=True, exist_ok=True)
+                fake_keychains = fake_library / "Keychains"
+                if not fake_keychains.exists():
+                    try:
+                        fake_keychains.symlink_to(real_keychains, target_is_directory=True)
+                    except OSError as e:
+                        _log.warning(
+                            "Tier 2: failed to symlink keychain dir %s -> %s: %s",
+                            fake_keychains, real_keychains, e,
+                        )
+
+        # Linux/cross-platform credentials.json (and .bak). home_config wins.
+        for cred_name in (".credentials.json", ".credentials.json.bak"):
+            real_cred = real_home / ".claude" / cred_name
+            fake_cred = claude_dir / cred_name
+            if real_cred.exists() and not fake_cred.exists():
+                try:
+                    fake_cred.symlink_to(real_cred)
+                except OSError as e:
+                    _log.warning(
+                        "Tier 2: failed to symlink credential %s -> %s: %s",
+                        fake_cred, real_cred, e,
+                    )
+
         self._fake_home = fake_home
 
         # Worktree: copy the fixture's seeded repo into a fresh tmpdir. If no
