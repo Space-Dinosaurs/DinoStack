@@ -101,11 +101,18 @@ def extract_whole_file(text: str) -> Optional[Tuple[str, str]]:
         path = first[first.find("file:") + 5 : first.find("-->")].strip()
         idx += 1
     elif first.startswith("#"):
-        path = first.lstrip("#").strip()
-        idx += 1
+        candidate = first.lstrip("#").strip()
+        # Only treat a # line as a path if it looks like one (contains /
+        # and no spaces). Otherwise it's a markdown heading and belongs
+        # in the content.
+        if "/" in candidate and " " not in candidate:
+            path = candidate
+            idx += 1
     elif first and not first.startswith("```"):
-        path = first
-        idx += 1
+        # A bare path line must also look like a file path.
+        if "/" in first and " " not in first:
+            path = first
+            idx += 1
 
     content = "\n".join(lines[idx:])
     return (path, content)

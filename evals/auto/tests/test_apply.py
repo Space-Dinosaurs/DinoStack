@@ -183,3 +183,10 @@ def test_apply_whole_file_rejects_traversal():
     with tempfile.TemporaryDirectory() as tmp:
         r = apply_whole_file(Path(tmp), "../x", "y")
         assert r["ok"] is False
+
+
+def test_extract_whole_file_heading_not_path():
+    """A markdown heading like '# Introduction' must NOT be treated as a path."""
+    text = "```markdown\n# Introduction\nBody text\n```"
+    r = extract_whole_file(text)
+    assert r == ("", "# Introduction\nBody text")
