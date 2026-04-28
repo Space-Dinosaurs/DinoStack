@@ -21,10 +21,8 @@
 
 ## Next Session Checklist
 
-1. **Merge PRs #6 and #7** (security-auditor + debugger improvements)
-2. **Fix command-mode auto-harness editor** — either increase editor timeout beyond 1200s, switch to whole-file replacement for command files, or fix the diff generation pipeline so malformed hunks stop appearing
-3. **Recalibrate skeptic scorer** — remove or raise the 0.5 FP cap so skeptic can be improved via harness
-4. **Fix release-orchestrator fixtures** ro-002 and ro-005 — they consistently produce `invalid_format`; need to understand why and adjust fixture or agent config
-5. **Add harder fixtures to at-ceiling components** — conductor, init-project, qa-engineer, perf-analyst, cleanup-worktrees all have medians ≥0.90 and need more challenging fixtures to create headroom
-6. **Run auto-harness on remaining command-mode components** after editor fix — update-agentic-engineering (0.43), prune-harness (0.45), memory-update (0.60), implement-ticket (0.20) all have baselines but couldn't enter the harness due to editor issues
-7. **Push chore/karpathy-session** to origin — 22 commits ahead of remote
+1. ~~**Fix command-mode auto-harness editor** — either increase editor timeout beyond 1200s, switch to whole-file replacement for command files, or fix the diff generation pipeline so malformed hunks stop appearing~~ ✅ DONE (whole-file replacement implemented for 8 command-mode components)
+2. **Recalibrate skeptic scorer** — remove or raise the 0.5 FP cap so skeptic can be improved via harness
+3. **Fix release-orchestrator fixtures** ro-002 and ro-005 — they consistently produce `invalid_format`; need to understand why and adjust fixture or agent config
+4. **Add harder fixtures to at-ceiling components** — conductor, init-project, qa-engineer, perf-analyst, cleanup-worktrees all have medians ≥0.90 and need more challenging fixtures to create headroom
+5. **Run auto-harness on remaining command-mode components** after editor fix — update-agentic-engineering (0.43), prune-harness (0.45), memory-update (0.60), implement-ticket (0.20) all have baselines but couldn't enter the harness due to editor issues

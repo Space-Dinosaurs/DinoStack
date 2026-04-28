@@ -65,38 +65,4 @@ Do NOT:
 
 ## Required output format
 
-Respond with EXACTLY these two elements, in order, nothing else:
-
-1. A single fenced diff block in unified-diff format that `git apply`
-   can consume. File headers must use `a/` and `b/` prefixes (standard
-   `git diff` output). Example:
-
-```diff
---- a/content/agents/skeptic.md
-+++ b/content/agents/skeptic.md
-@@ -10,3 +10,4 @@
- existing line
- existing line
-+new line added
- existing line
-```
-
-2. On its own line, immediately after the diff block:
-
-```
-Overfitting Rule verdict: yes|no because <one-sentence rationale>
-```
-
-If you cannot propose a plausible improvement this iteration, output:
-
-```diff
-```
-
-(an empty diff block) and
-
-```
-Overfitting Rule verdict: no because no-op proposed
-```
-
-The loop will record a no-op and advance. A no-op is better than an
-overfitting edit.
+{{OUTPUT_FORMAT_INSTRUCTIONS}}
