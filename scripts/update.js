@@ -464,10 +464,10 @@ async function main() {
     console.log(`  bash ${adapter}/install.sh`);
   }
   console.log('');
-  console.log(`Adapters to refresh: ${selected.map(displayName).join(' ')}`);
+  console.log(`Adapters to refresh: ${selected.map(displayName).join(', ')}`);
   console.log('');
 
-  const proceed = await promptYesNo('Proceed?', false);
+  const proceed = await promptYesNo('Proceed?', true);
   if (!proceed) {
     console.log('aborted.');
     process.exit(0);
