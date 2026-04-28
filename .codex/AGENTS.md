@@ -482,6 +482,26 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
 
+## Context Window Management
+
+**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
+
+Key tools and their uses:
+- `ctx_execute(language, code)` - run a single script; only stdout enters context
+- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
+
+> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
+
+- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
+- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
+- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
+
+> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
+
+**Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
+
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+
 ## Module Manifests
 
 **Non-trivial modules must carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) requires a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a Major finding.
@@ -556,12 +576,12 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 
 ## Git Workflow
 
-The primary checkout stays on `main` at all times. All feature, fix, and chore work happens in separate worktrees branched from `main`.
+The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees.
 
 **Base branch resolution** - resolve in this order before any work begins:
-1. Use `main` if it exists.
-2. Fall back to `master` only if `main` does not exist.
-3. If neither exists, stop and ask the user which branch should be treated as the integration branch.
+1. Use `develop` if it exists.
+2. Fall back to `development` if it exists.
+3. Otherwise create `develop` from `main` (fall back to `master` if `main` does not exist).
 
 **Conductor preflight** - run this checklist before any work begins. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene.
 1. What branch is the working tree on? (`git branch --show-current`)
@@ -570,19 +590,19 @@ The primary checkout stays on `main` at all times. All feature, fix, and chore w
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Does this task need a new worktree? Any new feature, fix, or chore gets its own worktree branched from the resolved base branch.
 
-**Feature worktrees:** Each task or feature gets one worktree branched from `origin/main` (or local `main` if no remote exists). Run `git fetch origin` before creating any worktree when a remote is configured. Edit directly in the worktree - do not create sub-worktrees for individual changes. Do not branch new work from an in-progress feature branch unless the user explicitly wants stacked dependent work.
+**Feature worktrees:** Each task or feature gets one worktree branched from `origin/development` (or `origin/develop`). Run `git fetch origin` before creating any worktree. Edit directly in the worktree - do not create sub-worktrees for individual changes.
 
 **Parallel agent work:** When multiple agents need to work simultaneously on the same task, each parallel agent gets its own sub-worktree branching from the feature branch. Sub-worktrees are the parallelism tool, not the default for every edit.
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
 
-**Merging:** Always open a PR from the feature branch into `main` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
+**Merging:** Always open a PR from the feature branch into `develop`/`development` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
-**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the primary checkout should be on `main` with no task work in progress there.
+**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the main tree should be on `development` with no active worktrees.
 
-**Commit each fix immediately during testing.** Never accumulate uncommitted changes in the primary checkout on `main` during live testing sessions. After each validated fix: create a `main`-based worktree and branch, commit, PR, merge, pull `main` - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
+**Commit each fix immediately during testing.** Never accumulate uncommitted changes on the main working tree (`development`/`develop`) during live testing sessions. After each validated fix: create fix branch, commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `main`. The primary checkout stays on `main` as neutral ground - never move it to a feature branch and never use it for feature edits.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `development`. The main tree stays on `development` as neutral ground - never move it to a feature branch.
 
 ## Multi-developer coordination
 
@@ -592,13 +612,108 @@ The rules above address one developer running multiple Claude sessions on the sa
 
 **Shared `decisions.md` ownership:** `decisions.md` is a single-writer file by convention (per the Memory Protocol). When two developers' Claude sessions both want to write to it, the second write can clobber the first. Before adding a decision: pull latest, append the new entry, then push immediately. Never batch multiple decisions into one uncommitted edit session. If a conflict occurs, merge it manually - do not let an agent auto-resolve a `decisions.md` conflict.
 
-**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `main` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `main`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
+**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `develop`/`development` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `develop`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
 
 **Worktree ownership:** Each developer maintains their own worktrees on their own machine. Worktrees are not shared. If two developers need to collaborate on the same feature branch, they coordinate via the remote - each pulls from and pushes to `origin`. They do not share or mount each other's local worktrees.
 
 **Visibility via draft PRs:** PRs are the coordination mechanism. When a developer starts work, they open a draft PR early so other developers can see what is in flight. This replaces ad-hoc coordination channels and lets contributors spot conflicts before merge time.
 
 **Project overrides:** Any of these rules may be overridden by the root `AGENTS.md` file of a project.
+
+---
+
+# Module Manifests
+
+## What it is
+
+A module manifest is a short header block at the top of a non-trivial source file. It lives in the code itself so that comprehension travels with the code — not in Architect plans that get discarded after merge, not in wikis that drift, not in PR descriptions nobody reads six months later. This is the self-describing layer of the system: a reader should be able to open a file and immediately understand what it does, what it depends on, and what breaks if it misbehaves.
+
+## When required
+
+**Required** for any source file that meets one or more of these criteria:
+
+- Exports a public symbol (function, class, type, constant) consumed by another module
+- Over ~50 lines of non-trivial logic
+- Implements a side-effecting operation: network call, disk I/O, database access, external service interaction, or any operation that cannot be safely retried without thought
+
+**Exempt:**
+
+- Test files and test fixtures
+- Generated files (migration outputs, protobuf outputs, GraphQL codegen, etc.)
+- One-off scripts not imported by anything else
+- Trivial pure utility files (thin wrappers, simple formatters, constants-only files)
+
+**Modified files:** a manifest must be updated when changes meaningfully alter purpose, public API, upstream dependencies, or failure/retry semantics. A manifest that no longer reflects the file is worse than no manifest — it is active misinformation.
+
+## Required fields
+
+Every manifest must cover these six fields. Omit a field only if it genuinely does not apply (e.g., "Performance: standard" is acceptable shorthand; leaving a failure modes field blank is not):
+
+| Field | What to say |
+|---|---|
+| **Purpose** | One sentence. What this module does and why it exists. |
+| **Public API** | The exports or entry points a caller should use. Not an exhaustive type dump — the canonical surface. |
+| **Upstream dependencies** | What this module imports, calls, or consumes that it does not own. External libraries, internal modules, environment variables, config values. |
+| **Downstream consumers** | Who uses this module. Best-effort: list known callers. "Unknown at creation" is acceptable for new modules; update it when consumers are identified. |
+| **Failure modes** | How this module fails, and what the caller needs to know about retrying or recovering. Idempotency guarantees or lack thereof. |
+| **Performance** | Expected latency, throughput, or memory profile if non-obvious. Omit or write "standard" if there is nothing a caller needs to know. |
+
+## Format
+
+Use the idiomatic comment or docstring syntax for the language. Do not invent a schema or force a rigid structure — the fields are required, the exact syntax is per-language.
+
+**TypeScript / JavaScript:**
+
+```typescript
+/**
+ * Purpose: Validates and normalizes incoming webhook payloads before they
+ *          enter the processing pipeline.
+ *
+ * Public API: validateWebhook(raw: unknown): WebhookPayload
+ *
+ * Upstream deps: zod (schema validation), ./types (WebhookPayload type)
+ *
+ * Downstream consumers: src/handlers/webhook.ts, src/workers/ingest.ts
+ *
+ * Failure modes: throws WebhookValidationError on malformed input — callers
+ *                must catch and return 400, not 500. No side effects; safe to
+ *                retry or call multiple times on the same input.
+ *
+ * Performance: ~0.2 ms per call; zod parse is synchronous, no I/O.
+ */
+```
+
+**Python:**
+
+```python
+"""
+Purpose: Resolves feature flag values for a given user context, with local
+         cache to avoid repeated network calls within a request lifecycle.
+
+Public API: get_flag(flag_name: str, context: UserContext) -> bool
+
+Upstream deps: flagsmith SDK, app.cache (RequestScopeCache), config.FLAGSMITH_URL
+
+Downstream consumers: app.views.experiment, app.middleware.ab_test
+
+Failure modes: falls back to flag default on SDK timeout or network error —
+               never raises; callers can rely on always receiving a bool.
+               Cache is request-scoped; not safe to share across threads.
+
+Performance: first call per flag per request hits network (~50 ms);
+             subsequent calls within the same request hit local cache (<1 ms).
+"""
+```
+
+## Why
+
+Comprehension should live in the code. An Architect plan describes what was decided; it does not travel with the file when the file is moved, refactored, or read by an engineer three months later who was not in that session. A module manifest embeds the essential context — the "why does this exist and what breaks if I change it" — directly in the artifact that persists. This is the self-describing layer of the dark code framework: systems that communicate their own structure rather than requiring external documentation to make sense of them.
+
+## Enforcement
+
+Skeptic flags missing or stale manifests on non-trivial modules as a **Major** finding. This is not a Critical finding — it is not a correctness bug — but it blocks sign-off. A non-trivial module without a manifest (or with a manifest that no longer matches the file) ships without the comprehension layer that makes future work safe.
+
+See `content/references/skeptic-protocol.md` for findings classification definitions.
 
 
 ---
