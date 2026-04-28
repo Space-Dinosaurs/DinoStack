@@ -836,6 +836,7 @@
   <a href="#lifecycle" class="nav-sub">/wrap</a>
   <a href="#git"><span class="nav-dot" style="background: var(--cyan);"></span> Git Workflow</a>
   <a href="#permissions"><span class="nav-dot" style="background: var(--cyan);"></span> Hands-off Config</a>
+  <a href="#profiles"><span class="nav-dot" style="background: var(--cyan);"></span> Risk Profiles</a>
   <a href="#risk"><span class="nav-dot" style="background: var(--rose);"></span> Risk Classification</a>
 </nav>
 
@@ -852,17 +853,18 @@
   <span class="deck-index-label">Slide Decks</span>
   <a class="deck-index-link" href="slides/how-it-works-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">01</span> How It Works</a>
   <a class="deck-index-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">02</span> Getting Started</a>
-  <a class="deck-index-link" href="slides/context-management-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">03</span> Context Management</a>
-  <a class="deck-index-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">04</span> AGENTS.md Hierarchy</a>
-  <a class="deck-index-link" href="slides/autonomy-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">05</span> Autonomy</a>
-  <a class="deck-index-link" href="slides/agent-team-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">06</span> Agent Team</a>
-  <a class="deck-index-link" href="slides/orchestration-planner-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">07</span> Orchestration Planner</a>
-  <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">08</span> Parallel Fan-out</a>
-  <a class="deck-index-link" href="slides/skeptic-protocol-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">09</span> Skeptic Protocol</a>
-  <a class="deck-index-link" href="slides/quality-assurance-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">10</span> Quality Assurance</a>
-  <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Work Tracking</a>
-  <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Skill Creator</a>
-  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">13</span> Contributing</a>
+  <a class="deck-index-link" href="slides/profiles-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">03</span> Risk Profiles</a>
+  <a class="deck-index-link" href="slides/context-management-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">04</span> Context Management</a>
+  <a class="deck-index-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">05</span> AGENTS.md Hierarchy</a>
+  <a class="deck-index-link" href="slides/autonomy-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">06</span> Autonomy</a>
+  <a class="deck-index-link" href="slides/agent-team-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">07</span> Agent Team</a>
+  <a class="deck-index-link" href="slides/orchestration-planner-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">08</span> Orchestration Planner</a>
+  <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">09</span> Parallel Fan-out</a>
+  <a class="deck-index-link" href="slides/skeptic-protocol-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">10</span> Skeptic Protocol</a>
+  <a class="deck-index-link" href="slides/quality-assurance-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Quality Assurance</a>
+  <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Work Tracking</a>
+  <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">13</span> Skill Creator</a>
+  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Contributing</a>
 </nav>
 
 <div class="diagram">
@@ -1167,6 +1169,9 @@
   <div class="note">
     <strong>If you see none of this</strong>, the task was classified as a small, reversible <strong>Direct action</strong> and handled in the main thread without a subagent. That is the protocol working correctly on a cheap task, not a sign that it is off.
   </div>
+  <div class="note" style="margin-top: 12px;">
+    <strong>Tuning Skeptic overhead:</strong> the default profile works for most projects. Add <code>agentic-engineering-profile: relaxed</code> to a project's <code>AGENTS.md</code> for faster iteration with less review, or <code>strict</code> when correctness is paramount. See <a href="#profiles">Risk Profiles</a> for the full breakdown.
+  </div>
 </div>
 
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
@@ -1198,7 +1203,7 @@
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
-    <strong>Activation modes:</strong> the installer writes <code>~/.claude/agentic-engineering.json</code> with <code>{ "mode": "opt-out" | "opt-in", "set_at": "&lt;ISO8601&gt;" }</code>. <code>opt-out</code> (default) runs the methodology everywhere except projects that declare <code>agentic-engineering: opt-out</code> in their root <code>AGENTS.md</code>. <code>opt-in</code> keeps the methodology dormant until a project declares <code>agentic-engineering: opt-in</code>. The per-project marker is a single case-insensitive line, matched as a whole line with optional leading <code>- </code>. A short Activation preflight at the top of every skill and <code>/</code>-command reads the config plus the project marker; if the combination says inactive, the skill no-ops silently and falls back to default tool behavior for that session. Missing config or missing <code>AGENTS.md</code> both resolve to "mode=opt-out, marker=none" - the methodology proceeds, preserving behavior for users who installed before this feature existed.
+    <strong>Activation modes:</strong> the installer writes <code>~/.claude/agentic-engineering.json</code> with <code>{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "&lt;ISO8601&gt;" }</code>. <code>opt-out</code> (default) runs the methodology everywhere except projects that declare <code>agentic-engineering: opt-out</code> in their root <code>AGENTS.md</code>. <code>opt-in</code> keeps the methodology dormant until a project declares <code>agentic-engineering: opt-in</code>. The per-project marker is a single case-insensitive line, matched as a whole line with optional leading <code>- </code>. A short Activation preflight at the top of every skill and <code>/</code>-command reads the config plus the project marker; if the combination says inactive, the skill no-ops silently and falls back to default tool behavior for that session. Missing config or missing <code>AGENTS.md</code> both resolve to "mode=opt-out, marker=none" - the methodology proceeds, preserving behavior for users who installed before this feature existed. The <code>profile</code> field controls Skeptic overhead - see <a href="#profiles">Risk Profiles</a> below.
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and importable by Claude Code via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
@@ -2071,6 +2076,63 @@
 
   <div class="note" style="margin-top: 16px;">
     <strong>When a denied command is actually what you want:</strong> disable the rule temporarily by editing settings, run the command, re-enable. Do NOT add a bypass hack that survives the session. The friction is the point - if you want to <code>git reset --hard</code>, a five-second edit is a fair cost for the protection the rest of the time.
+  </div>
+</div>
+
+<!-- ═══ Risk Profiles ═══ -->
+<div id="profiles" class="section config-layer">
+  <div class="section-title"><h2>Risk Profiles <a class="slide-link" href="slides/profiles-slides.html" target="_blank" rel="noopener noreferrer">slides: risk profiles</a></h2><h3>Tune Skeptic overhead to match your workflow</h3></div>
+
+  <p class="desc">Profiles let you dial how aggressively the system triggers Skeptic review. Set once globally and override per project. Three levels: <strong>relaxed</strong> for rapid iteration with less overhead, <strong>default</strong> for balanced day-to-day work, and <strong>strict</strong> for when correctness is paramount.</p>
+
+  <div class="two-col" style="gap: 12px; margin-top: 16px;">
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--green);">relaxed</h4>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">For rapid iteration on well-understood UI or local bug fixes.</p>
+        <ul>
+          <li>Single-file locally-scoped behavioral edits: Low (no Skeptic)</li>
+          <li>Multi-file pure-UI-only changes: Low (no Skeptic)</li>
+          <li>Everything else unchanged from default</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--cyan);">default</h4>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">The starting point for all projects. Right for most day-to-day work.</p>
+        <ul>
+          <li>Single-file locally-scoped behavioral edits: Low (no Skeptic)</li>
+          <li>All other legacy Elevated signals remain Elevated</li>
+          <li>Multi-file UI-only changes: Elevated (Skeptic runs)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top: 12px;">
+    <div class="rel-card">
+      <h4 style="color: var(--rose);">strict</h4>
+      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">For when correctness is paramount - payments, auth, shared infrastructure.</p>
+      <ul>
+        <li>UI-only copy changes: Elevated (Skeptic runs)</li>
+        <li>File renaming: Elevated (Skeptic runs)</li>
+        <li>Targeted wording fixes to already-reviewed content: Elevated (Skeptic runs)</li>
+        <li>Diagnostic-only logging changes: Low with self-check (not unconditionally direct)</li>
+        <li>Documentation-only file creation (new .md files that are pure lists/notes): Low with self-check (not unconditionally direct)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="code-block" style="margin-top: 16px;">
+    <span class="cb-label">how to set your profile</span>
+    <span class="cb-keyword"># At install time</span><br>
+    bash .claude/install.sh --profile=relaxed<br>
+    <br>
+    <span class="cb-keyword"># Edit ~/.claude/agentic-engineering.json directly</span><br>
+    { "mode": "opt-out", "profile": "strict" }<br>
+    <br>
+    <span class="cb-keyword"># Per-project override in root AGENTS.md</span><br>
+    agentic-engineering-profile: strict
   </div>
 </div>
 
