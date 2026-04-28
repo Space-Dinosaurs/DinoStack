@@ -4,15 +4,26 @@ Purpose: Extract the first fenced ```diff block from editor-agent output,
          globs, enforce max_edit_loc, and apply via `git apply`. Rejection
          is loud; application is atomic (apply or don't).
 
+         Also supports whole-file replacement mode for large command files
+         where unified-diff generation is unreliable. In this mode the editor
+         outputs the complete new file content in a fenced markdown block.
+
 Public API:
     extract_diff(text: str) -> str | None
+    extract_whole_file(text: str) -> tuple[str, str] | None
     validate_paths(diff: str, editable: list[str], locked: list[str])
         -> dict with keys {ok: bool, reason: str, paths: list[str]}
+    validate_single_path(path: str, editable: list[str], locked: list[str])
+        -> dict with keys {ok: bool, reason: str, paths: list[str]}
     count_changed_loc(diff: str) -> int
+    count_changed_loc_for_whole_file(repo_root: Path, path: str,
+                                     new_content: str) -> int
     apply_diff(repo_root: Path, diff: str) -> dict with keys
         {ok: bool, reason: str, stdout: str, stderr: str}
+    apply_whole_file(repo_root: Path, path: str, content: str) -> dict with keys
+        {ok: bool, reason: str, stdout: str, stderr: str}
 
-Upstream deps: stdlib fnmatch, pathlib, re, subprocess.
+Upstream deps: stdlib difflib, fnmatch, pathlib, re, subprocess.
 
 Downstream consumers: evals.auto.loop.
 
@@ -25,14 +36,18 @@ Performance: negligible; diffs are small (<=20 LOC).
 """
 from __future__ import annotations
 
+import difflib
 import fnmatch
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # ```diff ... ``` fenced block. The diff may span many lines; use DOTALL.
 _DIFF_FENCE_RE = re.compile(r"```diff\s*\n(.*?)\n```", re.DOTALL)
+
+# ```markdown ... ``` or ```md ... ``` fenced block for whole-file mode.
+_WHOLE_FILE_FENCE_RE = re.compile(r"```(?:markdown|md)\s*\n(.*?)\n```", re.DOTALL)
 
 # Matches the "+++ b/path" and "--- a/path" headers of a unified diff.
 _DIFF_PATH_RE = re.compile(r"^(?:\+\+\+|---)\s+[ab]/(.+?)(?:\s|$)", re.MULTILINE)
@@ -47,6 +62,53 @@ def extract_diff(text: str) -> Optional[str]:
         return None
     body = m.group(1).strip()
     return body or None
+
+
+def extract_whole_file(text: str) -> Optional[Tuple[str, str]]:
+    """Extract a whole-file replacement from editor output.
+
+    Looks for a fenced block with language tag ``markdown`` or ``md``.
+    The first non-empty line inside the block may optionally be a file path
+    comment like ``<!-- file: path -->`` or ``# path`` or just the bare
+    path on its own line. If found, it is used as the path; otherwise the
+    path is returned as an empty string.
+
+    Returns ``(path, content)`` where content is everything inside the
+    fenced block after the optional path line. Returns ``None`` if no
+    markdown fenced block is present.
+    """
+    if not text:
+        return None
+    m = _WHOLE_FILE_FENCE_RE.search(text)
+    if not m:
+        return None
+    body = m.group(1)
+    lines = body.splitlines()
+    if not lines:
+        return ("", "")
+
+    # Skip leading empty lines to find the first non-empty line.
+    idx = 0
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+
+    if idx >= len(lines):
+        return ("", "")
+
+    path = ""
+    first = lines[idx].strip()
+    if first.startswith("<!-- file:") and "-->" in first:
+        path = first[first.find("file:") + 5 : first.find("-->")].strip()
+        idx += 1
+    elif first.startswith("#"):
+        path = first.lstrip("#").strip()
+        idx += 1
+    elif first and not first.startswith("```"):
+        path = first
+        idx += 1
+
+    content = "\n".join(lines[idx:])
+    return (path, content)
 
 
 def _paths_from_diff(diff: str) -> List[str]:
@@ -108,6 +170,33 @@ def validate_paths(
     return {"ok": True, "reason": "", "paths": paths}
 
 
+def validate_single_path(
+    path: str, editable: List[str], locked: List[str]
+) -> Dict[str, object]:
+    """Validate a single explicit path (whole-file replacement mode)."""
+    if not path or not path.strip():
+        return {"ok": False, "reason": "empty_path", "paths": []}
+    if ".." in Path(path).parts:
+        return {
+            "ok": False,
+            "reason": f"path_traversal_rejected:{path}",
+            "paths": [path],
+        }
+    if _matches_any(path, locked):
+        return {
+            "ok": False,
+            "reason": f"locked_path:{path}",
+            "paths": [path],
+        }
+    if not _matches_any(path, editable):
+        return {
+            "ok": False,
+            "reason": f"not_in_editable_allowlist:{path}",
+            "paths": [path],
+        }
+    return {"ok": True, "reason": "", "paths": [path]}
+
+
 def count_changed_loc(diff: str) -> int:
     """Count added+removed content lines in a unified diff.
 
@@ -124,6 +213,31 @@ def count_changed_loc(diff: str) -> int:
         if line.startswith("+") or line.startswith("-"):
             n += 1
     return n
+
+
+def count_changed_loc_for_whole_file(
+    repo_root: Path, path: str, new_content: str
+) -> int:
+    """Count changed lines between the existing file and new_content.
+
+    Generates a unified diff and reuses count_changed_loc so the budget is
+    consistent between diff mode and whole-file mode.
+    """
+    target = repo_root / path
+    old_lines: List[str] = []
+    if target.exists():
+        old_lines = target.read_text(encoding="utf-8").splitlines()
+    new_lines = new_content.splitlines()
+    diff = "\n".join(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            lineterm="",
+        )
+    )
+    return count_changed_loc(diff)
 
 
 def apply_diff(repo_root: Path, diff: str) -> Dict[str, object]:
@@ -165,4 +279,57 @@ def apply_diff(repo_root: Path, diff: str) -> Dict[str, object]:
         "reason": f"git_apply_exit_{last.returncode}_all_modes_failed",
         "stdout": last.stdout,
         "stderr": last.stderr,
+    }
+
+
+def apply_whole_file(
+    repo_root: Path, path: str, content: str
+) -> Dict[str, object]:
+    """Write content directly to path and stage it with git add.
+
+    Returns status + any stderr from git add.
+    """
+    if not path or not path.strip():
+        return {
+            "ok": False,
+            "reason": "empty_path",
+            "stdout": "",
+            "stderr": "",
+        }
+    if ".." in Path(path).parts:
+        return {
+            "ok": False,
+            "reason": f"path_traversal_rejected:{path}",
+            "stdout": "",
+            "stderr": "",
+        }
+    target = repo_root / path
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    except OSError as e:
+        return {
+            "ok": False,
+            "reason": f"write_error:{e}",
+            "stdout": "",
+            "stderr": str(e),
+        }
+    r = subprocess.run(
+        ["git", "add", "--", path],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        return {
+            "ok": False,
+            "reason": f"git_add_exit_{r.returncode}",
+            "stdout": r.stdout,
+            "stderr": r.stderr,
+        }
+    return {
+        "ok": True,
+        "reason": "whole_file_written",
+        "stdout": r.stdout,
+        "stderr": r.stderr,
     }

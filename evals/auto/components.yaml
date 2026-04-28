@@ -48,7 +48,7 @@ init-project:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
 
 wrap:
   editable:
@@ -60,7 +60,7 @@ wrap:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
 
 debugger:
   editable:
@@ -119,7 +119,7 @@ update-agentic-engineering:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
 
 perf-analyst:
   editable:
@@ -175,7 +175,7 @@ representation-audit:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
 
 investigator:
   editable:
@@ -208,7 +208,7 @@ memory-update:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
 
 implement-ticket:
   editable:
@@ -220,7 +220,7 @@ implement-ticket:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
 
 prune-harness:
   editable:
@@ -231,7 +231,7 @@ prune-harness:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
 
 cleanup-worktrees:
   editable:
@@ -242,4 +242,4 @@ cleanup-worktrees:
   max_edit_loc: 40
   keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
-  whole_file_replacement: false
+  whole_file_replacement: true
