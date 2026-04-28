@@ -25,14 +25,19 @@ Reserve `Bash` exclusively for: builds, installs, git operations, network calls,
 
 Key tools and their uses:
 - `ctx_execute(language, code)` - run a single script; only stdout enters context
-- `ctx_execute_file(path, language, code)` - analyze a file without pulling its full content into context
+- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
+
+> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
+
 - `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
 - `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
 - `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
 
-**Raw Bash is still correct for:** `git`, `mkdir`, `rm`, `mv`, navigation, installs, builds, process management - anything that produces minimal output or requires side effects on the filesystem or process tree.
+> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
 
-**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` appears in the session's tool list. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+**Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
+
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
 
 ## Module Manifests
 
