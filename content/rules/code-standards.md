@@ -19,6 +19,21 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
 
+## Context Window Management
+
+**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
+
+Key tools and their uses:
+- `ctx_execute(language, code)` - run a single script; only stdout enters context
+- `ctx_execute_file(path, language, code)` - analyze a file without pulling its full content into context
+- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
+- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
+- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
+
+**Raw Bash is still correct for:** `git`, `mkdir`, `rm`, `mv`, navigation, installs, builds, process management - anything that produces minimal output or requires side effects on the filesystem or process tree.
+
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` appears in the session's tool list. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+
 ## Module Manifests
 
 **Non-trivial modules must carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) requires a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a Major finding.
