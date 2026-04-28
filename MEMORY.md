@@ -21,7 +21,7 @@
 
 ## Next Session Checklist
 
-1. **Fix command-mode auto-harness editor** — either increase editor timeout beyond 1200s, switch to whole-file replacement for command files, or fix the diff generation pipeline so malformed hunks stop appearing
+1. ~~**Fix command-mode auto-harness editor** — either increase editor timeout beyond 1200s, switch to whole-file replacement for command files, or fix the diff generation pipeline so malformed hunks stop appearing~~ ✅ DONE (whole-file replacement implemented for 8 command-mode components)
 2. **Recalibrate skeptic scorer** — remove or raise the 0.5 FP cap so skeptic can be improved via harness
 3. **Fix release-orchestrator fixtures** ro-002 and ro-005 — they consistently produce `invalid_format`; need to understand why and adjust fixture or agent config
 4. **Add harder fixtures to at-ceiling components** — conductor, init-project, qa-engineer, perf-analyst, cleanup-worktrees all have medians ≥0.90 and need more challenging fixtures to create headroom
