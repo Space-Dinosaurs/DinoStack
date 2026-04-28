@@ -566,6 +566,20 @@ echo ""
 python3 - <<'PYEOF'
 import json, os
 
+def tty_input(prompt: str) -> str:
+    """Read a line from the controlling terminal.
+
+    Required when this script is fed via stdin (heredoc): Python stdin is the
+    program text, so builtin input() raises EOFError.
+    """
+    try:
+        with open("/dev/tty", "r+") as tty:
+            tty.write(prompt)
+            tty.flush()
+            return tty.readline() or ""
+    except OSError:
+        return ""
+
 settings_path = os.path.expanduser("~/.claude/settings.json")
 
 if os.path.exists(settings_path):
@@ -628,7 +642,7 @@ else:
     print("  Recommended: bypassPermissions mode with deny rules for destructive commands.")
     print("  Agents work best with uninterrupted tool access. The deny list blocks dangerous")
     print("  operations (force push, rm -rf, hard reset) as a safety net.")
-    resp = input("  Configure recommended permission settings? [y/N] ").strip().lower()
+    resp = tty_input("  Configure recommended permission settings? [y/N] ").strip().lower()
     if resp == "y":
         existing_allow = set(perms.get("allow", []))
         existing_deny = set(perms.get("deny", []))
