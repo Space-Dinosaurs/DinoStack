@@ -305,7 +305,7 @@ def _one_iteration(
     if not er["ok"]:
         reject_reason = f"editor_failed_rc{er.get('returncode')}"
     elif is_whole_file:
-        if extracted is None:
+        if extracted is None or not new_content.strip():
             reject_reason = "empty_or_noop_diff"
         elif not path:
             reject_reason = "whole_file_missing_path"
