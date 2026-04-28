@@ -524,6 +524,27 @@ async function main() {
     console.log(`Updated: pulled ${commitsPulled} commit(s); refreshed ${successes.length} adapter(s): ${successes.join(' ')}.`);
   }
 
+  // Warn about generated changes
+  if (isWorkingTreeDirty(resolvedRepoDir)) {
+    const dirty = getDirtyFiles(resolvedRepoDir);
+    console.warn('\nwarning: adapter install scripts generated changes in the working tree.');
+    if (dirty.staged.length > 0) {
+      console.warn('  Staged for commit:');
+      dirty.staged.forEach(f => console.warn(`    ${f}`));
+    }
+    if (dirty.unstaged.length > 0) {
+      console.warn('  Modified (not staged):');
+      dirty.unstaged.forEach(f => console.warn(`    ${f}`));
+    }
+    if (dirty.untracked.length > 0) {
+      console.warn('  Untracked:');
+      dirty.untracked.forEach(f => console.warn(`    ${f}`));
+    }
+    console.warn('\n  These are likely build artifacts from the adapter install scripts.');
+    console.warn('  If they should be tracked, run: git add <files> && git commit');
+    console.warn('  If they are generated files that should not be tracked, add them to .gitignore.');
+  }
+
   if (failures.length > 0) {
     console.error('\nFailed adapters:');
     for (const f of failures) {
