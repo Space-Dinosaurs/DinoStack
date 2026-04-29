@@ -67,7 +67,7 @@ Use this exact structure. Do not rename or reorder sections.
 [What was decided against and why; known limitations; things to watch out for]
 
 ### Open questions
-[Genuine ambiguities that need human input before implementation — or "None" if the plan is complete. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]
+[Genuine ambiguities that need human input before implementation — or "None" if the plan is complete. Design-taste choices among reasonable approaches are NOT open questions: commit to one in Approach and record the alternative in Trade-offs. Questions answerable by reading the codebase are NOT open questions: do the reading. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]
 ```
 
 ## Rules

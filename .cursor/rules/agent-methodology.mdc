@@ -296,14 +296,14 @@ Tier: 3  (max capability - security audit needs Opus)
 Spawning security-auditor.
 ```
 
-**Default:** Tier 2. When no tier is declared, no model override is passed and the agent inherits the session model (Sonnet-equivalent). Most spawns are Tier 2 - omit the declaration entirely.
+**Default:** Tier 2. When no tier is declared, the agent uses Sonnet. Most spawns are Tier 2 - omit the declaration entirely.
 
 **Model param mapping (Claude Code):**
 
 | Tier | Claude Code `model` param | Use when |
 |---|---|---|
 | 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
-| 2 | omit (session default) | Standard work - engineer, investigator, skeptic at normal depth |
+| 2 | `"sonnet"` | Standard work - engineer, investigator, skeptic at normal depth |
 | 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
 
 **Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
