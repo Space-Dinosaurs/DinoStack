@@ -229,6 +229,41 @@ echo "Linking commands..."
 symlink_files "$REPO_DIR/.opencode/commands" "$HOME/.config/opencode/commands" "commands"
 
 # ---------------------------------------------------------------------------
+# Symlink plugins
+# ---------------------------------------------------------------------------
+
+echo "Linking plugins..."
+
+PLUGINS_SRC="$REPO_DIR/.opencode/plugins"
+PLUGINS_DST="$HOME/.config/opencode/plugins"
+
+if [[ -d "$PLUGINS_SRC" ]]; then
+  mkdir -p "$PLUGINS_DST"
+
+  for src_file in "$PLUGINS_SRC"/*.js; do
+    [[ -e "$src_file" ]] || continue
+    name="$(basename "$src_file")"
+    dst_file="$PLUGINS_DST/$name"
+
+    if [[ -L "$dst_file" ]]; then
+      current_target="$(readlink "$dst_file")"
+      if [[ "$current_target" == "$src_file" ]]; then
+        echo "  = $name (already linked)"
+      else
+        echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+      fi
+    elif [[ -e "$dst_file" ]]; then
+      echo "  ! $name (real file exists at destination - skipping)"
+    else
+      ln -s "$src_file" "$dst_file"
+      echo "  + $name"
+    fi
+  done
+else
+  echo "  [skip] plugins source directory not found: $PLUGINS_SRC"
+fi
+
+# ---------------------------------------------------------------------------
 # Update ~/.config/opencode/AGENTS.md with skill loading signal
 # ---------------------------------------------------------------------------
 
@@ -370,6 +405,7 @@ echo "Installed to:"
 echo "  ~/.config/opencode/skills/agentic-engineering/ -> $REPO_DIR/.opencode/skills/agentic-engineering/"
 echo "  ~/.config/opencode/agents/ -> $REPO_DIR/.opencode/agents/"
 echo "  ~/.config/opencode/commands/ -> $REPO_DIR/.opencode/commands/"
+echo "  ~/.config/opencode/plugins/ -> $REPO_DIR/.opencode/plugins/"
 echo ""
 echo "Configuration updated:"
 echo "  ~/.config/opencode/opencode.json (permissions, instructions)"

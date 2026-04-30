@@ -163,7 +163,7 @@ architect, debugger, engineer, investigator, orchestration-planner, perf-analyst
 **Commands** (10) - workflow shortcuts:
 skeptic, implement-ticket, init-project, wrap, memory-update, cleanup-worktrees, update-agentic-engineering, prune-harness, representation-audit, agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`)
 
-**Hooks** - lifecycle event handlers for risk reminders and session context saving
+**Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
 ## Repo structure
 
