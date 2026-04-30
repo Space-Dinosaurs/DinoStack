@@ -405,7 +405,7 @@ Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor writes all en
 
 ---
 
-## The findings flywheel
+## Regression test obligation
 
 <style scoped>
   .columns { gap: 1.2em; margin-bottom: 0.6em; }
@@ -415,21 +415,17 @@ Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor writes all en
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-Every Critical/Major finding that gets fixed without a test is a latent regression. Two loops close the gap:
+Every Critical or Major finding that gets fixed without a test is a latent regression. The fix loop closes the gap:
 
 <div class="columns">
 <div class="card">
 <strong>Per-finding regression test</strong><br/>
 Worker adds a test that would have <em>failed</em> without the fix. Skeptic verifies it exists before sign-off. Lives in the project test suite.
 </div>
-<div class="card">
-<strong>Pattern promotion</strong><br/>
-Recurring or high-blast-radius patterns are written to <code>.claude/findings.md</code>. Architect reads this file at plan time. Future plans are shaped by prior mistakes.
-</div>
 </div>
 
 <div class="callout">
-The regression test is code-level (catches the specific failure). The findings entry is session-level (informs future planning). Both are required. Neither replaces the other.
+The regression test is code-level: it catches the specific failure mode so the same bug cannot silently reappear in a future change.
 </div>
 
 ---

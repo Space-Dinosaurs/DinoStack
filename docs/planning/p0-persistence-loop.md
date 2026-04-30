@@ -306,9 +306,9 @@ If `$QUALITY_CMD` fails after Phase 6 and 6b loops exit cleanly, this does NOT c
 
 **[archived: tight-fix removed 2026-04-29]** Tight-fix path interaction with Phase 7: previously, if the tight-fix path fired and the Worker committed, a Phase 7 failure triggered the one-pass fix rule above without re-entering the Phase 6 Skeptic loop. The tight-fix path has since been removed; standard Elevated review applies.
 
-### Phase 6c (Promote findings) - no change
+### Phase 6c (Promote findings) - removed
 
-Fires after both Phase 6 and 6b loops exit. No structural change needed.
+[archived: pattern-promotion logic and Phase 6c removed 2026-04-29] The post-sign-off finding promotion rule was cut along with the renaming of `findings-flywheel.md` to `regression-test-obligation.md`. Only the regression-test obligation for fixed Skeptic findings remains.
 
 ## Changes required to agent-methodology.md
 

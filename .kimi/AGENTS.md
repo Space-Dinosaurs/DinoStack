@@ -286,10 +286,6 @@ Spawning security-auditor.
 
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
 
-## Post-sign-off finding promotion
-
-After Skeptic sign-off on any Elevated task (and after any QA gate), the conductor performs a promotion check. If any Major or Critical finding from the completed task represents a recurring pattern (seen 2+ times in this project) or is novel but has outsized blast radius (data loss, security, production outage class), add or update an entry in `.agentic/findings.md` (reads use the resolver: `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback; writes always target `.agentic/findings.md`). This rule fires after every Skeptic sign-off in any context - not only inside `/implement-ticket`. Full promotion criteria, entry format, and who reads the file: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
-
 ## QA Gate
 
 **Post-Skeptic QA for UI-visible changes.** After Skeptic sign-off on any Elevated unit, check whether the project has a qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with a `## QA triggers` section containing file patterns. If the reviewed diff includes files matching any trigger pattern, spawn `qa-engineer` before declaring the unit complete. QA failure blocks completion - the conductor spawns a fix engineer, then re-runs QA.
@@ -418,8 +414,8 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/subage
 **Agent team composition** - which agent to use and how they compose:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
 
-**Findings flywheel** - when promoting a finding to `.agentic/findings.md` (resolver: `.agentic/` preferred, legacy `.claude/` fallback) or when the Skeptic checks for repeated patterns:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md` for entry format, promotion criteria, who reads the file, and the regression test obligation for fixed findings.
+**Regression test obligation** - when a Worker fixes a Critical or Major Skeptic finding:
+Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test, the Worker obligation to add one, and the Skeptic verification rule.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
 Check qa.md for trigger patterns (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the diff matches, spawn `qa-engineer`. The qa-engineer reads the resolved qa.md for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.
@@ -469,7 +465,7 @@ Key tools and their uses:
 
 ## Module Manifests
 
-**Non-trivial modules must carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) requires a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a Major finding.
+**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a **Minor finding** (does not block sign-off).
 
 ## Code Quality Gates
 
@@ -569,21 +565,7 @@ The main working tree stays on `development` (or `develop`) at all times. All fe
 
 **Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `development`. The main tree stays on `development` as neutral ground - never move it to a feature branch.
 
-## Multi-developer coordination
-
-The rules above address one developer running multiple Claude sessions on the same machine. When two or more developers each have their own Claude session and share a repository, additional coordination is required.
-
-**Branch naming collisions:** When multiple developers work in parallel, generic branch names like `feature/auth-fix` can collide. For repos with multiple active developers, use a developer-prefix convention: `feature/<initials>/<name>` (e.g. `feature/th/auth-fix`). This makes in-flight branches unambiguous at a glance and prevents accidental pushes to a branch owned by someone else. This convention may be overridden per-project in the root `AGENTS.md`.
-
-**Shared `decisions.md` ownership:** `decisions.md` is a single-writer file by convention (per the Memory Protocol). When two developers' Claude sessions both want to write to it, the second write can clobber the first. Before adding a decision: pull latest, append the new entry, then push immediately. Never batch multiple decisions into one uncommitted edit session. If a conflict occurs, merge it manually - do not let an agent auto-resolve a `decisions.md` conflict.
-
-**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `develop`/`development` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `develop`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
-
-**Worktree ownership:** Each developer maintains their own worktrees on their own machine. Worktrees are not shared. If two developers need to collaborate on the same feature branch, they coordinate via the remote - each pulls from and pushes to `origin`. They do not share or mount each other's local worktrees.
-
-**Visibility via draft PRs:** PRs are the coordination mechanism. When a developer starts work, they open a draft PR early so other developers can see what is in flight. This replaces ad-hoc coordination channels and lets contributors spot conflicts before merge time.
-
-**Project overrides:** Any of these rules may be overridden by the root `AGENTS.md` file of a project.
+Multi-developer coordination guidance lives in `content/references/multi-developer-coordination.md`.
 
 ---
 
@@ -676,7 +658,7 @@ Comprehension should live in the code. An Architect plan describes what was deci
 
 ## Enforcement
 
-Skeptic flags missing or stale manifests on non-trivial modules as a **Major** finding. This is not a Critical finding — it is not a correctness bug — but it blocks sign-off. A non-trivial module without a manifest (or with a manifest that no longer matches the file) ships without the comprehension layer that makes future work safe.
+Skeptic flags missing or stale manifests on non-trivial modules as a **Minor finding** (does not block sign-off). Manifests remain recommended practice for comprehension hygiene; missing manifests are flagged for awareness, not as a blocker.
 
 See `content/references/skeptic-protocol.md` for findings classification definitions.
 
@@ -691,7 +673,7 @@ For detailed protocol specs, see the reference docs:
 - `subagent-protocol.md` - Parallel spawning rules, worktree isolation, task decomposition
 - `agent-team.md` - Named agent roles, composed flows, decision rules
 - `design-goals.md` - System design principles and goals
-- `findings-flywheel.md` - Per-finding regression test obligation and pattern promotion
+- `regression-test-obligation.md` - Per-finding regression test obligation for fixed Critical/Major Skeptic findings
 
 These live in `~/.kimi/skills/agentic-engineering/references/` (global install) or `.kimi/skills/agentic-engineering/references/` (local copies).
 

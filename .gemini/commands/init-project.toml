@@ -164,7 +164,6 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/settings.local.json`
 - `.agentic/qa.md` (only if web UI confirmed in Step 1)
 - `.agentic/deploy.md` (only if release signals detected in Step 0)
-- `.agentic/findings.md` - the findings flywheel's project-local anti-pattern log - always created empty, populated by `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle over time
 - `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
 - `memory/MEMORY.md` (created at `<cwd>/.agentic/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
@@ -286,8 +285,6 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 7. **`.agentic/deploy.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist (checked via resolver: `.agentic/deploy.md` OR legacy `.claude/deploy.md`): plan to create it at `.agentic/deploy.md` using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
 
-8. **`.agentic/findings.md`** — if the file does not exist (checked via resolver: `.agentic/findings.md` OR legacy `.claude/findings.md`): plan to create it at `.agentic/findings.md` using the same stub template as Step 6b.
-
 9. **Auto-memory directory** — if the user declined auto-memory in Step 1 (`no auto-memory` / `skip auto-memory pin`): skip entirely. If `.claude/settings.local.json` already has `autoMemoryDirectory` set (to any value): leave it alone (idempotent — user's existing preference wins, even if it differs from the Step 0 selection). If the file exists but lacks the `autoMemoryDirectory` key: plan to merge it in using the selected path from Step 0 (do not overwrite other keys in the file). If the file does not exist: Step 7 handles creation with the key present. If auto-memory was declined but the key is already set on disk: leave it (do not remove — user's existing preference wins).
 
 10. **`.agentic/preferences.json`** — if the file does not exist: plan to create it with `{}` as content.
@@ -314,9 +311,6 @@ Here's what I'd update:
 
   .agentic/deploy.md:
     - Create (not found, release signal detected: [type])
-
-  .agentic/findings.md:
-    - Create (not found)
 
   docs/research/:
     - Create .gitkeep (directory missing)
@@ -405,14 +399,13 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   - On the first interaction of a new session, silently check that `/init-project` scaffolding exists. Check each item only if its precondition holds:
     - Root `AGENTS.md` has required sections (`## Tools`, `## Docs`, `## Conventions`, `## Session start`) - always check.
     - `.claude/settings.json` - always check.
-    - `.agentic/findings.md` (or legacy `.claude/findings.md`) - always check; the resolver tries `.agentic/` first and falls back to `.claude/` for back-compat.
     - `docs/{planning,research,technical,overview}/` - always check.
     - Seeded `MEMORY.md` at `<cwd>/.agentic/memory/MEMORY.md` - always check.
     - `.agentic/qa.md` (or legacy `.claude/qa.md`) - only if this project has a web UI.
     - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
     - `.agentic/tracking.md` (or legacy `.claude/tracking.md`) - only if a tracker was confirmed during `/init-project`.
   - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.agentic/qa.md`, `[track]/.agentic/deploy.md`) are out of scope for this session-start check - do not flag them.
-  - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6d creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
+  - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6c creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
   - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
   - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or Enter defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
   ```
@@ -516,25 +509,7 @@ The `release-orchestrator` agent reads this file the same way `qa-engineer` read
 
 **Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.agentic/deploy.md` for EACH track that deploys, AND create a root `.agentic/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first via resolver (`.agentic/` preferred, `.claude/` fallback); if index, pick the track matching the diff. **Per-track resolver also applies during the back-compat window**: `<track>/.agentic/deploy.md` preferred, `<track>/.claude/deploy.md` fallback. Step 2a item 11 plans `git mv` for per-track legacy paths on each update run.
 
-### 6b. Create `.agentic/findings.md`
-
-Always create. No signal required - the findings flywheel applies to every project regardless of stack or release setup. Only create if the file does not already exist at either `.agentic/findings.md` (preferred) or the legacy `.claude/findings.md` (back-compat). Writers always write to `.agentic/findings.md`.
-
-Content template:
-
-```markdown
-# Findings
-
-<!-- Recurring Skeptic anti-patterns promoted after sign-off by /implement-ticket, /wrap, or any Worker+Skeptic cycle. -->
-<!-- Target under 15 entries; consolidate or retire stale entries when adding. -->
-<!-- Read by Architect at plan time and Skeptic at review time. -->
-```
-
-Architect reads this file at plan time to surface prior lessons and cites applicable entries in the plan's "Trade-offs and constraints" section. Skeptic reads it at review time and raises a Major finding if the diff repeats a documented anti-pattern. Promotion happens in `/implement-ticket` Phase 6c, `/wrap` Part D, and any ad-hoc Worker+Skeptic cycle - after the QA gate passes.
-
-Full spec: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`
-
-### 6c. Create `.agentic/tracking.md`
+### 6b. Create `.agentic/tracking.md`
 
 Always create when a tracker was confirmed in Step 1 (Linear or Jira). Only create if the file does not already exist at either `.agentic/tracking.md` (preferred) or the legacy `.claude/tracking.md` (back-compat). Writers always write to `.agentic/tracking.md`.
 
@@ -584,7 +559,7 @@ Read by the `orchestration-planner` agent at plan time (step 7 of its brief). A 
 
 **Track-level tracking.md is rare** - only create if the project genuinely has teams split across tracks with different Linear teams or Jira projects per track. Default is root-only.
 
-### 6d. Create `.agentic/preferences.json`
+### 6c. Create `.agentic/preferences.json`
 
 Always create. No signal required - the session-start scaffolding check declared in the root `AGENTS.md` template needs a tool-agnostic place to persist its "never prompt again" preference. Only create if the file does not already exist.
 
@@ -665,7 +640,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 ```
 # Agentic engineering runtime artifacts (must not be committed).
 # The .agentic/ directory holds BOTH runtime artifacts (runtime-only, gitignored)
-# AND tool-agnostic config files (qa.md, deploy.md, findings.md, tracking.md)
+# AND tool-agnostic config files (qa.md, deploy.md, tracking.md)
 # that ARE checked in. The entries below ignore only the runtime artifacts.
 .agentic/loop-state.json
 .agentic/hud/
@@ -677,11 +652,11 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/preferences.json
 .agentic/compression-state.json
 # Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
-# .agentic/findings.md, .agentic/tracking.md - these are tool-agnostic agent
-# config and belong in source control.
+# .agentic/tracking.md - these are tool-agnostic agent config and belong in
+# source control.
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), and `compression-state.json` (compression bookkeeping). The four tool-agnostic config files (`qa.md`, `deploy.md`, `findings.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), and `compression-state.json` (compression bookkeeping). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
 
 ### 10. Create `docs/` structure
 
@@ -797,7 +772,7 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \\`gh\\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
 7. Update `.agentic/qa.md` with your staging URL once a staging environment is available - show only if `.agentic/qa.md` was created (and therefore web UI was not declined)
 8. *(If `.agentic/deploy.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.agentic/deploy.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
-9. `.agentic/findings.md` is created empty and populated by `/implement-ticket`, `/wrap`, and ad-hoc Worker+Skeptic cycles as recurring review patterns emerge. No action needed at init time. *(Back-compat window: the resolver falls back to legacy `.claude/findings.md` for 2 minor releases (~6 weeks) after this migration shipped. New projects and update-mode migrations always write to `.agentic/`; the legacy path remains readable during the deprecation window.)*
+9. `/init-project` no longer auto-creates `.agentic/findings.md`. Pattern-promotion logic was removed; only the regression-test obligation for fixed Skeptic findings remains, and that is enforced inline by the Worker and Skeptic - no project-local file is needed. Existing `findings.md` files (legacy or migrated) are left untouched; they remain in source control if checked in, but no agent reads or writes them anymore.
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
