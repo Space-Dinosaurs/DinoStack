@@ -56,7 +56,7 @@ For detailed protocol specs, see the reference docs:
 - `subagent-protocol.md` - Parallel spawning rules, worktree isolation, task decomposition
 - `agent-team.md` - Named agent roles, composed flows, decision rules
 - `design-goals.md` - System design principles and goals
-- `findings-flywheel.md` - Per-finding regression test obligation and pattern promotion
+- `regression-test-obligation.md` - Per-finding regression test obligation for fixed Critical/Major Skeptic findings
 
 These live in `~/.kimi/skills/agentic-engineering/references/` (global install) or `.kimi/skills/agentic-engineering/references/` (local copies).
 

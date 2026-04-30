@@ -32,19 +32,7 @@ When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution c
 
 **HUD file writes (Phase 2 fan-out only).** When spawned as a parallel fan-out Worker with a `worker_id` field in the execution contract, the engineer writes phase transition updates to `.agentic/hud/<worker-id>.json` before each major action (before spawning sub-agents, at loop phase transitions, at completion). The HUD file write accompanies `[loop: ...]` breadcrumb emissions - both happen at the same event. Engineers spawned without a `worker_id` (single-unit, non-fan-out contexts) do not write HUD files. The `worker_id` is provided in the spawn prompt alongside `task_id`.
 
-**Tight-fix path execution contract.** When the conductor declares the Elevated (tight-fix path) sub-path (see `agent-methodology.md`), your `completion_conditions` will specify a pre-commit test verification sequence. You must execute this sequence exactly:
-
-1. BASELINE: Before modifying any file, run the affected test(s) (and full project quality gate if defined). Capture the output verbatim. If ANY test fails in baseline, stop immediately. Return Status: BLOCKED with the baseline failure output. Do NOT attempt to classify the failure as "unrelated" and proceed - any baseline failure is an absolute stop.
-
-2. APPLY: Implement the fix per the debugger brief. No scope expansion. If you discover the fix requires more than 50 changed lines in the production file (excluding the colocated test file), touching a second production file, or reveals cross-component interactions not flagged in the brief, stop immediately. Return Status: BLOCKED with a description of what you discovered.
-
-3. VERIFY: Run the affected test(s) again, plus the full project quality gate if defined. If any test or gate fails, do NOT commit. Return Status: DONE_WITH_CONCERNS with the failed output and the uncommitted diff.
-
-4. COMMIT: Only if VERIFY passes. Stage only the files touched (do not use `git add -A` or `git add .`). Commit with a message referencing the debugger brief.
-
-5. RETURN: Status: DONE, with verbatim BASELINE and VERIFY test output included in the summary so the conductor can inspect the raw output.
-
-The tight-fix path is the only circumstance under which an engineer Worker commits without prior Skeptic sign-off, and it is conditional on the pre-commit test verification sequence passing. The amendment to the "no irreversible changes before sign-off" rule is in `skeptic-protocol.md`.
+(Tight-fix path removed; see post-debugger Low classification rule in `content/rules/agent-methodology.md`.)
 
 ## Implementation process
 
@@ -89,5 +77,5 @@ Keep it brief. A reviewer reading this summary plus a diff should be able to ver
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
 - **Never commit or push.** Implement and report. The orchestrator handles version control.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
-- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md` for what counts as a valid regression test.
+- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.

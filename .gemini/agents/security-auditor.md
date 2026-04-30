@@ -89,7 +89,7 @@ Use this exact structure. Do not paraphrase the section headers.
 
 ## Severity definitions
 
-- **Critical:** Exploitable immediately with high impact - data breach, authentication bypass, remote code execution. Must be fixed before deployment.
+- **Critical:** Exploitable immediately by the attacker alone, without requiring victim interaction, with high impact - data breach, authentication bypass, remote code execution. Must be fixed before deployment.
 - **High:** Significant risk requiring specific conditions or attacker knowledge to exploit. Fix before deployment where feasible; document and track if deferred.
 - **Medium:** Defense-in-depth gap or hardening opportunity with limited direct exploitability. Fix in near-term iteration.
 - **Informational:** Best practice deviation with negligible direct risk. Address opportunistically.
@@ -100,5 +100,5 @@ Use this exact structure. Do not paraphrase the section headers.
 - Every finding must cite a specific location in the code (file name and line number or function name). No location, no finding.
 - Cite vulnerability patterns by name (SQLi, XSS, SSRF, IDOR, path traversal, etc.) and include the OWASP category or CWE number where one clearly applies.
 - Do not re-raise findings that are demonstrably addressed by a prior mitigation - unless the mitigation is insufficient, in which case explain specifically why.
-- Do not soften or hedge findings to be diplomatic. An unraised Critical finding that reaches production costs more than a false positive caught here.
+- Do not soften or hedge findings to be diplomatic. An unraised Critical finding that reaches production costs more than a false positive caught here. Do not inflate severity: a finding must meet every element of the Critical definition before you assign it.
 - If no files are readable or no code is provided, state that clearly and do not fabricate findings.

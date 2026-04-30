@@ -12,13 +12,24 @@ For detailed protocol specs, see reference docs in `.gemini/references/` or `~/.
 
 Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to two file reads with no subagent spawn and no LLM reasoning.
 
-1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`.
+1. **Read the global mode, profile, and preset.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`. The `preset` field is optional; when present and non-null, it RESOLVES to a profile via the preset table below and overrides the direct `profile` field. When `preset` is null or missing, the direct `profile` field is used (back-compat).
+
+   **Preset table (session-wide risk profile preset):**
+
+   | Preset    | Resolves to profile |
+   |-----------|---------------------|
+   | lean      | relaxed             |
+   | standard  | default             |
+   | strict    | strict              |
+
+   Note: this session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below. The session-wide preset is a tone setting; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
 2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
 3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
    - `agentic-engineering: opt-in`
    - `agentic-engineering: opt-out`
    If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
    Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the global profile.
+   Also scan for `agentic-engineering-preset: <value>`. If present, it overrides the resolved global preset for this project. Valid values: `lean`, `standard`, `strict`. The project preset is resolved through the same preset table (above) to a profile; that resolved profile overrides any direct `agentic-engineering-profile:` line in the same file (preset wins on collision because it is the higher-level knob). Any other value falls back to the global preset/profile resolution.
 4. **Activation decision.**
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
@@ -27,7 +38,7 @@ Run this check once at the top of the first skill invocation in a session (and a
    `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
    Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
 
-**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
+**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none, profile=default, preset=null" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -115,7 +126,6 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 - "The Skeptic will catch any mistakes" - the Skeptic reviews Worker output; it does not excuse skipping risk classification or spawning a Worker
 - "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
-- "This qualifies as the tight-fix path, so I can skip Skeptic" - Valid only when every checklist item is explicitly satisfied AND declared. An incomplete declaration, a stale debugger brief, Low debugger confidence, or any disqualifier reverts to standard Elevated. The default when uncertain is standard Elevated.
 
 **Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
 
@@ -238,41 +248,7 @@ All signals not mentioned above keep their default level regardless of profile.
 
 **Conductor rule for Trivial:** If no subagents are currently running, the conductor edits directly (no Worker, no Skeptic, no brief file). If any subagent is currently running, spawn a single `engineer` Worker in foreground (no Skeptic, no brief file) - the conductor must stay available to manage in-flight work. A commit message is still required. If a Worker discovers mid-task that the change is not actually Trivial (e.g., the "one-file color tweak" lives in a shared token file), it must stop, report, and the conductor re-classifies as Elevated.
 
-**Elevated (tight-fix path) - Skeptic skip.** A narrow sub-path within Elevated that lets the conductor spawn a single engineer Worker with pre-commit test verification and skip the post-implementation Skeptic on tight debugger-brief-backed bug fixes. Motivated by the finding that verifiers hurt on tight, well-specified tasks. The path applies only when ALL 6 checklist items hold simultaneously; any single disqualifier reverts to standard Elevated.
-
-**Checklist (every item must be explicitly declared):**
-1. Task is a bug fix, not a new feature or refactor.
-2. A debugger agent produced a fix brief for this bug in the current session. Stale briefs from prior sessions disqualify.
-3. Debugger confidence is High or Medium. Low confidence disqualifies.
-4. Fix touches at most one file, or one file plus its colocated test file (colocated = same directory, test file for the same symbol).
-5. At least one existing test already exercises the fix path. Direct unit test or integration test both acceptable. The test must exist before the fix - new test file creation disqualifies; test additions to the pre-existing colocated test file are allowed.
-6. No security, auth, crypto, payments, secrets, or data-loss surface involved.
-
-**Declaration format:**
-
-```
-Risk: Elevated (tight-fix path)
-Debugger brief: [session reference]
-Checklist:
-  [x] Bug fix, not a new feature
-  [x] Debugger brief from current session
-  [x] Debugger confidence: High | Medium
-  [x] Single file (+ colocated test file if applicable)
-  [x] Existing test exercises the fix path
-  [x] No security/auth/crypto/payments/secrets/data-loss surface
-Skipping post-implementation Skeptic. Engineer Worker performs pre-commit test verification.
-If pre-commit tests fail, standard Elevated loop applies.
-```
-
-**Pre-commit test verification protocol.** The engineer Worker on this path runs the sequence: BASELINE (run affected tests before touching anything; ANY failure is an absolute stop, no "unrelated failure" escape - return BLOCKED with output) -> APPLY (implement the fix per debugger brief, no scope expansion) -> VERIFY (run affected tests + project quality gate) -> COMMIT (only if VERIFY passes) -> RETURN (include verbatim test output in summary).
-
-**Scope-expansion stop.** If the Worker discovers the fix requires more than 50 changed lines in the production file (excluding the colocated test file), OR requires touching a second production file, OR exposes cross-component interactions not flagged in the debugger brief, the Worker stops immediately with Status: BLOCKED. The 50-line threshold is measured against the production file's diff, not including test file changes. The Worker counts by estimating scope from the debugger brief BEFORE starting implementation; if the brief's scope is unclear, the Worker stops and the conductor reclassifies as standard Elevated.
-
-**Failure path.** If VERIFY fails, the Worker does NOT commit. Worker returns Status: DONE_WITH_CONCERNS with the failed test output and the uncommitted diff. Conductor spawns a standard Skeptic with the uncommitted diff. Skeptic reviews, conductor routes any further fix through a normal Elevated loop.
-
-**Rollback for latent bugs.** If tests pass but a defect is later discovered (the tests did not cover the actual failure scenario), standard `git revert [commit-sha]` applies. No special rollback.
-
-**Fallback is automatic.** Any BLOCKED status, failed baseline, failed verify, or disqualifier reverts the task to standard Elevated with a Skeptic. This is not an escape hatch - it is the safe default that fires on any deviation.
+**Post-debugger Low classification.** Post-debugger-brief bug fixes that are single-file and exercised by an existing test may be classified Low if they meet all Trivial signals; otherwise standard Elevated applies.
 
 **Low signals:** clearly reversible reads (reads with no writes); exploration / research / draft work - only when the output is understanding, not a decision-driving artifact; **diagnostic-only changes** (pure logging additions - console.log, .catch() for error visibility, test interceptors) across any number of files, where every change has zero behavioral effect — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **documentation-only file creation** (new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the "new file creation" Elevated signal for this case only) — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **targeted wording fixes to already-reviewed content** (phrasing adjustments where the substance was already Skeptic-approved in the current or a recent session - e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration; does not apply to new decisions, new recommendations, or new content not previously reviewed; does not override the "modifies protocol or infrastructure files" Elevated signal; overrides the single-file edit and new file Elevated signals for this case only) — **in `strict` profile, this override is removed; treat as Elevated**; **file renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the operation is Elevated because the rename changes behavior without changing file contents) — **in `strict` profile, this override is removed; treat as Elevated**; **UI-only copy changes** (rewording display strings, labels, tooltips, or placeholder text where the change has no logic, structural, or behavioral effect - e.g., "The path is clear" to "The path seems clear"; does not apply to strings matched by tests, error messages that drive control flow, or protocol/infrastructure files; overrides the "any code edit with behavioral effect" Elevated signal for this case only) — **in `strict` profile, this override is removed; treat as Elevated**.
 
@@ -301,14 +277,14 @@ Tier: 3  (max capability - security audit needs Opus)
 Spawning security-auditor.
 ```
 
-**Default:** Tier 2. When no tier is declared, no model override is passed and the agent inherits the session model (Sonnet-equivalent). Most spawns are Tier 2 - omit the declaration entirely.
+**Default:** Tier 2. When no tier is declared, the agent uses Sonnet. Most spawns are Tier 2 - omit the declaration entirely.
 
 **Model param mapping (Claude Code):**
 
 | Tier | Claude Code `model` param | Use when |
 |---|---|---|
 | 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
-| 2 | omit (session default) | Standard work - engineer, investigator, skeptic at normal depth |
+| 2 | `"sonnet"` | Standard work - engineer, investigator, skeptic at normal depth |
 | 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
 
 **Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
@@ -319,11 +295,42 @@ Spawning security-auditor.
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
 
+### Spawn presets (per-spawn capability bundles)
+
+A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate. They are distinct from the session-wide `preset` field in `~/.claude/agentic-engineering.json` (which is a tone setting that maps to a risk profile - see Activation preflight Step 1). Same word, different scope.
+
+**Declaration format (optional line, immediately below `Tier:`):**
+```
+Risk: Elevated - new file creation
+Tier: 2
+Preset: engineer:default
+Spawning engineer.
+```
+
+The `Preset:` line is OPTIONAL. When absent, the conductor selects agent and tier inline (current behavior). When present, the preset supplies the agent identity, the tier override, and a brief prefix prepended to the spawn brief. The conductor still writes the rest of the brief inline.
+
+**Preset library location:**
+- Global: `~/.agentic/presets.yml`
+- Project override: `.agentic/presets.yml` (wins on key collision; merged shallowly per top-level key)
+
+**Reference format:** `<agent>:<variant>` (e.g., `engineer:default`, `skeptic:plan-review`, `skeptic:security`).
+
+**Schema (each preset entry):**
+- `agent`: string - which named agent to spawn (engineer, skeptic, architect, etc.)
+- `tier`: 1 | 2 | 3 - the model tier to use for this spawn
+- `brief_prefix`: string - text prepended to the conductor's inline brief; may be empty
+
+The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping is advisory documentation only (not harness-enforced), so embedding it in presets adds no enforcement value. Keep the preset surface minimal.
+
+**Resolution rules:**
+1. Conductor reads `.agentic/presets.yml` if it exists; merges over `~/.agentic/presets.yml`. Project keys win on collision.
+2. If the referenced `<agent>:<variant>` is undefined, the conductor warns inline (`Preset 'engineer:foo' not found in presets library; falling back to engineer:default.`) and uses `<agent>:default`.
+3. If `<agent>:default` is also undefined, the conductor proceeds with no preset (full inline-spec behavior) and notes the absence in the spawn declaration.
+4. The `Tier:` line and the preset's tier MUST agree. If they disagree, the explicit `Tier:` line wins (operator intent overrides library default) and the conductor notes the override.
+
+See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
+
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
-
-## Post-sign-off finding promotion
-
-After Skeptic sign-off on any Elevated task (and after any QA gate), the conductor performs a promotion check. If any Major or Critical finding from the completed task represents a recurring pattern (seen 2+ times in this project) or is novel but has outsized blast radius (data loss, security, production outage class), add or update an entry in `.agentic/findings.md` (reads use the resolver: `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback; writes always target `.agentic/findings.md`). This rule fires after every Skeptic sign-off in any context - not only inside `/implement-ticket`. Full promotion criteria, entry format, and who reads the file: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
 
 ## QA Gate
 
@@ -374,6 +381,30 @@ Long-running `/implement-ticket` loops can survive rate limits and session exits
 ## Task-state file
 
 When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+
+## Events log
+
+`.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /wrap completion, finding fix). The file is gitignored.
+
+**Single-writer scope: the conductor is the sole writer of `.agentic/events.jsonl`.** Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook). The single-writer claim is scoped to events.jsonl only.
+
+**Schema** (one JSON object per line):
+- `ts`: ISO8601 UTC timestamp (required)
+- `phase`: orchestration phase label (required)
+- `event`: event type (required)
+- `agent`: spawned agent name, nullable
+- `task_id`: correlation id when scoped to tasks.jsonl, nullable
+- `data`: free-form object for event-specific fields
+
+**Append discipline**: plain shell `>>` append. No fsync, no tmp+rename, no lock file. Single-writer-by-protocol means contention is structurally impossible. If a partial line ever appears (impossible under single-writer but for robustness), readers tolerate it - JSONL parsers skip malformed lines.
+
+**Atomicity**: best-effort. Records are not size-bounded. Catastrophic events during write may leave a truncated line. Documented honestly; not load-bearing.
+
+**Retention**: not auto-rotated. Manual `mv` to `events-prev.jsonl` if a file grows past concern. Project-local; gitignored; ~50KB per session is the operating budget.
+
+**Consumer**: optional. /wrap may consult events.jsonl as supplementary signal for the structural session skeleton. Conversation-memory review remains primary. /wrap on a project with no events.jsonl works exactly as today.
+
+Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
 ## Task Decomposition
 
@@ -453,8 +484,8 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/subage
 **Agent team composition** - which agent to use and how they compose:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
 
-**Findings flywheel** - when promoting a finding to `.agentic/findings.md` (resolver: `.agentic/` preferred, legacy `.claude/` fallback) or when the Skeptic checks for repeated patterns:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md` for entry format, promotion criteria, who reads the file, and the regression test obligation for fixed findings.
+**Regression test obligation** - when a Worker fixes a Critical or Major Skeptic finding:
+Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test, the Worker obligation to add one, and the Skeptic verification rule.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
 Check qa.md for trigger patterns (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the diff matches, spawn `qa-engineer`. The qa-engineer reads the resolved qa.md for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.
@@ -482,9 +513,29 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
 
+## Context Window Management
+
+**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
+
+Key tools and their uses:
+- `ctx_execute(language, code)` - run a single script; only stdout enters context
+- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
+
+> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
+
+- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
+- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
+- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
+
+> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
+
+**Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
+
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+
 ## Module Manifests
 
-**Non-trivial modules must carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) requires a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a Major finding.
+**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a **Minor finding** (does not block sign-off).
 
 ## Code Quality Gates
 
@@ -543,9 +594,9 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 
 ## Session Context and Memory
 
-**Session startup:** Read `context.md` as the first action of every session - standalone, never in parallel with other tool calls.
+**Session startup:** Read `.agentic/context.md` as the first action of every session - standalone, never in parallel with other tool calls.
 
-**Session context** is auto-written by the Stop hook to `~/.claude/projects/[hash]/context.md` after every agent turn. `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
+**Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
@@ -556,12 +607,12 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 
 ## Git Workflow
 
-The primary checkout stays on `main` at all times. All feature, fix, and chore work happens in separate worktrees branched from `main`.
+The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees.
 
 **Base branch resolution** - resolve in this order before any work begins:
-1. Use `main` if it exists.
-2. Fall back to `master` only if `main` does not exist.
-3. If neither exists, stop and ask the user which branch should be treated as the integration branch.
+1. Use `develop` if it exists.
+2. Fall back to `development` if it exists.
+3. Otherwise create `develop` from `main` (fall back to `master` if `main` does not exist).
 
 **Conductor preflight** - run this checklist before any work begins. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene.
 1. What branch is the working tree on? (`git branch --show-current`)
@@ -570,35 +621,21 @@ The primary checkout stays on `main` at all times. All feature, fix, and chore w
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Does this task need a new worktree? Any new feature, fix, or chore gets its own worktree branched from the resolved base branch.
 
-**Feature worktrees:** Each task or feature gets one worktree branched from `origin/main` (or local `main` if no remote exists). Run `git fetch origin` before creating any worktree when a remote is configured. Edit directly in the worktree - do not create sub-worktrees for individual changes. Do not branch new work from an in-progress feature branch unless the user explicitly wants stacked dependent work.
+**Feature worktrees:** Each task or feature gets one worktree branched from `origin/development` (or `origin/develop`). Run `git fetch origin` before creating any worktree. Edit directly in the worktree - do not create sub-worktrees for individual changes.
 
 **Parallel agent work:** When multiple agents need to work simultaneously on the same task, each parallel agent gets its own sub-worktree branching from the feature branch. Sub-worktrees are the parallelism tool, not the default for every edit.
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
 
-**Merging:** Always open a PR from the feature branch into `main` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
+**Merging:** Always open a PR from the feature branch into `develop`/`development` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
-**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the primary checkout should be on `main` with no task work in progress there.
+**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the main tree should be on `development` with no active worktrees.
 
-**Commit each fix immediately during testing.** Never accumulate uncommitted changes in the primary checkout on `main` during live testing sessions. After each validated fix: create a `main`-based worktree and branch, commit, PR, merge, pull `main` - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
+**Commit each fix immediately during testing.** Never accumulate uncommitted changes on the main working tree (`development`/`develop`) during live testing sessions. After each validated fix: create fix branch, commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `main`. The primary checkout stays on `main` as neutral ground - never move it to a feature branch and never use it for feature edits.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `development`. The main tree stays on `development` as neutral ground - never move it to a feature branch.
 
-## Multi-developer coordination
-
-The rules above address one developer running multiple Claude sessions on the same machine. When two or more developers each have their own Claude session and share a repository, additional coordination is required.
-
-**Branch naming collisions:** When multiple developers work in parallel, generic branch names like `feature/auth-fix` can collide. For repos with multiple active developers, use a developer-prefix convention: `feature/<initials>/<name>` (e.g. `feature/th/auth-fix`). This makes in-flight branches unambiguous at a glance and prevents accidental pushes to a branch owned by someone else. This convention may be overridden per-project in the root `AGENTS.md`.
-
-**Shared `decisions.md` ownership:** `decisions.md` is a single-writer file by convention (per the Memory Protocol). When two developers' Claude sessions both want to write to it, the second write can clobber the first. Before adding a decision: pull latest, append the new entry, then push immediately. Never batch multiple decisions into one uncommitted edit session. If a conflict occurs, merge it manually - do not let an agent auto-resolve a `decisions.md` conflict.
-
-**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `main` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `main`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
-
-**Worktree ownership:** Each developer maintains their own worktrees on their own machine. Worktrees are not shared. If two developers need to collaborate on the same feature branch, they coordinate via the remote - each pulls from and pushes to `origin`. They do not share or mount each other's local worktrees.
-
-**Visibility via draft PRs:** PRs are the coordination mechanism. When a developer starts work, they open a draft PR early so other developers can see what is in flight. This replaces ad-hoc coordination channels and lets contributors spot conflicts before merge time.
-
-**Project overrides:** Any of these rules may be overridden by the root `AGENTS.md` file of a project.
+Multi-developer coordination guidance lives in `content/references/multi-developer-coordination.md`.
 
 
 ---

@@ -304,11 +304,11 @@ If `$QUALITY_CMD` fails after Phase 6 and 6b loops exit cleanly, this does NOT c
 
 **No unbounded loop:** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase. If the second run fails, escalate immediately.
 
-**Tight-fix path interaction with Phase 7:** If the tight-fix path fired (Phase 6 guard bypassed the Skeptic entirely) and the Worker committed, then Phase 7 fails - this triggers the Phase 7 fix pass described above (one Engineer pass, one re-run, then escalate if still failing). It does NOT re-enter the Phase 6 Skeptic loop; the Skeptic already signed off on the implementation via the tight-fix path's pre-commit verification. The Phase 7 fix pass is scoped to quality gate failures only.
+**[archived: tight-fix removed 2026-04-29]** Tight-fix path interaction with Phase 7: previously, if the tight-fix path fired and the Worker committed, a Phase 7 failure triggered the one-pass fix rule above without re-entering the Phase 6 Skeptic loop. The tight-fix path has since been removed; standard Elevated review applies.
 
-### Phase 6c (Promote findings) - no change
+### Phase 6c (Promote findings) - removed
 
-Fires after both Phase 6 and 6b loops exit. No structural change needed.
+[archived: pattern-promotion logic and Phase 6c removed 2026-04-29] The post-sign-off finding promotion rule was cut along with the renaming of `findings-flywheel.md` to `regression-test-obligation.md`. Only the regression-test obligation for fixed Skeptic findings remains.
 
 ## Changes required to agent-methodology.md
 
@@ -383,7 +383,7 @@ Per MEMORY.md, adding a new protocol primitive requires auditing 7 surfaces. Aud
 
 **6. Cap reached on the final iteration before a bug is fixed.** When the cap is reached, the conductor must NOT commit the partial fix. The branch should be left in the state of the last Engineer output (which may be partially fixed). The human receives the escalation and decides whether to direct another fix pass manually, defer, or abandon the ticket.
 
-**7. Phase 6 guard interaction (tight-fix path).** The tight-fix path (Phase 6 guard) bypasses the Skeptic entirely when all 6 checklist items pass. The persistence loop does not change this - the guard fires before the loop is initialized. If the tight-fix path fires, no loop is started. If the Worker returns `DONE_WITH_CONCERNS`, the loop is initialized at iteration 1 with the uncommitted diff as input to the Skeptic. If the tight-fix path fires and the Worker commits successfully but Phase 7 (quality gate) subsequently fails, the Phase 7 fix pass rule applies (one Engineer pass, one re-run, then escalate if still failing) - not the Phase 6 loop, since the Skeptic already signed off via the pre-commit verification.
+**7. Phase 6 guard interaction (tight-fix path).** **[archived: tight-fix removed 2026-04-29]** Previously, the tight-fix path bypassed the Skeptic when all 6 checklist items passed and interacted with the persistence loop as described in this entry. The tight-fix path has since been removed; standard Elevated review applies and the persistence loop is initialized normally.
 
 **8. Zero-finding Skeptic with open findings_log items.** If the Skeptic raises zero new findings but findings_log has status=open items, the plan might imply a clean exit with inconsistent log state. Resolution: when the Skeptic raises zero new findings (grants sign-off), the conductor auto-closes ALL findings_log entries with status=open or status=addressed. The absence of re-raise is an implicit confirmation that the fixes were accepted. This auto-close fires before proceeding to Phase 6b.
 
