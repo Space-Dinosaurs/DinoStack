@@ -410,4 +410,4 @@ Implement Part 1 first. Part 2 is additive on top of Part 1's infrastructure.
 
 **Q5: ON-DEMAND FOR PHASE 2.** Decision: HUD rendered on-demand only (conductor reads HUD files and prints when asked or at phase transitions). No background `watch` process. A `watch`-compatible `.agentic/hud/status.txt` file is a Phase 3 optional enhancement. Rationale: matches existing breadcrumb pattern, requires no background process, still provides observability.
 
-**Q6: NO SPECIAL HANDLING FOR TIGHT-FIX PATH.** Decision: the existing dirty-branch resume path (check `git status --porcelain`, ask human if dirty) covers the tight-fix interruption case. No tight-fix-specific resume logic needed. Rationale: the tight-fix failure path in P0 (VERIFY fails -> uncommitted diff -> standard Skeptic) is already consistent with the dirty-branch resume path. Flag as a test case during implementation verification.
+**Q6: NO SPECIAL HANDLING FOR TIGHT-FIX PATH.** **[archived]** Tight-fix path has been removed; this question no longer applies.

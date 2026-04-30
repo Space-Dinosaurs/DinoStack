@@ -59,9 +59,9 @@ Two viable orderings exist: (a) build shared infra first, then component evals (
 
 #### Conductor / orchestration-planner (highest leverage)
 
-The conductor is the primary decision-making surface in this repo: when to fan out vs. go sequential, when to tight-fix vs. re-enter the full loop, when a cap is reached, when to escalate. A prompt edit to `content/rules/agent-methodology.md` or `content/agents/orchestration-planner.md` can silently regress routing quality and no Worker / Skeptic eval would catch it.
+The conductor is the primary decision-making surface in this repo: when to fan out vs. go sequential, when to loop iterate vs. escalate, when a cap is reached, when to escalate. A prompt edit to `content/rules/agent-methodology.md` or `content/agents/orchestration-planner.md` can silently regress routing quality and no Worker / Skeptic eval would catch it.
 
-- **Fixture set:** seeded task descriptions + observed state (e.g. "Skeptic returned 2 Major findings, Engineer previously attempted fix X, QA reports test failure Y") with ground-truth labels for the correct next routing decision (tight-fix, full-loop re-enter, escalate, proceed to next phase). 20-30 fixtures covering the canonical decision points in `agent-methodology.md` and the persistence-loop contract in `p0-persistence-loop.md`.
+- **Fixture set:** seeded task descriptions + observed state (e.g. "Skeptic returned 2 Major findings, Engineer previously attempted fix X, QA reports test failure Y") with ground-truth labels for the correct next routing decision (loop iterate, escalate, proceed to next phase). 20-30 fixtures covering the canonical decision points in `agent-methodology.md` and the persistence-loop contract in `p0-persistence-loop.md`.
 - **Primary scalar:** weighted accuracy with asymmetric cost - incorrectly-bypassing-Skeptic counts heavily against; incorrectly-escalating-early counts moderately; minor routing suboptimalities count lightly.
 - **Diagnostic fields:** per-decision-class accuracy, cap-enforcement correctness, escalation-trigger precision/recall.
 - **Why first (or tied-first):** highest leverage per edit. This eval should land alongside or immediately after Skeptic.

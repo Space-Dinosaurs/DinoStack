@@ -363,8 +363,6 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 ## Phase 6: Skeptic review
 
-**Phase 6 guard (tight-fix path).** If Phase 5 spawned the engineer under the Elevated (tight-fix path) sub-path (see `agent-methodology.md`) AND the Worker returned Status: DONE with the verbatim pre-commit test output in its summary, skip the rest of Phase 6. The tight-fix path's pre-commit test verification replaces the post-impl Skeptic for this case. If the Worker returned Status: BLOCKED or DONE_WITH_CONCERNS, fall through to the standard Phase 6 Skeptic spawn on the uncommitted diff (see `skeptic-protocol.md` line 376 for the amended "no irreversible changes" rule that permits this sub-path).
-
 **Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $REPO diff origin/$BASE_BRANCH..HEAD`). This is a full-picture review that catches cross-unit interactions the per-unit Skeptics could not see (emergent behaviors, combined diff scope). Phase 6 is NOT skipped for the `per-unit` strategy.
 
 Spawn a `skeptic` agent with:
@@ -596,8 +594,6 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
 **No unbounded loop:** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
-
-**Tight-fix path interaction:** If the tight-fix path fired (Phase 6 guard bypassed the Skeptic entirely) and the Worker committed successfully, then Phase 7 fails - this triggers the one-Engineer-pass rule above. It does NOT re-enter the Phase 6 Skeptic loop. The Skeptic already signed off on the implementation via the tight-fix path's pre-commit verification. The Phase 7 fix pass is scoped to quality gate failures only.
 
 ---
 
