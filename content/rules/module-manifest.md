@@ -87,6 +87,6 @@ Comprehension should live in the code. An Architect plan describes what was deci
 
 ## Enforcement
 
-Skeptic flags missing or stale manifests on non-trivial modules as a **Suggestion** (informational), not a Major finding. Suggestions do not block sign-off. Manifests remain a recommended practice for comprehension hygiene.
+Skeptic flags missing or stale manifests on non-trivial modules as a **Minor finding** (does not block sign-off). Manifests remain recommended practice for comprehension hygiene; missing manifests are flagged for awareness, not as a blocker.
 
 See `content/references/skeptic-protocol.md` for findings classification definitions.

@@ -33,7 +33,7 @@ Your spawn prompt will contain three things:
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
 5. Search broadly for other Critical or Major issues beyond what the brief explicitly names.
 6. **Brief coverage check** - re-read the adversarial brief one more time, concern by concern. For each specific failure mode the brief names, confirm you have either raised a finding for it or can explicitly state you checked and found no issue. Do not let a named concern go unaddressed.
-7. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. A missing or stale manifest is a **Suggestion** (informational), not a blocking finding. Note it in the findings list so the author can address it, but do not withhold sign-off on this basis alone.
+7. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. A missing or stale manifest is a **Minor finding** (does not block sign-off). Note it in the findings list so the author can address it, but do not withhold sign-off on this basis alone.
 8. **Regression test check** - if this is a fix round (the spawn prompt identifies Critical or Major findings that were addressed), verify each fixed finding has a corresponding regression test, or a documented reason why one is not possible. A missing test without explanation is a **Major** finding: `Missing regression test for [finding title] — a test that would have caught this failure mode is required before sign-off.`
 9. Check the resolved issues preflight - do not re-raise resolved findings unless the resolution is genuinely insufficient.
 10. Write your findings using the sign-off format below.
@@ -67,7 +67,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
 - Do not block on hypothetical future scenarios that are not present in the actual requirements.
-- **Module manifests:** Missing or stale module manifests are Suggestions (informational), not Major findings. They do not block sign-off. List them so the author can address them as comprehension hygiene, but treat them as recommendations rather than blockers.
+- **Module manifests:** Missing or stale module manifests are **Minor findings** (does not block sign-off), not Major findings. List them so the author can address them as comprehension hygiene, but treat them as recommendations rather than blockers.
 
 ## Rules
 
