@@ -1,5 +1,8 @@
 ## Protocol Details (read on trigger)
 
+**Planning artifacts (Brief and Plan tiers)** - when orchestration-planner returns 2+ Elevated-or-above units, when work spans multiple tracks, or when resuming a Brief-tier task into its third session:
+See METHODOLOGY.md §Planning Artifacts for the full promotion-gate protocol (trigger table, Brief template, Plan-tier directory, verification gate, mid-flight escalation, auto-promotion mechanics).
+
 **Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
 Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/agentic-engineering/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
 

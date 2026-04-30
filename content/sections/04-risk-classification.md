@@ -77,6 +77,21 @@ Risk: Elevated + Cleanup - [specific signal]
 Applying adversarial review with /simplify cleanup pass.
 ```
 
+When a Brief or Plan governs the task (see METHODOLOGY.md §Planning Artifacts), include the artifact path under the `Risk:` and `Tier:` lines:
+
+```
+Risk: Elevated - multi-unit feature
+Tier: 2
+Brief: docs/planning/<slug>.md
+Applying adversarial review.
+```
+```
+Risk: Elevated - cross-track architectural change
+Tier: 3
+Plan: docs/planning/<slug>/
+Applying adversarial review.
+```
+
 ### Tier declaration
 
 Conductors declare the model tier at spawn time to route lightweight tasks to faster models and critical reviews to max-capability models. Tier is declared in the same block as Risk, immediately below the Risk line.
