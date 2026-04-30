@@ -129,9 +129,9 @@ def _append_optout(content: bytes) -> tuple[bytes, int]:
         new = content + b"\n" + marker
     else:
         new = content + b"\n\n" + marker
-    line_number = new.decode("utf-8", errors="replace").count("\n")
-    # The marker occupies the last non-empty line. Compute it.
+    # The marker occupies the last non-empty line. Find it via reverse scan.
     lines = new.decode("utf-8", errors="replace").splitlines()
+    line_number = len(lines)
     for idx in range(len(lines) - 1, -1, -1):
         if OPTOUT_RE.match(lines[idx]):
             line_number = idx + 1
@@ -241,13 +241,28 @@ def main(argv: list[str]) -> int:
                 f"line {line_no}."
             )
 
-        # Step 2: idempotency check.
+        # Step 2: idempotency check. Runs regardless of --force - if an
+        # opt-out marker already exists (after any --force opt-in removal),
+        # do not append a duplicate. When --force removed an opt-in line
+        # AND opt-out is already present, persist the opt-in removal and
+        # print both messages.
         optout_hit = _scan_for_marker(text, OPTOUT_RE)
-        if optout_hit is not None and force_removal_note is None:
+        if optout_hit is not None:
             line_no, _ = optout_hit
+            if force_removal_note is not None:
+                # Persist the opt-in removal even though no append occurs.
+                try:
+                    _atomic_write_bytes(agents_path, text.encode("utf-8"))
+                except OSError as exc:
+                    print(
+                        f"agentic-disable: ERROR writing {abs_path}: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                print(force_removal_note)
             print(
                 f"agentic-engineering: already opted out at "
-                f"{abs_path}:{line_no}. No changes."
+                f"{abs_path}:{line_no}. No further changes."
             )
             if args.global_:
                 rc = _do_global(out_lines)
