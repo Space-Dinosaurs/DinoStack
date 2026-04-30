@@ -52,7 +52,7 @@ For detailed protocol specs, see reference docs in `.gemini/references/` or `~/.
 
 HEADER
 
-  cat "$CONTENT/rules/agent-methodology.md"
+  bash "$REPO_DIR/scripts/build-methodology.sh"
   echo ""
   echo "---"
   echo ""
