@@ -1699,6 +1699,7 @@
           <li><strong>/prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
           <li><strong>/representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
           <li><strong>/test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate when coding is cheap and verification is the scarce thing.</li>
+          <li><strong>/agentic-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it the CLI prints token counts only and never invents dollar figures. The Skeptic flags missing telemetry emits at instrumented boundaries as a <strong style="color: var(--green);">Minor</strong> finding so cost dashboards stay accurate.</li>
         </ul>
       </div>
     </div>

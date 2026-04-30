@@ -235,18 +235,18 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 ---
 
-## Two new Skeptic obligations
+## Three new Skeptic obligations
 
 <style scoped>
-  .columns { gap: 1.2em; }
-  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
-  .columns .card strong { font-size: 1.05em; }
+  .columns-3 { gap: 1.2em; }
+  .columns-3 .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns-3 .card strong { font-size: 1.05em; }
   .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
   ul { font-size: 0.85em; }
   ul li { margin: 0.15em 0; }
 </style>
 
-<div class="columns">
+<div class="columns-3">
 <div class="card">
 <strong>Module manifest check</strong><br/>
 On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file.<br/><br/>
@@ -257,10 +257,15 @@ Tiered: missing = <strong>Minor</strong> (non-blocking, hygiene); stale = <stron
 Before granting sign-off on any round where a Critical or Major finding was fixed: verify a regression test was added - a test that would have failed without the fix.<br/><br/>
 Missing test without a documented exception = <strong>Major</strong> finding.
 </div>
+<div class="card">
+<strong>Telemetry emit check</strong><br/>
+At every instrumented boundary (engineer/skeptic/qa spawn or Trivial-path direct edit): verify <code>.agentic/events.jsonl</code> received the matching <code>spawn_start</code>/<code>spawn_complete</code> or <code>conductor_direct</code> events.<br/><br/>
+Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/agentic-cost</code> dashboards accurate).
+</div>
 </div>
 
 <div class="callout">
-Both checks are additions to the standard Skeptic pass - they run alongside the existing findings classification, not instead of it. Module manifests are a comprehension gate; regression tests are a regression gate.
+These checks are additions to the standard Skeptic pass - they run alongside the existing findings classification, not instead of it. Comprehension, regression, and observability gates layered on top of Critical/Major/Minor.
 </div>
 
 ---
