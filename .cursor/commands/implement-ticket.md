@@ -242,7 +242,7 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified must carry module manifests per `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic will flag missing or stale manifests as Major findings in Phase 6.
+**Module manifests:** Files modified must carry module manifests per `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
 ### If work is a single logical unit (or units must be sequential):
 
@@ -434,6 +434,16 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`.
 
+**Telemetry emit (V1):** Bracket the Skeptic Task tool call with:
+```
+agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>"}'
+# ... Task tool call ...
+# After return, parse subagent transcript for tokens/wall_seconds:
+USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
+agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok",%s}' "${USAGE#\{}")"
+```
+See `agent-methodology.md` Events log section for the full event schema.
+
 ```
 ## Prior iteration findings
 
@@ -462,6 +472,8 @@ The following findings were raised in earlier iterations. For each:
 - Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
 - The branch name and repo path
 - Instruction to run `$QUALITY_CMD` before finishing
+
+**Telemetry emit (V1):** Bracket the Engineer Task tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Emit escalation format. Stop. Do NOT increment `iteration`.
@@ -533,6 +545,8 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `qa-engineer` with ticket context, diff, and the resolved qa.md config (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
+**Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+
 ```
 ## Prior QA failures
 
@@ -554,7 +568,7 @@ The following failures were identified and fix attempts were made in earlier ite
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 

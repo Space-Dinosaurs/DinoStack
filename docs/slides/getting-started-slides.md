@@ -109,6 +109,8 @@ The installer asks one question: how should the methodology activate across your
 
 Press Enter at the prompt to accept the default, or pass `--mode=opt-in` / `--mode=opt-out` to the installer. The choice is saved to `~/.claude/agentic-engineering.json` and shared across all four adapters. Change it later by re-running any installer with a `--mode` flag.
 
+On first activation in a project (TTY only) the preflight prints a one-line notice naming the resolved `mode`, `marker`, `profile`, and `preset`, and points you at `/agentic-status` (read-only resolver dump) and `/agentic-disable` (explicit opt-out, refuses on existing `opt-in` without `--force`). The notice is gated on a race-safe per-project sentinel at `.agentic/.activated`; deleting the sentinel re-arms the notice only and does not change activation state. `AGENTIC_QUIET=1` or a non-TTY stdout suppresses both the notice and the sentinel write.
+
 ---
 
 ## Always run `claude` from the project directory

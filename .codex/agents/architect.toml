@@ -53,7 +53,7 @@ Use this exact structure. Do not rename or reorder sections.
 2. [...]
 (ordered by dependency — each step should be atomic enough for a Worker to execute)
 
-**Note any new modules where a manifest is recommended.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, consider including a step or inline note: `[filename] — new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` Manifests are encouraged practice for comprehension hygiene; Skeptic surfaces missing manifests as Minor findings rather than blocking findings.
+**Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
 ### Trade-offs and constraints
 **Alternatives considered (before committing to the chosen approach above):**

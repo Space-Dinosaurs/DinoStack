@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+"""
+Purpose: Append the agentic-engineering opt-out marker to the project
+         AGENTS.md (creating it if absent) and optionally update
+         ~/.claude/agentic-engineering.json with mode=opt-out. Refuses
+         to overwrite an existing opt-in marker without --force. The
+         CLI for the /agentic-disable command.
+
+Public API: agentic-disable [--global] [--force]
+            Default: writes opt-out marker to <cwd>/AGENTS.md.
+            --global: also updates ~/.claude/agentic-engineering.json.
+            --force: removes a pre-existing opt-in marker line, then
+                     appends opt-out. Without --force, exit 2 on
+                     opt-in conflict.
+            Exit codes: 0 on success or no-op idempotent run; 2 on
+                        opt-in conflict without --force; 1 on other
+                        I/O errors.
+
+Upstream deps: Python 3 stdlib only (argparse, datetime, json, os,
+               re, sys, tempfile, pathlib).
+
+Downstream consumers: content/commands/agentic-disable.md (command
+                      spec); developers running the command to opt
+                      out a project from agentic-engineering.
+
+Failure modes: opt-in conflict without --force -> exit 2 with a
+               specific error naming the absolute path and line.
+               Atomic writes via tmp+rename; partial writes cannot
+               leave AGENTS.md or the JSON config corrupted. JSON
+               round-trip preserves ONLY the keys already present in
+               the file (never invents profile/preset). Read-only
+               filesystems or permission errors -> exit 1 with the
+               OS error message; no partial state.
+
+Performance: O(small). One AGENTS.md read+write and one optional JSON
+             read+write. Constant time; <50 ms on a cold start.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
+AGENTS_FILENAME = "AGENTS.md"
+CLAUDE_FILENAME = "CLAUDE.md"
+
+OPTIN_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering:\s*opt-in\s*$",
+    re.IGNORECASE,
+)
+OPTOUT_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering:\s*opt-out\s*$",
+    re.IGNORECASE,
+)
+
+
+def _resolve_agents_md() -> Path:
+    """Return the project AGENTS.md path (resolved through CLAUDE.md
+    @AGENTS.md import if present; otherwise <cwd>/AGENTS.md whether or
+    not it currently exists - callers handle missing-file creation)."""
+    cwd = Path.cwd()
+    direct = cwd / AGENTS_FILENAME
+    if direct.is_file():
+        return direct
+    claude = cwd / CLAUDE_FILENAME
+    if claude.is_file():
+        try:
+            text = claude.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return direct
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("@"):
+                target = stripped[1:].strip()
+                if target:
+                    candidate = (cwd / target).resolve()
+                    if candidate.is_file():
+                        return candidate
+    return direct
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write `data` to `path` atomically via tmp + os.rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.tmp.", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _scan_for_marker(text: str, regex: re.Pattern) -> tuple[int, int] | None:
+    """Return (line_number_1based, line_index_0based) of the first
+    matching line, or None."""
+    for idx, line in enumerate(text.splitlines()):
+        if regex.match(line):
+            return idx + 1, idx
+    return None
+
+
+def _iso_utc_now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _append_optout(content: bytes) -> tuple[bytes, int]:
+    """Append `agentic-engineering: opt-out\\n` per the insertion-point
+    rule. Returns (new_content, line_number_of_marker_1based)."""
+    marker = b"agentic-engineering: opt-out\n"
+    if not content:
+        new = marker
+    elif content.endswith(b"\n\n"):
+        new = content + marker
+    elif content.endswith(b"\n"):
+        new = content + b"\n" + marker
+    else:
+        new = content + b"\n\n" + marker
+    # The marker occupies the last non-empty line. Find it via reverse scan.
+    lines = new.decode("utf-8", errors="replace").splitlines()
+    line_number = len(lines)
+    for idx in range(len(lines) - 1, -1, -1):
+        if OPTOUT_RE.match(lines[idx]):
+            line_number = idx + 1
+            break
+    return new, line_number
+
+
+def _remove_line(text: str, line_index_0based: int) -> str:
+    """Remove the line at the given 0-based index (including its
+    trailing newline if any)."""
+    lines = text.splitlines(keepends=True)
+    if 0 <= line_index_0based < len(lines):
+        del lines[line_index_0based]
+    return "".join(lines)
+
+
+def _do_global(out_lines: list[str]) -> int:
+    """--global JSON round-trip. Returns 0 on success, 1 on I/O error."""
+    iso = _iso_utc_now()
+    try:
+        if CONFIG_PATH.is_file():
+            with CONFIG_PATH.open("r", encoding="utf-8") as fh:
+                try:
+                    data = json.load(fh)
+                except json.JSONDecodeError:
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
+            existing_keys = sorted(data.keys())
+            data["mode"] = "opt-out"
+            data["set_at"] = iso
+            payload = json.dumps(data, indent=2) + "\n"
+            _atomic_write_bytes(CONFIG_PATH, payload.encode("utf-8"))
+            out_lines.append(
+                f"/agentic-disable --global: updated {CONFIG_PATH} "
+                f"(mode=opt-out, set_at={iso}). Preserved keys: "
+                f"{existing_keys}."
+            )
+        else:
+            data = {"mode": "opt-out", "set_at": iso}
+            payload = json.dumps(data, indent=2) + "\n"
+            _atomic_write_bytes(CONFIG_PATH, payload.encode("utf-8"))
+            out_lines.append(
+                f"/agentic-disable --global: created {CONFIG_PATH} "
+                f"(mode=opt-out, set_at={iso})."
+            )
+        return 0
+    except OSError as exc:
+        out_lines.append(f"/agentic-disable --global: ERROR: {exc}")
+        return 1
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="agentic-disable",
+        description=(
+            "Append the agentic-engineering opt-out marker to the "
+            "project AGENTS.md."
+        ),
+    )
+    parser.add_argument(
+        "--global",
+        dest="global_",
+        action="store_true",
+        help="also update ~/.claude/agentic-engineering.json with mode=opt-out",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "remove a pre-existing 'agentic-engineering: opt-in' line "
+            "before appending opt-out"
+        ),
+    )
+    args = parser.parse_args(argv[1:])
+
+    out_lines: list[str] = []
+    agents_path = _resolve_agents_md()
+    abs_path = agents_path.resolve()
+
+    force_removal_note: str | None = None
+
+    if agents_path.is_file():
+        try:
+            text = agents_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            print(f"agentic-disable: ERROR reading {abs_path}: {exc}",
+                  file=sys.stderr)
+            return 1
+
+        # Step 1: opt-in conflict gate.
+        optin_hit = _scan_for_marker(text, OPTIN_RE)
+        if optin_hit is not None:
+            line_no, line_idx = optin_hit
+            if not args.force:
+                print(
+                    f"agentic-engineering: cannot opt out - existing "
+                    f"'opt-in' marker at {abs_path}:{line_no} takes "
+                    f"precedence. Remove that line first, or use "
+                    f"--force to remove it for you.",
+                    file=sys.stderr,
+                )
+                return 2
+            text = _remove_line(text, line_idx)
+            force_removal_note = (
+                f"--force: removed existing 'opt-in' marker at "
+                f"line {line_no}."
+            )
+
+        # Step 2: idempotency check. Runs regardless of --force - if an
+        # opt-out marker already exists (after any --force opt-in removal),
+        # do not append a duplicate. When --force removed an opt-in line
+        # AND opt-out is already present, persist the opt-in removal and
+        # print both messages.
+        optout_hit = _scan_for_marker(text, OPTOUT_RE)
+        if optout_hit is not None:
+            line_no, _ = optout_hit
+            if force_removal_note is not None:
+                # Persist the opt-in removal even though no append occurs.
+                try:
+                    _atomic_write_bytes(agents_path, text.encode("utf-8"))
+                except OSError as exc:
+                    print(
+                        f"agentic-disable: ERROR writing {abs_path}: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                print(force_removal_note)
+            print(
+                f"agentic-engineering: already opted out at "
+                f"{abs_path}:{line_no}. No further changes."
+            )
+            if args.global_:
+                rc = _do_global(out_lines)
+                for line in out_lines:
+                    print(line)
+                return rc
+            return 0
+
+        # Step 3: append.
+        try:
+            content_bytes = text.encode("utf-8")
+            new_content, marker_line = _append_optout(content_bytes)
+            _atomic_write_bytes(agents_path, new_content)
+        except OSError as exc:
+            print(f"agentic-disable: ERROR writing {abs_path}: {exc}",
+                  file=sys.stderr)
+            return 1
+
+        if force_removal_note:
+            print(force_removal_note)
+        print("/agentic-disable: wrote opt-out marker.")
+        print(f"  path: {abs_path}")
+        print(f"  bytes written: {len(new_content)}")
+        print(f"  line: {marker_line}")
+    else:
+        # Step 2 (file absent): create AGENTS.md with single opt-out line.
+        try:
+            payload = b"agentic-engineering: opt-out\n"
+            _atomic_write_bytes(agents_path, payload)
+        except OSError as exc:
+            print(f"agentic-disable: ERROR creating {abs_path}: {exc}",
+                  file=sys.stderr)
+            return 1
+        print(
+            f"Created {abs_path} with opt-out marker ({len(payload)} bytes)."
+        )
+
+    if args.global_:
+        rc = _do_global(out_lines)
+        for line in out_lines:
+            print(line)
+        return rc
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
