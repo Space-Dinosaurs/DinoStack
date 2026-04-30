@@ -117,7 +117,21 @@ grep -n 'agent-methodology.md line' content/commands/representation-audit.md
 grep -n 'lines [0-9]' content/commands/representation-audit.md
 ```
 
-For each match, locate the corresponding section in `content/sections/` and rewrite the citation as `METHODOLOGY.md §<section-heading>`. The rev3 architect plan listed concrete rewrites per line; if that plan is not in your context, use the §-anchor scheme in `content/sections/README.md` as the source of truth.
+For each match, locate the corresponding section in `content/sections/` and rewrite the citation as `METHODOLOGY.md §<section-heading>`. The concrete per-line rewrites from the rev3 architect plan are inlined below (verify against the actual current line in `representation-audit.md` before editing - line numbers may have shifted slightly):
+
+| Old (line N in `representation-audit.md`) | Rewrite |
+|---|---|
+| Line ~43: `agent-methodology.md line 106, the Low signals block` | `METHODOLOGY.md §Risk Classification > Low signals` |
+| Line ~49: `agent-methodology.md line 106` ... `lines 19-49` | `METHODOLOGY.md §Risk Classification > Low signals` and `METHODOLOGY.md §Delegation > spawn-threshold table` |
+| Line ~55: `skeptic-protocol.md Section 2 Step-by-step (lines ~93-140)` | `skeptic-protocol.md §Section 2 (Step-by-step)` (in protocol file, not methodology - included for §-format consistency) |
+| Line ~57: `agent-methodology.md` ... `lines ~79-83` | `METHODOLOGY.md §Delegation > Worker preamble` (Execution Contract template lives there) |
+| Line ~63: `agent-methodology/subagent-protocol.md` | unchanged - this references a directory name that does not change. Verify against the current line; if the citation does reference the old `agent-methodology` directory name, it stays. |
+| Line ~69: `skeptic-protocol.md lines 27-35, the Low risk definition` | `skeptic-protocol.md §Risk Classification (Skeptic) > Low risk` |
+| Line ~75: `agent-methodology.md lines 27-29 and 106` | `METHODOLOGY.md §Delegation > spawn-threshold table` and `METHODOLOGY.md §Risk Classification > Low signals` |
+| Line ~81: `agent-methodology.md line 29` | `METHODOLOGY.md §Delegation > spawn-threshold table > file-renaming row` |
+| Line ~93: `agent-methodology.md` ... `around lines 79-83` | `METHODOLOGY.md §Delegation > Worker preamble (Execution Contract template)` |
+
+The Skeptic for Wave 1.5 must verify each rewritten citation actually points at content that exists at the cited section in `METHODOLOGY.md` (which is the assembled output of `content/sections/`). The `representation-audit` calibration is load-bearing - a citation that points at non-existent content silently degrades R1-R7 signal definitions.
 
 **Validation gate** (the engineer must run this before opening the PR):
 
