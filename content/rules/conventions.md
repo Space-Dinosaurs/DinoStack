@@ -26,6 +26,29 @@ When starting a new project, run `/init-project` to scaffold this structure auto
 - Session-specific state (current task, next steps) belongs in `context.md`, not here
 - Entry format: `- **YYYY-MM-DD:** [what and why, in one sentence]`
 
+## The Intent Layer
+
+A project's intent is encoded across a small set of artifacts. Treat them as a coherent layer, not as unrelated files:
+
+- `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
+- `MEMORY.md` - stable facts learned about the project, with rationale.
+- `decisions.md` - the project's decision log, where used.
+- `qa.md` - QA triggers and project-specific quirks the QA engineer needs to know.
+- Module manifests - file-level intent embedded in the source itself (see `module-manifest.md`).
+- `glossary.md` - the project's Ubiquitous Language (see below).
+
+Together these form the project's **intent layer**. Drift in any of them is **intent debt** - the system stops reflecting what we meant to build, and downstream agents and humans drift along with the artifacts. Keep them current. A stale entry is worse than a missing one because readers trust it.
+
+### Ubiquitous Language (`glossary.md`)
+
+A `glossary.md` at the project root (or referenced from the root `AGENTS.md`) holds the project's domain terms - the **Ubiquitous Language** that humans, code, and LLM agents all use to describe the system. When a glossary is present:
+
+- Agents prefer existing terms over inventing synonyms. If the glossary calls it "shipment", do not introduce "delivery", "consignment", or "package" in code, comments, prompts, or docs without first updating the glossary.
+- The Skeptic flags a synonym-of-an-existing-term as a **Minor** finding (style + intent drift).
+- The glossary is part of the intent layer above - keep it current as the domain vocabulary evolves.
+
+A glossary is optional; not every project needs one. But once introduced, it is binding on the project.
+
 ## Git Workflow
 
 The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees.

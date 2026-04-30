@@ -206,6 +206,22 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 If a Worker discovers mid-task that its work requires decomposition into independent sub-tasks, it should note this and return its partial output with an explicit decomposition request. The primary agent then handles parallel decomposition — spawning multiple Workers and synthesizing results — before routing the assembled output back through Skeptic review.
 
+### Cognitive surrender check (rubber-stamp guard)
+
+A Skeptic that signs off on the same diff across two or more iterations with **zero findings at any classification** (no Critical, no Major, no Minor) is a possible **rubber-stamp** signal. The reviewer may have surrendered cognition - skimming the artifact, anchoring on the Worker's output, and granting sign-off without independently re-reading the diff. This is the Shaw / Nave "cognitive surrender" failure mode: uncritical reliance on AI-generated output, bypassing the deliberation step the protocol depends on.
+
+To guard against this, when a clean two-iteration agreement occurs, the Skeptic must include an explicit **audit note** as a Minor finding in its sign-off. The audit note is a one-line attestation that the diff was independently re-read end-to-end with the named heuristics applied. Example:
+
+```
+Minor: Audit note - re-read all 3 files end-to-end; checked for
+        spec drift, missing error paths, and intent-layer drift; no
+        findings.
+```
+
+Without that audit note, the conductor treats clean two-iteration agreement as suspect and requests another pass with a fresh Skeptic. This is distinct from cognitive offloading (strategic delegation during deliberation, which is the protocol's intended mode) - the audit note is the evidence that deliberation actually occurred.
+
+Audit-note Minors are bookkeeping rather than diff-level findings; they are exempt from re-raise and convergence-failure detection in `/implement-ticket` Phase 6.
+
 ---
 
 ## 6. Findings Classification
