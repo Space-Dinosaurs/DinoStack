@@ -34,7 +34,35 @@ Run this check once at the top of the first skill invocation in a session (and a
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
    - Any other combination (including `marker=none` with `mode=opt-out`, or `marker=opt-in` with `mode=opt-in`) - proceed with the methodology.
-5. **When no-opping, print one line and stop:**
+5. **First-activation notice (one-time, per-project, TTY-only).** Triggered only when Step 4 resolved to active (any proceed branch). Otherwise skip this step entirely.
+
+   **TTY/QUIET gate.** If `os.environ.get("AGENTIC_QUIET") == "1"` OR `not sys.stdout.isatty()`, skip BOTH the notice print AND the sentinel write. Activation proceeds normally without producing the notice or creating the sentinel. This prevents fixture contamination in eval harness runs and unwanted output in CI/headless contexts.
+
+   **Sentinel write contract (race-safe; create-only).** Two parallel subagent activations on the same fresh project must produce exactly one notice and exactly one sentinel; the loser stays silent. The notice prints if and only if the create-only write succeeded.
+
+   1. Compute path: `<project_root>/.agentic/.activated`.
+   2. Ensure `.agentic/` exists (`mkdir -p`); failures silently swallowed - do not crash.
+   3. Attempt **create-only** write (must fail if the file already exists):
+      - Python: `open(path, 'x')` (raises `FileExistsError` if present).
+      - Shell: write to `<path>.tmp.<pid>`, then `ln <tmp> <path>` (atomic, fails on EEXIST), unlink tmp.
+      - <!-- Race-safe pattern: O_EXCL / link() guarantees that only one of N concurrent racers wins the create; losers see EEXIST and stay silent. Do NOT replace with `if exists: ... else: write` - that pattern has a TOCTOU race. -->
+   4. **Print the notice if and only if the create succeeded.** On EEXIST (sentinel already present), skip the print silently. Losers in a race stay silent.
+   5. Filesystem errors other than `EEXIST` (read-only filesystem, permission denied, ENOSPC, etc.) are silently swallowed; the notice may re-print on the next session. Methodology must not crash.
+
+   **Sentinel body (exactly three lines, plain text):**
+   ```
+   # agentic-engineering: first-activation notice has been shown for this project.
+   # Deleting this file re-arms the notice only; it does not change activation state.
+   # To opt out, use /agentic-disable.
+   ```
+
+   **Notice text (verbatim, single line, printed to stdout when create succeeds):**
+   ```
+   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>, preset=<preset or 'none'>). Run /agentic-status to inspect, /agentic-disable to opt out.
+   ```
+   Values come from the resolver outputs of Steps 1-3. The literal JSON `null` for `preset` is rendered as the string `none`.
+
+6. **When no-opping, print one line and stop:**
    `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
    Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
 
@@ -403,7 +431,7 @@ When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the co
 
 `.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /wrap completion, finding fix). The file is gitignored.
 
-**Single-writer scope: the conductor is the sole writer of `.agentic/events.jsonl`.** Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook). The single-writer claim is scoped to events.jsonl only.
+**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a single `session_total` event at session exit; this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook).
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)
@@ -412,6 +440,12 @@ When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the co
 - `agent`: spawned agent name, nullable
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
+
+**V1 telemetry event types** (cost & latency observability; see `bin/agentic-emit`, `bin/agentic-parse-subagent-usage`, `bin/agentic-cost`):
+- `spawn_start`: emitted by the conductor immediately before a Task tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, and `agent_id: null` (Claude Code assigns the agent id after the Task returns).
+- `spawn_complete`: emitted by the conductor immediately after a Task tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), and `status`.
+- `conductor_direct`: emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carries `wall_seconds` and a `note`; tokens are zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
+- `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup.
 
 **Append discipline**: plain shell `>>` append. No fsync, no tmp+rename, no lock file. Single-writer-by-protocol means contention is structurally impossible. If a partial line ever appears (impossible under single-writer but for robustness), readers tolerate it - JSONL parsers skip malformed lines.
 
@@ -552,7 +586,7 @@ Key tools and their uses:
 
 ## Module Manifests
 
-**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a **Minor finding** (does not block sign-off).
+**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic applies tiered enforcement: missing manifests are **Minor** (does not block sign-off), stale manifests are **Major** (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are **Critical**. See `content/rules/module-manifest.md` for the full policy.
 
 ## Code Quality Gates
 
@@ -770,7 +804,13 @@ A missing or stale manifest is **intent debt**: the artifact stops reflecting wh
 
 ## Enforcement
 
-Skeptic flags missing or stale manifests on non-trivial modules as a **Minor finding** (does not block sign-off). Manifests remain recommended practice for comprehension hygiene; missing manifests are flagged for awareness, not as a blocker.
+Skeptic applies tiered enforcement:
+
+- **Missing manifest** on a non-trivial module: **Minor finding** (does not block sign-off). Comprehension hygiene; flagged for awareness.
+- **Stale manifest** (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics): **Major finding** (blocks sign-off absent a compelling documented reason to defer). A stale manifest is active misinformation - worse than no manifest.
+- **Stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path** (e.g., a documented "no side effects" claim that is no longer true, an idempotency guarantee that no longer holds, a failure-mode contract that has silently changed): **Critical finding**. The manifest is actively misleading callers on a load-bearing path.
+
+Minor findings are addressed via the Minor-fix workflow (see `content/references/skeptic-protocol.md` Section 2 step 4 and Section 6). Major and Critical findings must be resolved before sign-off.
 
 See `content/references/skeptic-protocol.md` for findings classification definitions.
 

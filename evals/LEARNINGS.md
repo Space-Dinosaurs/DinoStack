@@ -464,3 +464,19 @@ A subsequent session should run `python -m evals.auto.cli run skeptic
 --max-iterations 5 --time-budget-sec 1800` on a clean working branch
 to exercise the full keep-or-revert path. MVP is ready; the karpathy
 pattern is wired.
+
+## First-activation notice TTY/QUIET suppression (Gap 3)
+
+The activation preflight in `content/sections/01-activation-preflight.md`
+gates its first-activation notice and `.agentic/.activated` sentinel
+write on a TTY check: when `os.environ.get("AGENTIC_QUIET") == "1"` OR
+`not sys.stdout.isatty()`, BOTH the print and the create-only sentinel
+write are skipped. Eval harness invocations that pipe stdout (the
+default for any subprocess capturing the agent's output) therefore
+never produce a sentinel inside fixture cwds and never contaminate
+fixture transcripts with the notice. No harness change is required.
+If a future eval runs an agent with stdout attached to a real TTY,
+contributors should set `AGENTIC_QUIET=1` explicitly to keep fixture
+state clean. Verifying that every harness invocation actually pipes
+stdout is the eval harness contributor's responsibility (per the Gap 3
+plan; AC #19).
