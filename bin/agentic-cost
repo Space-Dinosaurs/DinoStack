@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read .agentic/events.jsonl and render per-agent / per-task /
+         per-project token and wall-time rollups. Optionally renders dollar
+         columns when ~/.agentic/pricing.yml is present (opt-in, never
+         invented). The CLI for the /agentic-cost command.
+
+Public API: agentic-cost session [<session_uuid>]
+            agentic-cost task <task_id>
+            agentic-cost project [--since <YYYY-MM-DD>]
+            All subcommands print a fixed-width table to stdout. Every
+            output ends with the V1 disclosure footer line per
+            acceptance criterion 12.
+
+Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib).
+               Optional pyyaml soft dependency for ~/.agentic/pricing.yml
+               parsing; absent pyyaml -> token-only output with the
+               "Install pyyaml for pricing support." line.
+
+Downstream consumers: content/commands/agentic-cost.md (command spec);
+                      developers running the command interactively.
+
+Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
+               TOTAL row at zero plus the standard footers; never raises.
+               Malformed JSONL lines are skipped silently and counted in
+               a "N events skipped due to malformed lines." footnote.
+               Missing pricing for a model -> dollar columns render as '?'
+               and the missing model is listed in a footnote.
+
+Performance: O(N events) single pass; <2s on a session with 50 events
+             per acceptance criterion 3.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import os
+import sys
+from pathlib import Path
+
+V1_FOOTER = (
+    "Note: V1 instruments engineer/skeptic/qa only; "
+    "architect/investigator/debugger spawns are not counted."
+)
+
+EVENTS_PATH = Path(".agentic/events.jsonl")
+PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
+
+
+def _load_events() -> tuple[list[dict], int]:
+    if not EVENTS_PATH.is_file():
+        return [], 0
+    events: list[dict] = []
+    skipped = 0
+    with EVENTS_PATH.open("r", encoding="utf-8", errors="replace") as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                events.append(json.loads(raw))
+            except json.JSONDecodeError:
+                skipped += 1
+    return events, skipped
+
+
+def _load_pricing() -> tuple[dict | None, str | None, str | None]:
+    """Return (pricing_dict, updated_str, error_msg).
+
+    pricing_dict is None when pricing is unavailable. error_msg is set when
+    the file exists but cannot be loaded (missing pyyaml or parse error).
+    """
+    if not PRICING_PATH.is_file():
+        return None, None, None
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return None, None, "Install pyyaml for pricing support."
+    try:
+        with PRICING_PATH.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except Exception as exc:
+        return None, None, f"pricing.yml parse error: {exc}"
+    models = data.get("models") if isinstance(data, dict) else None
+    updated = data.get("updated") if isinstance(data, dict) else None
+    if not isinstance(models, dict):
+        return None, None, "pricing.yml missing 'models' map"
+    return models, str(updated) if updated else None, None
+
+
+def _empty_tokens() -> dict:
+    return {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+
+
+def _add_tokens(dst: dict, src: dict) -> None:
+    for k in ("input", "output", "cache_creation", "cache_read"):
+        dst[k] = dst.get(k, 0) + int(src.get(k, 0) or 0)
+
+
+def _filter_events(events: list[dict], filt) -> list[dict]:
+    return [e for e in events if filt(e)]
+
+
+def _aggregate_by_agent(events: list[dict]) -> dict:
+    """Aggregate spawn_complete events by agent name. Returns
+    {agent: {spawns, tokens, wall_seconds, models}}."""
+    agg: dict = {}
+    for ev in events:
+        if ev.get("event") != "spawn_complete":
+            continue
+        agent = ev.get("agent") or "(unknown)"
+        data = ev.get("data") or {}
+        tokens = data.get("tokens") or {}
+        wall = float(data.get("wall_seconds") or 0)
+        model = data.get("model")
+        bucket = agg.setdefault(
+            agent,
+            {"spawns": 0, "tokens": _empty_tokens(),
+             "wall_seconds": 0.0, "models": {}},
+        )
+        bucket["spawns"] += 1
+        _add_tokens(bucket["tokens"], tokens)
+        bucket["wall_seconds"] += wall
+        if model:
+            mb = bucket["models"].setdefault(model, _empty_tokens())
+            _add_tokens(mb, tokens)
+    return agg
+
+
+def _price_row(
+    pricing: dict, models_used: dict
+) -> tuple[dict | None, list[str]]:
+    """Compute dollar breakdown for a single agent row keyed by model.
+
+    Returns ({in,out,cache_cr,cache_rd,total} or None when any model is
+    unpriced, list_of_missing_model_names).
+    """
+    dollars = {"input": 0.0, "output": 0.0,
+               "cache_creation": 0.0, "cache_read": 0.0}
+    missing: list[str] = []
+    for model, toks in models_used.items():
+        rates = pricing.get(model)
+        if not isinstance(rates, dict):
+            missing.append(model)
+            continue
+        for k in ("input", "output", "cache_creation", "cache_read"):
+            r = rates.get(k)
+            if r is None:
+                missing.append(f"{model}.{k}")
+                continue
+            dollars[k] += (int(toks.get(k, 0) or 0) / 1_000_000) * float(r)
+    if missing:
+        return None, missing
+    dollars["total"] = sum(dollars.values())
+    return dollars, missing
+
+
+def _render_table(
+    agg: dict,
+    pricing: dict | None,
+    pricing_updated: str | None,
+    pricing_error: str | None,
+    skipped: int,
+) -> str:
+    lines: list[str] = []
+    if pricing is not None:
+        header = (
+            f"{'agent':<12}{'spawns':>8}{'tokens':>10}"
+            f"{'$in':>8}{'$out':>8}{'$cache_cr':>11}{'$cache_rd':>11}"
+            f"{'$total':>9}{'wall(s)':>10}"
+        )
+        lines.append(header)
+        total_tokens = 0
+        total_dollars = {"input": 0.0, "output": 0.0,
+                         "cache_creation": 0.0, "cache_read": 0.0,
+                         "total": 0.0}
+        total_wall = 0.0
+        total_spawns = 0
+        all_missing: set[str] = set()
+        for agent in sorted(agg.keys()):
+            b = agg[agent]
+            t = b["tokens"]
+            tok_sum = (t["input"] + t["output"]
+                       + t["cache_creation"] + t["cache_read"])
+            dollars, missing = _price_row(pricing, b["models"])
+            for m in missing:
+                all_missing.add(m)
+            if dollars is None:
+                row = (
+                    f"{agent:<12}{b['spawns']:>8}{tok_sum:>10}"
+                    f"{'?':>8}{'?':>8}{'?':>11}{'?':>11}{'?':>9}"
+                    f"{b['wall_seconds']:>10.1f}"
+                )
+            else:
+                row = (
+                    f"{agent:<12}{b['spawns']:>8}{tok_sum:>10}"
+                    f"{dollars['input']:>8.3f}{dollars['output']:>8.3f}"
+                    f"{dollars['cache_creation']:>11.3f}"
+                    f"{dollars['cache_read']:>11.3f}"
+                    f"{dollars['total']:>9.3f}{b['wall_seconds']:>10.1f}"
+                )
+                for k in total_dollars:
+                    total_dollars[k] += dollars[k]
+            lines.append(row)
+            total_tokens += tok_sum
+            total_wall += b["wall_seconds"]
+            total_spawns += b["spawns"]
+        lines.append(
+            f"{'TOTAL':<12}{total_spawns:>8}{total_tokens:>10}"
+            f"{total_dollars['input']:>8.3f}{total_dollars['output']:>8.3f}"
+            f"{total_dollars['cache_creation']:>11.3f}"
+            f"{total_dollars['cache_read']:>11.3f}"
+            f"{total_dollars['total']:>9.3f}{total_wall:>10.1f}"
+        )
+        lines.append("")
+        if pricing_updated:
+            lines.append(
+                f"Rates as of {pricing_updated} from ~/.agentic/pricing.yml."
+            )
+            try:
+                d = _dt.date.fromisoformat(pricing_updated)
+                if (_dt.date.today() - d).days > 90:
+                    lines.append(
+                        "Rates are >90 days old; verify before quoting."
+                    )
+            except ValueError:
+                pass
+        if all_missing:
+            lines.append(
+                "Missing rates for: " + ", ".join(sorted(all_missing))
+            )
+    else:
+        header = (
+            f"{'agent':<12}{'spawns':>8}{'in':>10}{'out':>10}"
+            f"{'cache_cr':>11}{'cache_rd':>11}{'wall(s)':>10}"
+        )
+        lines.append(header)
+        totals = _empty_tokens()
+        total_wall = 0.0
+        total_spawns = 0
+        for agent in sorted(agg.keys()):
+            b = agg[agent]
+            t = b["tokens"]
+            lines.append(
+                f"{agent:<12}{b['spawns']:>8}{t['input']:>10}"
+                f"{t['output']:>10}{t['cache_creation']:>11}"
+                f"{t['cache_read']:>11}{b['wall_seconds']:>10.1f}"
+            )
+            _add_tokens(totals, t)
+            total_wall += b["wall_seconds"]
+            total_spawns += b["spawns"]
+        lines.append(
+            f"{'TOTAL':<12}{total_spawns:>8}{totals['input']:>10}"
+            f"{totals['output']:>10}{totals['cache_creation']:>11}"
+            f"{totals['cache_read']:>11}{total_wall:>10.1f}"
+        )
+        lines.append("")
+        if pricing_error:
+            lines.append(pricing_error)
+        else:
+            lines.append(
+                "Pricing not configured. Create ~/.agentic/pricing.yml "
+                "to enable dollar columns."
+            )
+    if skipped:
+        lines.append(f"{skipped} events skipped due to malformed lines.")
+    lines.append(V1_FOOTER)
+    return "\n".join(lines) + "\n"
+
+
+def cmd_session(args: argparse.Namespace) -> int:
+    events, skipped = _load_events()
+    target = args.session_uuid
+    if target:
+        events = _filter_events(
+            events,
+            lambda e: (e.get("data") or {}).get("session_uuid") == target,
+        )
+    pricing, updated, perr = _load_pricing()
+    agg = _aggregate_by_agent(events)
+    sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    return 0
+
+
+def cmd_task(args: argparse.Namespace) -> int:
+    events, skipped = _load_events()
+    target = args.task_id
+    events = _filter_events(events, lambda e: e.get("task_id") == target)
+    pricing, updated, perr = _load_pricing()
+    agg = _aggregate_by_agent(events)
+    sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    return 0
+
+
+def cmd_project(args: argparse.Namespace) -> int:
+    events, skipped = _load_events()
+    if args.since:
+        try:
+            cutoff = _dt.date.fromisoformat(args.since)
+        except ValueError:
+            print(f"agentic-cost: invalid --since date: {args.since}",
+                  file=sys.stderr)
+            return 2
+        def keep(e: dict) -> bool:
+            ts = e.get("ts") or ""
+            try:
+                d = _dt.datetime.fromisoformat(
+                    ts.replace("Z", "+00:00")
+                ).date()
+            except ValueError:
+                return False
+            return d >= cutoff
+        events = _filter_events(events, keep)
+    pricing, updated, perr = _load_pricing()
+    agg = _aggregate_by_agent(events)
+    sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="agentic-cost",
+        description="Token / wall-time rollups from .agentic/events.jsonl",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+    p_s = sub.add_parser("session", help="rollup for one session")
+    p_s.add_argument("session_uuid", nargs="?", default=None)
+    p_s.set_defaults(func=cmd_session)
+    p_t = sub.add_parser("task", help="rollup for one task_id")
+    p_t.add_argument("task_id")
+    p_t.set_defaults(func=cmd_task)
+    p_p = sub.add_parser("project", help="rollup across the project")
+    p_p.add_argument("--since", default=None,
+                     help="YYYY-MM-DD lower bound on event timestamp")
+    p_p.set_defaults(func=cmd_project)
+    args = p.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
