@@ -96,7 +96,7 @@ This raw data is what the draft Worker will format. The Worker is a fresh agent 
 
 **Step 0.5 - Route to light, zero-substance, or standard path.**
 
-Inspect what Outputs 2, 3, and 4 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet.
+Inspect what Outputs 2 and 3 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet.
 
 **Zero-substance path** - triggers when ALL of the following hold:
 - Output 2 (memory entries) would be "None"
@@ -130,7 +130,7 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 
 **Escape hatch for zero-substance path:** If the conductor has ANY uncertainty about whether the session is truly zero-substance - for example, the user asked a question whose answer feels architecturally significant, or an implicit decision was made without writing anything down - it must abandon the zero-substance path and use the light or standard path instead. When in doubt, do not use the zero-substance path.
 
-**Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3/4 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
+**Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
 
 **Step 1 — Spawn a draft Worker** (background, general-purpose):
 

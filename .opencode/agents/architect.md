@@ -27,11 +27,10 @@ Your spawn prompt will contain:
 ## Exploration process
 
 1. Read the task description carefully. List any ambiguities or unstated assumptions before exploring.
-2. Read findings.md via the resolver — try `.agentic/findings.md` first, fall back to legacy `.claude/findings.md`. If the resolver finds a file, read it before exploring further. ALSO apply the resolver per-track: `<track>/.agentic/findings.md` preferred, legacy `<track>/.claude/findings.md` fallback, for any track directory the task touches (track-level findings are rare but supplement root findings for track-isolated patterns). Note any entries that apply to this task - cite them in the "Trade-offs and constraints" or "Known limitations" section of the plan. A plan that ignores an applicable findings entry is incomplete.
-3. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively.
-4. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
-5. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
-6. Write the technical plan using the output format below.
+2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively.
+3. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
+4. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
+5. Write the technical plan using the output format below.
 
 ## Output format
 

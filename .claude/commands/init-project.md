@@ -401,7 +401,7 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
     - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
     - `.agentic/tracking.md` (or legacy `.claude/tracking.md`) - only if a tracker was confirmed during `/init-project`.
   - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.agentic/qa.md`, `[track]/.agentic/deploy.md`) are out of scope for this session-start check - do not flag them.
-  - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6d creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
+  - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6c creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
   - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
   - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or Enter defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
   ```
@@ -505,7 +505,7 @@ The `release-orchestrator` agent reads this file the same way `qa-engineer` read
 
 **Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.agentic/deploy.md` for EACH track that deploys, AND create a root `.agentic/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first via resolver (`.agentic/` preferred, `.claude/` fallback); if index, pick the track matching the diff. **Per-track resolver also applies during the back-compat window**: `<track>/.agentic/deploy.md` preferred, `<track>/.claude/deploy.md` fallback. Step 2a item 11 plans `git mv` for per-track legacy paths on each update run.
 
-### 6c. Create `.agentic/tracking.md`
+### 6b. Create `.agentic/tracking.md`
 
 Always create when a tracker was confirmed in Step 1 (Linear or Jira). Only create if the file does not already exist at either `.agentic/tracking.md` (preferred) or the legacy `.claude/tracking.md` (back-compat). Writers always write to `.agentic/tracking.md`.
 
@@ -555,7 +555,7 @@ Read by the `orchestration-planner` agent at plan time (step 7 of its brief). A 
 
 **Track-level tracking.md is rare** - only create if the project genuinely has teams split across tracks with different Linear teams or Jira projects per track. Default is root-only.
 
-### 6d. Create `.agentic/preferences.json`
+### 6c. Create `.agentic/preferences.json`
 
 Always create. No signal required - the session-start scaffolding check declared in the root `AGENTS.md` template needs a tool-agnostic place to persist its "never prompt again" preference. Only create if the file does not already exist.
 

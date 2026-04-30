@@ -978,8 +978,6 @@
         <text x="646" y="435" class="svg-label">AGENTS.md</text>
         <text x="742" y="435" class="svg-copy">+</text>
         <text x="772" y="435" class="svg-label">MEMORY.md</text>
-        <text x="879" y="435" class="svg-copy">+</text>
-        <text x="907" y="435" class="svg-label">findings.md</text>
 
         <path d="M1011 284 V356 C1011 390, 944 429, 980 429" class="stroke-gold" fill="none"></path>
         <path d="M980 429 C1058 429, 1086 370, 1086 292" class="stroke-gold" fill="none"></path>
@@ -1126,11 +1124,11 @@
         <text x="656" y="356" class="svg-copy">fan-out coordination.</text>
 
         <rect x="876" y="244" width="222" height="124" rx="20" class="bg-cyan stroke-cyan"></rect>
-        <text x="902" y="274" class="svg-mono">RECURRING LESSONS</text>
-        <text x="902" y="301" class="svg-label">.agentic/findings.md</text>
-        <text x="902" y="322" class="svg-copy">Patterns promoted after review</text>
-        <text x="902" y="339" class="svg-copy">feed back into future architect</text>
-        <text x="902" y="356" class="svg-copy">plans as known anti-patterns.</text>
+        <text x="902" y="274" class="svg-mono">REGRESSION OBLIGATION</text>
+        <text x="902" y="301" class="svg-label">tests with every fix</text>
+        <text x="902" y="322" class="svg-copy">Every Critical/Major Skeptic</text>
+        <text x="902" y="339" class="svg-copy">finding fixed in a task ships</text>
+        <text x="902" y="356" class="svg-copy">with a regression test.</text>
 
         <rect x="630" y="396" width="468" height="94" rx="22" class="bg-ink stroke-default"></rect>
         <text x="664" y="427" class="svg-mono">SESSION CONTINUITY</text>
@@ -1397,7 +1395,6 @@
           <ul>
             <li><strong>Module manifest check</strong> - flags missing or stale manifests on non-trivial modules as a <strong style="color: var(--gold);">Major</strong> finding. Non-trivial = exports a public symbol, ~50+ LOC, or side-effecting. Blocks sign-off.</li>
             <li><strong>Regression test verification</strong> - before granting sign-off when a Critical/Major finding was fixed, verifies a regression test was added (or a documented exception given). Missing test without explanation is a <strong style="color: var(--gold);">Major</strong> finding.</li>
-            <li><strong>Findings pattern check</strong> - if <code>.agentic/findings.md</code> exists, treat its entries as known anti-patterns. Repeating a documented pattern is a <strong style="color: var(--gold);">Major</strong> finding.</li>
           </ul>
         </div>
       </div>
@@ -1528,7 +1525,7 @@
         <h4 style="color: var(--green);">Planning and Analysis Agents</h4>
         <ul>
           <li><strong>investigator</strong> - traces data flow, maps blast radius, and explores unfamiliar areas. Used when you need to understand code before deciding how to change it. Returns an investigation brief for the conductor to hand to architect or engineer.</li>
-          <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Reads <code>.agentic/findings.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback) at plan time and cites applicable entries in the plan's constraints section. Its output MUST be Skeptic-reviewed before any downstream work.</li>
+          <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Its output MUST be Skeptic-reviewed before any downstream work.</li>
           <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious. Checks for <code>.agentic/tracking.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback) in the project root and follows its instructions when present.</li>
         </ul>
       </div>
@@ -1550,7 +1547,7 @@
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
         <h4 style="color: var(--violet);">Review Agent</h4>
         <ul>
-          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files (missing/stale = Major) and verifies regression tests were added for any Critical/Major fixes. Reads <code>.agentic/findings.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback) and flags repetition of documented patterns. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files (missing/stale = Major) and verifies regression tests were added for any Critical/Major fixes. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -1687,7 +1684,7 @@
           <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
           <li><strong>/implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and skeptic phases in sequence for a scoped ticket.</li>
           <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
-          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, AGENTS.md updates, and findings.md promotions. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
           <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
           <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
@@ -1844,14 +1841,13 @@
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
           <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
           <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
-          <li><strong>findings.md promotions</strong> - recurring or high-blast-radius Skeptic findings get promoted to <code>.agentic/findings.md</code> for the Architect to read at plan time</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
         <h4 style="color: var(--violet);">How it works</h4>
         <ul>
           <li>Compiles session data (files touched, errors, decisions)</li>
-          <li>Worker drafts all 4 outputs from raw session data</li>
+          <li>Worker drafts all 3 outputs from raw session data</li>
           <li>Skeptic reviews for accuracy and completeness</li>
           <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for memory.md) - subagents cannot reliably get write permissions</li>
           <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
@@ -1910,7 +1906,7 @@
       </div>
       <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
         <strong>Protocol fit:</strong>
-        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/wrap</code> should then promote the durable parts of those decisions into <code>AGENTS.md</code>, <code>MEMORY.md</code>, and (when relevant) <code>findings.md</code> so future sessions inherit the outcome without rereading every planning file.
+        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/wrap</code> should then promote the durable parts of those decisions into <code>AGENTS.md</code> and <code>MEMORY.md</code> so future sessions inherit the outcome without rereading every planning file.
       </div>
     </div>
   </div>

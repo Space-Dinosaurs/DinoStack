@@ -3,7 +3,7 @@
 ## What this provides
 
 - **GEMINI.md** - Always-loaded rules: agent methodology, code standards, conventions (combined from 3 source files)
-- **Reference docs** (5) - skeptic protocol, subagent protocol, agent team, design goals, findings flywheel
+- **Reference docs** (5) - skeptic protocol, subagent protocol, agent team, design goals, regression test obligation
 - **Global GEMINI.md** - `~/.gemini/GEMINI.md` symlinked to `.gemini/GEMINI.md` for global session loading
 - **Named agents** - `~/.gemini/agents/` symlinked to `.gemini/agents/` - 13 agent markdown files generated from `content/agents/*.md`
 - **Slash commands** - `~/.gemini/commands/` symlinked to `.gemini/commands/` - TOML command files for `skeptic`, `implement-ticket`, `wrap`, and others
