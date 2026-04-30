@@ -19,7 +19,7 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 **0a. Global activation mode** — read this before any other discovery work.
 
-Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out` and `profile=default`.
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `agent-methodology.md`.
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 
@@ -573,6 +573,16 @@ Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer 
 
 **Write semantics for the `never` answer.** When the session agent writes `skipScaffoldingCheck`, it must read-modify-write: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, and write the merged object back. Do not clobber other keys.
 
+### 6d. Seed `~/.agentic/presets.yml` (spawn preset library)
+
+If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `agentic-engineering` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
+
+Resolution order at spawn time (per `agent-methodology.md` Spawn presets section): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
+
+This step is global (writes outside the project tree). It is idempotent - the file is created on the first `/init-project` invocation on a machine, and subsequent invocations are no-ops. The example library defines `engineer:default`, `engineer:tight-bug`, `skeptic:standard`, `skeptic:plan-review`, `skeptic:security`, and `architect:default`.
+
+Do NOT seed a project-local `.agentic/presets.yml` during init - leave that to the user to author when they want to override a preset for this specific project.
+
 ### 7. Create `.claude/settings.local.json`
 
 Only create this file if it does not already exist (enforced in Step 2 - skip if it exists).
@@ -643,6 +653,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/loop-state.json
 .agentic/hud/
 .agentic/tasks.jsonl
+.agentic/events.jsonl
 .agentic/context.md
 .agentic/memory/
 .agentic/memory.md
@@ -654,7 +665,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 # source control.
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), and `compression-state.json` (compression bookkeeping). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), and `compression-state.json` (compression bookkeeping). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
 
 ### 10. Create `docs/` structure
 

@@ -8,3 +8,258 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 ---
 
+## Documentation Lookups
+
+**When investigating, diagnosing, or reasoning about library, framework, or SDK behavior, look up current documentation using Context7 before forming conclusions.** Training data may be outdated - API signatures, configuration options, default behaviors, and error messages change across versions.
+
+Use Context7 (`resolve-library-id` -> `query-docs`) for:
+- Verifying API signatures, method parameters, or return types
+- Checking configuration options or default values
+- Understanding error messages or behavioral changes across versions
+- Any assumption about library behavior that influences a diagnosis or recommendation
+
+Do not rely on training knowledge for library-specific details when Context7 is available. This applies to all agents: investigators, debuggers, architects, and engineers.
+
+## Tool Discipline
+
+**Never use Bash to read files, list directories, or search content.** Use the dedicated tools - they don't trigger permission prompts and give better output:
+- Read files: `Read` tool (never `cat`, `head`, `tail`, `sed`)
+- List/find files: `Glob` tool (never `ls`, `find`)
+- Search content: `Grep` tool (never `grep`, `rg`)
+
+Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
+
+## Context Window Management
+
+**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
+
+Key tools and their uses:
+- `ctx_execute(language, code)` - run a single script; only stdout enters context
+- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
+
+> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
+
+- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
+- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
+- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
+
+> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
+
+**Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
+
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+
+## Module Manifests
+
+**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic flags missing or stale manifests as a **Minor finding** (does not block sign-off).
+
+## Code Quality Gates
+
+**After writing or modifying code, run the project's lint, typecheck, and test commands.** All must pass with zero errors before work is complete.
+
+- **Greenfield projects:** zero warnings from the start
+- **Existing codebases:** do not introduce new warnings; flag pre-existing issues to the user
+- Never suppress or disable rules to pass gates - fix the code. Suppression comments (`@ts-ignore`, `noqa`, etc.) require explicit user approval
+- **New projects (via `/init-project`):** set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit framework for Python)
+- **Existing projects without tooling:** run whatever checks are available and recommend setup to the user
+
+**Per-language strict defaults:**
+- **TypeScript/JS:** `strict: true` in tsconfig, ESLint `--max-warnings 0`, Vitest/Jest with 80% line coverage
+- **Python:** `mypy --strict` or pyright strict mode, `ruff` with recommended + strict rule selection, `pytest --strict-markers -x`
+- **Go:** `golangci-lint run --enable-all`
+- **Rust:** `deny(warnings, clippy::all, clippy::pedantic)` for applications; libraries use `warn(...)` in source and `-D warnings` in CI
+- **Next.js:** disable `devIndicators` in `next.config.ts`; restore `cursor: pointer` on buttons in `globals.css` (`@layer base { button, [role="button"] { cursor: pointer; } }`) - Tailwind preflight removes it
+
+## Package Management
+
+- Always install the latest stable version of packages - never pin to an older version unless the project already has an explicit constraint
+- When a package is outdated and causing issues, upgrade to the latest stable version first before attempting any patches or workarounds
+- Never monkey-patch or work around bugs in an outdated package version; upgrade the package instead
+- When adding a new dependency, do not hardcode a version number - use the package manager's default latest resolution (e.g., `npm install pkg`, `pip install pkg`, `go get pkg@latest`)
+- If a version constraint already exists in the project, respect it - do not silently downgrade, but flag it to the user if it's causing a problem
+
+## Browser Verification
+
+`agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
+
+```bash
+agent-browser open <url>      # navigate
+agent-browser snapshot        # get page structure with element refs
+agent-browser click @e1       # click by ref
+agent-browser fill @e2 "text" # fill input by ref
+```
+
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior.
+
+---
+
+## Writing Style
+
+Never use em dashes (--). Use a regular hyphen (-) instead in all generated text, copy, comments, documentation, and commit messages.
+
+## Project Structure Convention
+
+`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a one-line `CLAUDE.md` containing `@AGENTS.md`. Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
+
+- **Root `AGENTS.md`** - one-paragraph summary, resolved architecture decisions, cross-cutting conventions, repo structure map. Keep it under ~40 lines. This limit applies to project root AGENTS.md files. The global `~/.claude/CLAUDE.md` is exempt.
+- **Subdirectory `AGENTS.md`** (e.g. `backend/AGENTS.md`, `contracts/AGENTS.md`) - loaded only when working in that directory. Can be as detailed as needed without polluting other contexts.
+- **`.claude/settings.json`** - project-scoped MCP servers and shared config (safe to commit).
+- **`.claude/settings.local.json`** - secrets and local env values (always gitignored).
+
+When starting a new project, run `/init-project` to scaffold this structure automatically.
+
+## Session Context and Memory
+
+**Session startup:** Read `.agentic/context.md` as the first action of every session - standalone, never in parallel with other tool calls.
+
+**Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
+
+**MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
+- Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
+- Remove entries that are no longer true
+- Do not duplicate what is already in `AGENTS.md`
+- Session-specific state (current task, next steps) belongs in `context.md`, not here
+- Entry format: `- **YYYY-MM-DD:** [what and why, in one sentence]`
+
+## Git Workflow
+
+The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees.
+
+**Base branch resolution** - resolve in this order before any work begins:
+1. Use `develop` if it exists.
+2. Fall back to `development` if it exists.
+3. Otherwise create `develop` from `main` (fall back to `master` if `main` does not exist).
+
+**Conductor preflight** - run this checklist before any work begins. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene.
+1. What branch is the working tree on? (`git branch --show-current`)
+2. Does this branch already contain unrelated commits? If yes, create a new worktree/branch instead of piling on.
+3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
+4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
+5. Does this task need a new worktree? Any new feature, fix, or chore gets its own worktree branched from the resolved base branch.
+
+**Feature worktrees:** Each task or feature gets one worktree branched from `origin/development` (or `origin/develop`). Run `git fetch origin` before creating any worktree. Edit directly in the worktree - do not create sub-worktrees for individual changes.
+
+**Parallel agent work:** When multiple agents need to work simultaneously on the same task, each parallel agent gets its own sub-worktree branching from the feature branch. Sub-worktrees are the parallelism tool, not the default for every edit.
+
+**Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
+
+**Merging:** Always open a PR from the feature branch into `develop`/`development` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
+
+**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the main tree should be on `development` with no active worktrees.
+
+**Commit each fix immediately during testing.** Never accumulate uncommitted changes on the main working tree (`development`/`develop`) during live testing sessions. After each validated fix: create fix branch, commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
+
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `development`. The main tree stays on `development` as neutral ground - never move it to a feature branch.
+
+Multi-developer coordination guidance lives in `content/references/multi-developer-coordination.md`.
+
+---
+
+# Module Manifests
+
+## What it is
+
+A module manifest is a short header block at the top of a non-trivial source file. It lives in the code itself so that comprehension travels with the code — not in Architect plans that get discarded after merge, not in wikis that drift, not in PR descriptions nobody reads six months later. This is the self-describing layer of the system: a reader should be able to open a file and immediately understand what it does, what it depends on, and what breaks if it misbehaves.
+
+## When required
+
+**Required** for any source file that meets one or more of these criteria:
+
+- Exports a public symbol (function, class, type, constant) consumed by another module
+- Over ~50 lines of non-trivial logic
+- Implements a side-effecting operation: network call, disk I/O, database access, external service interaction, or any operation that cannot be safely retried without thought
+
+**Exempt:**
+
+- Test files and test fixtures
+- Generated files (migration outputs, protobuf outputs, GraphQL codegen, etc.)
+- One-off scripts not imported by anything else
+- Trivial pure utility files (thin wrappers, simple formatters, constants-only files)
+
+**Modified files:** a manifest must be updated when changes meaningfully alter purpose, public API, upstream dependencies, or failure/retry semantics. A manifest that no longer reflects the file is worse than no manifest — it is active misinformation.
+
+## Required fields
+
+Every manifest must cover these six fields. Omit a field only if it genuinely does not apply (e.g., "Performance: standard" is acceptable shorthand; leaving a failure modes field blank is not):
+
+| Field | What to say |
+|---|---|
+| **Purpose** | One sentence. What this module does and why it exists. |
+| **Public API** | The exports or entry points a caller should use. Not an exhaustive type dump — the canonical surface. |
+| **Upstream dependencies** | What this module imports, calls, or consumes that it does not own. External libraries, internal modules, environment variables, config values. |
+| **Downstream consumers** | Who uses this module. Best-effort: list known callers. "Unknown at creation" is acceptable for new modules; update it when consumers are identified. |
+| **Failure modes** | How this module fails, and what the caller needs to know about retrying or recovering. Idempotency guarantees or lack thereof. |
+| **Performance** | Expected latency, throughput, or memory profile if non-obvious. Omit or write "standard" if there is nothing a caller needs to know. |
+
+## Format
+
+Use the idiomatic comment or docstring syntax for the language. Do not invent a schema or force a rigid structure — the fields are required, the exact syntax is per-language.
+
+**TypeScript / JavaScript:**
+
+```typescript
+/**
+ * Purpose: Validates and normalizes incoming webhook payloads before they
+ *          enter the processing pipeline.
+ *
+ * Public API: validateWebhook(raw: unknown): WebhookPayload
+ *
+ * Upstream deps: zod (schema validation), ./types (WebhookPayload type)
+ *
+ * Downstream consumers: src/handlers/webhook.ts, src/workers/ingest.ts
+ *
+ * Failure modes: throws WebhookValidationError on malformed input — callers
+ *                must catch and return 400, not 500. No side effects; safe to
+ *                retry or call multiple times on the same input.
+ *
+ * Performance: ~0.2 ms per call; zod parse is synchronous, no I/O.
+ */
+```
+
+**Python:**
+
+```python
+"""
+Purpose: Resolves feature flag values for a given user context, with local
+         cache to avoid repeated network calls within a request lifecycle.
+
+Public API: get_flag(flag_name: str, context: UserContext) -> bool
+
+Upstream deps: flagsmith SDK, app.cache (RequestScopeCache), config.FLAGSMITH_URL
+
+Downstream consumers: app.views.experiment, app.middleware.ab_test
+
+Failure modes: falls back to flag default on SDK timeout or network error —
+               never raises; callers can rely on always receiving a bool.
+               Cache is request-scoped; not safe to share across threads.
+
+Performance: first call per flag per request hits network (~50 ms);
+             subsequent calls within the same request hit local cache (<1 ms).
+"""
+```
+
+## Why
+
+Comprehension should live in the code. An Architect plan describes what was decided; it does not travel with the file when the file is moved, refactored, or read by an engineer three months later who was not in that session. A module manifest embeds the essential context — the "why does this exist and what breaks if I change it" — directly in the artifact that persists. This is the self-describing layer of the dark code framework: systems that communicate their own structure rather than requiring external documentation to make sense of them.
+
+## Enforcement
+
+Skeptic flags missing or stale manifests on non-trivial modules as a **Minor finding** (does not block sign-off). Manifests remain recommended practice for comprehension hygiene; missing manifests are flagged for awareness, not as a blocker.
+
+See `content/references/skeptic-protocol.md` for findings classification definitions.
+
+
+---
+
+## Protocol Reference
+
+For detailed protocol specs, see the reference docs:
+
+- `skeptic-protocol.md` - Skeptic loop orchestration, findings classification, sign-off format
+- `subagent-protocol.md` - Parallel spawning rules, worktree isolation, task decomposition
+- `agent-team.md` - Named agent roles, composed flows, decision rules
+- `design-goals.md` - System design principles and goals
+
+These live in `~/.agents/skills/agentic-engineering/references/` (global install) or `.codex/references/` (local copies).
+
+For command templates (skeptic, implement-ticket, wrap, etc.), see `.codex/commands/`.

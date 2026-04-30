@@ -366,7 +366,7 @@ Skip Part E entirely if Parts B and C both reported no changes (no new memory en
 
 Skip any target that does not exist.
 
-**State file:** `[cwd]/.claude/compression-state.json`. Schema:
+**State file:** `[cwd]/.agentic/compression-state.json`. Schema:
 
     {
       "targets": {
