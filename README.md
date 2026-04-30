@@ -160,8 +160,8 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 **Agents** (13) - named specialist roles:
 architect, debugger, engineer, investigator, orchestration-planner, perf-analyst, dependency-auditor, release-orchestrator, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
 
-**Commands** (9) - workflow shortcuts:
-skeptic, implement-ticket, init-project, wrap, memory-update, cleanup-worktrees, update-agentic-engineering, prune-harness, representation-audit
+**Commands** (10) - workflow shortcuts:
+skeptic, implement-ticket, init-project, wrap, memory-update, cleanup-worktrees, update-agentic-engineering, prune-harness, representation-audit, agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`)
 
 **Hooks** - lifecycle event handlers for risk reminders and session context saving
 
