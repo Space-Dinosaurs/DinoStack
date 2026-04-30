@@ -502,7 +502,7 @@ Note: the escalation format surfaces findings and history only. The conductor do
 
 **Trigger:** qa.md exists at either resolver path (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
 
-- **If not triggered:** skip directly to Phase 6c.
+- **If not triggered:** skip directly to Phase 7.
 - **If triggered:** proceed with the QA loop contract below.
 
 For full QA gate rules, see `agent-methodology.md §QA Gate`.
@@ -550,8 +550,8 @@ The following failures were identified and fix attempts were made in earlier ite
 - Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
 
 **Step 3. Termination check:**
-- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Exit loop cleanly. Proceed to Phase 6c.
-- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 6c does NOT run.
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Exit loop cleanly. Proceed to Phase 7.
+- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
 
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
@@ -559,14 +559,6 @@ The following failures were identified and fix attempts were made in earlier ite
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
 **Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
-
----
-
-## Phase 6c: Promote findings
-
-Apply the post-sign-off finding promotion rule from `agent-methodology.md` §Post-sign-off finding promotion. The rule is not `/implement-ticket`-specific - it fires after every Skeptic sign-off in any context. Full promotion criteria, entry format, and size-cap rules: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
-
-**Path resolution (findings.md):** read via resolver — try `.agentic/findings.md` first, then fall back to legacy `.claude/findings.md` for back-compat. Writers always write promoted entries to `.agentic/findings.md`. If the resolver fell back to the legacy path, copy its content as the baseline and write the merged result to `.agentic/findings.md` (leave the legacy file untouched; `/init-project` or `/wrap` preflight will migrate it when the working tree is clean).
 
 ---
 
@@ -590,7 +582,7 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
 4. Before re-running `$QUALITY_CMD`: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write).
 5. Re-run `$QUALITY_CMD`.
-6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 6c (finding promotion) then Phase 8.
+6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
 7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
 **No unbounded loop:** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.

@@ -81,8 +81,6 @@ Use this exact structure:
 
 ## Rules
 
-**Tight-fix path consumption.** A fix brief produced in the current session may be consumed directly by an engineer Worker under the Elevated (tight-fix path) sub-path defined in `agent-methodology.md`, without a separate Architect plan. The existing fix brief format (file, symbol, rationale, confidence) is sufficient for this use. No new fields are required. If your diagnosis confidence is Low, the tight-fix path does not apply - the conductor will route through standard Elevated with a Skeptic regardless.
-
 - Diagnose only. Do not implement the fix. Do not write code to disk.
 - Do not speculate without evidence. If you have not found the root cause, say "Confidence: Low" and describe what you found and what is still unclear.
 - If the error is ambiguous or codebase context is insufficient, set Confidence to Medium (not High), state why under Confidence, and list exactly what additional information would let you close the diagnosis.
