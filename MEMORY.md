@@ -8,6 +8,10 @@
 
 - **2026-04-28:** This project uses `main` as the sole integration branch. Do not use `develop`/`development` branching model for this repository - all feature/fix/chore work branches from `main` and merges back to `main`.
 
+## Active migrations
+
+- **Path 1 restructure (Wave 1 shipped 2026-04-30, Wave 1.5 + Wave 2 pending):** see docs/planning/p1-path1-restructure-handoff.md
+
 ## Session Learnings (2026-04-26/28)
 
 - **2026-04-28: Tier 2 isolator HOME redirect broke Claude CLI auth.** Every command-mode component (implement-ticket, wrap, init-project, prune-harness, memory-update, cleanup-worktrees, update-agentic-engineering, representation-audit) was scoring the 0.2 floor (forbidden_credit only) because the CLI couldn't find auth in the redirected HOME (macOS keychain / Linux .credentials.json). All "command-mode baselines" predating PR #12 are invalid - they measured the floor, not the agents. Re-baseline required before any auto-harness run on command-mode components. Fixed in PR #12 via narrow auth-preservation symlinks in `evals/runner/isolator.py`.
