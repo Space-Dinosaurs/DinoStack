@@ -19,15 +19,19 @@
  *                        ~/.claude/settings.json or project .claude/settings.json).
  *                        Output files are read by Worker agents at session start.
  *
- * Failure modes: All failures are silent (process.exit(0)). Two independent
+ * Failure modes: All failures are silent (process.exit(0)). Three independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
- *                of path (1). Both paths are independent — a failure in loop-state
- *                write does not affect context.md and vice versa. The 10-minute
- *                implicit-interrupt heuristic handles missed loop-state writes.
- *                cwd values with path traversal components are rejected for the
- *                loop-state write (defence in depth).
+ *                of path (1). (3) events.jsonl write is best-effort; any fs error
+ *                is swallowed independently of paths (1) and (2). The append
+ *                failure model is identical to context.md - the next session
+ *                can re-derive totals from per-spawn events if needed.
+ *                All three paths are independent - a failure in one does not
+ *                affect the others. The 10-minute implicit-interrupt heuristic
+ *                handles missed loop-state writes. cwd values with path
+ *                traversal components are rejected for the loop-state write
+ *                (defence in depth).
  *
  * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout).
  *              Synchronous I/O throughout; runs as a short-lived CLI process.
@@ -97,6 +101,84 @@ function writeLoopState(cwd) {
   }
 }
 
+/**
+ * Append a single session_total event to .agentic/events.jsonl summing
+ * spawn_complete + conductor_direct events for the current session.
+ * Best-effort: any fs / parse failure is swallowed silently.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string|null} sessionId - Current session uuid from the Stop payload.
+ */
+function writeSessionTotal(cwd, sessionId) {
+  try {
+    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+    if (!fs.existsSync(eventsPath)) return;
+    const raw = fs.readFileSync(eventsPath, 'utf8');
+    if (!raw.trim()) return;
+
+    const lines = raw.split('\n');
+    let totalWall = 0;
+    let spawnCount = 0;
+    const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
+    const byAgent = {};
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let obj;
+      try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+      const ev = obj && obj.event;
+      if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
+      const data = (obj && obj.data) || {};
+      // Filter to current session when session_uuid is present on the
+      // event payload. Events without session_uuid are included
+      // unconditionally (tolerant of pre-instrumentation events).
+      if (sessionId && data.session_uuid && data.session_uuid !== sessionId) {
+        continue;
+      }
+      const wall = Number(data.wall_seconds) || 0;
+      totalWall += wall;
+      const tokens = data.tokens || {};
+      for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
+        totalTokens[k] += Number(tokens[k]) || 0;
+      }
+      if (ev === 'spawn_complete') {
+        spawnCount += 1;
+        const agentName = obj.agent || 'unknown';
+        if (!byAgent[agentName]) {
+          byAgent[agentName] = {
+            spawns: 0, wall_seconds: 0,
+            tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+          };
+        }
+        byAgent[agentName].spawns += 1;
+        byAgent[agentName].wall_seconds += wall;
+        for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
+          byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
+        }
+      }
+    }
+
+    const totalLine = JSON.stringify({
+      ts: new Date().toISOString(),
+      phase: 'session_end',
+      event: 'session_total',
+      agent: null,
+      task_id: null,
+      data: {
+        wall_seconds: Number(totalWall.toFixed(3)),
+        tokens: totalTokens,
+        spawn_count: spawnCount,
+        by_agent: byAgent,
+        session_uuid: sessionId || null,
+      },
+    });
+    fs.appendFileSync(eventsPath, totalLine + '\n');
+  } catch (_) {
+    // Silent failure - consistent with context.md / loop-state.json paths.
+  }
+}
+
 function run() {
   // --- 1. Read stdin ---
   let raw = '';
@@ -119,6 +201,10 @@ function run() {
   // --- 3. Extract fields (all optional — guard every access) ---
   const cwd = (typeof payload.cwd === 'string' && payload.cwd.trim()) ? payload.cwd.trim() : null;
   if (!cwd) process.exit(0);
+
+  const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())
+    ? payload.session_id.trim()
+    : null;
 
   const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
 
@@ -312,6 +398,8 @@ ${toolsLine}
       }
       // M1: write loop-state on ALL exit paths, including the wrap-coexistence path.
       writeLoopState(cwd);
+      // Write session_total to events.jsonl on this exit path too.
+      writeSessionTotal(cwd, sessionId);
       process.exit(0);
     }
   } catch (_) {
@@ -330,6 +418,10 @@ ${toolsLine}
   // Delegated to writeLoopState() which is also called from the wrap-coexistence
   // path (section 9) so the write executes on ALL exit paths.
   writeLoopState(cwd);
+
+  // --- 12. Append session_total event to .agentic/events.jsonl if present ---
+  // Independent best-effort write; any failure swallowed.
+  writeSessionTotal(cwd, sessionId);
 
   process.exit(0);
 }

@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read a Claude Code subagent transcript JSONL and emit compact JSON
+         {tokens, model, wall_seconds} for use by the conductor at
+         spawn_complete time. Sums token usage across all assistant turns
+         in the subagent file and computes wall_seconds from the first
+         and last timestamp.
+
+Public API: agentic-parse-subagent-usage <session_uuid> <agent_id>
+            Prints compact JSON to stdout. Exits 0 in all cases (errors are
+            reported via the {"error": "..."} envelope, never raised).
+
+Upstream deps: Python 3 stdlib only (json, sys, os, glob, datetime, pathlib).
+               Reads ~/.claude/projects/<project-hash>/<session_uuid>/
+               subagents/agent-<agent_id>.jsonl. Resolves project-hash from
+               the current working directory using Claude Code's
+               '/' -> '-' substitution scheme.
+
+Downstream consumers: content/commands/implement-ticket.md spawn_complete
+                      emit sites; bin/agentic-emit (indirectly, via
+                      conductor-side composition of the spawn_complete
+                      payload).
+
+Failure modes: Primary path derives the project hash from `pwd` using Claude
+               Code's `/`->`-` scheme. If the resulting directory does not
+               exist (scheme drift, symlinked cwd, or non-standard project
+               layout), the helper falls back to globbing
+               `~/.claude/projects/*/<session-uuid>/subagents/agent-<agent_id>.jsonl`
+               and selects the first match. If neither path resolves, exits
+               0 with `{"error":"transcript_not_found"}` - never raises.
+
+Performance: Primary path is two file opens (parent JSONL + subagent JSONL).
+             Fallback glob is O(N projects) where N is the count of
+             directories under `~/.claude/projects/`; typical N < 50 makes
+             this <50 ms in practice but is not bounded by spec.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import glob
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def _project_hash_from_cwd() -> str:
+    cwd = os.getcwd()
+    # Claude Code substitutes every '/' with '-'. Leading slash becomes a
+    # leading dash. e.g. /Users/tyson/foo -> -Users-tyson-foo
+    return cwd.replace("/", "-")
+
+
+def _resolve_transcript(session_uuid: str, agent_id: str) -> str | None:
+    home = Path(os.path.expanduser("~"))
+    primary = (
+        home / ".claude" / "projects" / _project_hash_from_cwd()
+        / session_uuid / "subagents" / f"agent-{agent_id}.jsonl"
+    )
+    if primary.is_file():
+        return str(primary)
+
+    # Fallback: O(N projects) glob across all project hashes.
+    pattern = str(
+        home / ".claude" / "projects" / "*" / session_uuid
+        / "subagents" / f"agent-{agent_id}.jsonl"
+    )
+    matches = sorted(glob.glob(pattern))
+    if matches:
+        return matches[0]
+    return None
+
+
+def _parse_iso(ts: str) -> _dt.datetime | None:
+    if not isinstance(ts, str) or not ts:
+        return None
+    # Tolerate trailing 'Z' (Python <3.11 strict).
+    s = ts.replace("Z", "+00:00")
+    try:
+        return _dt.datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _parse_file(path: str) -> dict:
+    tokens = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+    model = None
+    first_ts = None
+    last_ts = None
+
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            ts = _parse_iso(obj.get("timestamp", ""))
+            if ts is not None:
+                if first_ts is None or ts < first_ts:
+                    first_ts = ts
+                if last_ts is None or ts > last_ts:
+                    last_ts = ts
+
+            if obj.get("type") != "assistant":
+                continue
+            msg = obj.get("message") or {}
+            usage = msg.get("usage") or {}
+            if not isinstance(usage, dict):
+                continue
+            tokens["input"] += int(usage.get("input_tokens", 0) or 0)
+            tokens["output"] += int(usage.get("output_tokens", 0) or 0)
+            tokens["cache_creation"] += int(
+                usage.get("cache_creation_input_tokens", 0) or 0
+            )
+            tokens["cache_read"] += int(
+                usage.get("cache_read_input_tokens", 0) or 0
+            )
+            if model is None:
+                m = msg.get("model")
+                if isinstance(m, str) and m:
+                    model = m
+
+    wall_seconds = 0.0
+    if first_ts is not None and last_ts is not None and last_ts > first_ts:
+        wall_seconds = round((last_ts - first_ts).total_seconds(), 3)
+
+    return {"tokens": tokens, "model": model, "wall_seconds": wall_seconds}
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 3:
+        print(json.dumps({"error": "usage"}))
+        return 0
+    session_uuid = argv[1]
+    agent_id = argv[2]
+
+    path = _resolve_transcript(session_uuid, agent_id)
+    if path is None:
+        print(json.dumps({"error": "transcript_not_found"}))
+        return 0
+
+    try:
+        result = _parse_file(path)
+    except OSError:
+        print(json.dumps({"error": "transcript_not_found"}))
+        return 0
+
+    print(json.dumps(result, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
