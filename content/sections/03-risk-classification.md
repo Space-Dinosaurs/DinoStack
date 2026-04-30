@@ -141,4 +141,6 @@ The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping i
 
 See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
 
+**Canonical variant for wide-design-gap work:** `architect:grill` is the opt-in deep-questioning Architect variant. Concrete trigger: the task description is under 200 words and asks an open "how should we..." question, OR the standard `architect:default` first-pass plan returns with 5+ Open Questions. Subjective trigger also valid: novel architecture, high blast-radius decisions, or vague problem framing where Open Questions feels insufficient. Grill mode is a two-phase orchestration (question-dump spawn, then plan-synthesis spawn with accumulated Q&A as input) - see `content/agents/architect.md` Variants for the full flow and the preset entry for the brief.
+
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
