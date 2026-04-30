@@ -235,12 +235,12 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 ---
 
-## Two new Skeptic obligations
+## Three new Skeptic obligations
 
 <style scoped>
-  .columns { gap: 1.2em; }
-  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
-  .columns .card strong { font-size: 1.05em; }
+  .columns-3 { gap: 1.2em; }
+  .columns-3 .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns-3 .card strong { font-size: 1.05em; }
   .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
   ul { font-size: 0.85em; }
   ul li { margin: 0.15em 0; }
