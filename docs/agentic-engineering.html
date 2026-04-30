@@ -1393,8 +1393,16 @@
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
           <h4 style="color: #5a3d8a;">New Skeptic Obligations</h4>
           <ul>
-            <li><strong>Module manifest check</strong> - flags missing or stale manifests on non-trivial modules as a <strong style="color: var(--gold);">Major</strong> finding. Non-trivial = exports a public symbol, ~50+ LOC, or side-effecting. Blocks sign-off.</li>
+            <li><strong>Module manifest check</strong> - flags missing or stale manifests on non-trivial modules as a <strong>Minor</strong> finding. Non-trivial = exports a public symbol, ~50+ LOC, or side-effecting. Non-blocking - flagged for awareness.</li>
             <li><strong>Regression test verification</strong> - before granting sign-off when a Critical/Major finding was fixed, verifies a regression test was added (or a documented exception given). Missing test without explanation is a <strong style="color: var(--gold);">Major</strong> finding.</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+          <h4 style="color: #5a3d8a;">Cognitive Surrender Check</h4>
+          <ul>
+            <li>A Skeptic that agrees with the Worker on every point with zero findings across two iterations is a possible rubber-stamp - the failure mode of treating the LLM as System 3 and outsourcing judgment rather than offloading mechanics.</li>
+            <li>Cure: an <strong>audit-note Minor</strong> finding attesting that the Skeptic re-read the diff end-to-end with independent attention. The note documents what was checked, not what was wrong.</li>
+            <li>Audit-note Minors are exempt from the <code>/implement-ticket</code> Phase 6 re-raise and convergence-failure detection - they are bookkeeping, not contested findings, and must not stall the loop.</li>
           </ul>
         </div>
       </div>
@@ -1547,7 +1555,7 @@
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
         <h4 style="color: var(--violet);">Review Agent</h4>
         <ul>
-          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files (missing/stale = Major) and verifies regression tests were added for any Critical/Major fixes. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files (missing/stale = Minor) and verifies regression tests were added for any Critical/Major fixes. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -1690,6 +1698,7 @@
           <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
           <li><strong>/prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
           <li><strong>/representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
+          <li><strong>/test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate when coding is cheap and verification is the scarce thing.</li>
         </ul>
       </div>
     </div>
@@ -1748,6 +1757,13 @@
         </ul>
       </div>
     </div>
+  </div>
+
+  <div class="note" style="border-left-color: var(--violet); margin-top: 16px;">
+    <strong>The Intent Layer.</strong> Orthogonal to the per-session / cross-session / project tiers above is the question of <em>which artifacts capture what the project means to be</em>. <code>AGENTS.md</code>, <code>MEMORY.md</code>, <code>decisions.md</code>, <code>.agentic/qa.md</code>, module manifest headers, and the optional <code>glossary.md</code> together form the project's <strong>intent layer</strong> - the source of truth for architecture, conventions, domain terms, and review obligations. Drift between code and intent is <em>intent debt</em>: a separate failure mode from technical debt (in the code) and cognitive debt (in the people), and the one most likely to silently degrade an agent-driven workflow. The Skeptic flags missing or stale manifests and synonym-of-existing-term drift as Minor findings, so the layer self-heals as work passes through review without blocking sign-off.
+  </div>
+  <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
+    <strong>glossary.md - Ubiquitous Language (optional).</strong> A flat file at the project root listing the domain terms the project actually uses. Agents prefer existing terms over inventing synonyms; the Skeptic flags synonym-of-existing-term as a <strong style="color: var(--green);">Minor</strong> finding. Borrowed from DDD's Ubiquitous Language idea - one shared vocabulary across code, docs, and conversation keeps the intent layer coherent across sessions.
   </div>
 
   <div class="rel-card" style="margin-top: 16px; border-left: 2px solid var(--gold);">
@@ -1815,6 +1831,7 @@
           <li><code>.claude/settings.json</code> + <code>settings.local.json</code></li>
           <li><code>.agentic/qa.md</code> (always created - TODO placeholders for unknown values)</li>
           <li><code>.agentic/tracking.md</code> (always created - read by orchestration-planner at planning time)</li>
+          <li><code>glossary.md</code> (optional - Ubiquitous Language; the project's domain terms; agents prefer these over synonyms)</li>
           <li><code>MEMORY.md</code> seed in <code><cwd>/.agentic/memory/</code></li>
           <li><code>.gitignore</code> with secrets protection</li>
           <li><code>docs/</code> structure (overview, technical, planning, research)</li>

@@ -199,16 +199,18 @@ Each tier inherits from the one above. An agent working in <code>api/</code> see
 | **Project root** | Project name, decisions (brief), repo map, tools, tracker config | "Base branch: develop" |
 | **Subdirectory** | Stack, key conventions, commands, schemas, gotchas | "All API routes use Zod validation" |
 
-And what does **not** go in AGENTS.md:
+And what does **not** go in AGENTS.md - the rest of the **intent layer**:
 
 | File | Purpose |
 |---|---|
 | `decisions.md` | Architecture decisions with full rationale (auto-loaded from rules) |
 | `context.md` | Ephemeral session state - auto-written by the Stop hook |
 | `MEMORY.md` | Stable facts learned across sessions |
+| `glossary.md` | Ubiquitous Language - the project's domain terms; agents prefer these over inventing synonyms |
+| `.agentic/qa.md` | QA triggers and accumulated runtime knowledge |
 
 <div class="callout">
-AGENTS.md holds resolved decisions as brief bullets. The <em>rationale</em> (alternatives, tradeoffs) belongs in decisions.md so root stays under 40 lines.
+AGENTS.md, MEMORY.md, decisions.md, qa.md, module manifests, and glossary.md together form the project's <strong>intent layer</strong> - the artifacts that capture what the project means to be. Drift between code and these files is intent debt, distinct from technical debt in the code.
 </div>
 
 ---

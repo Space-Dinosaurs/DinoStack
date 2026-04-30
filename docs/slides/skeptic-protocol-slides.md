@@ -265,6 +265,32 @@ Both checks are additions to the standard Skeptic pass - they run alongside the 
 
 ---
 
+## Cognitive surrender check
+
+<style scoped>
+  .columns { gap: 1.2em; }
+  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns .card strong { font-size: 1.05em; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
+</style>
+
+<div class="columns">
+<div class="card" style="border-left-color: #2e7d32;">
+<strong>Cognitive offloading (good)</strong><br/>
+Delegating mechanics to the agent - boilerplate, search, transformation. Judgment stays with the human and the Skeptic.
+</div>
+<div class="card" style="border-left-color: #c62828;">
+<strong>Cognitive surrender (bad)</strong><br/>
+Treating the LLM as System 3. A Skeptic that agrees with the Worker on every point with zero findings across two iterations is a rubber-stamp signal.
+</div>
+</div>
+
+<div class="callout">
+Cure: an <strong>audit-note Minor</strong> attesting the Skeptic re-read the diff end-to-end with independent attention. Documents what was checked, not what was wrong. Exempt from <code>/implement-ticket</code> Phase 6 re-raise and convergence-failure detection - bookkeeping, not contested findings.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Fresh. Independent. Classified.
