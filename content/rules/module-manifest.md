@@ -87,6 +87,6 @@ Comprehension should live in the code. An Architect plan describes what was deci
 
 ## Enforcement
 
-Skeptic flags missing or stale manifests on non-trivial modules as a **Major** finding. This is not a Critical finding — it is not a correctness bug — but it blocks sign-off. A non-trivial module without a manifest (or with a manifest that no longer matches the file) ships without the comprehension layer that makes future work safe.
+Skeptic flags missing or stale manifests on non-trivial modules as a **Suggestion** (informational), not a Major finding. Suggestions do not block sign-off. Manifests remain a recommended practice for comprehension hygiene.
 
 See `content/references/skeptic-protocol.md` for findings classification definitions.

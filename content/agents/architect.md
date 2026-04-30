@@ -54,7 +54,7 @@ Use this exact structure. Do not rename or reorder sections.
 2. [...]
 (ordered by dependency — each step should be atomic enough for a Worker to execute)
 
-**Note any new modules requiring a manifest.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] — new non-trivial module, requires manifest header (see content/rules/module-manifest.md).` This signals the Worker up front so the manifest is not an afterthought caught by Skeptic.
+**Note any new modules where a manifest is recommended.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, consider including a step or inline note: `[filename] — new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` Manifests are encouraged practice for comprehension hygiene; Skeptic surfaces missing manifests as Suggestions rather than blocking findings.
 
 ### Trade-offs and constraints
 **Alternatives considered (before committing to the chosen approach above):**
