@@ -2,11 +2,11 @@
 
 **Status:** Proposal (revised)
 **Date:** 2026-04-29
-**Target file:** `content/rules/agent-methodology.md` (source; the `.claude/skills/...` copy is a hardlink)
+**Target files:** `content/sections/03-planning-artifacts.md` (new section file, source of truth) plus surgical edits to `content/sections/02-delegation.md`, `content/sections/04-risk-classification.md`, `content/sections/06-cross-session-loop-resume.md`, `content/sections/09-task-decomposition.md`, and `content/sections/11-protocol-details.md` (post-renumber paths). Renumber of existing section files via `git mv`. The assembled `METHODOLOGY.md` and `scripts/.methodology-baseline.sha256` are regenerated build artifacts.
 
 ## 1. Problem statement
 
-The methodology requires per-task design via the `architect` agent and per-task structural decomposition via the `orchestration-planner`, but it has no upstream "what are we building and why" gate that survives multi-unit fan-out. The architect's output is bounded to the implementation contract for a single feature/change, the orchestration-planner output is purely structural (units, deps, parallelism), and the conductor's "default-and-proceed" protocol assumes the goal itself is unambiguous. Concretely: agent-methodology.md lines 162-164 gate plan-acted-on review at the architect plan, lines 369-377 gate decomposition at orchestration-planner, and lines 36-97 gate clarification at per-question stops - but nowhere does anything force the conductor or the user to commit to a problem statement, success criteria, non-goals, **and a verification plan** before the first engineer spawns. Multi-unit work therefore inherits whatever framing was in the original prompt and accumulates units without any artifact that lets the Skeptic ask "is this the right problem, and how will we know we solved it?" This proposal closes that gap with a tiered planning artifact keyed to the existing risk taxonomy and inserted as a **promotion gate between planning and implementation**.
+The methodology requires per-task design via the `architect` agent and per-task structural decomposition via the `orchestration-planner`, but it has no upstream "what are we building and why" gate that survives multi-unit fan-out. The architect's output is bounded to the implementation contract for a single feature/change, the orchestration-planner output is purely structural (units, deps, parallelism), and the conductor's "default-and-proceed" protocol assumes the goal itself is unambiguous. Concretely: `METHODOLOGY.md §Delegation` gates plan-acted-on review at the architect plan and Open Questions, `METHODOLOGY.md §Task Decomposition` gates decomposition at orchestration-planner, and `METHODOLOGY.md §Delegation > Default-and-proceed protocol` gates clarification at per-question stops - but nowhere does anything force the conductor or the user to commit to a problem statement, success criteria, non-goals, **and a verification plan** before the first engineer spawns. Multi-unit work therefore inherits whatever framing was in the original prompt and accumulates units without any artifact that lets the Skeptic ask "is this the right problem, and how will we know we solved it?" This proposal closes that gap with a tiered planning artifact keyed to the existing risk taxonomy and inserted as a **promotion gate between planning and implementation**.
 
 ## 2. Ordering (resolves the chicken-and-egg)
 
@@ -164,7 +164,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 
 ## 7. Engineer contract extension (closes the planning-theater gap)
 
-Without this section, the Brief would be a gate-only document that never reaches the engineer - the exact failure mode this proposal exists to prevent. The engineer execution contract template (agent-methodology.md lines 171-179) gains two fields:
+Without this section, the Brief would be a gate-only document that never reaches the engineer - the exact failure mode this proposal exists to prevent. The engineer execution contract template (defined in `content/sections/02-delegation.md` under "Worker preamble (when using engineer)") gains two fields:
 
 ```
 - brief_path: [path to Brief, or "n/a" if architect plan is the sole artifact]
@@ -192,26 +192,28 @@ Engineer reads the Brief (and Plan, if present) before starting. Success criteri
 - **On mid-flight promotion:** if a task initially classified as Elevated-single (no Brief) discovers via planner re-decomposition or scope expansion that it is now Brief-tier or Plan-tier, the conductor authors the **retroactive Brief** before the next engineer spawn, runs Brief-Skeptic, and updates loop-state. Already-completed units are not retroactively re-reviewed; the Brief governs all subsequent units.
 - **Session-span auto-promotion:** when resume count for a Brief-tier task hits 3, the conductor authors the missing Plan-tier artifacts before the next worker spawn (per §5 trigger row).
 
-## 9. Exact edit locations in agent-methodology.md
+## 9. Exact edit locations (per section file)
 
-Per-edit summary only. No final prose.
+**Important context.** The methodology is no longer a single monolithic file. It is split into per-section files under `content/sections/NN-slug.md` and assembled deterministically by `scripts/build-methodology.sh` into `METHODOLOGY.md` (a build artifact). See `content/sections/README.md` lines 26-34 (naming convention, dense `NN` prefix, renumber-on-insert rule) and lines 50-54 (heading-stability contract; renumbering does not break heading-form cross-references but does break filename-form references). The edit below inserts a new `03-planning-artifacts.md` between the existing `02-delegation.md` and the existing risk-classification section, which renumbers `03..10` -> `04..11` via `git mv`. Per-edit summary only. No final prose.
 
-| Location | Change | Approx lines added |
+| Section file (post-renumber) | Change | Approx lines added |
 |---|---|---|
-| **New section "## Planning Artifacts"** inserted between "## Delegation" and "## Risk Classification" (delegation ends at line ~180; risk classification begins at line 181) | Full new section: ordering diagram, trigger table, Brief template, Plan assembly + verification-gate description, gate semantics, mid-flight promotion. | ~80-100 |
-| "## Delegation" -> "Architect plan output requires Skeptic review" paragraph (lines 162-163) | No structural change. Add a trailing sentence: "When orchestration-planner output triggers Brief or Plan promotion (see Planning Artifacts), an additional Skeptic pass reviews the Brief or Plan before any engineer spawns." | ~1 |
-| "## Delegation" -> "Open Questions are a hard gate" paragraph (line 164) | Add one sentence extending the gate to Brief and Plan Open Questions with identical semantics. | ~1 |
-| "## Delegation" -> "Worker preamble (when using engineer)" execution contract template (lines 171-179) | Add two contract fields: `brief_path` and `plan_path`. Add one sentence after the template: "When `brief_path` or `plan_path` is populated, the engineer reads it before starting; success criteria and the verification gate supersede any informal interpretation of the ticket." | ~4 |
-| "## Task Decomposition" -> "Before spawning workers: run the orchestration-planner" paragraph (line 377 area) | Add one sentence: "When orchestration-planner output triggers Plan-tier promotion (see Planning Artifacts), the conductor authors risk register, rollback, and verification gate before spawning workers." | ~1 |
-| "## Risk Classification" Declaration format block (lines 273-281) | Extend the format to optionally include `Brief: <path>` or `Plan: <path>` line when an artifact is required. | ~3 |
-| "## Cross-session loop resume" bullet list (lines 346-353) | Add one bullet: "**Brief/Plan paths recorded.** When a Brief or Plan governs the task, `brief_path`, `plan_path`, and `promotion_tier` are written to `.agentic/loop-state.json` at authoring time. On resume, the conductor re-reads the Brief/Plan before spawning the next worker. Mid-flight promotion (Elevated-single -> Brief or Plan tier) authors a retroactive Brief before the next engineer spawn." | ~3 |
-| Cross-reference at top of "## Protocol Details (read on trigger)" (line 420 area) | Add one bullet pointing to the new Planning Artifacts section. | ~2 |
+| **New `content/sections/03-planning-artifacts.md`** (inserted between `02-delegation.md` and the renumbered `04-risk-classification.md`) | Full new section: module-manifest header, ordering diagram, trigger table with mechanical "Track" definition, Brief template, Plan-tier directory + verification-gate description (with the rollback-vs-verification-gate boundary), gate semantics, promotion mechanics (mid-flight escalation + auto-promotion at 3rd resume). | ~150-180 |
+| `content/sections/02-delegation.md` -> "Architect plan output requires Skeptic review" paragraph | Append: "When orchestration-planner output triggers Brief or Plan promotion (see METHODOLOGY.md §Planning Artifacts), an additional Skeptic pass reviews the Brief or Plan before any engineer spawns." | ~1 |
+| `content/sections/02-delegation.md` -> "Open Questions are a hard gate" paragraph | Append one sentence extending the gate to Brief and Plan Open Questions with identical semantics, citing METHODOLOGY.md §Planning Artifacts. | ~1 |
+| `content/sections/02-delegation.md` -> "Worker preamble (when using engineer)" execution contract template | Add two contract fields: `brief_path` and `plan_path` (snake_case, "n/a" sentinel). Add a paragraph after the template covering Brief-supersedes-ticket and BLOCKED-on-Brief-vs-architect-plan-conflict. | ~6 |
+| `content/sections/04-risk-classification.md` (post-renumber) -> `### Declaration format` block | Extend the format examples to optionally include a `Brief: <path>` or `Plan: <path>` line under existing `Risk:` and `Tier:` lines. | ~16 |
+| `content/sections/06-cross-session-loop-resume.md` (post-renumber) bullet list | Add one bullet covering `brief_path` / `plan_path` / `promotion_tier` (enum: `none`, `brief`, `plan`) recorded at authoring time, re-read on resume, mid-flight escalation semantics, and Brief-tier auto-promote-to-Plan on the 3rd resume. | ~2 |
+| `content/sections/09-task-decomposition.md` (post-renumber) -> "Before spawning workers: run the orchestration-planner" paragraph | Append one sentence: "When orchestration-planner output triggers Plan-tier promotion (see METHODOLOGY.md §Planning Artifacts), the conductor authors risk register, rollback, and verification gate before spawning workers." | ~1 |
+| `content/sections/11-protocol-details.md` (post-renumber) top of `## Protocol Details (read on trigger)` | Add one bullet pointing to the new Planning Artifacts section. | ~2 |
+| `content/sections/README.md` example list and heading-stability paragraph | Update the renumber-affected references (`03-` -> `04-`) and add the new `03-planning-artifacts.md` entry. | ~2 |
+| `content/agents/architect.md` and `.gemini/agents/architect.md` | Update filename-form reference from `content/sections/03-risk-classification.md` to `content/sections/04-risk-classification.md`. | ~0 (replace) |
+| `scripts/.methodology-baseline.sha256` (build artifact) | Re-derived after `bash scripts/build-methodology.sh` regenerates `METHODOLOGY.md`. Included in the same commit per README baseline-SHA semantics. | ~0 (regen) |
 
-**Net additions:** ~95-115 lines, almost all concentrated in the new section. Existing prose is touched in 6 surgical spots, none requiring restructuring.
+**Renumber rationale.** Per `content/sections/README.md` lines 26-34 the `NN` prefix is dense at any given commit; inserting a new section between existing ones requires renumbering subsequent files in the same commit. Per lines 50-54 the section heading stability contract uses the heading text (`METHODOLOGY.md §<heading>`) as the durable cross-reference anchor; renumbering does not invalidate heading-form references and only filename-form references (e.g. `content/sections/03-risk-classification.md`) need updating in the same commit.
 
 **Out of scope for this edit:**
-- `/implement-ticket` command file: a follow-up edit will wire Brief authoring into the post-planner phase and Plan assembly into the appropriate gate. Not part of agent-methodology.md changes.
-- `architect` agent spec: no change required - the architect runs upstream of the Brief in the new ordering and does not consume it.
+- `/implement-ticket` command file: a follow-up edit will wire Brief authoring into the post-planner phase and Plan assembly into the appropriate gate. Not part of this section-file edit.
 - `engineer` agent spec: no spec change. The contract field is the only mechanism, consistent with how `task_id` was added.
 - `findings.md` flywheel: unchanged.
 
