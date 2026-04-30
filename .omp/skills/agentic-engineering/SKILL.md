@@ -93,7 +93,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 - **references/design-goals.md** - design principles and goals of the Agentic Engineering system;
   read when evaluating whether a proposed change aligns with the system's intent.
 
-- **references/findings-flywheel.md** - per-finding regression test obligation, pattern promotion
+- **references/regression-test-obligation.md** - per-finding regression test obligation for fixed Critical or Major Skeptic findings
   criteria and entry format for findings files, and who reads the file; read when promoting
   a finding after Skeptic sign-off or when the Skeptic checks for repeated anti-patterns.
 

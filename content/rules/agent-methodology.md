@@ -276,10 +276,6 @@ Spawning security-auditor.
 
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
 
-## Post-sign-off finding promotion
-
-After Skeptic sign-off on any Elevated task (and after any QA gate), the conductor performs a promotion check. If any Major or Critical finding from the completed task represents a recurring pattern (seen 2+ times in this project) or is novel but has outsized blast radius (data loss, security, production outage class), add or update an entry in `.agentic/findings.md` (reads use the resolver: `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback; writes always target `.agentic/findings.md`). This rule fires after every Skeptic sign-off in any context - not only inside `/implement-ticket`. Full promotion criteria, entry format, and who reads the file: `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md`.
-
 ## QA Gate
 
 **Post-Skeptic QA for UI-visible changes.** After Skeptic sign-off on any Elevated unit, check whether the project has a qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with a `## QA triggers` section containing file patterns. If the reviewed diff includes files matching any trigger pattern, spawn `qa-engineer` before declaring the unit complete. QA failure blocks completion - the conductor spawns a fix engineer, then re-runs QA.
@@ -408,8 +404,8 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/subage
 **Agent team composition** - which agent to use and how they compose:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
 
-**Findings flywheel** - when promoting a finding to `.agentic/findings.md` (resolver: `.agentic/` preferred, legacy `.claude/` fallback) or when the Skeptic checks for repeated patterns:
-Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/findings-flywheel.md` for entry format, promotion criteria, who reads the file, and the regression test obligation for fixed findings.
+**Regression test obligation** - when a Worker fixes a Critical or Major Skeptic finding:
+Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test, the Worker obligation to add one, and the Skeptic verification rule.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
 Check qa.md for trigger patterns (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the diff matches, spawn `qa-engineer`. The qa-engineer reads the resolved qa.md for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.
