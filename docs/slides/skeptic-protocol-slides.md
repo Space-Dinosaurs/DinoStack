@@ -250,7 +250,7 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 <div class="card">
 <strong>Module manifest check</strong><br/>
 On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file.<br/><br/>
-Missing or stale manifest = <strong>Major</strong> finding. Blocks sign-off.
+Tiered: missing = <strong>Minor</strong> (non-blocking, hygiene); stale = <strong>Major</strong> (blocks sign-off); stale-on-correctness/security path = <strong>Critical</strong>.
 </div>
 <div class="card">
 <strong>Regression test verification</strong><br/>

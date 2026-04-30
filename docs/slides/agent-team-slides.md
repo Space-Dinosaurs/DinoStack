@@ -198,7 +198,7 @@ Plans get reviewed before code. Code gets reviewed before QA. Each stage hands o
 - A resumed Skeptic has seen its own previous criticism - it gets polite and misses things.
 - Fresh context = adversarial teeth.
 - Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major requires action or a justified waiver.
-- **Two new obligations:** (1) flags missing/stale module manifests on non-trivial files as Major; (2) verifies regression tests exist for any Critical/Major fix before granting sign-off.
+- **Two new obligations:** (1) tiered manifest enforcement on non-trivial files (missing = Minor, stale = Major, stale-on-correctness/security path = Critical); (2) verifies regression tests exist for any Critical/Major fix before granting sign-off.
 - **Domain fit comes from the adversarial brief**, not the agent. The conductor writes a brief tailored to the change - auth flow, migration, perf regression - and the Skeptic reviews through that lens.
 
 <div class="callout">
