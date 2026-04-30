@@ -12,13 +12,24 @@ For detailed protocol specs, see reference docs in `.gemini/references/` or `~/.
 
 Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to two file reads with no subagent spawn and no LLM reasoning.
 
-1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`.
+1. **Read the global mode, profile, and preset.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`. The `preset` field is optional; when present and non-null, it RESOLVES to a profile via the preset table below and overrides the direct `profile` field. When `preset` is null or missing, the direct `profile` field is used (back-compat).
+
+   **Preset table (session-wide risk profile preset):**
+
+   | Preset    | Resolves to profile |
+   |-----------|---------------------|
+   | lean      | relaxed             |
+   | standard  | default             |
+   | strict    | strict              |
+
+   Note: this session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below. The session-wide preset is a tone setting; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
 2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
 3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
    - `agentic-engineering: opt-in`
    - `agentic-engineering: opt-out`
    If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
    Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the global profile.
+   Also scan for `agentic-engineering-preset: <value>`. If present, it overrides the resolved global preset for this project. Valid values: `lean`, `standard`, `strict`. The project preset is resolved through the same preset table (above) to a profile; that resolved profile overrides any direct `agentic-engineering-profile:` line in the same file (preset wins on collision because it is the higher-level knob). Any other value falls back to the global preset/profile resolution.
 4. **Activation decision.**
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
@@ -27,7 +38,7 @@ Run this check once at the top of the first skill invocation in a session (and a
    `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
    Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
 
-**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
+**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none, profile=default, preset=null" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -283,6 +294,41 @@ Spawning security-auditor.
 **When to declare Tier 3:** task demands maximum capability - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Tier 3 costs significantly more; include a justification parenthetical.
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
+
+### Spawn presets (per-spawn capability bundles)
+
+A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate. They are distinct from the session-wide `preset` field in `~/.claude/agentic-engineering.json` (which is a tone setting that maps to a risk profile - see Activation preflight Step 1). Same word, different scope.
+
+**Declaration format (optional line, immediately below `Tier:`):**
+```
+Risk: Elevated - new file creation
+Tier: 2
+Preset: engineer:default
+Spawning engineer.
+```
+
+The `Preset:` line is OPTIONAL. When absent, the conductor selects agent and tier inline (current behavior). When present, the preset supplies the agent identity, the tier override, and a brief prefix prepended to the spawn brief. The conductor still writes the rest of the brief inline.
+
+**Preset library location:**
+- Global: `~/.agentic/presets.yml`
+- Project override: `.agentic/presets.yml` (wins on key collision; merged shallowly per top-level key)
+
+**Reference format:** `<agent>:<variant>` (e.g., `engineer:default`, `skeptic:plan-review`, `skeptic:security`).
+
+**Schema (each preset entry):**
+- `agent`: string - which named agent to spawn (engineer, skeptic, architect, etc.)
+- `tier`: 1 | 2 | 3 - the model tier to use for this spawn
+- `brief_prefix`: string - text prepended to the conductor's inline brief; may be empty
+
+The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping is advisory documentation only (not harness-enforced), so embedding it in presets adds no enforcement value. Keep the preset surface minimal.
+
+**Resolution rules:**
+1. Conductor reads `.agentic/presets.yml` if it exists; merges over `~/.agentic/presets.yml`. Project keys win on collision.
+2. If the referenced `<agent>:<variant>` is undefined, the conductor warns inline (`Preset 'engineer:foo' not found in presets library; falling back to engineer:default.`) and uses `<agent>:default`.
+3. If `<agent>:default` is also undefined, the conductor proceeds with no preset (full inline-spec behavior) and notes the absence in the spawn declaration.
+4. The `Tier:` line and the preset's tier MUST agree. If they disagree, the explicit `Tier:` line wins (operator intent overrides library default) and the conductor notes the override.
+
+See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
 
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
 
