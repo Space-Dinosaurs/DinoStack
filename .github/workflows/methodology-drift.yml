@@ -1,0 +1,15 @@
+name: methodology-drift
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run methodology drift check
+        run: bash scripts/check-methodology-drift.sh
