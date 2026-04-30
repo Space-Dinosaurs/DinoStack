@@ -43,7 +43,7 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 HEADER
 
-  cat "$CONTENT/rules/agent-methodology.md"
+  bash "$REPO_DIR/scripts/build-methodology.sh"
   echo ""
   echo "---"
   echo ""
