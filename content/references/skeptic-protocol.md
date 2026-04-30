@@ -222,6 +222,8 @@ Without that audit note, the conductor treats clean two-iteration agreement as s
 
 Audit-note Minors are bookkeeping rather than diff-level findings; they are exempt from re-raise and convergence-failure detection in `/implement-ticket` Phase 6.
 
+The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 13 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `agentic-calibrate` queryable surface.
+
 ---
 
 ## 6. Findings Classification
@@ -441,3 +443,93 @@ When classifying as Elevated + Cleanup, the main agent declares before acting:
 Risk: Elevated + Cleanup - [specific signal]
 Applying adversarial review with /simplify cleanup pass.
 ```
+
+---
+
+## 13. Calibration mechanisms
+
+The Skeptic loop's review depth degrades silently if it degrades at all. A Skeptic that drifts into rubber-stamp behavior produces clean sign-offs identical in surface form to genuine ones. Section 5's audit-note mechanism is the primary per-spawn defense; this section adds the secondary backstop: aggregate drift detection via structured findings counters, sampled meta-review, and an inspection CLI.
+
+This is a calibration layer, not a gating layer. Original Skeptic sign-off remains binding for merge decisions. Meta-divergence on Critical or Major findings is surfaced inline to the user as advisory; Minor divergences appear only in the `agentic-calibrate divergence` output.
+
+### Findings counters in the events log
+
+Every `spawn_complete` event for `agent == "skeptic"` carries the following fields inside `data` (the conductor constructs the JSON inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do not write to `.agentic/`):
+
+```json
+{
+  "findings_count": {"critical": 0, "major": 1, "minor": 3},
+  "diff_lines": 142,
+  "signed_off": true,
+  "iteration": 2,
+  "meta_review": null
+}
+```
+
+`meta_review` is `null` when the unit was not sampled. When sampled and completed, a separate `meta_review_complete` event (agent: `skeptic-meta`) is appended later by the conductor; see "Meta-Skeptic spawn brief" below.
+
+Existing `spawn_complete` fields (`tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens`, `status`) coexist with the calibration fields inside the same `data` object. The events log schema does not gain a new event type for the per-spawn counters.
+
+### Sampling protocol
+
+A 5% sample of Skeptic sign-offs triggers a meta-review. Selection is deterministic: hash `task_id` concatenated with `iteration` into a uniform 0-99 bucket; trigger if `bucket < 5`. The deterministic hash means a sampling decision is reproducible from the events log without needing to record an RNG seed.
+
+Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/agentic-emit`.
+
+### Meta-Skeptic spawn brief
+
+The meta-Skeptic receives:
+- The original diff (`git diff origin/$BASE_BRANCH..HEAD` or unit equivalent)
+- The original Skeptic's findings list verbatim
+- The original Skeptic's sign-off statement verbatim
+- The original adversarial brief
+
+The meta-Skeptic produces a divergence report as **TEXT** in its return summary. The expected shape is:
+
+```
+Critical missed: [list of finding titles, or "none"]
+Major missed: [list of finding titles, or "none"]
+Minor missed: [list of finding titles, or "none"]
+Agreement: [yes | no]
+```
+
+**Meta-Skeptic does NOT write to `.agentic/`.** Its sole output is the return text. The conductor parses the return text and emits the structured `meta_review_complete` event itself, preserving the single-writer convention for `.agentic/events.jsonl`.
+
+### Meta-divergence surfacing
+
+When meta-Skeptic identifies a Critical or Major finding the original Skeptic missed, the conductor surfaces this at the next user-facing turn boundary as a single inline line:
+
+```
+META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that original Skeptic missed on <task_id>. Original sign-off stands; review recommended before merging.
+[phase: meta-divergence-critical]
+```
+
+Original sign-off remains binding. Minor-only divergences are NOT surfaced inline; they appear only in `agentic-calibrate divergence` output.
+
+**Surfacing has two binding triggers:**
+
+1. **In-session scan.** At each turn boundary entering `/implement-ticket` Phase 6 or returning from a Worker, the conductor scans `.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `.agentic/.meta-divergence-surfaced`. For any with non-empty `critical_missed` or `major_missed`, emit the META-DIVERGENCE line and append `original_task_id` to the surfaced-tracker file.
+
+2. **Session-start sweep.** On every session boot (first turn of session, after reading `.agentic/context.md`), the conductor sweeps `.agentic/events.jsonl` for ALL `meta_review_complete` events whose `original_task_id` is not in `.agentic/.meta-divergence-surfaced`. Emits the META-DIVERGENCE line for each Critical/Major divergence and appends to the tracker. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
+
+**Tracker file (`.agentic/.meta-divergence-surfaced`)** is one `original_task_id` per line, append-only, written by the conductor only. File-absent is equivalent to empty set. Project-local; gitignored under the `.agentic/` umbrella.
+
+### Inspection CLI
+
+`bin/agentic-calibrate` is the queryable surface for calibration data:
+
+```
+agentic-calibrate density   [--since <ISO8601>] [--task <task_id>]
+agentic-calibrate divergence [--since <ISO8601>]
+agentic-calibrate help
+```
+
+`density` reads `.agentic/events.jsonl`, filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Spawns where `diff_lines == 0` are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows. When fewer than 10 spawns have been observed (after zero-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.
+
+`divergence` reads `meta_review_complete` events and prints the divergence rate (Critical/Major/Minor missed counts and percentage of sampled spawns).
+
+### Threat model
+
+The deterministic counters and findings-density metrics are designed for **drift detection in a non-adversarial conductor relationship**. They are not cheating-prevention mechanisms. A conductor that wishes to mis-emit findings counts can do so; the threat model is operator self-deception over time, not adversarial spoofing. If the conductor itself is compromised, calibration data from that conductor is unreliable by construction - this is an explicit accepted limitation.
+
+Cross-references: Section 5 (audit-note as primary rubber-stamp defense; calibration sampling as secondary backstop), Section 6 (findings classification feeding the counters), Section 11 (sign-off format that must be present for an event to be recorded with `signed_off: true`).
