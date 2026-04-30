@@ -1,0 +1,37 @@
+# Spawn preset library example.
+# Copy to ~/.agentic/presets.yml (global) or .agentic/presets.yml (project).
+# Edit as needed. The conductor reads project file first, then user file.
+#
+# Schema: presets keyed by <agent>:<variant>.
+# Each preset has: agent (string), tier (1|2|3), brief_prefix (string).
+
+presets:
+  engineer:default:
+    agent: engineer
+    tier: 2
+    brief_prefix: ""
+
+  engineer:tight-bug:
+    agent: engineer
+    tier: 2
+    brief_prefix: "Bug fix: minimize scope, run tests baseline first."
+
+  skeptic:standard:
+    agent: skeptic
+    tier: 2
+    brief_prefix: ""
+
+  skeptic:plan-review:
+    agent: skeptic
+    tier: 2
+    brief_prefix: "Reviewing an architect plan; apply 'Document synthesis / architecture / planning' adversarial brief."
+
+  skeptic:security:
+    agent: skeptic
+    tier: 3
+    brief_prefix: "Apply OWASP Top 10 and CWE-category analysis. Maximum scrutiny."
+
+  architect:default:
+    agent: architect
+    tier: 2
+    brief_prefix: ""
