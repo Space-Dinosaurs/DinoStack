@@ -105,7 +105,6 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 - "The Skeptic will catch any mistakes" - the Skeptic reviews Worker output; it does not excuse skipping risk classification or spawning a Worker
 - "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
-- "This qualifies as the tight-fix path, so I can skip Skeptic" - Valid only when every checklist item is explicitly satisfied AND declared. An incomplete declaration, a stale debugger brief, Low debugger confidence, or any disqualifier reverts to standard Elevated. The default when uncertain is standard Elevated.
 
 **Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
 
@@ -228,41 +227,7 @@ All signals not mentioned above keep their default level regardless of profile.
 
 **Conductor rule for Trivial:** If no subagents are currently running, the conductor edits directly (no Worker, no Skeptic, no brief file). If any subagent is currently running, spawn a single `engineer` Worker in foreground (no Skeptic, no brief file) - the conductor must stay available to manage in-flight work. A commit message is still required. If a Worker discovers mid-task that the change is not actually Trivial (e.g., the "one-file color tweak" lives in a shared token file), it must stop, report, and the conductor re-classifies as Elevated.
 
-**Elevated (tight-fix path) - Skeptic skip.** A narrow sub-path within Elevated that lets the conductor spawn a single engineer Worker with pre-commit test verification and skip the post-implementation Skeptic on tight debugger-brief-backed bug fixes. Motivated by the finding that verifiers hurt on tight, well-specified tasks. The path applies only when ALL 6 checklist items hold simultaneously; any single disqualifier reverts to standard Elevated.
-
-**Checklist (every item must be explicitly declared):**
-1. Task is a bug fix, not a new feature or refactor.
-2. A debugger agent produced a fix brief for this bug in the current session. Stale briefs from prior sessions disqualify.
-3. Debugger confidence is High or Medium. Low confidence disqualifies.
-4. Fix touches at most one file, or one file plus its colocated test file (colocated = same directory, test file for the same symbol).
-5. At least one existing test already exercises the fix path. Direct unit test or integration test both acceptable. The test must exist before the fix - new test file creation disqualifies; test additions to the pre-existing colocated test file are allowed.
-6. No security, auth, crypto, payments, secrets, or data-loss surface involved.
-
-**Declaration format:**
-
-```
-Risk: Elevated (tight-fix path)
-Debugger brief: [session reference]
-Checklist:
-  [x] Bug fix, not a new feature
-  [x] Debugger brief from current session
-  [x] Debugger confidence: High | Medium
-  [x] Single file (+ colocated test file if applicable)
-  [x] Existing test exercises the fix path
-  [x] No security/auth/crypto/payments/secrets/data-loss surface
-Skipping post-implementation Skeptic. Engineer Worker performs pre-commit test verification.
-If pre-commit tests fail, standard Elevated loop applies.
-```
-
-**Pre-commit test verification protocol.** The engineer Worker on this path runs the sequence: BASELINE (run affected tests before touching anything; ANY failure is an absolute stop, no "unrelated failure" escape - return BLOCKED with output) -> APPLY (implement the fix per debugger brief, no scope expansion) -> VERIFY (run affected tests + project quality gate) -> COMMIT (only if VERIFY passes) -> RETURN (include verbatim test output in summary).
-
-**Scope-expansion stop.** If the Worker discovers the fix requires more than 50 changed lines in the production file (excluding the colocated test file), OR requires touching a second production file, OR exposes cross-component interactions not flagged in the debugger brief, the Worker stops immediately with Status: BLOCKED. The 50-line threshold is measured against the production file's diff, not including test file changes. The Worker counts by estimating scope from the debugger brief BEFORE starting implementation; if the brief's scope is unclear, the Worker stops and the conductor reclassifies as standard Elevated.
-
-**Failure path.** If VERIFY fails, the Worker does NOT commit. Worker returns Status: DONE_WITH_CONCERNS with the failed test output and the uncommitted diff. Conductor spawns a standard Skeptic with the uncommitted diff. Skeptic reviews, conductor routes any further fix through a normal Elevated loop.
-
-**Rollback for latent bugs.** If tests pass but a defect is later discovered (the tests did not cover the actual failure scenario), standard `git revert [commit-sha]` applies. No special rollback.
-
-**Fallback is automatic.** Any BLOCKED status, failed baseline, failed verify, or disqualifier reverts the task to standard Elevated with a Skeptic. This is not an escape hatch - it is the safe default that fires on any deviation.
+**Post-debugger Low classification.** Post-debugger-brief bug fixes that are single-file and exercised by an existing test may be classified Low if they meet all Trivial signals; otherwise standard Elevated applies.
 
 **Low signals:** clearly reversible reads (reads with no writes); exploration / research / draft work - only when the output is understanding, not a decision-driving artifact; **diagnostic-only changes** (pure logging additions - console.log, .catch() for error visibility, test interceptors) across any number of files, where every change has zero behavioral effect — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **documentation-only file creation** (new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the "new file creation" Elevated signal for this case only) — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **targeted wording fixes to already-reviewed content** (phrasing adjustments where the substance was already Skeptic-approved in the current or a recent session - e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration; does not apply to new decisions, new recommendations, or new content not previously reviewed; does not override the "modifies protocol or infrastructure files" Elevated signal; overrides the single-file edit and new file Elevated signals for this case only) — **in `strict` profile, this override is removed; treat as Elevated**; **file renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the operation is Elevated because the rename changes behavior without changing file contents) — **in `strict` profile, this override is removed; treat as Elevated**; **UI-only copy changes** (rewording display strings, labels, tooltips, or placeholder text where the change has no logic, structural, or behavioral effect - e.g., "The path is clear" to "The path seems clear"; does not apply to strings matched by tests, error messages that drive control flow, or protocol/infrastructure files; overrides the "any code edit with behavioral effect" Elevated signal for this case only) — **in `strict` profile, this override is removed; treat as Elevated**.
 
