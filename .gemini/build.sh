@@ -52,10 +52,6 @@ For detailed protocol specs, see reference docs in `.gemini/references/` or `~/.
 
 HEADER
 
-  cat "$CONTENT/rules/agent-methodology.md"
-  echo ""
-  echo "---"
-  echo ""
   cat "$CONTENT/rules/code-standards.md"
   echo ""
   echo "---"

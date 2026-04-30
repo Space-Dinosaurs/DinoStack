@@ -43,10 +43,6 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 HEADER
 
-  cat "$CONTENT/rules/agent-methodology.md"
-  echo ""
-  echo "---"
-  echo ""
   cat "$CONTENT/rules/code-standards.md"
   echo ""
   echo "---"
