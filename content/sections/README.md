@@ -29,7 +29,8 @@ Section files are named `NN-slug.md` where `NN` is a two-digit ordering prefix a
 
 - `01-activation-preflight.md`
 - `02-delegation.md`
-- `03-risk-classification.md`
+- `03-planning-artifacts.md`
+- `04-risk-classification.md`
 
 The `NN` prefix is dense (no gaps) at any given commit. To insert a new section between existing ones, renumber subsequent files in the same commit.
 
@@ -51,7 +52,7 @@ The README.md file (this file) is excluded from assembly because it does not mat
 
 Once a section has been committed, its top-level (`##`) heading text is a durable cross-reference anchor. Other content in this repository - rules, references, agent specs, command files - links to section content using the form `METHODOLOGY.md §<heading>` or `METHODOLOGY.md §<heading> > <sub-heading>`. Renaming a heading after commit is therefore an Elevated change that requires a sweep of every reference in the repo.
 
-Sub-section (`###`) headings are likewise durable anchors when used as cross-reference targets. The `### Elevated signals`, `### Trivial signals`, `### Low signals`, `### Mid-task reclassification`, `### Low risk self-check`, and `### Declaration format` headings inside `03-risk-classification.md` are explicitly relied on by cross-references and MUST NOT be renamed without a sweep.
+Sub-section (`###`) headings are likewise durable anchors when used as cross-reference targets. The `### Elevated signals`, `### Trivial signals`, `### Low signals`, `### Mid-task reclassification`, `### Low risk self-check`, and `### Declaration format` headings inside `04-risk-classification.md` are explicitly relied on by cross-references and MUST NOT be renamed without a sweep.
 
 ## Cross-reference format
 
