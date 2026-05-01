@@ -22,6 +22,20 @@ applies, measures, and decides to keep or revert.
   by at least max(pooled_stdev, 0.02). Propose something plausibly
   bigger than noise.
 
+## Lowest-scoring dimensions (corpus-level)
+
+These are the worst-performing scoring dimensions averaged across all
+fixtures. Names are scorer-internal - they may or may not match section
+headers in your editable file. Treat them as hints about what kind of gap
+to look for, not as section names to insert verbatim.
+
+{{DIMENSION_SIGNAL}}
+
+Targets the corpus-wide pattern. If your edit is motivated wholly by
+trying to move one of these averages, ensure the change is independently
+defensible: it should be a worthwhile improvement to the prompt even if
+no eval existed.
+
 ## Budget
 
 - Maximum changed lines (added + removed) across the entire diff:

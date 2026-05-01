@@ -41,7 +41,7 @@ def build_brief(template: str, context: Dict[str, object]) -> str:
     """
     out = template
     required = ("COMPONENT", "EDITABLE_FILES", "LOCKED_FILES", "BASELINE_METRIC",
-                "POOLED_STDEV", "MAX_EDIT_LOC")
+                "POOLED_STDEV", "MAX_EDIT_LOC", "DIMENSION_SIGNAL")
     for key in required:
         if key not in context:
             raise KeyError(f"build_brief: missing required context key {key!r}")
