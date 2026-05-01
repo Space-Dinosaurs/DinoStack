@@ -1,5 +1,7 @@
 # P2 Cost-Aware Tier Routing - Design Plan
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 ## Problem statement
 
 12 out of 13 agents in this repo hardcode `model: claude-sonnet-4-6` in frontmatter; one (`adr-drift-detector`) hardcodes `model: claude-sonnet-4-5`. The mixed state demonstrates that model staleness is already a live problem. The Codex adapter intentionally omits the model field so agents inherit the session model. This means every subagent - from a trivial investigator read to a high-stakes security audit - runs at identical cost. Smart routing picks Haiku for cheap steps and Opus for hard ones, cutting spend 30-50%. We lack any equivalent.

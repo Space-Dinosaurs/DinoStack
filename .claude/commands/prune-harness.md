@@ -2,7 +2,7 @@
 
 # /prune-harness
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Performs a periodic analysis pass over methodology files to surface deletion candidates - rules whose motivating assumptions have expired as Claude has become more capable.
 
@@ -12,7 +12,7 @@ Performs a periodic analysis pass over methodology files to surface deletion can
 
 ## Safety model
 
-The prune analyst Worker is instructed not to write to `content/` and to restrict writes to the single output path in `docs/planning/`. This is enforced by Worker brief compliance, NOT by a harness-level technical barrier. The `tool_scope` field in the execution contract is documentation only - per the Worker preamble section of `agent-methodology.md`, it does not physically prevent writes. The analyst is instructed not to write to `content/`, and any violation would surface as a diff the conductor rejects before moving to Step 4. The authoritative gate is the Skeptic review on each subsequent deletion via `/update-agentic-engineering`. Do not describe this mechanism as "physically cannot delete" - it cannot and does not make that guarantee.
+The prune analyst Worker is instructed not to write to `content/` and to restrict writes to the single output path in `docs/planning/`. This is enforced by Worker brief compliance, NOT by a harness-level technical barrier. The `tool_scope` field in the execution contract is documentation only - per the Worker preamble section of `METHODOLOGY.md`, it does not physically prevent writes. The analyst is instructed not to write to `content/`, and any violation would surface as a diff the conductor rejects before moving to Step 4. The authoritative gate is the Skeptic review on each subsequent deletion via `/update-agentic-engineering`. Do not describe this mechanism as "physically cannot delete" - it cannot and does not make that guarantee.
 
 ## Step 0 - Preflight git sync
 
@@ -20,7 +20,7 @@ Run the Step 0 preflight from `/update-agentic-engineering` verbatim (fetch orig
 
 ## Step 1 - Spawn the prune analyst
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `agent-methodology.md`):
+Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
 
 *"You are a Worker agent. Produce a pruning proposal for the agentic-engineering methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
 
@@ -40,7 +40,7 @@ The analyst applies each signal to every file in scope and flags candidates as t
 
 **Signal 2 - "because the model forgets" framing.** Candidate if that failure class has not appeared in findings.md (resolved via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback) in the last 6 months, or the rule has no known firing instance. MEDIUM confidence.
 
-**Signal 3 - verbatim duplication across files.** Flag the duplicate, not the canonical (usually the longer or more detailed version). EXCEPTION: cross-reference duplication is NOT a candidate. Intentional repetition - a preamble appearing in both a rule file AND the command that instructs agents to follow the rule, the execution contract appearing in both `agent-methodology.md` AND `implement-ticket.md`, the Skeptic sign-off format appearing in both `skeptic-protocol.md` AND `agent-methodology.md` - is load-bearing structural redundancy, not accidental bloat. The analyst must explicitly test: "would deleting this copy break a cross-reference another doc depends on?" If yes, not a candidate. MEDIUM confidence when the duplication is genuinely accidental.
+**Signal 3 - verbatim duplication across files.** Flag the duplicate, not the canonical (usually the longer or more detailed version). EXCEPTION: cross-reference duplication is NOT a candidate. Intentional repetition - a preamble appearing in both a rule file AND the command that instructs agents to follow the rule, the execution contract appearing in both `METHODOLOGY.md` AND `implement-ticket.md`, the Skeptic sign-off format appearing in both `skeptic-protocol.md` AND `METHODOLOGY.md` - is load-bearing structural redundancy, not accidental bloat. The analyst must explicitly test: "would deleting this copy break a cross-reference another doc depends on?" If yes, not a candidate. MEDIUM confidence when the duplication is genuinely accidental.
 
 **Signal 4 - contradiction with findings.md entries.** Resolve findings.md via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback. If neither path exists (as is currently the case for this repo), SKIP this signal entirely and note "Signal 4 skipped: findings.md does not exist at either resolver path in this repo" in the proposal's signal summary. Do not produce false candidates.
 

@@ -2,7 +2,7 @@
 
 # Implement Ticket
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
@@ -170,9 +170,9 @@ Ask the architect for:
 3. Any risks, gotchas, or ambiguities that need resolution before coding
 4. The appropriate adversarial brief type for Skeptic review (security, logic, performance, data integrity, etc.)
 
-**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `agent-methodology.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `METHODOLOGY.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in agent-methodology.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
 ---
 
@@ -249,13 +249,13 @@ Read the orchestration-planner's output to make the routing determination below 
 ### If work is a single logical unit (or units must be sequential):
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
-- The execution contract block from `agent-methodology.md` (Worker preamble section), filling in fields from the architect's plan / orchestration-planner output for this unit
+- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
 - The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit
 - The branch name to work on
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in agent-methodology.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
@@ -288,7 +288,7 @@ git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
 **Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, verify all `depends_on` task_ids are `done` in the file and update each task entry from `pending` -> `in_progress`. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
 
 Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
-- The execution contract block from `agent-methodology.md` (Worker preamble section), with fields filled in from the per-unit scope in the planner's JSONL block
+- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
 - The unit's `task_id`, acceptance criteria, `files_in_scope`, `quality_cmd`, and worktree path
 - The per-unit scope: extracted from the orchestration-planner's JSONL block for that unit
 
@@ -357,7 +357,7 @@ git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
 git -C $REPO worktree prune
 ```
 
-For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `agent-methodology.md §Worktree Lifecycle`.
+For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `METHODOLOGY.md §Worktree Lifecycle`.
 
 **Merge-conflict re-route and loop iteration:** If a merge conflict re-route occurred above and the re-routed Engineer's output then goes through Skeptic review in Phase 6, the conflict re-route counts as iteration 1 of the Phase 6 loop. Do not double-count: the conflict-resolution Engineer pass is the first fix pass; Phase 6 initializes its `iteration` counter at 1 to reflect this.
 
@@ -375,7 +375,7 @@ Spawn a `skeptic` agent with:
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in agent-methodology.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
 **Findings handling - loop contract:**
 
@@ -444,7 +444,7 @@ agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_k
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok",%s}' "${USAGE#\{}")"
 ```
-See `agent-methodology.md` Events log section for the full event schema.
+See `METHODOLOGY.md §Events log` for the full event schema.
 
 ```
 ## Prior iteration findings
@@ -519,7 +519,7 @@ Note: the escalation format surfaces findings and history only. The conductor do
 - **If not triggered:** skip directly to Phase 7.
 - **If triggered:** proceed with the QA loop contract below.
 
-For full QA gate rules, see `agent-methodology.md §QA Gate`.
+For full QA gate rules, see `METHODOLOGY.md §QA Gate`.
 
 **QA loop contract:**
 

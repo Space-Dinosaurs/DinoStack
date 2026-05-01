@@ -1,5 +1,7 @@
 # P1 Shared Task-State File - Design Plan
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 ## Problem statement
 
 The current orchestration model is fully conductor-centric: all task state lives in the conductor's in-context working memory. The conductor spawns workers, waits for returns, synthesizes results, and advances to the next phase. This works for single-session linear workflows but breaks in three distinct ways:

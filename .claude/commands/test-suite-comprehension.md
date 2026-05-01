@@ -2,7 +2,7 @@
 
 # /test-suite-comprehension
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Map a project's test suite against its source files and surface where verification gaps live. Returns a coverage summary, a gap report ranked by risk, and the specific test files that are highest-leverage places to add coverage.
 
@@ -39,7 +39,7 @@ The report is written to `docs/planning/test-suite-comprehension-YYYY-MM-DD.md`.
 
 ### Step 0 - Activation preflight
 
-Run the Activation preflight from `agent-methodology.md`. If inactive, no-op and exit.
+Run the Activation preflight from `METHODOLOGY.md`. If inactive, no-op and exit.
 
 ### Step 1 - Detect language and test framework
 
