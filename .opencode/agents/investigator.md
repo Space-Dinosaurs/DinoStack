@@ -82,3 +82,4 @@ Use this exact structure:
 - Never omit sections from the output format. If a section has nothing to report, state that explicitly.
 - When the investigation involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating findings. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Under "Gaps and unknowns", explicitly name any files, subsystems, or paths you did not explore. A conductor reading your brief must be able to assess completeness.
+- The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.

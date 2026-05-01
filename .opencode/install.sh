@@ -319,7 +319,7 @@ config["permission"]["external_directory"][ae_path] = "allow"
 # Add instructions pointing to the rules files
 instructions = config.get("instructions", [])
 rules_files = [
-    repo_dir + "/content/rules/agent-methodology.md",
+    repo_dir + "/.opencode/skills/agentic-engineering/METHODOLOGY.md",
     repo_dir + "/content/rules/code-standards.md",
     repo_dir + "/content/rules/conventions.md",
     repo_dir + "/content/rules/module-manifest.md",
