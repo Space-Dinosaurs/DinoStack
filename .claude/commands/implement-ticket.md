@@ -305,7 +305,7 @@ Create one worktree per unit, each rooted from `BASE_BRANCH` (loop over all N un
 
 ```bash
 # For each unit (unit_slug from planner JSONL block):
-git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
+git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} \
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
@@ -366,7 +366,7 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 ```bash
 # Confirm branch matches expected sub-branch before merging:
-# git -C ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} rev-parse --abbrev-ref HEAD
+# git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} rev-parse --abbrev-ref HEAD
 # If the branch name does not match ${FEATURE_BRANCH}-${unit_slug}, abort that unit's merge and escalate.
 ```
 
@@ -376,7 +376,7 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 ```bash
 # For each unit:
-git -C $REPO worktree remove ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} --force
+git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
 git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
 git -C $REPO worktree prune
 ```
