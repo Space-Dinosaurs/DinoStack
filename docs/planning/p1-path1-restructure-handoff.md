@@ -1,3 +1,5 @@
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 <!--
 Purpose: Handoff document for Path 1 adapter-restructure project. Captures
          architectural rationale, post-Wave-1 state, known regressions on main,

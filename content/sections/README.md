@@ -66,17 +66,17 @@ Bold-prose paragraph leads (e.g. `**Conductor rule for Trivial:**`) are NOT cove
 
 ## Known Wave 1 regressions
 
-The Wave 1 PR that introduced this directory deletes `content/rules/agent-methodology.md`. As of that PR, three sibling adapter scripts still reference the deleted path and will fail until Wave 2 lands:
+The Wave 1 PR that introduced this directory deletes the now-renamed `content/rules/METHODOLOGY.md`. As of that PR, three sibling adapter scripts still reference the deleted path and will fail until Wave 2 lands:
 
-- `.gemini/build.sh` (line ~55) cats `content/rules/agent-methodology.md`
-- `.kimi/build.sh` (line ~32) cats `content/rules/agent-methodology.md`
+- `.gemini/build.sh` (line ~55) cats `content/rules/METHODOLOGY.md` (deleted path)
+- `.kimi/build.sh` (line ~32) cats `content/rules/METHODOLOGY.md` (deleted path)
 - `.opencode/install.sh` (line ~322) references the deleted path
 
 If you are on the Wave-1 branch, do NOT run those adapter builds. Wave 2 (Codex/Gemini/Cursor adapter migrations) plus the Kimi and OpenCode catch-ups documented here will close all three.
 
 ## Existing-installation upgrade path
 
-If you previously installed the agentic-engineering skill (via `bash .claude/install.sh`), your `~/.claude/CLAUDE.md` contains a managed block with `@skills/agentic-engineering/rules/agent-methodology.md`. After pulling Wave 1, that import points at a deleted file. Re-run `bash .claude/install.sh` once - the script's regex sub rewrites the managed block to import `@skills/agentic-engineering/METHODOLOGY.md` cleanly. The skill directory itself is symlinked from the repo, so its content updates automatically on `git pull`; only the `@`-import line in `CLAUDE.md` is stale until install re-runs.
+If you previously installed the agentic-engineering skill (via `bash .claude/install.sh`), your `~/.claude/CLAUDE.md` contains a managed block with `@skills/agentic-engineering/METHODOLOGY.md`. After pulling Wave 1, that import points at a deleted file. Re-run `bash .claude/install.sh` once - the script's regex sub rewrites the managed block to import `@skills/agentic-engineering/METHODOLOGY.md` cleanly. The skill directory itself is symlinked from the repo, so its content updates automatically on `git pull`; only the `@`-import line in `CLAUDE.md` is stale until install re-runs.
 
 ## Baseline SHA semantics
 

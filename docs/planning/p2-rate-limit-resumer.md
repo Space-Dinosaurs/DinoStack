@@ -1,5 +1,7 @@
 # P2 Rate-Limit Resumer and HUD - Design Plan
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 ## Problem statement
 
 Long-running jobs - specifically the persistence loop introduced in P0 - die silently when a Claude API rate limit or session expiry fires mid-iteration. There is no mechanism to detect the interruption type, preserve the loop's in-context state to disk, or restart where work left off. The result is lost iteration progress: everything from the current Engineer fix pass, any LOOP_STATE the conductor had accumulated, and the findings_log entries that took multiple Skeptic rounds to build up.

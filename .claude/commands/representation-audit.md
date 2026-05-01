@@ -2,7 +2,7 @@
 
 # /representation-audit
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Performs a periodic prose quality pass over methodology files to surface Python-shaped writing and propose cleaner natural-language rewrites.
 
@@ -14,7 +14,7 @@ Performs a periodic prose quality pass over methodology files to surface Python-
 
 ## Safety model
 
-The audit analyst Worker is instructed not to write to `content/` and to restrict writes to the single output path in `docs/planning/`. This is enforced by Worker brief compliance, NOT by a harness-level technical barrier. The `tool_scope` field in the execution contract is documentation only - per the Worker preamble section of `agent-methodology.md`, it does not physically prevent writes. The analyst is instructed not to write to `content/`, and any violation would surface as a diff the conductor rejects before moving to Step 4. The authoritative gate is the meaning-preservation Skeptic review on each subsequent rewrite via `/update-agentic-engineering`. Do not describe this mechanism as "physically cannot edit" - it cannot and does not make that guarantee.
+The audit analyst Worker is instructed not to write to `content/` and to restrict writes to the single output path in `docs/planning/`. This is enforced by Worker brief compliance, NOT by a harness-level technical barrier. The `tool_scope` field in the execution contract is documentation only - per `METHODOLOGY.md §Delegation > Worker preamble`, it does not physically prevent writes. The analyst is instructed not to write to `content/`, and any violation would surface as a diff the conductor rejects before moving to Step 4. The authoritative gate is the meaning-preservation Skeptic review on each subsequent rewrite via `/update-agentic-engineering`. Do not describe this mechanism as "physically cannot edit" - it cannot and does not make that guarantee.
 
 ## Step 0 - Preflight git sync
 
@@ -22,7 +22,7 @@ Run the Step 0 preflight from `/update-agentic-engineering` verbatim (fetch orig
 
 ## Step 1 - Spawn the audit analyst
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `agent-methodology.md`):
+Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
 
 *"You are a Worker agent. Produce a representation audit proposal for the agentic-engineering methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
 
@@ -42,13 +42,13 @@ The analyst applies each signal to every file in scope and flags candidates as t
 
 Candidate if a rule is stated with 4+ qualifier clauses chained in a single sentence or paragraph ("unless A, unless B, unless C, does not apply when D..."). The structure signals a Python-shaped approach: rules are expressed by adding exception branches rather than by restating the positive principle more precisely.
 
-Real instance to calibrate against: `agent-methodology.md` line 106, the Low signals block - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
 
 **Signal R2 - nested conditional prose.**
 
 Candidate if more than two conditional branches are expressed in a single prose block without a structural separator (table, sub-heading, or bullet). The reader must hold all branches in working memory to understand any single path.
 
-Real instance to calibrate against: `agent-methodology.md` line 106, same Low signals block - it packs four distinct direct-action overrides (documentation creation, wording fixes, file renaming, UI copy changes) into a single paragraph, each with their own conditions and carve-outs. That is the calibration specimen for R2 density. The clean spawn-threshold enumeration in the table at lines 19-49 is NOT an R2 candidate - it uses structural separation (table) correctly. Confidence: MEDIUM.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - it packs four distinct direct-action overrides (documentation creation, wording fixes, file renaming, UI copy changes) into a single paragraph, each with their own conditions and carve-outs. That is the calibration specimen for R2 density. The clean spawn-threshold enumeration in `METHODOLOGY.md §Delegation > spawn-threshold table` is NOT an R2 candidate - it uses structural separation (table) correctly. Confidence: MEDIUM.
 
 **Signal R3 - imperative pseudocode in prose.**
 
@@ -56,13 +56,13 @@ Candidate if prose reads like a switch statement or procedural step sequence whe
 
 Real instance to calibrate against: `skeptic-protocol.md` Section 2 Step-by-step (lines ~93-140) - the numbered 1-through-11 loop reads procedurally, but because execution order genuinely matters here, the format is appropriate and the section is borderline. Use it to calibrate the signal's upper boundary. Flag blocks where the imperative structure obscures rather than clarifies. Confidence: MEDIUM.
 
-**IMPORTANT non-signal - see Non-Signals section below.** The Execution Contract template in `agent-methodology.md` (the 5-field outputs/budget/tool_scope/completion_conditions/output_paths block, lines ~79-83) is a Markdown bullet list that could superficially match R3. It must NOT be flagged. Template blocks are load-bearing structured formats, not prose.
+**IMPORTANT non-signal - see Non-Signals section below.** The Execution Contract template in `METHODOLOGY.md §Delegation > Worker preamble` (the 5-field outputs/budget/tool_scope/completion_conditions/output_paths block) is a Markdown bullet list that could superficially match R3. It must NOT be flagged. Template blocks are load-bearing structured formats, not prose.
 
 **Signal R4 - reference by code-name rather than meaning.**
 
 Candidate if an explanatory prose sentence uses a code-name or file path where the role description or plain-language label would communicate faster to a reader who does not know the repo.
 
-Real instance to calibrate against: `design-goals.md` line 22 - "The Subagent Protocol (`agent-methodology/subagent-protocol.md`) operationalizes this goal" - the parenthetical path reference is functional, but in a pure explanatory sentence, "the orchestration rules file" or the section heading would land faster for a first-time reader. Use this as a low-end calibration (LOW confidence). Note: proper agent names (`engineer`, `skeptic`, `orchestration-planner`) used as proper nouns in normative rules are NOT R4 candidates - see Non-Signals below. Confidence: LOW-MEDIUM.
+Real instance to calibrate against: `design-goals.md` - "The Subagent Protocol (`content/references/subagent-protocol.md`) operationalizes this goal" - the parenthetical path reference is functional, but in a pure explanatory sentence, "the orchestration rules file" or the section heading would land faster for a first-time reader. Use this as a low-end calibration (LOW confidence). Note: proper agent names (`engineer`, `skeptic`, `orchestration-planner`) used as proper nouns in normative rules are NOT R4 candidates - see Non-Signals below. Confidence: LOW-MEDIUM.
 
 **Signal R5 - definition by exclusion.**
 
@@ -74,13 +74,13 @@ Real instance to calibrate against: `skeptic-protocol.md` lines 27-35, the Low r
 
 Candidate if the same qualifier phrase appears 2+ times in the same document where a single anchored reference would suffice. Repetition that serves a genuine cross-reference purpose is excluded (see Non-Signals).
 
-Real instance to calibrate against: `agent-methodology.md` lines 27-29 and 106 - the phrase "does not override the 'modifies protocol or infrastructure files' Elevated signal" appears in the Documentation-only creation bullet, the targeted wording fix bullet, the file renaming bullet, and again in the Low signals paragraph. Four occurrences of the same qualifier in the same document. This is the calibration specimen for R6. Confidence: MEDIUM.
+Real instance to calibrate against: `METHODOLOGY.md §Delegation > spawn-threshold table` and `METHODOLOGY.md §Risk Classification > Low signals` - the phrase "does not override the 'modifies protocol or infrastructure files' Elevated signal" appears in the Documentation-only creation bullet, the targeted wording fix bullet, the file renaming bullet, and again in the Low signals paragraph. Four occurrences of the same qualifier in the same document. This is the calibration specimen for R6. Confidence: MEDIUM.
 
 **Signal R7 - rationale buried after mechanism.**
 
 Candidate if a rule states the imperative first and the rationale last, and the rationale is non-obvious enough that a reader encountering the rule cold would reasonably ask "why?" before complying.
 
-Real instance to calibrate against: `agent-methodology.md` line 29, the file renaming direct-action row note: "does not apply if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the rename changes behavior without changing file contents." The mechanism (exclusion condition) comes first; the explanatory principle ("the rename changes behavior without changing file contents") comes last. For a reader unfamiliar with the pattern, leading with the principle would reduce parsing friction. Confidence: LOW-MEDIUM.
+Real instance to calibrate against: `METHODOLOGY.md §Delegation > spawn-threshold table > file-renaming row` - the note "does not apply if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the rename changes behavior without changing file contents." The mechanism (exclusion condition) comes first; the explanatory principle ("the rename changes behavior without changing file contents") comes last. For a reader unfamiliar with the pattern, leading with the principle would reduce parsing friction. Confidence: LOW-MEDIUM.
 
 ## Non-signals (explicit carve-outs)
 
@@ -92,7 +92,7 @@ The analyst must NOT flag the following as rewrite candidates under any signal:
 
 **Fenced code blocks.** Exact-syntax examples, CLI commands, and format templates inside code fences are appropriate as-is.
 
-**Markdown bullet lists that function as templates.** This is the key exclusion. The Execution Contract template in `agent-methodology.md` (the 5-field outputs/budget/tool_scope/completion_conditions/output_paths block around lines 79-83) and any other template block whose bullet structure is copied verbatim into agent spawn prompts or proposal documents is load-bearing structured format, NOT prose. Do not propose rewriting templates into flowing prose. The signal is "this reads like Python"; templates are not prose and cannot read like Python. This exclusion applies to any block that functions as a fill-in-the-blank form.
+**Markdown bullet lists that function as templates.** This is the key exclusion. The Execution Contract template in `METHODOLOGY.md §Delegation > Worker preamble (Execution Contract template)` (the 5-field outputs/budget/tool_scope/completion_conditions/output_paths block) and any other template block whose bullet structure is copied verbatim into agent spawn prompts or proposal documents is load-bearing structured format, NOT prose. Do not propose rewriting templates into flowing prose. The signal is "this reads like Python"; templates are not prose and cannot read like Python. This exclusion applies to any block that functions as a fill-in-the-blank form.
 
 **Intentional cross-reference duplication.** Per the `/prune-harness` Signal 3 exception - a rule appearing verbatim in both a rule file and a command that instructs agents to follow it is load-bearing structural redundancy. The same qualifier appearing in two different rules within one document because each rule needs to be independently self-contained is also not R6 if removing the repetition would make either rule ambiguous when read in isolation.
 
