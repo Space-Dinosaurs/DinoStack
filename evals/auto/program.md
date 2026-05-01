@@ -22,6 +22,27 @@ applies, measures, and decides to keep or revert.
   by at least max(pooled_stdev, 0.02). Propose something plausibly
   bigger than noise.
 
+## Lowest-scoring dimensions (corpus-level)
+
+These are the worst-performing scoring dimensions averaged across all
+fixtures. Names are scorer-internal - they may or may not match section
+headers in your editable file. Treat them as hints about what kind of gap
+to look for, not as section names to insert verbatim.
+
+{{DIMENSION_SIGNAL}}
+
+Targets the corpus-wide pattern. If your edit is motivated wholly OR
+PARTLY by trying to move one of these averages, ensure the change is
+independently defensible: it should be a worthwhile improvement to the
+prompt even if no eval existed. (This matches the OVERFITTING-RULE
+verbatim - the rule applies to partial as well as full motivation.)
+
+A dimension scoring 0.95 or higher is effectively saturated and
+represents no addressable gap; treat saturated entries as filler, not
+targets. Counts in the line ("across N non-vacuous runs") indicate
+statistical weight - a dimension with a single run is one data point,
+not a corpus pattern.
+
 ## Budget
 
 - Maximum changed lines (added + removed) across the entire diff:
