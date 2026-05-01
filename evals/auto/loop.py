@@ -270,8 +270,18 @@ def _build_dimension_signal(
                 pass
 
     def _in_editable(dim_name: str) -> bool:
-        needle = dim_name.lower()
-        return any(needle in text for text in editable_texts)
+        # Try multiple casing/separator variants to handle the gap between
+        # scorer-internal snake_case names and human-facing prompt sections.
+        # E.g. dim "open_questions" should match "Open questions" / "open
+        # questions" / "open-questions" / "openQuestions" / "open_questions".
+        snake = dim_name.lower()
+        variants = {
+            snake,
+            snake.replace("_", " "),
+            snake.replace("_", "-"),
+            snake.replace("_", ""),
+        }
+        return any(any(v in text for v in variants) for text in editable_texts)
 
     # Accumulate: dim_name -> list of (score, count) per qualifying run.
     # Using parallel lists: dim_scores[dim] = list of float scores from non-vacuous runs.

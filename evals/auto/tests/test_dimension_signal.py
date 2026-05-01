@@ -236,6 +236,42 @@ def test_all_vacuous_returns_no_signal(tmp_repo: Path) -> None:
 # Test 7: no matching editable file -> no signal
 # ---------------------------------------------------------------------------
 
+def test_variant_matching_for_human_section_headers(tmp_path: Path) -> None:
+    """Snake_case dimension names match space-separated and Title Case
+    section headers in the editable file (the common shape: scorer uses
+    'open_questions', prompt has '## Open questions')."""
+    results_dir = tmp_path / "evals" / "results"
+    results_dir.mkdir(parents=True)
+    editable_dir = tmp_path / "content" / "agents"
+    editable_dir.mkdir(parents=True)
+    agent_md = editable_dir / "comp.md"
+    # Editable file uses Title Case with spaces, NOT snake_case
+    agent_md.write_text(
+        "# Agent\n## Open questions\nGenuine ambiguities here.\n## Approach commit\n",
+        encoding="utf-8",
+    )
+
+    per_run = [
+        {
+            "diagnostic": {
+                "open_questions": _nested_dim(0.1),
+                "approach_commit": _nested_dim(0.4),
+                "zz_truly_unknown": _nested_dim(0.0),
+            },
+            "primary": 0.5,
+            "status": "ok",
+        }
+    ]
+    rows = [_make_row(per_run)]
+    tsv = results_dir / "comp.tsv"
+    _write_tsv(tsv, rows)
+
+    result = _build_dimension_signal(tmp_path, "comp", 1, ["content/agents/comp.md"])
+    assert "open_questions" in result, f"expected variant match for 'open_questions' against 'Open questions'; got: {result}"
+    assert "approach_commit" in result, f"expected variant match for 'approach_commit' against 'Approach commit'; got: {result}"
+    assert "zz_truly_unknown" not in result
+
+
 def test_no_editable_match_returns_no_signal(tmp_repo: Path) -> None:
     """When no editable file contains any dimension name, return no-signal."""
     per_run = [
