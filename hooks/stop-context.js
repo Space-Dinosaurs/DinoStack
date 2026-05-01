@@ -8,18 +8,20 @@
  *
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
- *             Claude Code Stop hook.
+ *             Claude Code Stop hook. Internal helpers: writeLoopState(cwd),
+ *             writeBatchState(cwd, sessionId), writeSessionTotal(cwd, sessionId).
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
  *                dependencies. Reads from stdin (fd 0). Reads/writes
- *                ~/.claude/projects/[hash]/context.md and
- *                [cwd]/.agentic/loop-state.json.
+ *                ~/.claude/projects/[hash]/context.md,
+ *                [cwd]/.agentic/loop-state.json, and
+ *                [cwd]/.agentic/batch-state.json.
  *
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
  *                        Output files are read by Worker agents at session start.
  *
- * Failure modes: All failures are silent (process.exit(0)). Three independent
+ * Failure modes: All failures are silent (process.exit(0)). Four independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -27,11 +29,16 @@
  *                is swallowed independently of paths (1) and (2). The append
  *                failure model is identical to context.md - the next session
  *                can re-derive totals from per-spawn events if needed.
- *                All three paths are independent - a failure in one does not
+ *                (4) writeBatchState writes interrupted-status to
+ *                .agentic/batch-state.json on session exit; aborts silently on
+ *                session_id mismatch with the file's owner, on missing file, or
+ *                on parse error. Best-effort silent-fail; failure of
+ *                writeBatchState does not block writeSessionTotal.
+ *                All four paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
- *                traversal components are rejected for the loop-state write
- *                (defence in depth).
+ *                traversal components are rejected for the loop-state and
+ *                batch-state writes (defence in depth).
  *
  * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout).
  *              Synchronous I/O throughout; runs as a short-lived CLI process.
@@ -98,6 +105,52 @@ function writeLoopState(cwd) {
     }
   } catch (_) {
     // Silent failure - the 10-minute implicit-interrupt heuristic handles missed writes
+  }
+}
+
+/**
+ * Write interrupted status to batch-state.json if an active batch exists AND
+ * the file is owned by the current session. Mirrors writeLoopState but with
+ * an additional session_id ownership check (the Stop hook must not steal
+ * another session's batch state). Silent failure: any error swallowed.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string|null} sessionId - Current session uuid from the Stop payload.
+ */
+function writeBatchState(cwd, sessionId) {
+  // Reject cwd values with traversal components before any path join.
+  const resolvedCwd = path.resolve(cwd);
+  if (resolvedCwd !== cwd) {
+    return;
+  }
+
+  try {
+    const batchStatePath = path.join(cwd, '.agentic', 'batch-state.json');
+    if (!fs.existsSync(batchStatePath)) return;
+    const batchState = JSON.parse(fs.readFileSync(batchStatePath, 'utf-8'));
+
+    // Ownership check: do not steal another session's batch state.
+    // If the file's session_id is a non-empty string and does not match the
+    // current session, abort silently.
+    if (typeof batchState.session_id === 'string'
+        && batchState.session_id.length > 0
+        && batchState.session_id !== sessionId) {
+      return;
+    }
+
+    if (batchState.status !== 'active') return;
+
+    const nowIso = new Date().toISOString();
+    batchState.status = 'interrupted';
+    batchState.interrupted_at = nowIso;
+    batchState.interrupt_reason = 'unknown';
+    batchState.updated_at = nowIso;
+
+    const tmpPath = batchStatePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(batchState, null, 2));
+    fs.renameSync(tmpPath, batchStatePath);
+  } catch (_) {
+    // Silent failure - best-effort write; resume-time logic tolerates absent mark.
   }
 }
 
@@ -398,6 +451,9 @@ ${toolsLine}
       }
       // M1: write loop-state on ALL exit paths, including the wrap-coexistence path.
       writeLoopState(cwd);
+      // Mirror to batch-state.json (sibling envelope; ordered after loop-state
+      // so per-ticket inner state is marked first, then outer batch envelope).
+      writeBatchState(cwd, sessionId);
       // Write session_total to events.jsonl on this exit path too.
       writeSessionTotal(cwd, sessionId);
       process.exit(0);
@@ -418,6 +474,11 @@ ${toolsLine}
   // Delegated to writeLoopState() which is also called from the wrap-coexistence
   // path (section 9) so the write executes on ALL exit paths.
   writeLoopState(cwd);
+
+  // --- 11b. Mirror interrupted status to batch-state.json if owned by this session ---
+  // Independent best-effort write; ordered after loop-state so per-ticket inner
+  // state is marked first, then the outer batch envelope.
+  writeBatchState(cwd, sessionId);
 
   // --- 12. Append session_total event to .agentic/events.jsonl if present ---
   // Independent best-effort write; any failure swallowed.
