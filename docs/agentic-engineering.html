@@ -1151,6 +1151,7 @@
             <li><strong>Mid-flight retroactive Brief</strong> - in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed; retroactive Brief is authored before the next engineer spawn and governs all subsequent units.</li>
             <li><strong>3rd-resume auto-promotion</strong> - a Brief-tier task on its 3rd resume per <code>.agentic/loop-state.json</code> auto-promotes to Plan tier (mechanical, regardless of operator notice).</li>
             <li><strong>Engineer contract additions</strong> - <code>brief_path</code> and <code>plan_path</code> fields added to the Worker execution contract; engineer reads the Brief or Plan and treats success criteria + verification gate as authoritative alongside the architect plan.</li>
+            <li><strong>Interactive /brief path</strong> - Brief can also be authored interactively via <code>/brief</code> before architect and engineer are spawned. When <code>brief_path</code> is pre-populated from a <code>/brief</code> session (<code>brief_source: operator</code>), the conductor skips Brief authoring at the promotion gate and uses a completeness-only Skeptic variant instead of the full framing review.</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
@@ -1682,6 +1683,21 @@
           <li>Cleans up stale worktrees as final step - backed by the <code>/cleanup-worktrees</code> skill</li>
         </ul>
       </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 20px;">
+    <div style="font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; color: #5a3d8a; margin-bottom: 10px; letter-spacing: 0.01em;">/brief - Interactive planning dialogue</div>
+    <div class="rel-card" style="border-color: rgba(26,90,122,0.2);">
+      <h4 style="color: var(--sky);">What it does</h4>
+      <ul>
+        <li>Auto-triggered by the conductor when it detects exploratory framing ("I want to build...", "thinking about...", "let's design...") using the surface-and-proceed pattern</li>
+        <li>Multi-turn dialogue: intent capture, scope-specific gray-area menu, per-area Q&amp;A, Brief draft, iteration, write and hand-off to architect</li>
+        <li>Produces <code>docs/planning/&lt;slug&gt;.md</code> committed to the feature worktree before architect is spawned</li>
+        <li>Sets <code>brief_source: operator</code> in <code>.agentic/brief-session.json</code> so downstream Skeptic uses a completeness-only review (framing is already operator-confirmed)</li>
+        <li>PRD express-path: <code>/brief --from &lt;path&gt;</code> extracts Brief fields from an existing document; Verification field always requires operator input before writing</li>
+        <li>Scope-creep guardrail defers new dimensions to a <code>deferred</code> list; whole-pivot detection offers a restart or "continue with both" option</li>
+      </ul>
     </div>
   </div>
 
