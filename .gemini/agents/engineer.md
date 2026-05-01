@@ -32,6 +32,8 @@ Your spawn prompt will contain:
 
 When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract block, the engineer includes `task_id` in its return summary so the conductor can correlate the result with the task entry. The engineer does NOT write to `.agentic/tasks.jsonl` - the conductor handles all task-state writes.
 
+**Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
+
 **HUD file writes (Phase 2 fan-out only).** When spawned as a parallel fan-out Worker with a `worker_id` field in the execution contract, the engineer writes phase transition updates to `.agentic/hud/<worker-id>.json` before each major action (before spawning sub-agents, at loop phase transitions, at completion). The HUD file write accompanies `[loop: ...]` breadcrumb emissions - both happen at the same event. Engineers spawned without a `worker_id` (single-unit, non-fan-out contexts) do not write HUD files. The `worker_id` is provided in the spawn prompt alongside `task_id`.
 
 (Tight-fix path removed; see post-debugger Low classification rule in `METHODOLOGY.md`.)
