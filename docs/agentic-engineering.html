@@ -1000,6 +1000,7 @@
           <li>Risk classification: Low vs Elevated</li>
           <li>Spawn threshold decision table</li>
           <li>Task decomposition: one agent, one task</li>
+          <li>Planning artifacts: tiered Brief / Plan promotion gate (mechanical triggers: 2-5 Elevated units = Brief; 6+ or cross-track or multi-session = Plan)</li>
           <li>Worktree lifecycle management</li>
           <li>Pointers to detailed protocol docs</li>
         </ul>
@@ -1124,7 +1125,7 @@
             <li><strong>Findings accumulate</strong> - the <code>findings_log</code> carries forward across iterations. A finding closed in iteration 1 cannot be silently re-raised as new in iteration 2; the Skeptic must explicitly contest the claimed fix using a <code>[PREV: id]</code> tag.</li>
             <li><strong>Convergence failure</strong> - one re-raise of a Critical finding after a claimed fix triggers immediate escalation (does not consume remaining iteration budget). Signals a design-level conflict requiring human arbitration.</li>
             <li><strong>Explicit escalation contract</strong> - the loop exits with a structured stall report (<code>cap_reached</code>, <code>convergence_failure</code>, or <code>blocked</code>) listing open findings and recommended actions.</li>
-            <li><strong>Durable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> at every phase transition (atomic write). Long-running loops survive rate limits and session exits: on the next <code>/implement-ticket</code> invocation the conductor detects the interrupted state, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. No work is lost.</li>
+            <li><strong>Durable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> at every phase transition (atomic write). Long-running loops survive rate limits and session exits: on the next <code>/implement-ticket</code> invocation the conductor detects the interrupted state, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. Schema includes <code>brief_path</code>, <code>plan_path</code>, and <code>promotion_tier</code> fields that record the planning artifact tier for the active task (used for mid-flight promotion and auto-promotion at the 3rd resume). No work is lost.</li>
             <li><strong>Task coordination surface</strong> - multi-unit orchestration plans use <code>.agentic/tasks.jsonl</code> as a durable task coordination surface; the conductor tracks task status, dependencies, and loop state across the plan lifecycle. Applies to plans with 2+ tasks; single-unit spawns use in-context state only.</li>
           </ul>
         </div>
@@ -1137,6 +1138,18 @@
             <li><strong>Join conditions</strong> - all-done (merge in <code>merge_order</code>), partial success (merge green units, retry failed once at depth=1), total failure (escalate), blocked (escalate immediately).</li>
             <li><strong>Sequential <code>--no-ff</code> merge</strong> - unit branches merged in planner-specified <code>merge_order</code>. Conflict at any step: abort, stop remaining merges, spawn single engineer for sequential re-implementation. Post-merge integration quality check catches cross-unit failures.</li>
             <li><strong>Task state in <code>.agentic/tasks.jsonl</code></strong> - conductor writes all entries (pending &rarr; in_progress &rarr; done/failed/blocked). Workers return summaries only. Crash recovery: <code>in_progress</code> entries on resume treated as failed, re-spawned with original brief from <code>inputs</code> field.</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: rgba(26,90,122,0.25); margin-top: 10px;">
+          <h4 style="color: var(--sky);">Planning Artifacts</h4>
+          <ul>
+            <li><strong>Promotion gate (mechanical)</strong> - sits between orchestration-planner output and the first engineer spawn. Trigger table: 0-1 Elevated units = no artifact; 2-5 Elevated units = Brief required; 6+ Elevated units OR cross-track OR multi-session = Plan required. Trivial units do not count toward thresholds. "Cross-track" = distinct depth-1 directories each with their own <code>AGENTS.md</code>; cross-track or architecture-decision-constraining work additionally requires an <strong>ADR</strong> alongside the Plan.</li>
+            <li><strong>Brief template</strong> - one-screen (~15-20 lines) at <code>docs/planning/&lt;slug&gt;.md</code>. Fields: Problem, Success criteria (max 4 bullets), Non-goals (max 3 bullets), Constraints (hard only), Verification (single non-skippable line - "cannot specify" blocks sign-off), Linked artifacts.</li>
+            <li><strong>Plan-tier directory</strong> - <code>docs/planning/&lt;slug&gt;/</code> containing <code>brief.md</code>, <code>architect-plan.md</code>, <code>orchestration.jsonl</code>, <code>risk-register.md</code> (&lt;=10 lines), <code>rollback.md</code> (&lt;=10 lines), <code>verification-gate.md</code>. Assembled from existing artifacts plus three short conductor-authored coverage docs.</li>
+            <li><strong>Verification gate non-skippable</strong> - <code>verification-gate.md</code> owns the trigger (signal that verification failed); <code>rollback.md</code> owns the procedure. Any "cannot specify" entry blocks Skeptic sign-off until the planning gap is resolved.</li>
+            <li><strong>Mid-flight retroactive Brief</strong> - in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed; retroactive Brief is authored before the next engineer spawn and governs all subsequent units.</li>
+            <li><strong>3rd-resume auto-promotion</strong> - a Brief-tier task on its 3rd resume per <code>.agentic/loop-state.json</code> auto-promotes to Plan tier (mechanical, regardless of operator notice).</li>
+            <li><strong>Engineer contract additions</strong> - <code>brief_path</code> and <code>plan_path</code> fields added to the Worker execution contract; engineer reads the Brief or Plan and treats success criteria + verification gate as authoritative alongside the architect plan.</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
@@ -1985,6 +1998,18 @@
       <li><strong>"We're moving fast, we can skip review this time."</strong> - The protocol exists precisely for times when speed creates pressure to skip it.</li>
       <li><strong>"I'm following the spirit of the rule, just not the letter."</strong> - Violating the letter is violating the spirit. No exceptions.</li>
     </ul>
+  </div>
+
+  <div class="rel-card" style="margin-top: 12px; border-color: rgba(26,90,122,0.25);">
+    <h4 style="color: var(--sky);">Declaration Format with Planning Artifacts</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">The risk declaration optionally includes <code>Brief:</code> and <code>Plan:</code> lines when the promotion gate fires after orchestration-planner returns.</p>
+    <div class="code-block">
+      <span class="cb-label">risk declaration example</span>
+      <span class="cb-keyword">Risk:</span> Elevated - multi-unit feature<br>
+      <span class="cb-keyword">Tier:</span> 2<br>
+      <span class="cb-keyword">Brief:</span> <span class="cb-path">docs/planning/&lt;slug&gt;.md</span>       <span class="cb-comment">(when 2-5 Elevated units)</span><br>
+      <span class="cb-keyword">Plan:</span>  <span class="cb-path">docs/planning/&lt;slug&gt;/</span>        <span class="cb-comment">(when 6+ units, cross-track, or multi-session)</span>
+    </div>
   </div>
 
   <div class="rel-card" style="margin-top: 12px; border: 2px solid var(--border-default); padding: 28px;">
