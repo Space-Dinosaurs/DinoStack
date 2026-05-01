@@ -37,6 +37,143 @@ This list is not exhaustive — any operation listed elsewhere as conductor-dire
 
 ---
 
+## Phase 0a-pre: Batch resume check
+
+> Run this phase BEFORE the per-ticket Resume check below. This is the composition anchor: batch-level resume picks the ticket cursor first; the per-ticket Resume check then runs unmodified scoped to that ticket's branch and `loop-state.json`.
+
+**Trigger:** the invocation includes 2 or more ticket IDs (same trigger as Phase 0a). Skip otherwise. Single-ticket invocations (including all Trivial single-ticket flows) bypass this phase entirely - no `.agentic/batch-state.json` is read or created.
+
+**Read** `.agentic/batch-state.json` if present. Apply the decision table below.
+
+| `batch-state.json` state | Action |
+|---|---|
+| absent | Skip Phase 0a-pre. Fall through to the existing per-ticket Resume check, then Setup, then Phase 0a (which initializes `batch-state.json`). |
+| `status=complete` | Print: "Prior batch complete; clearing." Delete the file. Fall through to the existing per-ticket Resume check. |
+| `status=stalled` | Print stalled summary (tickets + reasons). Prompt: `resume / fresh / abandon`. On `abandon`: delete file and exit. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration (below) and pick next pending ticket. |
+| `status=paused` | Print: `"Batch paused at operator request: [last_summary]."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
+| `status=interrupted` | Print: `"Batch interrupted (reason: [interrupt_reason]). N completed, M pending/blocked."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
+| `status=active` AND `last_updated > 10 min` ago | Treat as implicit interrupt. Same prompt as `interrupted` row. |
+| `status=active` AND `last_updated ≤ 10 min` AND `session_id` matches current | Silent re-entry resume (rare; e.g. `/implement-ticket` re-invoked within the same session). Pick next pending ticket from `tickets[]`. |
+| `status=active` AND `last_updated ≤ 10 min` AND (`session_id` differs OR `session_id` is null/absent) | If current invocation is N≥2: refuse with the verbatim Contract C message. If current invocation is N=1: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre is N≥2 only). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
+| Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
+| Inconsistent pair (`batch-state.json` says `active`, `loop-state.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. |
+
+**Resume composition rule (binding).** If Phase 0a-pre confirms resume of an active batch, it sets the in-memory ticket cursor to the next pending ticket from `tickets[]` BEFORE falling through to the existing per-ticket Resume check. The per-ticket Resume check then runs UNMODIFIED but scoped to the picked ticket's branch and `loop-state.json`. The two state mechanisms compose: batch resume picks the ticket; per-ticket resume picks the phase within that ticket. They have non-overlapping scopes.
+
+**Re-plan migration on resume.** When the operator confirms resume of any non-active batch state (`stalled`, `paused`, `interrupted`, or stale-`active` treated as interrupted):
+
+1. `git fetch origin`.
+2. For each ticket in `tickets[]` with `status` `pending` or `blocked`: re-fetch the tracker record. If the ticket has been merged elsewhere (per tracker status, or per `gh pr list --state merged --head <branch>` returning a non-empty result), append a `replan_log` entry `{ts, action: "drop_merged", ticket_id, detail}` and set the ticket's `status` to `skipped_already_merged`.
+3. Spawn `orchestration-planner` over the surviving pending/blocked tickets to re-sequence. Re-spawn `investigator` only when `replan_count >= 2` (counted from `replan_log` entries with `action: "investigator_rerun"`).
+4. All writes apply Contract A (per-write `session_id` gate) and Contract B (`replan_log[]` read-merge-write preservation). See "Batch state contracts" below.
+5. Bump `status` back to `active`. Preserve `wallclock_started_at` from the prior batch (the wallclock cap is per-batch lifetime, not per-session - a batch resumed in a later session continues counting against the original `wallclock_started_at`).
+
+Emit breadcrumb: `[phase: batch-resume | tickets_remaining=K]`.
+
+---
+
+## Batch state contracts (binding)
+
+These contracts govern every conductor write to `.agentic/batch-state.json` and `.agentic/loop-state.json`. Phases that write to either file (Phase 0a, Phase 0a-pre, Phase 6/6b, Phase 7, Phase 12, Phase 12a) MUST apply the contracts below.
+
+**Contract A — Per-write `session_id` gate (applies to BOTH `batch-state.json` and `loop-state.json`).**
+
+Before every conductor write to either file:
+
+1. Read the current on-disk file (if present).
+2. If the file exists and its `session_id` field is a non-empty string AND does not match the current session, AND its `last_updated` is within the last 10 minutes: ABORT the write. Print the verbatim warning:
+   ```
+   WARNING: write to .agentic/<file> aborted - another session (session_id=<X>, last_updated=<Y>) appears to own this file. Identify the live session via .agentic/*.json last_updated. Resolve manually (kill the other session, or remove the file) and retry.
+   ```
+3. If the file exists and its `session_id` is null/missing/empty (legacy state from a prior version): treat as mismatch — force-takeover-eligible. Operator may resolve via the Phase 0a-pre force-takeover prompt or by manually removing the file. The same WARNING above is printed.
+4. Otherwise (no file, matching `session_id`, or stale > 10 min): proceed with the write. Set `session_id` to the current session's id and update `updated_at` in the new payload.
+
+Both readers and writers tolerate absence of `session_id` for back-compat with state files written by prior versions; absence is treated as mismatch for write-gating but not for read-only resume prompts (those follow the Phase 0a-pre decision table).
+
+**Contract B — `replan_log[]` read-merge-write preservation (applies to `batch-state.json`).**
+
+Every conductor write to `batch-state.json` MUST:
+
+1. Read the current on-disk file first.
+2. Take the existing `replan_log[]` from disk and merge any new entries authored in-memory by the current conductor turn (append-only; never reorder; never drop entries).
+3. Write the merged array back along with the rest of the payload.
+
+This preserves the audit log across overlapping writes and across resume migrations.
+
+**Contract C — One batch per project root.**
+
+When Phase 0a is initializing a new `batch-state.json` (N≥2 invocation) and the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes: REFUSE the new batch with the verbatim message:
+
+```
+Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke.
+```
+
+Concurrent batches per project root are not supported. Operators wanting parallel batches use separate worktrees with separate `.agentic/`.
+
+**N=1 foreign-batch warning.** If the current invocation is N=1 (single-ticket) AND `.agentic/batch-state.json` exists with `status=active` + different `session_id` + `last_updated` within the last 10 minutes: print the verbatim warning:
+
+```
+NOTE: a batch session is active for this project root (session_id=<X>, last_updated=<Y>). Single-ticket invocations are not refused, but loop-state.json writes will collide if the same ticket is touched. Identify the live session via .agentic/loop-state.json last_updated. Continue? (yes/no)
+```
+
+On `no`: abort. On `yes`: proceed with the single-ticket flow. This is the only N=1 interaction with `batch-state.json`.
+
+**Contract D — Stop hook mirror.**
+
+The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupted-mark write to `batch-state.json` via the helper `writeBatchState(cwd, sessionId)`. The mirror applies an ownership check: if the file's `session_id` is a non-empty string and does not match the Stop hook's session uuid, the write is aborted silently (the hook does not steal another session's batch state). Best-effort silent-fail throughout. The mirror sets `status=interrupted`, `interrupted_at=now`, `interrupt_reason="unknown"`, `updated_at=now`; all other fields including `last_updated_phase`, `tickets[]`, and `replan_log[]` are preserved.
+
+---
+
+## `.agentic/batch-state.json` schema
+
+```json
+{
+  "schema_version": 1,
+  "session_id": "<current session uuid or null>",
+  "batch_id": "<first-ticket-prefix>-batch-<ISO8601>-<4hex>",
+  "status": "active",
+  "created_at": "<ISO8601>",
+  "updated_at": "<ISO8601>",
+  "last_updated_phase": "<phase label>",
+  "interrupted_at": null,
+  "interrupt_reason": null,
+  "paused_at": null,
+  "pause_reason": null,
+  "wallclock_cap_min": 90,
+  "wallclock_started_at": "<ISO8601>",
+  "tickets": [
+    {
+      "ticket_id": "ABC-123",
+      "status": "pending",
+      "cluster_id": "<planner cluster id>",
+      "depends_on": ["ABC-122"],
+      "started_at": null,
+      "ended_at": null,
+      "branch": null,
+      "pr_number": null,
+      "last_summary": null
+    }
+  ],
+  "replan_log": [],
+  "resume_invocation_hint": "/implement-ticket"
+}
+```
+
+**Field semantics:**
+
+- `schema_version`: integer; current is `1`.
+- `session_id`: uuid of the conductor session that last wrote the file; null only on legacy files written by a prior version.
+- `batch_id`: stable identifier for the batch. Format `<prefix>-batch-<ISO8601>-<4hex>` where `<prefix>` is the first ticket's `TICKET_PREFIX` (used when tickets span multiple prefixes; the first ticket wins).
+- `status`: enum `active | paused | interrupted | complete | stalled`.
+- `interrupt_reason`: enum `unknown | null` — only `unknown` is a writable value (other values reserved for future writers; the Stop hook cannot distinguish rate-limit vs crash at hook time).
+- `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | null` — these three values match the three Phase 12a triggers.
+- `wallclock_started_at`: set once at Phase 0a init; preserved across resume. The wallclock cap is per-batch lifetime, not per-session.
+- `wallclock_cap_min`: integer minutes. Default `90`. Overridable via env `AGENTIC_BATCH_MAX_WALLCLOCK_MIN`.
+- `tickets[]`: planner-derived; `status` per-ticket is `pending | in_progress | complete | blocked | skipped_already_merged`.
+- `replan_log[]`: append-only audit log. Each entry: `{ts, action, ticket_id, detail}`. Actions include `drop_merged`, `investigator_rerun`, `re_sequence`. Preserved by Contract B.
+
+---
+
 ## Resume check (before setup)
 
 Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state.json`:
@@ -88,7 +225,9 @@ else:
 
 **Parse failure:** if `.agentic/loop-state.json` exists but cannot be parsed as JSON, print a warning, offer to delete the file and start fresh. Do not silently ignore it.
 
-**Concurrent session guard:** if `status == "active"` and `last_updated` was within the last 10 minutes, print a warning ("A session appears to be actively writing this loop state. Are you sure you want to resume here?") and require explicit confirmation before proceeding.
+**Concurrent session guard.** **REPLACED in this version by Contract A's per-write `session_id`-mismatch abort gate, applied to every conductor write of `loop-state.json` and `batch-state.json`.** See Phase 0a-pre and the "Batch state contracts" section above for the full contract. Every conductor write to `loop-state.json` includes a top-level `session_id: <current session>` field; readers tolerate absence for back-compat with state files written by prior versions.
+
+**N=1 foreign-batch warning.** Before proceeding to Setup on a single-ticket invocation, apply the N=1 foreign-batch check from "Batch state contracts" above. If `.agentic/batch-state.json` exists with `status=active` + different `session_id` + recent (≤10 min): print the verbatim NOTE, prompt yes/no, and abort on `no`.
 
 ---
 
@@ -141,9 +280,24 @@ All work lives in `$REPO`.
 
 1. Spawn `investigator` (Tier 2) to read each ticket, identify shared files, flag duplicates, and cluster by surface area. The investigator returns a structured table mapping each ticket to its files-touched, related tickets, and any duplicates.
 2. Spawn `orchestration-planner` (Tier 2) with the investigator's output. The planner returns a sequenced execution plan: which tickets can be processed in parallel, which must be sequential, which are blocked by others.
-3. Conductor iterates through the planner's order, running existing per-ticket phases (1 → 12) for each ticket.
+3. **Initialize `.agentic/batch-state.json`** (persistent batch cursor). First apply the Contract C concurrent-batch refusal: if the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes, REFUSE with the verbatim Contract C message and exit. Otherwise, write the initial skeleton:
+   - `schema_version: 1`
+   - `session_id: <current>`
+   - `batch_id: "<first ticket's TICKET_PREFIX>-batch-<ISO8601>-<4hex>"`
+   - `status: "active"`
+   - `tickets[]`: populated from planner output, each entry `status: "pending"`, with `cluster_id` and `depends_on` carried through from the planner
+   - `wallclock_started_at: now`, `wallclock_cap_min: <env AGENTIC_BATCH_MAX_WALLCLOCK_MIN or 90>`
+   - `replan_log: []`
+   - `created_at: now`, `updated_at: now`
 
-**No persistent state.** Sequencing is in-memory only this round. **Note: a persistent `.agentic/batch-state.json` for cross-session resume is deferred. If this session exits mid-batch, remaining tickets must be re-invoked manually.**
+   Atomic tmp+rename. Apply Contract A on the write (this is a fresh write so no prior `session_id`; the gate effectively passes).
+4. Conductor iterates through the planner's order, running existing per-ticket phases (1 → 12) for each ticket. **Per-ticket transition writes to `batch-state.json`** (each via Contract A + Contract B):
+   - At ticket start: `status: "pending" → "in_progress"`, set `started_at`, update `updated_at`.
+   - At ticket complete: `status: "in_progress" → "complete"`, set `ended_at`, `last_summary`, `pr_number`, `branch`.
+   - At ticket block: `status → "blocked"` with detail in `last_summary`.
+   - At ticket merged-elsewhere skip: `status → "skipped_already_merged"` with `replan_log` append.
+
+**Persistent batch state lives in `.agentic/batch-state.json`. See Phase 0a-pre for the resume protocol.**
 
 Emit breadcrumb: `[phase: batch-triage | N tickets | clusters=K]`.
 
@@ -471,6 +625,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 ```json
 {
   "schema_version": 1,
+  "session_id": "<current session uuid or null>",
   "ticket_id": "<string | null>",
   "branch": "<string>",
   "repo": "<string>",
@@ -493,6 +648,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 ```
 
 **Field notes:**
+- `session_id` is the conductor session uuid. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
@@ -924,7 +1080,49 @@ Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update
 
 ## Phase 12: Loop state cleanup
 
-After the PR is open (Phase 9 complete), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate.
+After the PR is open (Phase 9 complete), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
 
 If the file does not exist (it was never written, e.g. loop never started), skip silently.
+
+---
+
+## Phase 12a: Handoff evaluation (batch only)
+
+**Trigger:** N≥2 batch invocation (`.agentic/batch-state.json` exists). Skip on N=1 entirely.
+
+After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, evaluate the three handoff triggers below. If any one fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
+
+**Triggers (exactly THREE; any one fires):**
+
+1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`.
+2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`.
+3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`.
+
+(Context-pressure auto-detection is explicitly NOT a trigger; the conductor cannot read its own context %. Operators use trigger 2 if context pressure is observed.)
+
+**On trigger:** apply Contract A + Contract B and write `batch-state.json` with:
+- `status: "paused"`
+- `paused_at: now`
+- `pause_reason: <trigger>`
+- `last_summary` populated for the ticket just completed
+- `replan_log[]` preserved (Contract B)
+
+Print the structured remaining-tickets summary:
+
+```
+BATCH PAUSED — pause_reason: <trigger>
+Completed: <k>/<N> tickets
+  ✓ <ticket_id> (PR #<pr_number>)
+  ...
+Remaining: <N-k> tickets
+  · <ticket_id> (depends_on: <list>, status: <status>)
+  ...
+Resume: /implement-ticket from this directory
+```
+
+Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch-paused | reason=<trigger>]`.
+
+**On no trigger:** continue to the next ticket in the batch.
+
+> Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the Stop hook on session-exit crash. These are two distinct paths; `last_summary` is only populated on graceful pause (the Stop hook cannot synthesize it).
 """
