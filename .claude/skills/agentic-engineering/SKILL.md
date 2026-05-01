@@ -26,6 +26,10 @@ files on every session and the reference docs on the triggers described in agent
 - **rules/conventions.md** - writing style, project structure, session context and memory handling,
   and git workflow including protected branches and worktree-per-feature conventions.
 
+## Commands (invoke by name)
+
+- `/brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/brief --from <path>` to extract a Brief from an existing PRD.
+
 ## Reference Docs (read on trigger - see Protocol Details in agent-methodology.md)
 
 - **references/skeptic-protocol.md** - Skeptic loop orchestration, findings classification
