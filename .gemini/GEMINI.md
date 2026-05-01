@@ -934,7 +934,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 
 ## Git Workflow
 
-The main working tree stays on `development` (or `develop`) at all times. All feature work happens in worktrees.
+**Conductor does not create worktrees for itself.** The conductor edits directly on its current branch. Worktrees are exclusively for subagents.
 
 **Base branch resolution** - resolve in this order before any work begins:
 1. Use `develop` if it exists.
@@ -943,24 +943,30 @@ The main working tree stays on `development` (or `develop`) at all times. All fe
 
 **Conductor preflight** - run this checklist before any work begins. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene.
 1. What branch is the working tree on? (`git branch --show-current`)
-2. Does this branch already contain unrelated commits? If yes, create a new worktree/branch instead of piling on.
+2. Does this branch already contain unrelated commits? If yes, start fresh from the base branch before proceeding.
 3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
-5. Does this task need a new worktree? Any new feature, fix, or chore gets its own worktree branched from the resolved base branch.
 
-**Feature worktrees:** Each task or feature gets one worktree branched from `origin/development` (or `origin/develop`). Run `git fetch origin` before creating any worktree. Edit directly in the worktree - do not create sub-worktrees for individual changes.
+**Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
 
-**Parallel agent work:** When multiple agents need to work simultaneously on the same task, each parallel agent gets its own sub-worktree branching from the feature branch. Sub-worktrees are the parallelism tool, not the default for every edit.
+```bash
+# Create a subagent worktree:
+git worktree add .agentic/worktrees/<branch-name> -b <branch-name> HEAD
+
+# Remove after merge:
+git worktree remove .agentic/worktrees/<branch-name>
+git branch -d <branch-name>
+```
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
 
-**Merging:** Always open a PR from the feature branch into `develop`/`development` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
+**Merging:** Always open a PR from the subagent branch into `develop`/`development` after Skeptic sign-off. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
-**Cleanup:** Remove worktrees after the branch is merged (PR merged) or the task is explicitly closed or cancelled without a merge. Do not leave stale worktrees. Between tasks, the main tree should be on `development` with no active worktrees.
+**Cleanup:** Remove worktrees after the subagent branch is merged or the task is explicitly closed. Do not leave stale worktrees. Between tasks there should be no active subagent worktrees.
 
-**Commit each fix immediately during testing.** Never accumulate uncommitted changes on the main working tree (`development`/`develop`) during live testing sessions. After each validated fix: create fix branch, commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. The cost of a quick PR per fix is low; the cost of untangling a divergent working tree is high.
+**Commit each fix immediately during testing.** Never accumulate uncommitted changes during live testing sessions. After each validated fix: commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session creates its own worktree from `development`. The main tree stays on `development` as neutral ground - never move it to a feature branch.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. No worktree coordination is needed between sessions at the conductor level.
 
 Multi-developer coordination guidance lives in `content/references/multi-developer-coordination.md`.
 
