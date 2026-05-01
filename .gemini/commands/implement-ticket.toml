@@ -587,7 +587,8 @@ Note: the escalation format surfaces findings and history only. The conductor do
 **Trigger:** qa.md exists at either resolver path (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
 
 - **If not triggered:** skip directly to Phase 7.
-- **If triggered:** proceed with the QA loop contract below.
+- **If triggered - UI-visible changes (concurrent path):** when trigger patterns match a UI-visible diff, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+- **If triggered - non-UI changes (sequential path):** proceed with the QA loop contract below.
 
 For full QA gate rules, see `METHODOLOGY.md §QA Gate`.
 
