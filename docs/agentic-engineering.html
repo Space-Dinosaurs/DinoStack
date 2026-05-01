@@ -1683,6 +1683,20 @@
           <li>Cleans up stale worktrees as final step - backed by the <code>/cleanup-worktrees</code> skill</li>
         </ul>
       </div>
+      <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
+        <h4 style="color: var(--violet);">Concurrent-run protection (wrap.lock)</h4>
+        <p class="desc" style="font-size: 14px; margin-top: 0; max-width: none;">
+          /wrap acquires a project-local lock at <code>&lt;cwd&gt;/.agentic/wrap.lock</code> before writing any shared files. This prevents two simultaneous /wrap runs from clobbering each other.
+        </p>
+        <ul>
+          <li><strong>Lock acquisition</strong> - atomic <code>mkdir</code> (POSIX-safe); owner file written immediately with a UTC timestamp.</li>
+          <li><strong>Live lock (under 30 min old)</strong> - /wrap waits, polling every 5 seconds. Reports once to the user: "Another /wrap run is in progress. Waiting..." When the lock disappears it retries acquisition once. If a third session grabbed the lock between the poll and the retry, /wrap aborts with a live-lock message rather than waiting again.</li>
+          <li><strong>Stale lock (30+ min old)</strong> - /wrap does NOT auto-remove the lock. It reports the lock path, pid, and timestamp, instructs the user to remove it manually (<code>rm -rf &lt;cwd&gt;/.agentic/wrap.lock</code>), and aborts.</li>
+          <li><strong>Unreadable/malformed owner file</strong> - if the owner file is missing, unreadable, or contains no valid timestamp, /wrap treats the lock as stale, reports the lock path, instructs manual removal, and aborts.</li>
+          <li><strong>No PID liveness check</strong> - the timestamp is the authoritative signal; <code>ps -p</code> is omitted because Claude Code process hierarchies make PID reuse unreliable.</li>
+          <li><strong>Lock release</strong> - mandatory on every exit path (success, escalation, or abort). If /wrap aborts before acquiring the lock, no release is needed.</li>
+        </ul>
+      </div>
     </div>
   </div>
 
