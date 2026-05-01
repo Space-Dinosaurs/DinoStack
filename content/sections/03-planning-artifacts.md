@@ -63,7 +63,7 @@ Risk classified Elevated
   -> engineer(s) spawned with brief_path / plan_path in execution contract
 ```
 
-The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known.
+The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known. This mechanical restatement is a comprehension-artifact step: the act of restating the architect and planner output forces the conductor to demonstrate it understood both. The Skeptic reviewing the Brief asks a different question than the Skeptic that reviewed the architect plan - not "is the design sound?" but "did the conductor actually understand what was produced upstream, and is the verification real?" This catches implicit architect assumptions that do not survive being stated plainly, planner units that do not compose coherently when described together, and verification criteria that seemed obvious until someone had to write them down.
 
 ### Trigger table
 
