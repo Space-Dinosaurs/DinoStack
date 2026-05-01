@@ -320,7 +320,7 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
   "status": "<see enum>",
   "topic": "<intent statement>",
   "slug": "<kebab-case-feature-name>",
-  "worktree_path": "<absolute or repo-relative path to feature worktree>",
+  "worktree_path": null,
   "brief_path": "<docs/planning/<slug>.md or null>",
   "brief_source": "<operator | conductor>",
   "created_at": "<ISO8601>",
@@ -362,7 +362,7 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
 ### Field notes
 
 - `slug`: kebab-case slug derived from the operator's intent statement per the slug-derivation
-  algorithm in Section 3 worktree setup. Must match the slug used by `implement-ticket.md`
+  algorithm in Section 3 - Slug derivation. Must match the slug used by `implement-ticket.md`
   Phase 0b for the same intent.
 - `worktree_path`: reserved for future use; currently null. The conductor works directly on its current branch - no worktree is created by /brief.
 - `gray_areas[].selected: bool` - true if operator chose this area in the menu-selection
