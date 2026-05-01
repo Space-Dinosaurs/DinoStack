@@ -14,6 +14,27 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 
 ---
 
+## Conductor responsibilities (irreducible)
+
+The conductor delegates implementation work aggressively to specialist subagents but retains a fixed set of responsibilities that are never delegated. This section enumerates at minimum:
+
+- **Risk classification.** Must precede any spawn (per METHODOLOGY.md §Risk Classification).
+- **Promotion-gate check + Brief/Plan authoring.** Comprehension artifacts that the conductor must produce itself (per METHODOLOGY.md §Planning Artifacts).
+- **Stop-and-ask decisions.** The user-facing surface; subagents do not interact with the user.
+- **All `.agentic/*.json[l]` writes.** Sole-writer rule for `loop-state.json`, `tasks.jsonl`, and any other state file under `.agentic/`.
+- **Re-route limit + convergence-failure tracking.** Conductor must hold the full loop history across iterations.
+- **Status updates and breadcrumbs to user.** All `[phase: ...]` and `[loop: ...]` emissions originate from the conductor.
+- **Dispatch logic.** Which agent, when, with what brief.
+- **Summary synthesis for downstream spawn briefs.** PR body, tracker comment, findings input - the conductor extracts and reformats subagent outputs for downstream consumers.
+- **`BASE_BRANCH` resolution and `AGENTS.md` config parsing.** Setup phase work.
+- **`gh pr create` in Phase 9.** PR opener stays in the conductor; synthesis-context savings did not justify a spawn.
+- **CI Test URL polling in Phase 10.**
+- **Branch/worktree creation on the Trivial single-engineer path and the Phase 5 parallel fan-out path.** Elevated single-engineer path delegates this to the engineer (see Phase 4).
+
+This list is not exhaustive — any operation listed elsewhere as conductor-direct is also irreducible.
+
+---
+
 ## Resume check (before setup)
 
 Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state.json`:
@@ -58,8 +79,8 @@ else:
 | qa | spawned | Re-spawn QA engineer with the prior brief. |
 | qa | returned | QA engineer returned but loop did not advance. Re-spawn Engineer fix pass for QA failures. |
 | quality_gate | engineer_spawned | Check `git status --porcelain`. If clean: re-spawn Phase 7 engineer with quality gate failure output from `loop_state.last_engineer_summary`. If dirty: ask human (discard and re-run, or commit and re-run `$QUALITY_CMD`). |
-| quality_gate | engineer_returned | Phase 7 engineer committed. Re-run `$QUALITY_CMD` only. |
-| quality_gate | rerun_pending | Re-run `$QUALITY_CMD` only. |
+| quality_gate | engineer_returned | Phase 7 engineer committed. On the Elevated path: verify the engineer's reported `quality_gate_results`. On the Trivial path: re-run `$QUALITY_CMD`. |
+| quality_gate | rerun_pending | On the Elevated path: wait for the fix-engineer return and verify its `quality_gate_results` - do not invoke `$QUALITY_CMD` directly. On the Trivial path: re-run `$QUALITY_CMD`. |
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
@@ -105,6 +126,24 @@ BASE_BRANCH:   [value]
 ```
 
 All work lives in `$REPO`.
+
+---
+
+## Phase 0a: Batch triage (N≥2 ticket invocation)
+
+**Trigger:** the invocation includes 2 or more ticket IDs.
+
+**Skip:** N=1 invocations (single-ticket Trivial flow). Trivial single-ticket invocations bypass Phase 0a entirely - this is the backward-compatibility anchor. Mixed input (one ticket ID plus a URL or freeform task description) counts as N=1 and skips Phase 0a.
+
+**Flow:**
+
+1. Spawn `investigator` (Tier 2) to read each ticket, identify shared files, flag duplicates, and cluster by surface area. The investigator returns a structured table mapping each ticket to its files-touched, related tickets, and any duplicates.
+2. Spawn `orchestration-planner` (Tier 2) with the investigator's output. The planner returns a sequenced execution plan: which tickets can be processed in parallel, which must be sequential, which are blocked by others.
+3. Conductor iterates through the planner's order, running existing per-ticket phases (1 → 12) for each ticket.
+
+**No persistent state.** Sequencing is in-memory only this round. **Note: a persistent `.agentic/batch-state.json` for cross-session resume is deferred. If this session exits mid-batch, remaining tickets must be re-invoked manually.**
+
+Emit breadcrumb: `[phase: batch-triage | N tickets | clusters=K]`.
 
 ---
 
@@ -178,7 +217,9 @@ Read:
 
 Focus on understanding enough to make a solid plan - don't over-read.
 
-**Investigator conditional:** If the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
+**Investigator conditional:** If the task risk is **Low or above AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
+
+Trivial-classified tickets retain conductor-direct flow per METHODOLOGY.md §Risk Classification; the investigator is not required.
 
 ---
 
@@ -251,16 +292,20 @@ Emit breadcrumb: `[phase: task-state-init | N tasks written]`
 
 ## Phase 4: Create the branch
 
-Create the branch locally from `$BASE_BRANCH` - do not push yet (push happens after the first commit):
+**Branch naming:** use the branch naming convention from AGENTS.md. Derive the short title from the ticket title: lowercase, hyphens, ~4-5 words max. The conductor resolves `BRANCH_NAME` here regardless of path.
+
+**Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands.
+
+**Trivial single-engineer path.** Conductor-side branch creation is preserved as today (per METHODOLOGY.md §Delegation Trivial rule). The conductor runs:
 
 ```bash
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
 git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH
 ```
 
-**Branch naming:** use the branch naming convention from AGENTS.md.
+**Phase 5 parallel fan-out path.** Conductor-side worktree creation is preserved as today; the fan-out logic lives in Phase 5 itself.
 
-Derive the short title from the ticket title: lowercase, hyphens, ~4-5 words max.
+**Cross-reference note.** Three paths now exist for branch/worktree creation: (a) Elevated single-engineer — engineer-owned via `worktree_setup`; (b) Trivial single-engineer — conductor-owned per METHODOLOGY.md Trivial rule; (c) Parallel fan-out — conductor-owned per Phase 5 protocol. Future edits to any one site should sync the others.
 
 ---
 
@@ -280,6 +325,18 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The branch name to work on
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
+
+**Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
+
+- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence.
+- `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
+- `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path.
+
+Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
+
+The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
+
+**Trivial-path solo engineer carve-out.** Trivial solo engineer spawns (per METHODOLOGY.md §Delegation table - spawned only when other subagents are running) keep the lightweight contract: no `worktree_setup`, no `quality_gates`, no `git_finalization`, no `quality_gate_results` return field. Trivial flow is conductor-orchestrated end to end - branch creation, quality gates, commits, and pushes are all conductor-direct as today.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -574,6 +631,21 @@ Recommended action: review the open findings above and either:
 
 Note: the escalation format surfaces findings and history only. The conductor does not synthesize fix suggestions - that would undermine the convergence failure signal.
 
+### Findings curator (loop exit)
+
+At Phase 6 loop exit (both clean termination and stalled termination paths), spawn a findings-curator subagent. **Note:** `findings-curator` does not yet exist as a named agent; use `general-purpose` agent type (Tier 1, fire-and-forget) until the named agent is formally added.
+
+**Brief:**
+- Input: the full final-iteration Skeptic output (verbatim), the `ticket_id`, and the curated index path (`.agentic/findings.md`).
+- The curator reads from the Skeptic's final return text - NOT from the `findings_log` field in `loop-state.json`.
+- The curator computes `pattern_hash` per the canonicalization spec: lowercase the finding text, collapse whitespace runs (including newlines) to a single space, strip code-block fence markers (` ``` ` and `~~~`), strip leading/trailing whitespace, SHA-256 the result, take the first 16 hex chars.
+- De-dup key: `(pattern_hash, ticket_id)`. Skip writing if a matching key already exists in `.agentic/findings.md`.
+- The curator is the sole writer of `.agentic/findings.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
+
+Fires exactly once per ticket per `/implement-ticket` invocation.
+
+**Limitation:** Cross-iteration semantic-dup within the same ticket where the Skeptic re-words the finding may produce different `pattern_hash` values and result in duplicate entries. Acknowledged.
+
 ---
 
 ## Phase 6b: QA Gate (conditional)
@@ -649,7 +721,15 @@ The following failures were identified and fix attempts were made in earlier ite
 
 ## Phase 7: Quality gate
 
-Run the full quality suite:
+**Elevated path: verify from engineer return, do not re-execute.**
+
+The Elevated-path engineer ran `$QUALITY_CMD` itself (per the `quality_gates` contract field in Phase 5) and reported `quality_gate_results: { lint, typecheck, test, raw_output }` in its return summary. Phase 7 verifies this return shape - the conductor does NOT invoke `$QUALITY_CMD` directly on this path.
+
+**Verification:**
+- If `quality_gate_results.lint == "pass" && quality_gate_results.typecheck == "pass" && quality_gate_results.test == "pass"`: mark Phase 7 complete. Proceed to Phase 8.
+- If any field is `"fail"` (or the block is absent on an Elevated-path return - that is a Major Skeptic finding per the engineer.md return-shape contract): dispatch a `quality-gate-fix` engineer (same `engineer` agent, scoped brief) with the captured `raw_output`. That fix engineer runs gates and re-reports `quality_gate_results`.
+
+**Trivial path:** preserves today's behavior. The conductor (or its solo engineer) runs `$QUALITY_CMD` directly:
 
 ```bash
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
@@ -658,15 +738,15 @@ cd $REPO && $QUALITY_CMD
 
 All checks must pass (typecheck, lint, tests, knip, jscpd). Do not suppress or skip checks.
 
-**If `$QUALITY_CMD` fails:**
+**If the gate fails (either path):**
 
 This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter. Instead:
 
 1. Before spawning the Phase 7 engineer: write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
-2. Spawn one `engineer` fix pass scoped to the quality gate failure output. The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry.
+2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry.
 3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
-4. Before re-running `$QUALITY_CMD`: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write).
-5. Re-run `$QUALITY_CMD`.
+4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
+5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
 6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
 7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
@@ -796,59 +876,47 @@ If CI hasn't posted after 5 minutes, proceed with what you have - post the PR li
 
 Once you have the Test URL (or the PR link as fallback):
 
-(Execute exactly one of the sub-sections below based on the resolved `TRACKER`.)
+#### If TRACKER is `linear` or `jira`
 
-#### If TRACKER is `linear`
+Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The conductor does NOT call `mcp__linear__*` or `mcp__mcp-atlassian__*` tools directly on this path - all MCP traffic for tracker write-back is delegated.
 
-1. **Update the issue** — call `mcp__linear__save_issue` with:
-   - `state: "Testing"` (or the equivalent state transition for your team)
-   - `assigneeId: "[LINEAR_QA_ASSIGNEE_ID]"` — **only include this field if `LINEAR_QA_ASSIGNEE_ID` was present in `## Linear`**. If absent, skip the assignee change entirely and log: "QA assignee ID not configured — skipping assignee update. Add it to ## Linear to enable this."
+**Spawn brief:**
 
-2. **Post the comment** — call `mcp__linear__save_comment` with body:
-
-```
-Implementation complete. Ready for QA.
-
-**Test URL:** [EXTRACTED_TEST_URL or "pending — see PR"]
-**PR:** https://github.com/[GH_REPO]/pull/[PR_NUMBER]
-
-[1-2 sentences on what specifically to test and any known limitations from the Skeptic review]
-```
-
-#### If TRACKER is `jira`
-
-1. **Transition the issue** — **only if `JIRA_QA_TRANSITION` was present in `## Tracker`**. If absent, skip this step entirely and log: "JIRA_QA_TRANSITION not configured — skipping transition. Add it to ## Tracker to enable this."
-   
-   If present: call `mcp__mcp-atlassian__jira_get_transitions` with the ticket ID to list available transitions, then call `mcp__mcp-atlassian__jira_transition_issue` with:
-   - `issue_key: "[TICKET_PREFIX]-NNN"`
-   - the transition ID matching `[JIRA_QA_TRANSITION]` (by name)
-   
-   If the transition name is not found in the returned list, log the failure ("JIRA_QA_TRANSITION value '[value]' did not match any available transition — skipping") and proceed to step 2. Do not abort Phase 11 — the comment is higher value than the status change.
-
-2. **Update the assignee** — **only if `JIRA_QA_ASSIGNEE_ACCOUNT_ID` was present in `## Tracker`**. If absent, skip and log: "Jira QA assignee not configured — skipping assignee update." 
-   
-   If present: call `mcp__mcp-atlassian__jira_update_issue` with:
-   - `issue_key: "[TICKET_PREFIX]-NNN"`
-   - `fields: '{"assignee": {"accountId": "[JIRA_QA_ASSIGNEE_ACCOUNT_ID]"}}'`
-   
-   If the call fails (invalid account ID, permission error), log and proceed to step 3.
-
-3. **Post the comment** — call `mcp__mcp-atlassian__jira_add_comment` with:
-   - `issue_key: "[TICKET_PREFIX]-NNN"`
-   - `body`:
-
-```
-Implementation complete. Ready for QA.
-
-Test URL: [EXTRACTED_TEST_URL or "pending — see PR"]
-PR: https://github.com/[GH_REPO]/pull/[PR_NUMBER]
-
-[1-2 sentences on what specifically to test and any known limitations from the Skeptic review]
-```
+> Post a tracker comment with the PR URL and Test URL, and (where configured) transition the ticket status and update the assignee.
+>
+> **Inputs (resolved by conductor and passed in):**
+> - `TRACKER`: `linear` or `jira`
+> - `TICKET_ID`: e.g. `[TICKET_PREFIX]-NNN`
+> - `PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`
+> - `TEST_URL`: extracted from CI (or the literal string `pending — see PR` if Phase 10 timed out)
+> - `qa_summary`: 1-2 sentences on what specifically to test and any known limitations from the Skeptic review
+> - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured); transition target `Testing` (or team equivalent)
+> - For Jira: `JIRA_QA_TRANSITION` (optional - omit if not configured); `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional - omit if not configured)
+>
+> **Behavior:**
+> - **Linear:** Call `mcp__linear__save_issue` with `state: "Testing"` (or equivalent) and `assigneeId` only when configured. Then call `mcp__linear__save_comment` with the comment body below.
+> - **Jira:** Call `mcp__mcp-atlassian__jira_get_transitions` to discover available transitions, then `mcp__mcp-atlassian__jira_transition_issue` (only if `JIRA_QA_TRANSITION` configured AND the name matches an available transition - log and skip on miss). Update assignee via `mcp__mcp-atlassian__jira_update_issue` (only if configured). Post the comment via `mcp__mcp-atlassian__jira_add_comment`. Failures on transition or assignee are logged and the spawn proceeds to the comment - the comment is higher value than the status change.
+>
+> **Comment body template:**
+>
+> ```
+> Implementation complete. Ready for QA.
+>
+> Test URL: [TEST_URL]
+> PR: [PR_URL]
+>
+> [qa_summary]
+> ```
+>
+> (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
+>
+> **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed", errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`.
 
 #### If TRACKER is `none`
 
 Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update. PR is open at: https://github.com/[GH_REPO]/pull/[PR_NUMBER]"
+
+(This sub-section is conductor-direct - it is a print, not delegable.)
 
 ---
 
