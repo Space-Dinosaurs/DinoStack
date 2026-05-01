@@ -18,7 +18,7 @@ This document captures the design intent of the claude-protocols system. It is w
 
 **An evaluator should ask:** Does the main agent ever block, wait, or do substantial work inline? Is the spawn threshold being respected? Are independent tasks actually running in parallel?
 
-The Subagent Protocol (`agent-methodology/subagent-protocol.md`) operationalizes this goal with specific rules, a decision table, and an anti-patterns section.
+The Subagent Protocol (`content/references/subagent-protocol.md`) operationalizes this goal with specific rules, a decision table, and an anti-patterns section.
 
 ---
 
@@ -39,7 +39,7 @@ The Skeptic pattern counters this by introducing a genuinely independent reviewe
 
 **An evaluator should ask:** Is the Skeptic actually fresh each round? Is the adversarial brief being passed verbatim? Is the brief specific enough to catch real problems? Are Critical and Major findings being genuinely resolved or just rationalized away?
 
-The Skeptic Protocol (`agent-methodology/skeptic-protocol.md`) operationalizes this goal with the full loop definition, escalation rules, sign-off format, and adversarial brief templates.
+The Skeptic Protocol (`content/references/skeptic-protocol.md`) operationalizes this goal with the full loop definition, escalation rules, sign-off format, and adversarial brief templates.
 
 ---
 

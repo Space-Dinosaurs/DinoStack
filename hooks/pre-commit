@@ -19,6 +19,8 @@ if git diff --cached --name-only | grep -q "^content/"; then
   bash "$REPO_DIR/.codex/build.sh"
   bash "$REPO_DIR/.gemini/build.sh"
   bash "$REPO_DIR/.kimi/build.sh"
+  bash "$REPO_DIR/.opencode/build.sh"
+  bash "$REPO_DIR/.omp/build.sh"
 
   # Stage generated files
   git add \
@@ -35,7 +37,15 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.gemini/references/"*.md \
     "$REPO_DIR/.gemini/commands/"*.toml \
     "$REPO_DIR/.gemini/agents/"*.md \
-    "$REPO_DIR/.kimi/AGENTS.md"
+    "$REPO_DIR/.kimi/AGENTS.md" \
+    "$REPO_DIR/.kimi/skills/agentic-engineering/sections" \
+    "$REPO_DIR/.opencode/skills/agentic-engineering/METHODOLOGY.md" \
+    "$REPO_DIR/.opencode/agents/"*.md \
+    "$REPO_DIR/.opencode/commands/"*.md \
+    "$REPO_DIR/.omp/skills/agentic-engineering/references" \
+    "$REPO_DIR/.omp/skills/agentic-engineering/rules" \
+    "$REPO_DIR/.omp/skills/agentic-engineering/commands" \
+    "$REPO_DIR/.omp/skills/agentic-engineering/agents"
 
   echo "[pre-commit] Generated files staged."
 fi

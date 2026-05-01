@@ -27,10 +27,10 @@ loading it with `/skill:agentic-engineering` guarantees the methodology is activ
 
 ## What's adapted
 
-- **AGENTS.md**: Auto-generated from `content/rules/`, loaded automatically by Kimi Code CLI via `${KIMI_AGENTS_MD}`.
+- **AGENTS.md**: Auto-generated from `content/sections/`, loaded automatically by Kimi Code CLI via `${KIMI_AGENTS_MD}`.
 - **Skill**: `agentic-engineering` SKILL.md with Kimi-compatible guidance. Includes subagent mapping (coder/explore/plan to agentic-engineering roles) and command index.
 - **References**: Symlinked from `content/references/` into the skill directory.
-- **Rules**: Symlinked from `content/rules/` into the skill directory for easy access.
+- **Sections**: Symlinked from `content/sections/` into the skill directory for easy access.
 - **Commands**: Symlinked from `content/commands/` into the skill directory. Invoked via `/skill:agentic-engineering <command-name>` or by asking the agent to run a specific command.
 - **Hooks**: Sample hook configuration provided in README (user must add to `~/.kimi/config.toml` manually).
 

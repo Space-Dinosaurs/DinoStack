@@ -174,7 +174,7 @@ When spawning `engineer`, include:
 - Relevant file paths or codebase root
 - Acceptance criteria
 - Session context (`~/.claude/projects/[hash]/context.md`)
-- For Elevated-path spawns: the execution contract block from `agent-methodology.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
+- For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
 When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
 

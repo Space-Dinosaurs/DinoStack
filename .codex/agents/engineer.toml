@@ -33,7 +33,7 @@ When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution c
 
 **HUD file writes (Phase 2 fan-out only).** When spawned as a parallel fan-out Worker with a `worker_id` field in the execution contract, the engineer writes phase transition updates to `.agentic/hud/<worker-id>.json` before each major action (before spawning sub-agents, at loop phase transitions, at completion). The HUD file write accompanies `[loop: ...]` breadcrumb emissions - both happen at the same event. Engineers spawned without a `worker_id` (single-unit, non-fan-out contexts) do not write HUD files. The `worker_id` is provided in the spawn prompt alongside `task_id`.
 
-(Tight-fix path removed; see post-debugger Low classification rule in `content/rules/agent-methodology.md`.)
+(Tight-fix path removed; see post-debugger Low classification rule in `METHODOLOGY.md`.)
 
 ## Implementation process
 
