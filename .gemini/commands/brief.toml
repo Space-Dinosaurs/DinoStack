@@ -133,19 +133,6 @@ Example: intent "I want to build an interactive planning command" -> slug `build
 
 The same slug derivation algorithm applies in `implement-ticket.md` Phase 0b (when deriving slug from ticket title, the ticket-ID prefix is also stripped). For `/brief`, no ticket prefix exists - derive directly from intent.
 
-### Worktree setup (after intent captured, before gray-area menu)
-
-```bash
-cd <repo-root>
-git fetch origin
-# Resolve base branch per conventions.md: develop -> development -> create from main
-git worktree add ../<repo-name>-<slug> -b feature/<slug> origin/<base-branch>
-```
-
-The worktree at `../<repo-name>-<slug>` stays active for the entire architect+engineer
-flow. Brief commit, architect plan commits, and engineer commits all land on
-`feature/<slug>` in this worktree.
-
 ### Turn 2 - Gray area menu
 
 Conductor reads the intent and generates 4-8 SCOPE-SPECIFIC gray areas inline (no
@@ -201,24 +188,20 @@ Write `status: iterating` during revision rounds.
 
 ### Turn N+k - Write and hand-off
 
-1. Conductor writes Brief to `<worktree>/docs/planning/<slug>.md` per the template.
+1. Conductor writes Brief to `docs/planning/<slug>.md` per the template.
 2. Sets `brief-session.json` `status: complete`, `brief_path`, `brief_source: operator`.
 3. Commit:
    ```bash
-   git -C ../<repo-name>-<slug> add docs/planning/<slug>.md
-   git -C ../<repo-name>-<slug> commit -m "docs(brief): add <slug> brief"
+   git add docs/planning/<slug>.md
+   git commit -m "docs(brief): add <slug> brief"
    ```
 4. Surface-and-proceed:
-   > "Brief written to docs/planning/<slug>.md and committed to feature/<slug>. Spawning
-   > architect with brief_path - reply STOP to halt or refine the Brief first."
-5. If no STOP in one turn: spawn architect with `brief_path` in execution contract,
-   targeting the active `feature/<slug>` worktree.
+   > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
+   > brief_path - reply STOP to halt or refine the Brief first."
+5. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
 6. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
 7. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.
-
-The worktree remains active for the entire architect+engineer flow. Do not remove until
-the PR is merged.
 
 ---
 
@@ -337,7 +320,7 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
   "status": "<see enum>",
   "topic": "<intent statement>",
   "slug": "<kebab-case-feature-name>",
-  "worktree_path": "<absolute or repo-relative path to feature worktree>",
+  "worktree_path": null,
   "brief_path": "<docs/planning/<slug>.md or null>",
   "brief_source": "<operator | conductor>",
   "created_at": "<ISO8601>",
@@ -379,11 +362,9 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
 ### Field notes
 
 - `slug`: kebab-case slug derived from the operator's intent statement per the slug-derivation
-  algorithm in Section 3 worktree setup. Must match the slug used by `implement-ticket.md`
+  algorithm in Section 3 - Slug derivation. Must match the slug used by `implement-ticket.md`
   Phase 0b for the same intent.
-- `worktree_path`: absolute or repo-relative path to the feature worktree where the Brief
-  and downstream architect/engineer work lives. Used by resume to re-enter the correct
-  working directory.
+- `worktree_path`: reserved for future use; currently null. The conductor works directly on its current branch - no worktree is created by /brief.
 - `gray_areas[].selected: bool` - true if operator chose this area in the menu-selection
   step; false if deferred or skipped. Conductor only walks through areas where
   `selected: true`.
