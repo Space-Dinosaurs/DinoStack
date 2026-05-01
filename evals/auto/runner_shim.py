@@ -1,7 +1,7 @@
 """
 Purpose: Invoke evals.runner.cli as a subprocess for a given component, then
          read back the N freshly-appended rows from the component's TSV and
-         aggregate them to a single scalar (median-of-fixture-medians) plus a
+         aggregate them to a single scalar (mean-of-fixture-medians) plus a
          pooled stdev estimate.
 
 Public API:
@@ -23,11 +23,12 @@ Failure modes: run_component propagates CLI failure via returncode. aggregate_la
 
 Performance: the subprocess dominates; shim overhead is negligible.
 
-Aggregation choice: median-of-fixture-medians.
+Aggregation choice: mean-of-fixture-medians.
   For each of the component's fixtures, evals/runner already writes
   primary_score_median and primary_score_stdev aggregating its N internal runs.
-  We take the median across fixtures as the scalar the loop optimizes. This
-  is robust to a single fixture spiking or floor-clipping. Pooled stdev is
+  We take the mean across fixtures as the scalar the loop optimizes. This
+  is sensitive to all fixture scores and avoids suppressing genuine improvements
+  on the majority when one fixture sits at an extreme. Pooled stdev is
   the root-mean-square of per-fixture stdevs (sqrt(mean(stdev**2))), used as
   one side of the keep-delta threshold: delta >= max(pooled_stdev, 0.02).
 """
@@ -144,7 +145,7 @@ def aggregate_latest(
         except (KeyError, ValueError) as e:
             raise ValueError(f"malformed TSV row: {e}") from e
         cost += _row_cost(r)
-    metric = statistics.median(medians)
+    metric = statistics.mean(medians)
     pooled_stdev = math.sqrt(sum(s * s for s in stdevs) / len(stdevs)) if stdevs else 0.0
     return {
         "metric": float(metric),
