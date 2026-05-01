@@ -1,3 +1,27 @@
+<!--
+Purpose: Canonical body text for the agentic-engineering skill loaded by AI coding agents.
+         This file is the single source of truth for the skill's instructional content;
+         adapter-specific frontmatter (name, description, trigger conditions) is kept
+         separately in each adapter's build directory and prepended at build time.
+
+Public API: consumed as-is by adapter build scripts (e.g. .claude/build.sh) which
+            concatenate <adapter>/SKILL.frontmatter.yaml + this file to produce the
+            final adapter SKILL.md.
+
+Upstream deps: none (leaf content file; no imports or code dependencies).
+
+Downstream consumers: .claude/skills/agentic-engineering/SKILL.md (assembled by
+                      .claude/build.sh). Other adapters (.codex, .cursor, .kimi,
+                      .opencode) maintain their own frontmatter and may derive from
+                      this file if their body content converges.
+
+Failure modes: edits here take effect for .claude after re-running .claude/build.sh.
+               Adapters whose SKILL.md is a static committed file will drift silently
+               until their own build or manual sync is run. No side effects at read time.
+
+Performance: standard (static markdown file).
+-->
+
 The Agentic Engineering system defines how to plan, delegate, review, and ship software using a
 structured multi-agent workflow. It covers risk classification, adversarial review, task
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
