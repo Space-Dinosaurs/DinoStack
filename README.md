@@ -138,7 +138,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | Cursor | `.cursor/` | See [.cursor/README.md](.cursor/README.md) |
 | Codex CLI | `.codex/` | See [.codex/README.md](.codex/README.md) |
 | Gemini CLI | `.gemini/` | See [.gemini/README.md](.gemini/README.md) |
-| Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
+| Kimi Code CLI | `.kimi/` | See [.kimi/README.md](.kimi/README.md) |
 | OpenCode | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
 | Pi (oh-my-pi) | `.omp/` | See [.omp/README.md](.omp/README.md) |
 
