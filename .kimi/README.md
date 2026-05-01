@@ -67,7 +67,7 @@ Kimi Code CLI supports lifecycle hooks in `~/.kimi/config.toml`. Add these to en
 [[hooks]]
 event = "PreToolUse"
 matcher = "Shell|WriteFile|StrReplaceFile"
-command = "echo 'Risk check: classify task risk before executing destructive operations. See rules/agent-methodology.md for risk table.'"
+command = "echo 'Risk check: classify task risk before executing destructive operations. See METHODOLOGY.md §Risk Classification for the risk table.'"
 timeout = 5
 
 [[hooks]]
