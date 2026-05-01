@@ -21,7 +21,7 @@ skeptic:
     - content/rules/skeptic-protocol.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -34,7 +34,7 @@ conductor:
     - content/commands/implement-ticket.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -46,7 +46,7 @@ init-project:
     - content/rules/skeptic-protocol.md
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
 
@@ -58,7 +58,7 @@ wrap:
     - content/rules/skeptic-protocol.md
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
 
@@ -70,7 +70,7 @@ debugger:
     - content/rules/skeptic-protocol.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -81,7 +81,7 @@ qa-engineer:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -93,7 +93,7 @@ architect:
     - content/rules/module-manifest.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -105,7 +105,7 @@ release-orchestrator:
     - content/rules/module-manifest.md
     - evals/**
   max_edit_loc: 25
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -117,7 +117,7 @@ update-agentic-engineering:
     - .claude/build.sh
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
 
@@ -129,7 +129,7 @@ perf-analyst:
     - content/rules/module-manifest.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -140,7 +140,7 @@ adr-generator:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 25
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -151,7 +151,7 @@ adr-drift-detector:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 30
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -162,7 +162,7 @@ dependency-auditor:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -173,7 +173,7 @@ representation-audit:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
 
@@ -184,7 +184,7 @@ investigator:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -195,7 +195,7 @@ security-auditor:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 20
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: false
 
@@ -206,7 +206,7 @@ memory-update:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
 
@@ -218,7 +218,7 @@ implement-ticket:
     - content/rules/module-manifest.md
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
 
@@ -229,7 +229,7 @@ prune-harness:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
 
@@ -240,6 +240,6 @@ cleanup-worktrees:
     - content/rules/agent-methodology.md
     - evals/**
   max_edit_loc: 40
-  keep_delta_rule: "median_improvement >= max(pooled_stdev, 0.02)"
+  keep_delta_rule: "mean_improvement >= max(pooled_stdev, 0.02)"
   max_iterations: 10
   whole_file_replacement: true
