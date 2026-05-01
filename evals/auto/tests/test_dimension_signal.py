@@ -141,11 +141,12 @@ def test_substring_filter_excludes_unknown_dims(tmp_repo: Path) -> None:
 
 def test_vacuous_runs_excluded(tmp_repo: Path) -> None:
     """Vacuous=True runs are excluded from dimension averages."""
-    # open_questions: 2 vacuous runs (score=0.0) + 1 non-vacuous run (score=0.8)
-    # Average should be 0.8 (only counting the non-vacuous run).
+    # open_questions: 2 vacuous runs (score=0.0) + 2 non-vacuous runs (score=0.8)
+    # Average should be 0.8 (only counting the 2 non-vacuous runs).
     per_run = [
         {"diagnostic": {"open_questions": _nested_dim(0.0, vacuous=True)}, "primary": 0.5, "status": "ok"},
         {"diagnostic": {"open_questions": _nested_dim(0.0, vacuous=True)}, "primary": 0.5, "status": "ok"},
+        {"diagnostic": {"open_questions": _nested_dim(0.8, vacuous=False)}, "primary": 0.8, "status": "ok"},
         {"diagnostic": {"open_questions": _nested_dim(0.8, vacuous=False)}, "primary": 0.8, "status": "ok"},
     ]
     rows = [_make_row(per_run)]
@@ -156,10 +157,85 @@ def test_vacuous_runs_excluded(tmp_repo: Path) -> None:
     editable = ["content/agents/mycomp.md"]
     result = _build_dimension_signal(tmp_repo, "mycomp", 1, editable)
 
-    # avg should reflect only the 1 non-vacuous run with score 0.8
+    # avg should reflect only the 2 non-vacuous runs with score 0.8
     assert "open_questions" in result
     assert "avg 0.800" in result
-    assert "1 non-vacuous runs" in result
+    assert "2 non-vacuous runs" in result
+
+
+def test_single_run_dim_excluded_as_noise(tmp_repo: Path) -> None:
+    """A dimension backed by only 1 non-vacuous run is statistical noise
+    and excluded from the surfaced signal (min_run_count guard)."""
+    # open_questions appears in only 1 run. Should NOT surface.
+    # approach_commit appears in 3 runs - should surface.
+    per_run = [
+        {"diagnostic": {"open_questions": _nested_dim(0.0), "approach_commit": _nested_dim(0.2)}, "primary": 0.4, "status": "ok"},
+        {"diagnostic": {"approach_commit": _nested_dim(0.2)}, "primary": 0.4, "status": "ok"},
+        {"diagnostic": {"approach_commit": _nested_dim(0.2)}, "primary": 0.4, "status": "ok"},
+    ]
+    rows = [_make_row(per_run)]
+
+    tsv = tmp_repo / "evals" / "results" / "mycomp.tsv"
+    _write_tsv(tsv, rows)
+
+    editable = ["content/agents/mycomp.md"]
+    result = _build_dimension_signal(tmp_repo, "mycomp", 1, editable)
+
+    assert "approach_commit" in result
+    assert "open_questions" not in result, f"single-run dim should be excluded as noise; got: {result}"
+
+
+def test_saturated_dims_excluded(tmp_repo: Path) -> None:
+    """Dimensions averaging at or above 0.95 are saturated (no headroom)
+    and excluded from the surfaced signal."""
+    # All 3 dims score >= 0.95: the helper should return _NO_SIGNAL_LINE.
+    per_run = [
+        {
+            "diagnostic": {
+                "open_questions": _nested_dim(0.97),
+                "approach_commit": _nested_dim(0.99),
+                "section_keywords": _nested_dim(1.0),
+            },
+            "primary": 0.98,
+            "status": "ok",
+        }
+    ]
+    rows = [_make_row(per_run)] * 2
+
+    tsv = tmp_repo / "evals" / "results" / "mycomp.tsv"
+    _write_tsv(tsv, rows)
+
+    editable = ["content/agents/mycomp.md"]
+    result = _build_dimension_signal(tmp_repo, "mycomp", 2, editable)
+
+    assert result == _NO_SIGNAL_LINE
+
+
+def test_only_unsaturated_dims_surfaced(tmp_repo: Path) -> None:
+    """When some dims are saturated and some have headroom, only the
+    unsaturated ones are surfaced (no false-signal filler)."""
+    per_run = [
+        {
+            "diagnostic": {
+                "open_questions": _nested_dim(0.10),    # real gap
+                "approach_commit": _nested_dim(0.99),   # saturated, EXCLUDED
+                "section_keywords": _nested_dim(1.0),   # saturated, EXCLUDED
+            },
+            "primary": 0.6,
+            "status": "ok",
+        }
+    ]
+    rows = [_make_row(per_run)] * 2
+
+    tsv = tmp_repo / "evals" / "results" / "mycomp.tsv"
+    _write_tsv(tsv, rows)
+
+    editable = ["content/agents/mycomp.md"]
+    result = _build_dimension_signal(tmp_repo, "mycomp", 2, editable)
+
+    assert "open_questions" in result
+    assert "approach_commit" not in result
+    assert "section_keywords" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -262,11 +338,11 @@ def test_variant_matching_for_human_section_headers(tmp_path: Path) -> None:
             "status": "ok",
         }
     ]
-    rows = [_make_row(per_run)]
+    rows = [_make_row(per_run)] * 2  # 2 rows so each dim has count >= 2
     tsv = results_dir / "comp.tsv"
     _write_tsv(tsv, rows)
 
-    result = _build_dimension_signal(tmp_path, "comp", 1, ["content/agents/comp.md"])
+    result = _build_dimension_signal(tmp_path, "comp", 2, ["content/agents/comp.md"])
     assert "open_questions" in result, f"expected variant match for 'open_questions' against 'Open questions'; got: {result}"
     assert "approach_commit" in result, f"expected variant match for 'approach_commit' against 'Approach commit'; got: {result}"
     assert "zz_truly_unknown" not in result

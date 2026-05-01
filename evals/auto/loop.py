@@ -223,8 +223,16 @@ def _restore_results(repo_root: Path, preserved: Dict[Path, str]) -> None:
 
 _NO_SIGNAL_LINE = "  (no dimension signal available for this component)"
 _BOTTOM_K = 3
-# Maximum number of fixture rows to scan when computing dimension averages.
+# Minimum number of fixture rows to scan when computing dimension averages.
+# `n_scan = max(n_fixtures, _DIMENSION_SCAN_ROWS)` floors the read at this many
+# rows so very small corpora still get a useful sample.
 _DIMENSION_SCAN_ROWS = 20
+# Dimensions whose mean score is at or above this threshold are considered
+# saturated (no addressable headroom) and excluded from the surfaced signal.
+_SATURATION_THRESHOLD = 0.95
+# Dimensions backed by fewer than this many non-vacuous runs are statistical
+# noise (one fixture's quirk, not a corpus pattern) and excluded.
+_MIN_RUN_COUNT = 2
 
 
 def _build_dimension_signal(
@@ -332,8 +340,17 @@ def _build_dimension_signal(
     if not qualifying:
         return _NO_SIGNAL_LINE
 
-    # Compute mean per dimension and sort ascending (worst first).
+    # Compute mean per dimension. Filter out saturated dims (no addressable
+    # headroom) and statistical-noise dims (single-run signals).
     averages = [(dim, sum(sc) / len(sc), len(sc)) for dim, sc in qualifying.items()]
+    averages = [
+        (dim, avg, count)
+        for dim, avg, count in averages
+        if avg < _SATURATION_THRESHOLD and count >= _MIN_RUN_COUNT
+    ]
+    if not averages:
+        return _NO_SIGNAL_LINE
+
     averages.sort(key=lambda t: t[1])
     bottom = averages[:_BOTTOM_K]
 

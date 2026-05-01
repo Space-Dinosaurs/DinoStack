@@ -31,10 +31,17 @@ to look for, not as section names to insert verbatim.
 
 {{DIMENSION_SIGNAL}}
 
-Targets the corpus-wide pattern. If your edit is motivated wholly by
-trying to move one of these averages, ensure the change is independently
-defensible: it should be a worthwhile improvement to the prompt even if
-no eval existed.
+Targets the corpus-wide pattern. If your edit is motivated wholly OR
+PARTLY by trying to move one of these averages, ensure the change is
+independently defensible: it should be a worthwhile improvement to the
+prompt even if no eval existed. (This matches the OVERFITTING-RULE
+verbatim - the rule applies to partial as well as full motivation.)
+
+A dimension scoring 0.95 or higher is effectively saturated and
+represents no addressable gap; treat saturated entries as filler, not
+targets. Counts in the line ("across N non-vacuous runs") indicate
+statistical weight - a dimension with a single run is one data point,
+not a corpus pattern.
 
 ## Budget
 
