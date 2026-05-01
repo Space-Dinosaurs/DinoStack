@@ -72,6 +72,8 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step.
 
+**Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns. The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/brief.md` Section 1.
+
 Stop and ask the user ONLY when:
 1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
 2. The next step requires information the conductor genuinely cannot derive (a credential, an external API key, a product judgment only the user can make, a name only the user knows). "Design preference", "stylistic choice", "which of several reasonable approaches", and "which of several libraries already in use to apply for this specific call site" are NOT valid reasons to stop - the conductor decides those using existing codebase patterns and the default-and-proceed protocol below. Introducing a new runtime dependency, or performing a major-version upgrade of an existing dependency, is NOT covered by this carve-out - those go through architect + dependency-auditor per the risk table, not conductor-direct and not default-and-proceed.
@@ -232,8 +234,10 @@ Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
 
 Public API: This file is methodology prose, not code. It is consumed by the
             conductor at the promotion gate (post orchestration-planner,
-            pre engineer spawn) and by the Skeptic when reviewing Brief or
-            Plan artifacts.
+            pre engineer spawn), by the Skeptic when reviewing Brief or
+            Plan artifacts, and by /brief (content/commands/brief.md) which
+            produces the Brief artifact via interactive dialogue before the
+            promotion gate runs.
 
 Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
                Questions hard gate, Worker preamble execution contract);
@@ -402,8 +406,8 @@ The verification gate is non-skippable. **If verification cannot be specified at
 3. Open Questions on architect plan resolved.
 4. Orchestration-planner runs.
 5. Promotion check against the trigger table.
-6. If 2-5 Elevated-or-above units: conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
-7. Spawn Skeptic on the Brief using the "Document synthesis, architecture, and planning" adversarial brief. The verification field is part of the Skeptic's review surface.
+6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 7. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
+7. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases.
 8. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
 
 **Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:

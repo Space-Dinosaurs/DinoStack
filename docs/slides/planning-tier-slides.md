@@ -110,6 +110,8 @@ What was missing: a committed answer to "what problem are we solving and how wil
 
 Without that commitment, multi-unit fan-out and cross-session resume suffered from drift - each engineer spawned against an informal interpretation of the original ticket rather than a locked problem statement, success criteria, and verification plan.
 
+Also missing: operator participation in framing. The Brief was conductor-synthesized, not operator-negotiated. The `/brief` command adds operator negotiation before the architect is spawned.
+
 <div class="callout">
 Planning artifacts add the missing layer: a gate that commits to the framing before the first engineer spawns and keeps that commitment alive through fan-out and resume.
 </div>
@@ -124,21 +126,73 @@ Planning artifacts add the missing layer: a gate that commits to the framing bef
 </style>
 
 ```
-Risk classified Elevated
+[PRIMARY] operator runs /brief -> dialogue -> operator-confirmed Brief committed
+                                           -> architect (brief_path pre-populated)
+
+[BACKSTOP] Risk classified Elevated (no /brief session)
   -> architect
   -> Skeptic on architect plan
   -> Open Questions resolved
   -> orchestration-planner
-  -> [PROMOTION CHECK]  <-- new step
+  -> [PROMOTION CHECK]
        0-1 Elevated units:   no artifact (current behavior)
-       2-5 Elevated units:   Brief -> Skeptic on Brief
+       2-5 Elevated units:   Brief -> Skeptic on Brief (full framing review)
        6+ Elevated units:    Plan  -> Skeptic on Plan
        cross-track / multi-session: Plan (+ ADR if arch-decision-constraining)
-  -> engineer(s) spawned with brief_path / plan_path in execution contract
+
+Both paths -> engineer(s) spawned with brief_path / plan_path in execution contract
 ```
 
 <div class="callout">
-The promotion check is downstream of the planner (unit count is known) and upstream of the first engineer spawn (no work has started). It is a gate, not a suggestion.
+Two entry points: /brief (preferred for features still being framed) and the mechanical promotion gate (backstop for well-specified tickets). The promotion check is downstream of the planner (unit count is known) and upstream of the first engineer spawn (no work has started). It is a gate, not a suggestion.
+</div>
+
+---
+
+## Two paths to a Brief
+
+<style scoped>
+  .columns { gap: 1.5em; }
+  .card { font-size: 0.84em; line-height: 1.5; }
+  ul li { margin: 0.3em 0; }
+  h4 { margin-top: 0; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.6em; }
+</style>
+
+<div class="columns">
+<div>
+
+**Interactive `/brief` path (preferred)**
+
+<div class="card" style="border-left-color: #2d5a3d;">
+
+- Operator has exploratory framing ("I want to build...")
+- Conductor auto-triggers or operator invokes `/brief [topic]`
+- Multi-turn dialogue: intent, gray areas, Q&A, draft, iterate
+- Brief committed to feature worktree BEFORE architect spawns
+- `brief_source: operator` - Skeptic does completeness-only review (framing is already confirmed)
+- Worktree persists through architect + engineer flow
+
+</div>
+</div>
+<div>
+
+**Mechanical promotion path (backstop)**
+
+<div class="card" style="border-left-color: #224466;">
+
+- Work arrives as a well-specified ticket; no /brief session
+- architect -> Skeptic -> planner -> promotion check
+- Brief authored by conductor from planner output (2-5 units)
+- `brief_source: conductor` - Skeptic does full framing review
+- Retroactive Brief possible if unit count escalates mid-work
+
+</div>
+</div>
+</div>
+
+<div class="callout">
+Interactive path is preferred for features the operator is still framing. Mechanical path is the backstop for work that arrives well-specified. Both paths converge on the same artifact: a committed Brief at docs/planning/<slug>.md.
 </div>
 
 ---

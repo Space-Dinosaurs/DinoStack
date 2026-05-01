@@ -104,6 +104,30 @@ All work lives in `$REPO`.
 
 ---
 
+## Phase 0b: Brief check
+
+Before any architect spawn, check for an existing Brief.
+
+**Slug derivation:** convert the ticket title to kebab-case and strip any ticket-ID prefix
+(e.g. `AE-123 Add user login` becomes `add-user-login`).
+
+**Check (either condition satisfies):**
+1. A file exists at `docs/planning/<slug>.md`, OR
+2. `.agentic/brief-session.json` exists with `status: complete` AND `brief_path` matching
+   the ticket slug.
+
+**If found:**
+- Set `brief_path = docs/planning/<slug>.md` in the architect execution contract (Phase 3).
+- At the promotion gate in Phase 3b: skip the conductor-authored Brief step - the Brief is
+  pre-existing and operator-confirmed.
+- Pass `brief_source: operator` to the Skeptic-on-Brief gate; use the operator-confirmed
+  Skeptic variant (completeness-only review per `content/commands/brief.md` Section 6).
+
+**If not found:** proceed normally. The promotion gate in Phase 3b determines whether a
+Brief is required based on the unit count from the orchestration-planner.
+
+---
+
 ## Phase 1: Understand the ticket
 
 (Setup has already resolved TRACKER. Execute exactly one of the sub-sections below.)
