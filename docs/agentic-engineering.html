@@ -1707,7 +1707,7 @@
       <ul>
         <li>Auto-triggered by the conductor when it detects exploratory framing ("I want to build...", "thinking about...", "let's design...") using the surface-and-proceed pattern</li>
         <li>Multi-turn dialogue: intent capture, scope-specific gray-area menu, per-area Q&amp;A, Brief draft, iteration, write and hand-off to architect</li>
-        <li>Produces <code>docs/planning/&lt;slug&gt;.md</code> committed to the feature worktree before architect is spawned</li>
+        <li>Produces <code>docs/planning/&lt;slug&gt;.md</code> committed directly on the conductor's current branch before architect is spawned</li>
         <li>Sets <code>brief_source: operator</code> in <code>.agentic/brief-session.json</code> so downstream Skeptic uses a completeness-only review (framing is already operator-confirmed)</li>
         <li>PRD express-path: <code>/brief --from &lt;path&gt;</code> extracts Brief fields from an existing document; Verification field always requires operator input before writing</li>
         <li>Scope-creep guardrail defers new dimensions to a <code>deferred</code> list; whole-pivot detection offers a restart or "continue with both" option</li>
@@ -1846,7 +1846,7 @@
       <div class="rel-card">
         <h4>Core Rules</h4>
         <ul>
-          <li><strong>Main tree stays on development</strong> (or <code>develop</code>) at all times. Never move it to a feature branch. It is neutral ground for all sessions.</li>
+          <li><strong>Conductor works directly on its current branch.</strong> The main working tree stays on the conductor's current branch. No conductor-level feature worktrees are created; worktrees are a subagent-only construct.</li>
           <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/agentic-engineering</code> may commit and push directly to <code>main</code>.</li>
           <li><strong>Base branch resolution:</strong> use <code>develop</code> if it exists, fall back to <code>development</code>, otherwise create <code>develop</code> from <code>main</code>.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
