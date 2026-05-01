@@ -71,6 +71,20 @@ Show the diff, state what the change does. If the diff includes `content/command
 
 After approval: if the diff includes any `content/commands/` changes, run `bash ~/agentic-engineering/.claude/build.sh` and confirm success. If the diff only touches `content/rules/`, `content/references/`, or `content/agents/`, skip the build - those changes are already live.
 
+## Step 3.5 - Docs update check
+
+After the build, evaluate whether the content change affects concepts covered in `docs/agentic-engineering.html` or `docs/slides/`. This step runs before the commit so any doc updates land in the same commit.
+
+**Significant changes** (require action): new or removed protocol behavior, changed table values (e.g. tier table, risk table), added/removed/renamed rules, agents, or commands, or anything a reader of the published docs would now encounter as incorrect.
+
+**Minor changes** (skip silently): phrasing adjustments with no behavioral or structural effect.
+
+**If the change is significant:**
+
+1. Check which docs reference the affected concept. The main reference is `docs/agentic-engineering.html`; slides live in `docs/slides/`. Use grep to locate the relevant sections quickly.
+2. For simple value changes (a table cell, a model name, a step number): apply the update directly to the doc file(s) and include them in the commit.
+3. For structural changes (new rule, new agent, new command, removed section): surface a specific note to the user - name the exact doc file(s) and section(s) that are now stale, and what needs updating. Do not just say "consider updating docs". Then wait for the user to decide whether to update now or track it separately before proceeding to Step 4.
+
 ## Step 4 - Commit and push
 
 Only runs if Steps 1-3 actually made changes.
