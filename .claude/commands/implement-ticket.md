@@ -463,10 +463,52 @@ The following findings were raised in earlier iterations. For each:
 - Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - escalate rather than accepting a self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval. The conductor escalates rather than accepting an Engineer's self-declared deferral.
 - Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
 
+**Meta-divergence surfacing (in-session scan).** Before each turn boundary entering Phase 6 (loop initialization) and after returning from a Worker (after Step 5), the conductor scans `.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `.agentic/.meta-divergence-surfaced`. For any event with non-empty `data.divergence.critical_missed` or `data.divergence.major_missed`, emit a META-DIVERGENCE line at the next user-facing turn boundary and append `original_task_id` to the tracker file:
+
+```
+META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that original Skeptic missed on <task_id>. Original sign-off stands; review recommended before merging.
+[phase: meta-divergence-critical]
+```
+
+Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, gitignored under the `.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 13 for the full specification.
+
 **Step 3. Termination check:**
-- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Exit loop cleanly. Proceed to Phase 6b.
+- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Calibration emit + meta-Skeptic sampling" below before exiting the loop.** Exit loop cleanly. Proceed to Phase 6b.
 - If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human (see Escalation section below). Phase 6b does NOT run.
 - If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+
+**Calibration emit + meta-Skeptic sampling (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor performs the following before declaring the unit complete:
+
+1. **Build the calibration data block.** Compute `diff_lines` from the reviewed diff (`git -C $REPO diff origin/$BASE_BRANCH..HEAD | wc -l`, or the unit-scoped equivalent for fan-out). Tally `findings_count` from the final Skeptic round's findings list (Critical / Major / Minor counts). Read `iteration` from the loop state.
+
+2. **Emit the extended `spawn_complete` event.** Construct the merged JSON inline (no `bin/agentic-emit` flag changes) and call:
+
+   ```bash
+   USAGE_AND_CALIBRATION='{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","wall_seconds":<n>,"tokens":{...},"findings_count":{"critical":<c>,"major":<m>,"minor":<n>},"diff_lines":<d>,"signed_off":true,"iteration":<i>,"meta_review":null}'
+   agentic-emit spawn_complete skeptic <task_id> "$USAGE_AND_CALIBRATION"
+   ```
+
+   The conductor builds the JSON by merging the existing usage fields (from `agentic-parse-subagent-usage`) with the calibration fields. `bin/agentic-emit` is unchanged.
+
+3. **Compute the deterministic sampling bucket.** Hash `<task_id><iteration>` into a uniform 0-99 bucket (`python3 -c 'import hashlib,sys; print(int(hashlib.sha256(sys.argv[1].encode()).hexdigest(),16) % 100)' "<task_id><iteration>"`). If `bucket < 5`, the spawn is sampled.
+
+4. **If sampled, spawn meta-Skeptic in background (fire-and-forget).** Do NOT wait for return. The conductor declares the unit complete and proceeds to Phase 6b without blocking. Meta-Skeptic spawn brief includes:
+   - The original diff
+   - The original Skeptic's findings list verbatim
+   - The original Skeptic's sign-off statement verbatim
+   - The original adversarial brief
+   - Instruction to produce a divergence report as TEXT in the return summary (Critical missed / Major missed / Minor missed / Agreement). Meta-Skeptic does NOT write to `.agentic/`.
+
+5. **On meta-Skeptic return (asynchronous).** When meta-Skeptic eventually returns its textual divergence report, the conductor parses the report, constructs the `meta_review_complete` payload, and emits:
+
+   ```bash
+   META_DATA='{"original_task_id":"<id>","divergence":{"critical_missed":[...],"major_missed":[...],"minor_missed":[...]},"agreement":<bool>}'
+   agentic-emit meta_review_complete skeptic-meta <original_task_id> "$META_DATA"
+   ```
+
+   The next in-session scan or session-start sweep will surface any Critical/Major divergence per the Meta-divergence surfacing block above.
+
+See `content/references/skeptic-protocol.md` Section 13 for the full calibration specification.
 
 **Step 4. Engineer fix pass.** Spawn a fresh `engineer` agent with:
 - The open Critical and Major findings from `findings_log` (status=open)

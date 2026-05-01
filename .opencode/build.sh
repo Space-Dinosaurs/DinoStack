@@ -134,10 +134,17 @@ PYEOF
 done
 
 # ---------------------------------------------------------------------------
-# References: ensure symlinks in skill dir
+# Methodology: assemble content/sections/*.md into a single METHODOLOGY.md.
 # ---------------------------------------------------------------------------
 
 mkdir -p "$SKILL_DST"
+bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
+echo "  + METHODOLOGY.md"
+
+# ---------------------------------------------------------------------------
+# References: ensure symlinks in skill dir
+# ---------------------------------------------------------------------------
+
 for target in references rules; do
   link="$SKILL_DST/$target"
   expected="../../../content/$target"
