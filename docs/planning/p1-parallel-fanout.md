@@ -1,5 +1,7 @@
 # P1 Parallel Fan-out Primitive - Design Plan
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 ## Problem statement
 
 The agentic-engineering protocol can identify independent subtasks (via `orchestration-planner`) and can spawn engineers into isolated worktrees (Phase 5 of `/implement-ticket`), but the two capabilities are not connected into a first-class primitive. What exists today is a manual, two-engineer sketch: the conductor creates worktrees by hand, spawns agents in a single message, and then merges sequentially. There is no structured join condition, no worker-to-conductor signaling, no partial failure path, and no formal relationship to the Skeptic review loop or to the P0 persistence work.

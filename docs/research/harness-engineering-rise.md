@@ -1,5 +1,7 @@
 # Rethinking AI Agents: The Rise of Harness Engineering
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 **Source:** https://youtu.be/Xxuxg8PcBvc (YouTube, uploader: PY, 2026-04-14, 11:45)
 **Date Researched:** 2026-04-15
 **Category:** agentic-frameworks

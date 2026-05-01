@@ -1,5 +1,7 @@
 # P2 Self-Improving Harness - Design Plan
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 ## Problem statement
 
 agentic-engineering is a harness: a bundle of named agents (`content/agents/*.md`), commands (`content/commands/*.md`), and rules (`content/rules/*.md`) that shape how a coding agent does software work. Today, every change to that harness is hand-authored. There is no way to measure whether a given edit made the Skeptic sharper, the conductor's routing smarter, or `/init-project` more accurate - we rely on human review and anecdotal feel. This blocks two things:

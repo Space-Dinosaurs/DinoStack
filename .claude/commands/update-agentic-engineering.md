@@ -2,7 +2,7 @@
 
 # /update-agentic-engineering
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under `~/agentic-engineering/`.
 

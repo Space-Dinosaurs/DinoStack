@@ -1,5 +1,7 @@
 # P0 Gemini Adapter - Design Plan
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 ## Problem statement
 
 The agentic-engineering repo ships adapters for Claude Code (`.claude/`), Cursor (`.cursor/`), and Codex CLI (`.codex/`). Google's Gemini CLI is absent. This is a concrete gap: OMC's multi-provider worker pool (`omc team N:provider`) treats Codex and Gemini as interchangeable worker backends. Without a Gemini adapter, this repo is Claude-plus-two rather than genuinely provider-agnostic, and any future parallel fan-out primitive built here cannot use Gemini workers without ad hoc configuration that lives outside the methodology.

@@ -1,6 +1,6 @@
 # /memory-update - Memory Protocol: Capture a Decision
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 When a project-affecting decision has been confirmed in conversation, the main agent invokes this command with the decision context passed as `$ARGUMENTS`.
 

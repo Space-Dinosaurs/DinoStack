@@ -2,7 +2,7 @@
 
 # /init-project
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 >
 > Additional activation behavior for this command: see Step 0 "Global activation mode" below.
 
@@ -17,7 +17,7 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 **0a. Global activation mode** — read this before any other discovery work.
 
-Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `agent-methodology.md`.
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `METHODOLOGY.md`.
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 
@@ -581,7 +581,7 @@ Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer 
 
 If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `agentic-engineering` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
 
-Resolution order at spawn time (per `agent-methodology.md` Spawn presets section): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
+Resolution order at spawn time (per `METHODOLOGY.md` Spawn presets section): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
 
 This step is global (writes outside the project tree). It is idempotent - the file is created on the first `/init-project` invocation on a machine, and subsequent invocations are no-ops. The example library defines `engineer:default`, `engineer:tight-bug`, `skeptic:standard`, `skeptic:plan-review`, `skeptic:security`, and `architect:default`.
 
