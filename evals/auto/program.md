@@ -16,7 +16,7 @@ applies, measures, and decides to keep or revert.
 
 ## Current metric
 
-- Baseline scalar (median-of-fixture-medians): {{BASELINE_METRIC}}
+- Baseline scalar (mean-of-fixture-medians): {{BASELINE_METRIC}}
 - Pooled stdev across fixtures: {{POOLED_STDEV}}
 - Keep threshold: an edit is kept only if the post-edit scalar improves
   by at least max(pooled_stdev, 0.02). Propose something plausibly

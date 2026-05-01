@@ -41,10 +41,10 @@ def _row(median, stdev, cost_per_run=0.0):
     }
 
 
-def test_median_of_medians_and_pooled_stdev(tmp_path: Path):
+def test_mean_of_medians_and_pooled_stdev(tmp_path: Path):
     # Simulate a component with 3 fixtures and two full baseline runs worth of rows.
     # aggregate_latest should pick the last n_fixtures=3 and compute:
-    #   median of [0.5, 0.9, 0.7] = 0.7
+    #   mean of [0.5, 0.9, 0.7] = 0.7
     #   pooled_stdev = sqrt((0.1^2 + 0.0^2 + 0.05^2)/3) ~ 0.0645
     repo = tmp_path
     tsv = repo / "evals" / "results" / "fake.tsv"
@@ -62,6 +62,20 @@ def test_median_of_medians_and_pooled_stdev(tmp_path: Path):
     assert abs(out["metric"] - 0.7) < 1e-9
     # Pooled stdev: sqrt((0.01 + 0 + 0.0025) / 3) = sqrt(0.004166...) ~ 0.06455
     assert abs(out["pooled_stdev"] - 0.06454972) < 1e-5
+
+
+def test_mean_differs_from_median_on_asymmetric_input(tmp_path: Path):
+    # Asymmetric fixture scores: [0.5, 0.5, 1.0]
+    # mean = (0.5 + 0.5 + 1.0) / 3 = 0.6667, median = 0.5
+    # Verifies the aggregation uses mean, not median.
+    repo = tmp_path
+    tsv = repo / "evals" / "results" / "fake.tsv"
+    rows = [_row(0.5, 0.0), _row(0.5, 0.0), _row(1.0, 0.0)]
+    _write_tsv(tsv, rows)
+    out = aggregate_latest(repo, "fake", n_fixtures=3)
+    expected_mean = (0.5 + 0.5 + 1.0) / 3
+    assert abs(out["metric"] - expected_mean) < 1e-9, f"expected mean ~{expected_mean}, got {out['metric']}"
+    assert abs(out["metric"] - 0.5) > 1e-6, "metric should not equal the median (0.5)"
 
 
 def test_cost_summed_from_per_run_diagnostics(tmp_path: Path):
