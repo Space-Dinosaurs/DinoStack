@@ -115,6 +115,18 @@ Operator replies. Write `brief-session.json` with `status: intent_captured`.
 Run the prior-decisions scan (Section 7) after intent is captured but before presenting
 the gray-area menu.
 
+### Slug derivation
+
+**Slug derivation.** Convert the operator's intent statement to a slug:
+1. Take the first 6-8 significant words (skip articles: a, an, the; skip pronouns: I, we, you)
+2. Lowercase and join with hyphens
+3. Strip non-alphanumeric characters (keep only [a-z0-9-])
+4. Cap at 60 characters total (truncate at last full word)
+
+Example: intent "I want to build an interactive planning command" -> slug `build-interactive-planning-command`.
+
+The same slug derivation algorithm applies in `implement-ticket.md` Phase 0b (when deriving slug from ticket title, the ticket-ID prefix is also stripped). For `/brief`, no ticket prefix exists - derive directly from intent.
+
 ### Worktree setup (after intent captured, before gray-area menu)
 
 ```bash
@@ -318,12 +330,24 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
   "schema_version": 1,
   "status": "<see enum>",
   "topic": "<intent statement>",
+  "slug": "<kebab-case-feature-name>",
+  "worktree_path": "<absolute or repo-relative path to feature worktree>",
   "brief_path": "<docs/planning/<slug>.md or null>",
   "brief_source": "<operator | conductor>",
   "created_at": "<ISO8601>",
   "updated_at": "<ISO8601>",
   "gray_areas": [
     {"id": 1, "text": "<text>", "selected": true, "answered": false}
+  ],
+  "dialogue_log": [
+    {
+      "gray_area_id": 1,
+      "question": "<question text>",
+      "answer": "<operator answer>",
+      "followup_question": "<string or null>",
+      "followup_answer": "<string or null>",
+      "timestamp": "<ISO8601>"
+    }
   ],
   "deferred": [
     {
@@ -348,6 +372,12 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
 
 ### Field notes
 
+- `slug`: kebab-case slug derived from the operator's intent statement per the slug-derivation
+  algorithm in Section 3 worktree setup. Must match the slug used by `implement-ticket.md`
+  Phase 0b for the same intent.
+- `worktree_path`: absolute or repo-relative path to the feature worktree where the Brief
+  and downstream architect/engineer work lives. Used by resume to re-enter the correct
+  working directory.
 - `gray_areas[].selected: bool` - true if operator chose this area in the menu-selection
   step; false if deferred or skipped. Conductor only walks through areas where
   `selected: true`.
