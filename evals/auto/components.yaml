@@ -8,7 +8,11 @@
 #           the primary gate - but locked documents the verifier-adjacent
 #           surfaces that must not be touched by the loop).
 # max_edit_loc: cap on (added + removed) lines per single proposed diff.
-# keep_delta_rule: prose description; the apply/keep logic lives in loop.py.
+# keep_delta_rule: human-readable label only; this string is NOT parsed or
+#                  evaluated. The actual keep decision is computed in loop.py
+#                  (`_keep_delta_threshold` + the `delta >= threshold` check).
+#                  Updating the prose here documents intent but does not change
+#                  behavior - all components share the same threshold formula.
 # max_iterations: default cap if the CLI does not override.
 # whole_file_replacement: if false, the diff must apply via `git apply` to
 #                         the existing file (no full-file rewrites).
