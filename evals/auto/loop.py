@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -220,10 +221,156 @@ def _restore_results(repo_root: Path, preserved: Dict[Path, str]) -> None:
         path.write_text(content, encoding="utf-8")
 
 
+_NO_SIGNAL_LINE = "  (no dimension signal available for this component)"
+_BOTTOM_K = 3
+# Minimum number of fixture rows to scan when computing dimension averages.
+# `n_scan = max(n_fixtures, _DIMENSION_SCAN_ROWS)` floors the read at this many
+# rows so very small corpora still get a useful sample.
+_DIMENSION_SCAN_ROWS = 20
+# Dimensions whose mean score is at or above this threshold are considered
+# saturated (no addressable headroom) and excluded from the surfaced signal.
+_SATURATION_THRESHOLD = 0.95
+# Dimensions backed by fewer than this many non-vacuous runs are statistical
+# noise (one fixture's quirk, not a corpus pattern) and excluded.
+_MIN_RUN_COUNT = 2
+
+
+def _build_dimension_signal(
+    repo_root: Path,
+    component: str,
+    n_fixtures: int,
+    editable_paths: List[str],
+) -> str:
+    """Compute corpus-level per-dimension mean scores from the component's TSV.
+
+    Walks diagnostic_json.per_run[*].diagnostic for each row:
+      - Nested dict dimensions: any key whose value is a dict containing a
+        numeric 'score' key is treated as a dimension. If the dict also has
+        vacuous=True the run is excluded from that dimension's average.
+      - Flat float dimensions: any key whose value is a finite float in
+        [0.0, 1.0] is treated as a flat dimension (e.g. conductor's
+        decision_hit). These have no vacuous flag; all runs are counted.
+
+    Only dimensions whose name appears as a literal substring in at least one
+    editable file are included (prevents hallucinated section names reaching the
+    editor). Substring match is case-insensitive against the raw snake_case name.
+
+    Returns the bottom-K=3 worst-scoring qualifying dimensions formatted as
+    lines like:
+      - <dim_name>: avg <score> across <count> non-vacuous runs
+
+    Falls back to _NO_SIGNAL_LINE when no qualifying dimensions exist.
+    """
+    tsv_path = repo_root / "evals" / "results" / f"{component}.tsv"
+    n_scan = max(n_fixtures, _DIMENSION_SCAN_ROWS)
+    rows = runner_shim._read_last_rows(tsv_path, n_scan)
+    if not rows:
+        return _NO_SIGNAL_LINE
+
+    # Read editable file contents once (lowercase).
+    editable_texts: List[str] = []
+    for rel_path in editable_paths:
+        abs_path = repo_root / rel_path
+        if abs_path.exists():
+            try:
+                editable_texts.append(abs_path.read_text(encoding="utf-8").lower())
+            except OSError:
+                pass
+
+    def _in_editable(dim_name: str) -> bool:
+        # Try multiple casing/separator variants to handle the gap between
+        # scorer-internal snake_case names and human-facing prompt sections.
+        # E.g. dim "open_questions" should match "Open questions" / "open
+        # questions" / "open-questions" / "openQuestions" / "open_questions".
+        snake = dim_name.lower()
+        variants = {
+            snake,
+            snake.replace("_", " "),
+            snake.replace("_", "-"),
+            snake.replace("_", ""),
+        }
+        return any(any(v in text for v in variants) for text in editable_texts)
+
+    # Accumulate: dim_name -> list of (score, count) per qualifying run.
+    # Using parallel lists: dim_scores[dim] = list of float scores from non-vacuous runs.
+    dim_scores: Dict[str, List[float]] = {}
+
+    for row in rows:
+        raw = row.get("diagnostic_json") or ""
+        if not raw:
+            continue
+        try:
+            top = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        for pr in top.get("per_run") or []:
+            diag = pr.get("diagnostic")
+            if not isinstance(diag, dict):
+                continue
+            for dim_name, val in diag.items():
+                if isinstance(val, dict):
+                    # Nested dict dimension - must have numeric 'score'.
+                    score = val.get("score")
+                    if not isinstance(score, (int, float)):
+                        continue
+                    if not math.isfinite(float(score)):
+                        continue
+                    # Skip vacuous runs for this dimension.
+                    if val.get("vacuous") is True:
+                        continue
+                    if dim_name not in dim_scores:
+                        dim_scores[dim_name] = []
+                    dim_scores[dim_name].append(float(score))
+                elif isinstance(val, float) and math.isfinite(val) and 0.0 <= val <= 1.0:
+                    # Flat float dimension (e.g. conductor's decision_hit).
+                    if dim_name not in dim_scores:
+                        dim_scores[dim_name] = []
+                    dim_scores[dim_name].append(val)
+
+    if not dim_scores:
+        return _NO_SIGNAL_LINE
+
+    # Filter to dimensions that appear in editable files.
+    qualifying: Dict[str, List[float]] = {
+        dim: scores
+        for dim, scores in dim_scores.items()
+        if scores and _in_editable(dim)
+    }
+
+    if not qualifying:
+        return _NO_SIGNAL_LINE
+
+    # Compute mean per dimension. Filter out saturated dims (no addressable
+    # headroom) and statistical-noise dims (single-run signals).
+    averages = [(dim, sum(sc) / len(sc), len(sc)) for dim, sc in qualifying.items()]
+    averages = [
+        (dim, avg, count)
+        for dim, avg, count in averages
+        if avg < _SATURATION_THRESHOLD and count >= _MIN_RUN_COUNT
+    ]
+    if not averages:
+        return _NO_SIGNAL_LINE
+
+    averages.sort(key=lambda t: t[1])
+    bottom = averages[:_BOTTOM_K]
+
+    lines = [
+        f"  - {dim}: avg {avg:.3f} across {count} non-vacuous runs"
+        for dim, avg, count in bottom
+    ]
+    return "\n".join(lines)
+
+
 def _build_editor_context(cfg: LoopConfig) -> Dict[str, Any]:
     editable = cfg.component_cfg.get("editable") or []
     locked = cfg.component_cfg.get("locked") or []
     is_whole_file = cfg.component_cfg.get("whole_file_replacement", False)
+    dimension_signal = _build_dimension_signal(
+        cfg.repo_root,
+        cfg.component,
+        cfg.n_fixtures,
+        list(editable),
+    )
     return {
         "COMPONENT": cfg.component,
         "EDITABLE_FILES": "\n".join(f"  - {p}" for p in editable),
@@ -234,6 +381,7 @@ def _build_editor_context(cfg: LoopConfig) -> Dict[str, Any]:
         "WHOLE_FILE_MODE": "true" if is_whole_file else "false",
         "EDITOR_TIMEOUT_SEC": str(cfg.editor_timeout_sec),
         "OUTPUT_FORMAT_INSTRUCTIONS": _format_instructions(cfg.component, is_whole_file),
+        "DIMENSION_SIGNAL": dimension_signal,
     }
 
 
