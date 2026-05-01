@@ -45,6 +45,16 @@ The `-I` flag (input directory) is required by marp v4 when batching a directory
 
 To discard a no-op rebuild diff: `git checkout -- docs/slides/`.
 
+### Partial rebuild (one or two decks changed)
+
+When only specific decks changed, rebuild per-file rather than batch to avoid the ~62-line no-op CSS-hash diff across untouched decks:
+
+```bash
+marp docs/slides/<changed-deck>.md --html --output docs/slides/<changed-deck>.html
+```
+
+Verify the output with `git status docs/slides/` before committing - only the changed deck's html should be dirty. The batch `-I` command remains the correct path for full rebuilds (e.g., after a Marp CLI upgrade or theme change).
+
 ### 3. Link to the existing project
 
 ```bash

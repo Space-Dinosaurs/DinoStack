@@ -868,12 +868,13 @@
   <a class="deck-index-link" href="slides/autonomy-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">06</span> Autonomy</a>
   <a class="deck-index-link" href="slides/agent-team-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">07</span> Agent Team</a>
   <a class="deck-index-link" href="slides/orchestration-planner-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">08</span> Orchestration Planner</a>
-  <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">09</span> Parallel Fan-out</a>
-  <a class="deck-index-link" href="slides/skeptic-protocol-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">10</span> Skeptic Protocol</a>
-  <a class="deck-index-link" href="slides/quality-assurance-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Quality Assurance</a>
-  <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Work Tracking</a>
-  <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">13</span> Skill Creator</a>
-  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Contributing</a>
+  <a class="deck-index-link" href="slides/planning-tier-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">09</span> Planning Artifacts</a>
+  <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">10</span> Parallel Fan-out</a>
+  <a class="deck-index-link" href="slides/skeptic-protocol-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Skeptic Protocol</a>
+  <a class="deck-index-link" href="slides/quality-assurance-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Quality Assurance</a>
+  <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">13</span> Work Tracking</a>
+  <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Skill Creator</a>
+  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">15</span> Contributing</a>
 </nav>
 
 <div class="diagram">
@@ -1141,7 +1142,7 @@
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(26,90,122,0.25); margin-top: 10px;">
-          <h4 style="color: var(--sky);">Planning Artifacts</h4>
+          <h4 style="color: var(--sky);">Planning Artifacts <a class="slide-link" href="slides/planning-tier-slides.html" target="_blank" rel="noopener noreferrer">slides</a></h4>
           <ul>
             <li><strong>Promotion gate (mechanical)</strong> - sits between orchestration-planner output and the first engineer spawn. Trigger table: 0-1 Elevated units = no artifact; 2-5 Elevated units = Brief required; 6+ Elevated units OR cross-track OR multi-session = Plan required. Trivial units do not count toward thresholds. "Cross-track" = distinct depth-1 directories each with their own <code>AGENTS.md</code>; cross-track or architecture-decision-constraining work additionally requires an <strong>ADR</strong> alongside the Plan.</li>
             <li><strong>Brief template</strong> - one-screen (~15-20 lines) at <code>docs/planning/&lt;slug&gt;.md</code>. Fields: Problem, Success criteria (max 4 bullets), Non-goals (max 3 bullets), Constraints (hard only), Verification (single non-skippable line - "cannot specify" blocks sign-off), Linked artifacts.</li>
