@@ -1858,9 +1858,9 @@
       <div class="rel-card">
         <h4>Worktree Types</h4>
         <ul>
-          <li><strong>Feature worktrees</strong> (<code>feature/*</code>, <code>fix/*</code>) - one per task, branched from <code>origin/development</code>. Removed after PR is merged via <code>gh pr merge --squash --delete-branch</code>.</li>
-          <li><strong>Isolation worktrees</strong> (<code>worktree-agent-*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Each parallel agent gets its own copy of the repo. Removed immediately after the conductor has opened a PR or confirmed no PR is needed.</li>
-          <li><strong>Multi-session support:</strong> multiple Claude Code sessions can work on different features simultaneously. Each creates its own worktree from development. No coordination needed - worktrees are independent filesystem copies.</li>
+          <li><strong>Subagent worktrees</strong> (<code>feature/*</code>, <code>fix/*</code>) - one per parallel subagent, branched from the conductor's current branch, created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>. The conductor merges and removes them after sign-off.</li>
+          <li><strong>Isolation worktrees</strong> (<code>worktree-agent-*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Removed after the conductor confirms no PR is needed.</li>
+          <li><strong>Conductor works directly on its branch.</strong> No conductor-level feature worktrees. The main working tree stays on the conductor's current branch; worktrees are a subagent-only construct.</li>
         </ul>
       </div>
     </div>
