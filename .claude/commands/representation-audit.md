@@ -54,7 +54,7 @@ Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low 
 
 Candidate if prose reads like a switch statement or procedural step sequence where a structural description of the outcome would communicate the same intent more directly.
 
-Real instance to calibrate against: `skeptic-protocol.md` Section 2 Step-by-step (lines ~93-140) - the numbered 1-through-11 loop reads procedurally, but because execution order genuinely matters here, the format is appropriate and the section is borderline. Use it to calibrate the signal's upper boundary. Flag blocks where the imperative structure obscures rather than clarifies. Confidence: MEDIUM.
+Real instance to calibrate against: `skeptic-protocol.md §Section 2 (Step-by-step)` - the numbered 1-through-11 loop reads procedurally, but because execution order genuinely matters here, the format is appropriate and the section is borderline. Use it to calibrate the signal's upper boundary. Flag blocks where the imperative structure obscures rather than clarifies. Confidence: MEDIUM.
 
 **IMPORTANT non-signal - see Non-Signals section below.** The Execution Contract template in `METHODOLOGY.md §Delegation > Worker preamble` (the 5-field outputs/budget/tool_scope/completion_conditions/output_paths block) is a Markdown bullet list that could superficially match R3. It must NOT be flagged. Template blocks are load-bearing structured formats, not prose.
 
@@ -68,7 +68,7 @@ Real instance to calibrate against: `design-goals.md` - "The Subagent Protocol (
 
 Candidate if a concept is defined entirely as "when not X and not Y and not Z" without a positive anchor that states what the concept IS.
 
-Real instance to calibrate against: `skeptic-protocol.md` lines 27-35, the Low risk definition - it opens with "None of the above:" and lists examples, but the positive definition ("direct action with a brief inline self-check") appears as a secondary label rather than the lead. Compare to the Elevated definition above it, which leads with the positive mechanism ("Full Adversarial Review: Worker + fresh independent Skeptic"). The contrast makes the R5 pattern visible. Confidence: MEDIUM.
+Real instance to calibrate against: `skeptic-protocol.md §Risk Classification (Skeptic) > Low risk` - it opens with "None of the above:" and lists examples, but the positive definition ("direct action with a brief inline self-check") appears as a secondary label rather than the lead. Compare to the Elevated definition above it, which leads with the positive mechanism ("Full Adversarial Review: Worker + fresh independent Skeptic"). The contrast makes the R5 pattern visible. Confidence: MEDIUM.
 
 **Signal R6 - duplicated conditional clauses.**
 

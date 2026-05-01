@@ -91,5 +91,5 @@ Use this exact structure. Do not rename or reorder sections.
 2. **Conductor walks the human through batches** at the human's pace, presenting one batch at a time and collecting answers. This is conductor orchestration, not architect behavior.
 3. **Spawn 2 - plan synthesis.** Once the human signals "enough" or all batches are answered, the conductor re-spawns the architect (`architect:default` is the default choice; `architect:grill` with a follow-up directive is acceptable when more depth is still needed) with the accumulated Q&A as input. Spawn 2 produces the actual technical plan; its Open Questions section should be empty or minimal because depth was reached interactively.
 
-Runs at Tier 3 because deep-question runs benefit from max capability and spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the "Spawn presets" section in `content/sections/03-risk-classification.md` for the surrounding declaration protocol.
+Runs at Tier 3 because deep-question runs benefit from max capability and spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the "Spawn presets" section in `content/sections/04-risk-classification.md` for the surrounding declaration protocol.
 """
