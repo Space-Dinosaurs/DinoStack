@@ -88,7 +88,7 @@ self-check
     ↓
 done (commit still required)
 
-[subagents running] solo engineer Worker in foreground
+[subagents running] solo engineer Worker in background
     ↓
 done (no Skeptic, no brief file, commit still required)
 ```

@@ -131,7 +131,13 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 9. **Repeat steps 4–8** until the Skeptic grants sign-off:
    > "No unresolved Critical or Major findings. Sign-off granted."
 
-10. **QA gate check (conditional).** After sign-off is granted and any minor fixes are applied, the conductor checks the QA gate condition (see METHODOLOGY.md §QA Gate). If the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff, spawn `qa-engineer` before reporting back. QA failure routes back to an engineer for fixes, then re-runs QA. If no QA gate applies, proceed directly to step 11.
+10. **QA gate check (conditional).** Two paths, depending on whether the diff matches UI-visible trigger patterns:
+
+    - **UI-visible changes (concurrent path):** When QA trigger patterns match a UI-visible diff, spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. If the Skeptic raises Critical/Major findings, enter the standard fix loop; QA re-runs after Skeptic sign-off is achieved. If QA fails after Skeptic sign-off, spawn a fix engineer and re-run QA only. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+
+    - **Non-UI changes (sequential path):** After sign-off is granted and any minor fixes are applied, check the QA gate condition (see METHODOLOGY.md §QA Gate). If the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff, spawn `qa-engineer` before reporting back. QA failure routes back to an engineer for fixes, then re-runs QA.
+
+    If no QA gate applies on either path, proceed directly to step 11.
 
 11. **Primary agent reports back** with:
     - The final implementation
