@@ -23,7 +23,8 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - `docs/overview/` - high-level summaries and onboarding docs
 
 ## Conventions
-- All repo changes must be done in a git worktree branched from `main`. Do not do feature work in the primary checkout, and do not branch new work from another feature branch unless the user explicitly asks for stacked work.
+- Conductor never creates worktrees for itself - it edits directly on its current branch. Worktrees are exclusively for subagents, created at `.agentic/worktrees/<branch-name>` and branching from the conductor's current branch. Subagent branches merge back to the conductor's branch; the conductor's branch then PRs to develop/development.
+- When isolation:worktree Workers are used across multiple sequential spawns in the same task, the worktree is cleaned up between them and subsequent Workers fall back to the main tree. Tell follow-up Workers this explicitly.
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
 - The pre-commit hook does not currently auto-stage `.claude/skills/agentic-engineering/METHODOLOGY.md` or `.codex/agents/*.toml`. After any `content/` edit, either stage these regenerated artifacts manually or extend the `git add` list in `hooks/pre-commit`.
 - Any change to `content/rules/`, `content/references/`, `content/agents/`, `content/commands/`, or `content/sections/` MUST also update `docs/agentic-engineering.html` and any affected `docs/slides/*.md` (and rebuild the matching `.html`) in the same PR. Public-facing intent debt is the worst kind. Skeptic flags missing docs sync as a Major finding.

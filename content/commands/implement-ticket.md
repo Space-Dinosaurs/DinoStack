@@ -492,7 +492,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, gitignored under the `.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 13 for the full specification.
+Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, gitignored under the `.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
 - If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Calibration emit + meta-Skeptic sampling" below before exiting the loop.** Exit loop cleanly. Proceed to Phase 6b.
@@ -530,7 +530,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
    The next in-session scan or session-start sweep will surface any Critical/Major divergence per the Meta-divergence surfacing block above.
 
-See `content/references/skeptic-protocol.md` Section 13 for the full calibration specification.
+See `content/references/skeptic-protocol.md` Section 14 for the full calibration specification.
 
 **Step 4. Engineer fix pass.** Spawn a fresh `engineer` agent with:
 - The open Critical and Major findings from `findings_log` (status=open)

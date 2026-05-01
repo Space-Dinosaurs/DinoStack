@@ -222,7 +222,7 @@ Without that audit note, the conductor treats clean two-iteration agreement as s
 
 Audit-note Minors are bookkeeping rather than diff-level findings; they are exempt from re-raise and convergence-failure detection in `/implement-ticket` Phase 6.
 
-The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 13 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `agentic-calibrate` queryable surface.
+The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 14 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `agentic-calibrate` queryable surface.
 
 ---
 
@@ -446,7 +446,45 @@ Applying adversarial review with /simplify cleanup pass.
 
 ---
 
-## 13. Calibration mechanisms
+## 13. Multi-Dimensional Review (`multi-dimensional` strategy)
+
+For high-stakes Elevated units - specifically those in security-sensitive domains (auth, payments, data migrations, crypto, secrets management) - the conductor MAY use the `multi-dimensional` skeptic_strategy instead of the standard single-Skeptic flow. This strategy is the review analog of the `/simplify` fan-out pattern: rather than serializing correctness, security, and performance review, all three happen in parallel on the same diff.
+
+### When to use
+
+Use `multi-dimensional` when two conditions hold:
+1. The unit is Elevated risk with a security-sensitive domain signal (auth, payments, crypto, data migrations, secrets).
+2. There is meaningful non-trivial logic - i.e., a correctness bug and a security flaw could plausibly coexist undetected without separate specialist review.
+
+Standard single-Skeptic review remains the default. `multi-dimensional` is the high-stakes extension, not a replacement for routine Elevated units.
+
+### Workflow
+
+```
+Worker -> [correctness-Skeptic + security-auditor + perf-analyst] (parallel) -> synthesize -> fix loop if needed
+```
+
+1. Worker implements and returns output.
+2. Conductor spawns three reviewers in a **single message** (parallel, background):
+   - A correctness-Skeptic using the standard adversarial brief for the domain.
+   - A `security-auditor` with the changed files and domain context.
+   - A `perf-analyst` with the target, repro command, and any known perf budget.
+3. All three return independently. Conductor synthesizes findings into a unified list before opening any fix loop.
+4. Sign-off requires all three to clear - a single open Critical or Major finding from any reviewer blocks completion.
+5. Fix loops follow the standard re-route rules (Section 5). Each fix re-runs only the reviewers that raised findings, unless the fix touches the other reviewers' scope.
+
+### Declaration format
+
+When using this strategy, the conductor declares before spawning:
+
+```
+Risk: Elevated (multi-dimensional review) - [specific signal]
+Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
+```
+
+---
+
+## 14. Calibration mechanisms
 
 The Skeptic loop's review depth degrades silently if it degrades at all. A Skeptic that drifts into rubber-stamp behavior produces clean sign-offs identical in surface form to genuine ones. Section 5's audit-note mechanism is the primary per-spawn defense; this section adds the secondary backstop: aggregate drift detection via structured findings counters, sampled meta-review, and an inspection CLI.
 
