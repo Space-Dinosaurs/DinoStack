@@ -1831,11 +1831,13 @@
   <div class="flow" style="margin-top: 0;">
     <div class="flow-title">Standard Feature Branch Flow</div>
     <div class="flow-row">
-      <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">development (main tree)</span>
+      <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">conductor's feature branch</span>
       <span class="flow-arrow">&rarr;</span>
-      <span class="flow-box" style="background: rgba(45,90,61,0.08); color:#2d5a3d; border:1px solid rgba(45,90,61,0.25);">feature/* worktree</span>
+      <span class="flow-box" style="background: rgba(45,90,61,0.08); color:#2d5a3d; border:1px solid rgba(45,90,61,0.25);">subagent worktree (branches from conductor)</span>
       <span class="flow-arrow">&rarr;</span>
-      <span class="flow-box" style="background: rgba(90,61,138,0.08); color:#5a3d8a; border:1px solid rgba(90,61,138,0.3);">PR to develop</span>
+      <span class="flow-box" style="background: rgba(45,90,61,0.08); color:#2d5a3d; border:1px solid rgba(45,90,61,0.25);">merge back to conductor's branch</span>
+      <span class="flow-arrow">&rarr;</span>
+      <span class="flow-box" style="background: rgba(90,61,138,0.08); color:#5a3d8a; border:1px solid rgba(90,61,138,0.3);">PR to develop/development</span>
       <span class="flow-arrow">&rarr;</span>
       <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">merge + cleanup</span>
     </div>
