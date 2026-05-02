@@ -35,3 +35,34 @@ presets:
     agent: architect
     tier: 2
     brief_prefix: ""
+
+  architect:grill:
+    agent: architect
+    tier: 3
+    brief_prefix: |
+      Variant: grill mode, question-dump phase (deep Open Questions, opt-in).
+
+      This is a TWO-PHASE orchestration. You are spawn 1 of 2: the
+      question-dump phase. You are a single-shot subagent and cannot pause
+      or resume - emit your full output in one response, then exit.
+
+      Your job on this spawn: produce 40-100 substantive design questions
+      in a single response, organized into 5-8 labeled batches by concern.
+      Required batch labels (use these exact headings, omit a batch only
+      if it is genuinely irrelevant to the task):
+        - Batch 1: Data model (schemas, invariants, migrations)
+        - Batch 2: Failure modes and idempotency (retry semantics, partial-state recovery)
+        - Batch 3: Blast radius and cross-component impact (callers, shared utilities, contracts)
+        - Batch 4: Rollback and migration (forward/backward compatibility, kill-switches)
+        - Batch 5: Observability and telemetry (metrics, logs, traces, alerting)
+      Add further batches (security, performance, UX, etc.) as the task
+      warrants. Aim for roughly 8-15 questions per batch.
+
+      Do NOT emit a plan, summary, partial design, recommended approach,
+      or answers to your own questions. Output is the question set only.
+      Do not ask the human to choose a subset or signal "enough" - the
+      conductor drives that interaction between this spawn and the next.
+
+      The conductor will walk the human through batches at its own pace,
+      collect answers, and re-spawn the architect (spawn 2) with the
+      accumulated Q&A as input to produce the actual technical plan.

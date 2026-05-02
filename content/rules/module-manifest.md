@@ -85,8 +85,16 @@ Performance: first call per flag per request hits network (~50 ms);
 
 Comprehension should live in the code. An Architect plan describes what was decided; it does not travel with the file when the file is moved, refactored, or read by an engineer three months later who was not in that session. A module manifest embeds the essential context — the "why does this exist and what breaks if I change it" — directly in the artifact that persists. This is the self-describing layer of the dark code framework: systems that communicate their own structure rather than requiring external documentation to make sense of them.
 
+A missing or stale manifest is **intent debt**: the artifact stops reflecting what the code is actually for. Technical debt lives in the code, cognitive debt lives in the people who hold the context in their heads, and intent debt lives in the artifacts that are supposed to encode that intent for everyone else. Intent debt is the most insidious of the three, because downstream agents (and humans) read the stale manifest, trust it, and drift further from what the code actually does. Keeping the manifest current is how this file pays down its share of that debt.
+
 ## Enforcement
 
-Skeptic flags missing or stale manifests on non-trivial modules as a **Minor finding** (does not block sign-off). Manifests remain recommended practice for comprehension hygiene; missing manifests are flagged for awareness, not as a blocker.
+Skeptic applies tiered enforcement:
+
+- **Missing manifest** on a non-trivial module: **Minor finding** (does not block sign-off). Comprehension hygiene; flagged for awareness.
+- **Stale manifest** (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics): **Major finding** (blocks sign-off absent a compelling documented reason to defer). A stale manifest is active misinformation - worse than no manifest.
+- **Stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path** (e.g., a documented "no side effects" claim that is no longer true, an idempotency guarantee that no longer holds, a failure-mode contract that has silently changed): **Critical finding**. The manifest is actively misleading callers on a load-bearing path.
+
+Minor findings are addressed via the Minor-fix workflow (see `content/references/skeptic-protocol.md` Section 2 step 4 and Section 6). Major and Critical findings must be resolved before sign-off.
 
 See `content/references/skeptic-protocol.md` for findings classification definitions.

@@ -54,7 +54,7 @@ Use this exact structure. Do not rename or reorder sections.
 2. [...]
 (ordered by dependency — each step should be atomic enough for a Worker to execute)
 
-**Note any new modules where a manifest is recommended.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, consider including a step or inline note: `[filename] — new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` Manifests are encouraged practice for comprehension hygiene; Skeptic surfaces missing manifests as Minor findings rather than blocking findings.
+**Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
 ### Trade-offs and constraints
 **Alternatives considered (before committing to the chosen approach above):**
@@ -77,3 +77,19 @@ Use this exact structure. Do not rename or reorder sections.
 - **If critical context is missing** - no codebase path, no task description, or a required constraint is unstated - say so explicitly at the top of your response before attempting a plan. Do not invent assumptions to fill the gap.
 - **If the codebase is large**, focus reading on: entry points, data models, API layer, test conventions, and files named in the task description or directly adjacent to the change area.
 - Return your output as plain text. Do not wrap the plan in a code block.
+
+## Variants
+
+**`architect:grill`** is an opt-in deep-questioning variant for wide design-concept gaps - novel architecture, high blast-radius decisions, or vague problem framing where the standard Open Questions section feels insufficient.
+
+**Concrete trigger signals** (use either subjective or objective criteria; the objective signal is preferred when available):
+- *Objective:* the task description is under 200 words and asks an open "how should we..." question, OR the standard `architect:default` first-pass plan returns with 5+ Open Questions.
+- *Subjective:* the conductor judges the design space too wide for a single-shot plan - novel architecture, high blast-radius decision, or framing the human has not pinned down.
+
+**Two-phase orchestration model.** Subagents are single-shot (one prompt in, one output out) - they cannot pause and resume. Grill mode is therefore split across two architect spawns with conductor-driven batching in between:
+
+1. **Spawn 1 - question dump.** The architect emits 40-100 substantive design questions in a single response, organized into 5-8 labeled batches by concern (data model, failure modes/idempotency, blast radius, rollback/migration, observability). No plan, no answers, no synthesis - questions only.
+2. **Conductor walks the human through batches** at the human's pace, presenting one batch at a time and collecting answers. This is conductor orchestration, not architect behavior.
+3. **Spawn 2 - plan synthesis.** Once the human signals "enough" or all batches are answered, the conductor re-spawns the architect (`architect:default` is the default choice; `architect:grill` with a follow-up directive is acceptable when more depth is still needed) with the accumulated Q&A as input. Spawn 2 produces the actual technical plan; its Open Questions section should be empty or minimal because depth was reached interactively.
+
+Runs at Tier 3 because deep-question runs benefit from max capability and spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the "Spawn presets" section in `content/sections/04-risk-classification.md` for the surrounding declaration protocol.

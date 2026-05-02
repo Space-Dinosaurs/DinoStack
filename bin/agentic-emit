@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Purpose: Append a single JSON event line to .agentic/events.jsonl, called
+#          inline by the conductor at orchestration boundaries (spawn_start,
+#          spawn_complete, conductor_direct). Resolves phase from
+#          .agentic/loop-state.json when present.
+#
+# Public API: agentic-emit <event> <agent_or_-> <task_id_or_-> <json_data>
+#             - event:    event type (spawn_start|spawn_complete|conductor_direct|...)
+#             - agent:    agent name, or "-" for null
+#             - task_id:  task id, or "-" for null
+#             - json_data: compact JSON object as a single string
+#
+# Upstream deps: bash, date (GNU or BSD), python3 (stdlib only) for safe
+#                JSON assembly. Reads .agentic/loop-state.json if present.
+#
+# Downstream consumers: content/commands/implement-ticket.md (Phase 6, 6b);
+#                       content/rules/agent-methodology.md trivial-path edits;
+#                       any future command that reaches an instrumented
+#                       boundary.
+#
+# Failure modes: best-effort. Missing .agentic/ directory is created. Append
+#                failure on events.jsonl is swallowed silently (consistent
+#                with hooks/stop-context.js failure model). Malformed
+#                json_data argument falls through python3 with a stderr note
+#                and exit 0. Never raises to the caller.
+#
+# Performance: ~5-15 ms per call; one date subprocess + one python3 process
+#              + one append.
+
+set -u
+
+if [ "$#" -lt 4 ]; then
+  echo "agentic-emit: usage: agentic-emit <event> <agent|-> <task_id|-> <json_data>" >&2
+  exit 0
+fi
+
+event="$1"
+agent_arg="$2"
+task_id_arg="$3"
+data_json="$4"
+
+agentic_dir="${AGENTIC_DIR:-.agentic}"
+events_file="$agentic_dir/events.jsonl"
+loop_state_file="$agentic_dir/loop-state.json"
+
+mkdir -p "$agentic_dir" 2>/dev/null || exit 0
+
+# ISO8601 UTC with millisecond precision.
+ts="$(python3 -c 'import datetime,sys; print(datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.") + f"{datetime.datetime.utcnow().microsecond // 1000:03d}Z")' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Resolve phase from loop-state.json (last_phase field) if present.
+phase="unknown"
+if [ -f "$loop_state_file" ]; then
+  phase="$(python3 -c "
+import json,sys
+try:
+    with open('$loop_state_file') as f:
+        d = json.load(f)
+    p = d.get('last_phase')
+    print(p if isinstance(p, str) and p else 'unknown')
+except Exception:
+    print('unknown')
+" 2>/dev/null || echo unknown)"
+fi
+
+# Convert "-" sentinels to JSON null inside python below.
+line="$(python3 - "$ts" "$phase" "$event" "$agent_arg" "$task_id_arg" "$data_json" <<'PYEOF' 2>/dev/null
+import json, sys
+ts, phase, event, agent_arg, task_id_arg, data_raw = sys.argv[1:7]
+agent = None if agent_arg == "-" else agent_arg
+task_id = None if task_id_arg == "-" else task_id_arg
+try:
+    data = json.loads(data_raw) if data_raw else {}
+    if not isinstance(data, dict):
+        data = {"_raw": data}
+except Exception:
+    data = {"_raw": data_raw}
+print(json.dumps({
+    "ts": ts, "phase": phase, "event": event,
+    "agent": agent, "task_id": task_id, "data": data,
+}, separators=(",", ":")))
+PYEOF
+)"
+
+if [ -n "$line" ]; then
+  printf '%s\n' "$line" >> "$events_file" 2>/dev/null || true
+fi
+
+exit 0

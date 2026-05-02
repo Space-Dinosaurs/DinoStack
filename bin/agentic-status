@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read-only inspection of the agentic-engineering activation
+         resolver. Dumps the resolved global config, project marker,
+         profile/preset, and first-activation sentinel state to stdout.
+         The CLI for the /agentic-status command. Writes nothing.
+
+Public API: agentic-status
+            Prints a fixed-format multi-line report. No subcommands,
+            no flags. Always exits 0.
+
+Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, re).
+               Reads ~/.claude/agentic-engineering.json, the project
+               root AGENTS.md (resolved through CLAUDE.md @AGENTS.md
+               import if present), and .agentic/.activated.
+
+Downstream consumers: content/commands/agentic-status.md (command
+                      spec); developers running the command
+                      interactively to debug activation state.
+
+Failure modes: missing or malformed JSON config -> renders
+               "missing"/defaults; never raises. Missing AGENTS.md ->
+               marker rendered as "none". File read errors are
+               swallowed and surfaced as "missing"/"none". The script
+               does not modify any file, so failures are
+               read-side-only.
+
+Performance: O(small). Two file reads (config + AGENTS.md). Constant
+             time; <50 ms on a cold start.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
+SENTINEL_PATH = Path(".agentic/.activated")
+
+PRESET_TABLE = {
+    "lean": "relaxed",
+    "standard": "default",
+    "strict": "strict",
+}
+
+
+def _load_config() -> tuple[dict, str]:
+    """Return (config_dict, status) where status is 'found' or 'missing'."""
+    if not CONFIG_PATH.is_file():
+        return {}, "missing"
+    try:
+        with CONFIG_PATH.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return {}, "missing"
+        return data, "found"
+    except (OSError, json.JSONDecodeError):
+        return {}, "missing"
+
+
+def _resolve_agents_md() -> Path | None:
+    """Resolve project AGENTS.md, following CLAUDE.md @AGENTS.md import."""
+    cwd = Path.cwd()
+    agents = cwd / "AGENTS.md"
+    if agents.is_file():
+        return agents
+    claude = cwd / "CLAUDE.md"
+    if claude.is_file():
+        try:
+            text = claude.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("@"):
+                target = stripped[1:].strip()
+                if target:
+                    candidate = (cwd / target).resolve()
+                    if candidate.is_file():
+                        return candidate
+    return None
+
+
+_MARKER_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering:\s*(opt-in|opt-out)\s*$",
+    re.IGNORECASE,
+)
+_PROFILE_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering-profile:\s*(\S+)\s*$",
+    re.IGNORECASE,
+)
+_PRESET_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering-preset:\s*(\S+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _scan_agents_md(path: Path | None) -> dict:
+    """Return {marker, project_profile, project_preset} from AGENTS.md."""
+    out = {"marker": "none", "project_profile": None, "project_preset": None}
+    if path is None:
+        return out
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    first_marker: str | None = None
+    for line in text.splitlines():
+        m = _MARKER_RE.match(line)
+        if m and first_marker is None:
+            first_marker = m.group(1).lower()
+        p = _PROFILE_RE.match(line)
+        if p and out["project_profile"] is None:
+            val = p.group(1).lower()
+            if val in ("relaxed", "default", "strict"):
+                out["project_profile"] = val
+        pr = _PRESET_RE.match(line)
+        if pr and out["project_preset"] is None:
+            val = pr.group(1).lower()
+            if val in ("lean", "standard", "strict"):
+                out["project_preset"] = val
+    if first_marker:
+        out["marker"] = first_marker
+    return out
+
+
+def _resolve(config: dict, scan: dict) -> dict:
+    """Resolve effective profile, preset, and active state."""
+    raw_mode = str(config.get("mode") or "opt-out").lower()
+    mode = "opt-in" if raw_mode == "opt-in" else "opt-out"
+
+    raw_profile = str(config.get("profile") or "default").lower()
+    if raw_profile not in ("relaxed", "default", "strict"):
+        raw_profile = "default"
+    global_profile = raw_profile
+
+    raw_preset = config.get("preset")
+    if isinstance(raw_preset, str) and raw_preset.lower() in PRESET_TABLE:
+        global_preset: str | None = raw_preset.lower()
+    else:
+        global_preset = None
+
+    # Resolution order: project preset > project profile > global preset > global profile.
+    if scan["project_preset"]:
+        effective_profile = PRESET_TABLE[scan["project_preset"]]
+        profile_source = "preset-resolved"
+        effective_preset: str | None = scan["project_preset"]
+        preset_source = "project"
+    elif scan["project_profile"]:
+        effective_profile = scan["project_profile"]
+        profile_source = "project"
+        effective_preset = global_preset
+        preset_source = "global" if global_preset else "none"
+    elif global_preset:
+        effective_profile = PRESET_TABLE[global_preset]
+        profile_source = "preset-resolved"
+        effective_preset = global_preset
+        preset_source = "global"
+    else:
+        effective_profile = global_profile
+        profile_source = "global"
+        effective_preset = None
+        preset_source = "none"
+
+    marker = scan["marker"]
+    if mode == "opt-out" and marker == "opt-out":
+        active = False
+    elif mode == "opt-in" and marker != "opt-in":
+        active = False
+    else:
+        active = True
+
+    return {
+        "mode": mode,
+        "profile": effective_profile,
+        "profile_source": profile_source,
+        "preset": effective_preset,
+        "preset_source": preset_source,
+        "set_at": config.get("set_at") or "unset",
+        "marker": marker,
+        "active": active,
+    }
+
+
+def main(_argv: list[str]) -> int:
+    config, config_status = _load_config()
+    agents_path = _resolve_agents_md()
+    scan = _scan_agents_md(agents_path)
+    res = _resolve(config, scan)
+
+    sentinel_status = "present" if SENTINEL_PATH.is_file() else "absent"
+    marker_path_display = str(agents_path) if agents_path else "none"
+    preset_display = res["preset"] if res["preset"] else "none"
+    active_display = "yes" if res["active"] else "no"
+
+    out = []
+    out.append("agentic-engineering status")
+    out.append(f"  global config: {CONFIG_PATH} ({config_status})")
+    out.append(f"  mode: {res['mode']}")
+    out.append(
+        f"  profile: {res['profile']} (source: {res['profile_source']})"
+    )
+    out.append(
+        f"  preset: {preset_display} (source: {res['preset_source']})"
+    )
+    out.append(f"  set_at: {res['set_at']}")
+    out.append(f"  project marker file: {marker_path_display}")
+    out.append(f"  marker: {res['marker']}")
+    out.append(f"  active: {active_display}")
+    out.append(f"  sentinel: {SENTINEL_PATH} ({sentinel_status})")
+    out.append("")
+    out.append(
+        "Note: deleting the sentinel re-arms the first-activation notice only."
+    )
+    out.append("To opt out, use /agentic-disable.")
+    sys.stdout.write("\n".join(out) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

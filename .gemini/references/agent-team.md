@@ -88,7 +88,7 @@ self-check
     ↓
 done (commit still required)
 
-[subagents running] solo engineer Worker in foreground
+[subagents running] solo engineer Worker in background
     ↓
 done (no Skeptic, no brief file, commit still required)
 ```
@@ -153,15 +153,16 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - Skip when a shallow CVE check as part of a security audit is sufficient - the `security-auditor` covers that path
 
 **Use `qa-engineer` when:**
-- Skeptic has signed off AND the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff
+- The diff matches QA trigger patterns (UI, frontend routes, visible behavior) - spawn IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. See `content/sections/05-qa-gate.md` for the full concurrent flow.
+- For non-UI changes: Skeptic has signed off AND the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff.
 - User explicitly asks to verify, test, or QA a change ("run QA", "check the feature works", "verify in the browser", "does it work")
 - Do NOT use when: no qa.md exists at either resolver path, the change is backend-only (no matching patterns), or the change is Low risk
 
 **When the architect returns a plan, spawn a Skeptic to review it before proceeding.** This is mandatory - do not spawn engineers, run the orchestration-planner, or take any action on the plan until the Skeptic grants sign-off. Use the "Document synthesis, architecture, and planning" adversarial brief. A flawed plan propagates errors through every downstream Worker; the plan review Skeptic is the gate that prevents this.
 
-**Skeptic is always spawned for Elevated risk.** It reviews whatever the engineer produced. The security-auditor is an additional pass, not a replacement for the Skeptic.
+**Skeptic is always spawned for Elevated risk.** It reviews whatever the engineer produced. The security-auditor is an additional pass, not a replacement for the Skeptic. For high-stakes Elevated units (auth, payments, data migrations, crypto, secrets), the `multi-dimensional` skeptic_strategy fans out correctness-Skeptic + security-auditor + perf-analyst in a single message on the same diff; see `content/references/subagent-protocol.md` for the full definition and `content/references/skeptic-protocol.md` Section 13 for the workflow.
 
-**Trivial risk skips Skeptic entirely.** Trivial tasks - single-file cosmetic or copy changes with no logic impact, where all qualifying signals hold - do not go through the Skeptic loop. The conductor edits directly when no subagents are running; otherwise a single `engineer` Worker handles it in foreground with no Skeptic and no brief file. When in doubt between Trivial and Elevated, choose Elevated.
+**Trivial risk skips Skeptic entirely.** Trivial tasks - single-file cosmetic or copy changes with no logic impact, where all qualifying signals hold - do not go through the Skeptic loop. The conductor edits directly when no subagents are running; otherwise a single `engineer` Worker handles it in background with no Skeptic and no brief file (background preserves conductor availability for in-flight work). When in doubt between Trivial and Elevated, choose Elevated.
 
 ---
 
@@ -174,7 +175,7 @@ When spawning `engineer`, include:
 - Relevant file paths or codebase root
 - Acceptance criteria
 - Session context (`~/.claude/projects/[hash]/context.md`)
-- For Elevated-path spawns: the execution contract block from `agent-methodology.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
+- For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
 When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
 

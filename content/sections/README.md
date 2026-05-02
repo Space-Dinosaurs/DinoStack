@@ -29,7 +29,8 @@ Section files are named `NN-slug.md` where `NN` is a two-digit ordering prefix a
 
 - `01-activation-preflight.md`
 - `02-delegation.md`
-- `03-risk-classification.md`
+- `03-planning-artifacts.md`
+- `04-risk-classification.md`
 
 The `NN` prefix is dense (no gaps) at any given commit. To insert a new section between existing ones, renumber subsequent files in the same commit.
 
@@ -51,7 +52,7 @@ The README.md file (this file) is excluded from assembly because it does not mat
 
 Once a section has been committed, its top-level (`##`) heading text is a durable cross-reference anchor. Other content in this repository - rules, references, agent specs, command files - links to section content using the form `METHODOLOGY.md §<heading>` or `METHODOLOGY.md §<heading> > <sub-heading>`. Renaming a heading after commit is therefore an Elevated change that requires a sweep of every reference in the repo.
 
-Sub-section (`###`) headings are likewise durable anchors when used as cross-reference targets. The `### Elevated signals`, `### Trivial signals`, `### Low signals`, `### Mid-task reclassification`, `### Low risk self-check`, and `### Declaration format` headings inside `03-risk-classification.md` are explicitly relied on by cross-references and MUST NOT be renamed without a sweep.
+Sub-section (`###`) headings are likewise durable anchors when used as cross-reference targets. The `### Elevated signals`, `### Trivial signals`, `### Low signals`, `### Mid-task reclassification`, `### Low risk self-check`, and `### Declaration format` headings inside `04-risk-classification.md` are explicitly relied on by cross-references and MUST NOT be renamed without a sweep.
 
 ## Cross-reference format
 
@@ -65,17 +66,17 @@ Bold-prose paragraph leads (e.g. `**Conductor rule for Trivial:**`) are NOT cove
 
 ## Known Wave 1 regressions
 
-The Wave 1 PR that introduced this directory deletes `content/rules/agent-methodology.md`. As of that PR, three sibling adapter scripts still reference the deleted path and will fail until Wave 2 lands:
+The Wave 1 PR that introduced this directory deletes the now-renamed `content/rules/METHODOLOGY.md`. As of that PR, three sibling adapter scripts still reference the deleted path and will fail until Wave 2 lands:
 
-- `.gemini/build.sh` (line ~55) cats `content/rules/agent-methodology.md`
-- `.kimi/build.sh` (line ~32) cats `content/rules/agent-methodology.md`
+- `.gemini/build.sh` (line ~55) cats `content/rules/METHODOLOGY.md` (deleted path)
+- `.kimi/build.sh` (line ~32) cats `content/rules/METHODOLOGY.md` (deleted path)
 - `.opencode/install.sh` (line ~322) references the deleted path
 
 If you are on the Wave-1 branch, do NOT run those adapter builds. Wave 2 (Codex/Gemini/Cursor adapter migrations) plus the Kimi and OpenCode catch-ups documented here will close all three.
 
 ## Existing-installation upgrade path
 
-If you previously installed the agentic-engineering skill (via `bash .claude/install.sh`), your `~/.claude/CLAUDE.md` contains a managed block with `@skills/agentic-engineering/rules/agent-methodology.md`. After pulling Wave 1, that import points at a deleted file. Re-run `bash .claude/install.sh` once - the script's regex sub rewrites the managed block to import `@skills/agentic-engineering/METHODOLOGY.md` cleanly. The skill directory itself is symlinked from the repo, so its content updates automatically on `git pull`; only the `@`-import line in `CLAUDE.md` is stale until install re-runs.
+If you previously installed the agentic-engineering skill (via `bash .claude/install.sh`), your `~/.claude/CLAUDE.md` contains a managed block with `@skills/agentic-engineering/METHODOLOGY.md`. After pulling Wave 1, that import points at a deleted file. Re-run `bash .claude/install.sh` once - the script's regex sub rewrites the managed block to import `@skills/agentic-engineering/METHODOLOGY.md` cleanly. The skill directory itself is symlinked from the repo, so its content updates automatically on `git pull`; only the `@`-import line in `CLAUDE.md` is stale until install re-runs.
 
 ## Baseline SHA semantics
 

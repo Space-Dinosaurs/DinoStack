@@ -26,11 +26,14 @@ git branch -D <branch-name>   # if not auto-deleted by --delete-branch
 git worktree prune             # clean up any stale metadata
 ```
 
-**Before spawning any agent with `isolation: "worktree"`**, prune dead `worktree-agent-*` branches to prevent stale branches from being reused at their old commits:
+**Worktree prune and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight.
 
 ```bash
+# Run at session start (conductor preflight):
 git fetch origin
 git worktree prune
+# Resolve base branch (develop > development > create develop from main/master):
+# Cache result as BASE_BRANCH in-context
 # Delete any worktree-agent-* branches not currently checked out in a worktree:
 git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"

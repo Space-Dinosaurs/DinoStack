@@ -52,6 +52,10 @@ For detailed protocol specs, see reference docs in `.gemini/references/` or `~/.
 
 HEADER
 
+  bash "$REPO_DIR/scripts/build-methodology.sh"
+  echo ""
+  echo "---"
+  echo ""
   cat "$CONTENT/rules/code-standards.md"
   echo ""
   echo "---"

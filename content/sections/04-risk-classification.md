@@ -77,6 +77,21 @@ Risk: Elevated + Cleanup - [specific signal]
 Applying adversarial review with /simplify cleanup pass.
 ```
 
+When a Brief or Plan governs the task (see METHODOLOGY.md §Planning Artifacts), include the artifact path under the `Risk:` and `Tier:` lines:
+
+```
+Risk: Elevated - multi-unit feature
+Tier: 2
+Brief: docs/planning/<slug>.md
+Applying adversarial review.
+```
+```
+Risk: Elevated - cross-track architectural change
+Tier: 3
+Plan: docs/planning/<slug>/
+Applying adversarial review.
+```
+
 ### Tier declaration
 
 Conductors declare the model tier at spawn time to route lightweight tasks to faster models and critical reviews to max-capability models. Tier is declared in the same block as Risk, immediately below the Risk line.
@@ -140,5 +155,7 @@ The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping i
 4. The `Tier:` line and the preset's tier MUST agree. If they disagree, the explicit `Tier:` line wins (operator intent overrides library default) and the conductor notes the override.
 
 See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
+
+**Canonical variant for wide-design-gap work:** `architect:grill` is the opt-in deep-questioning Architect variant. Concrete trigger: the task description is under 200 words and asks an open "how should we..." question, OR the standard `architect:default` first-pass plan returns with 5+ Open Questions. Subjective trigger also valid: novel architecture, high blast-radius decisions, or vague problem framing where Open Questions feels insufficient. Grill mode is a two-phase orchestration (question-dump spawn, then plan-synthesis spawn with accumulated Q&A as input) - see `content/agents/architect.md` Variants for the full flow and the preset entry for the brief.
 
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.

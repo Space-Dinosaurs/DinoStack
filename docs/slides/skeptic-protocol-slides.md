@@ -235,32 +235,86 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 ---
 
-## Two new Skeptic obligations
+## Three new Skeptic obligations
 
 <style scoped>
-  .columns { gap: 1.2em; }
-  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
-  .columns .card strong { font-size: 1.05em; }
+  .columns-3 { gap: 1.2em; }
+  .columns-3 .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns-3 .card strong { font-size: 1.05em; }
   .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
   ul { font-size: 0.85em; }
   ul li { margin: 0.15em 0; }
 </style>
 
-<div class="columns">
+<div class="columns-3">
 <div class="card">
 <strong>Module manifest check</strong><br/>
 On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file.<br/><br/>
-Missing or stale manifest = <strong>Major</strong> finding. Blocks sign-off.
+Tiered: missing = <strong>Minor</strong> (non-blocking, hygiene); stale = <strong>Major</strong> (blocks sign-off); stale-on-correctness/security path = <strong>Critical</strong>.
 </div>
 <div class="card">
 <strong>Regression test verification</strong><br/>
 Before granting sign-off on any round where a Critical or Major finding was fixed: verify a regression test was added - a test that would have failed without the fix.<br/><br/>
 Missing test without a documented exception = <strong>Major</strong> finding.
 </div>
+<div class="card">
+<strong>Telemetry emit check</strong><br/>
+At every instrumented boundary (engineer/skeptic/qa spawn or Trivial-path direct edit): verify <code>.agentic/events.jsonl</code> received the matching <code>spawn_start</code>/<code>spawn_complete</code> or <code>conductor_direct</code> events.<br/><br/>
+Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/agentic-cost</code> dashboards accurate).
+</div>
 </div>
 
 <div class="callout">
-Both checks are additions to the standard Skeptic pass - they run alongside the existing findings classification, not instead of it. Module manifests are a comprehension gate; regression tests are a regression gate.
+These checks are additions to the standard Skeptic pass - they run alongside the existing findings classification, not instead of it. Comprehension, regression, and observability gates layered on top of Critical/Major/Minor.
+</div>
+
+---
+
+## Cognitive surrender check
+
+<style scoped>
+  .columns { gap: 1.2em; }
+  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns .card strong { font-size: 1.05em; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
+</style>
+
+<div class="columns">
+<div class="card" style="border-left-color: #2e7d32;">
+<strong>Cognitive offloading (good)</strong><br/>
+Delegating mechanics to the agent - boilerplate, search, transformation. Judgment stays with the human and the Skeptic.
+</div>
+<div class="card" style="border-left-color: #c62828;">
+<strong>Cognitive surrender (bad)</strong><br/>
+Treating the LLM as System 3. A Skeptic that agrees with the Worker on every point with zero findings across two iterations is a rubber-stamp signal.
+</div>
+</div>
+
+<div class="callout">
+Cure: an <strong>audit-note Minor</strong> attesting the Skeptic re-read the diff end-to-end with independent attention. Documents what was checked, not what was wrong. Exempt from <code>/implement-ticket</code> Phase 6 re-raise and convergence-failure detection - bookkeeping, not contested findings.
+</div>
+
+---
+
+## Calibration layer
+
+<style scoped>
+  ul { font-size: 0.82em; }
+  ul li { margin: 0.15em 0; }
+  p { font-size: 0.85em; margin: 0.3em 0; }
+  pre { font-size: 0.7em; padding: 0.4em 0.8em; line-height: 1.3; margin: 0.3em 0 0.6em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+The audit-note Minor is the per-spawn defense against rubber-stamping. The **calibration layer** is the long-horizon backstop - it detects drift in aggregate over time without enlarging the per-spawn review surface.
+
+- **Findings counters in `events.jsonl`** - every Skeptic `spawn_complete` carries `findings_count`, `diff_lines`, `signed_off`, and `iteration` inside `data`. Conductor builds the merged JSON inline; subagents do not write to `.agentic/`.
+- **5% sampled meta-Skeptic** - deterministic bucket from `hash(task_id+iteration) % 100 < 5`. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits `meta_review_complete`.
+- **Surfacing** - Critical/Major divergence on a sampled spawn surfaces as one inline `META-DIVERGENCE:` line. Original sign-off remains binding; the notice is advisory. Surfacing fires both in-session (Phase 6 turn boundaries) and at session start (catches async returns from prior sessions).
+- **Inspection CLI** - `agentic-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `agentic-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
+
+<div class="callout">
+Threat model: drift detection in a non-adversarial conductor relationship. Not a cheating-prevention mechanism - a compromised conductor can mis-emit. The target is operator self-deception over time, not adversarial spoofing.
 </div>
 
 ---

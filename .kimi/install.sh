@@ -192,8 +192,44 @@ link_abs() {
 
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"
-link_abs "$REPO_DIR/content/rules"      "$SKILL_DST/rules"
 link_abs "$REPO_DIR/content/agents"     "$SKILL_DST/agents"
+
+# ---------------------------------------------------------------------------
+# Symlink migration: rules -> sections (5-case contract)
+#
+# Case 1: sections exists, rules absent        -> already migrated, no action
+# Case 2: rules is a symlink, sections absent  -> unlink rules; create sections symlink
+# Case 3: rules is a real dir, sections absent -> backup rules; create sections symlink
+# Case 4: both rules and sections exist        -> ABORT (manual intervention required)
+# Case 5: neither exists                       -> clean install, create sections symlink
+# ---------------------------------------------------------------------------
+_sections_dst="$SKILL_DST/sections"
+_rules_dst="$SKILL_DST/rules"
+
+if [[ -e "$_sections_dst" || -L "$_sections_dst" ]] && [[ ! -e "$_rules_dst" && ! -L "$_rules_dst" ]]; then
+  # Case 1: already migrated
+  echo "  = sections (already migrated)"
+elif [[ -L "$_rules_dst" ]] && [[ ! -e "$_sections_dst" && ! -L "$_sections_dst" ]]; then
+  # Case 2: rules is a symlink, sections absent
+  rm "$_rules_dst"
+  ln -s "$REPO_DIR/content/sections" "$_sections_dst"
+  echo "  ~ sections (migrated from rules symlink)"
+elif [[ -d "$_rules_dst" && ! -L "$_rules_dst" ]] && [[ ! -e "$_sections_dst" && ! -L "$_sections_dst" ]]; then
+  # Case 3: rules is a real directory, sections absent - backup and create
+  _backup="${_rules_dst}.bak.$(date +%Y%m%dT%H%M%S)"
+  mv "$_rules_dst" "$_backup"
+  ln -s "$REPO_DIR/content/sections" "$_sections_dst"
+  echo "  ~ sections (migrated from real rules dir; backup at $_backup)"
+elif [[ ( -e "$_rules_dst" || -L "$_rules_dst" ) ]] && [[ ( -e "$_sections_dst" || -L "$_sections_dst" ) ]]; then
+  # Case 4: both exist - abort
+  echo "  ! CONFLICT: both '$_rules_dst' and '$_sections_dst' exist." >&2
+  echo "    Remove one manually, then re-run install.sh." >&2
+  exit 1
+else
+  # Case 5: neither exists - clean install
+  ln -s "$REPO_DIR/content/sections" "$_sections_dst"
+  echo "  + sections"
+fi
 
 echo ""
 echo "Kimi adapter install complete."

@@ -1,6 +1,6 @@
 # /wrap — On-Demand Session Context Enrichment
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
 
@@ -52,10 +52,13 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 1. Ensure `<cwd>/.agentic/` exists (`mkdir -p <cwd>/.agentic`).
 2. Attempt atomic acquisition: `mkdir <cwd>/.agentic/wrap.lock` (atomic on POSIX - succeeds only if the directory did not exist).
 3. **If `mkdir` succeeds**, immediately write owner metadata: `<cwd>/.agentic/wrap.lock/owner` containing two lines - the current process PID and an ISO8601 UTC timestamp (e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`). Proceed.
-4. **If `mkdir` fails** (lock already held), read `<cwd>/.agentic/wrap.lock/owner`. Consider the lock stale if EITHER: (a) the PID is not running (`ps -p <pid>` returns non-zero), OR (b) the timestamp is older than 30 minutes. If stale, remove the lock dir (`rm -rf <cwd>/.agentic/wrap.lock`) and retry step 2 once. If the retry still fails, treat as live.
-5. **If the lock is live**, abort immediately. Tell the user: "Another /wrap run is in progress in this project (pid N, started at TIME). Wait for it to finish, then retry." Do not queue or wait. Do not proceed to any subsequent step.
+4. **If `mkdir` fails** (lock already held), attempt to read `<cwd>/.agentic/wrap.lock/owner` to get the owner PID and timestamp.
+   - **If the owner file cannot be read or parsed** (file missing, unreadable, or contains no valid ISO8601 timestamp): treat as stale. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap.lock` but its owner file could not be read or parsed. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap.lock`." Then abort. Do not proceed to any subsequent step.
+   - **If the timestamp is older than 30 minutes**: treat as potentially stale, but do NOT remove the lock automatically. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap.lock` (pid N, started at TIME) and is older than 30 minutes. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap.lock`." Then abort. Do not proceed to any subsequent step. Rationale: only the process that wrote the lock should remove it - auto-removal risks clobbering a live run if the 30-minute heuristic is wrong.
+   - **If the timestamp is less than 30 minutes old** (live lock): wait for the lock to be released. Tell the user once: "Another /wrap run is in progress in this project (pid N, started at TIME). Waiting for it to finish..." Then poll: every 5 seconds check whether `<cwd>/.agentic/wrap.lock` still exists (e.g. `ls <cwd>/.agentic/wrap.lock`). When the directory disappears, retry the `mkdir` acquisition once (step 2). If that retry also fails (a third session acquired the lock between the poll and the retry), report a live-lock message and abort: "Another /wrap run acquired the lock before this session could. Try again when the other run finishes." Do not wait again. If the lock is still held after 10 minutes of waiting, report the same stale-lock message as the > 30-minute path and abort.
+5. Do not perform a PID liveness check (`ps -p`). PID reuse makes the check unreliable for Claude Code processes - the timestamp is the authoritative signal.
 
-The 30-minute staleness heuristic exists because a crashed or force-killed /wrap may leave the lock dir behind - the PID check catches most cases, but the timestamp backstop covers PID reuse.
+The 30-minute staleness heuristic exists because a crashed or force-killed /wrap may leave the lock dir behind. The timestamp backstop is the reliable signal; PID checks are omitted because Claude Code process hierarchies make `ps -p` results unreliable.
 
 **Lock release is mandatory on every exit path.** The lock dir MUST be removed (`rm -rf <cwd>/.agentic/wrap.lock`) before /wrap returns control to the user, on ALL of:
 - successful completion at Step 6;
@@ -63,7 +66,7 @@ The 30-minute staleness heuristic exists because a crashed or force-killed /wrap
 - compression failure or escalation at Part E;
 - any user-abort path (e.g. drift requiring input, Skeptic scope bail).
 
-If /wrap aborts before this lock step (e.g. at the active-Workers check above), no lock was acquired and no release is needed.
+If /wrap aborts before the lock is acquired (e.g. at the active-Workers check above, or because a live or stale lock was detected and the command aborted without acquiring), no lock was acquired and no release is needed.
 
 **Pre-flight path check:** Confirm `<cwd>/.agentic/` exists or can be created. The /wrap skill now writes project-local under `<cwd>/.agentic/` instead of the legacy `~/.claude/projects/[hash]/` hashed directories. No disambiguation needed - one canonical location per project.
 

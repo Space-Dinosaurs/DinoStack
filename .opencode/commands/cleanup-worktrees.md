@@ -4,7 +4,7 @@ agent: build
 ---
 # /cleanup-worktrees
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Clean up stale git worktrees and local branches in the current repository.
 

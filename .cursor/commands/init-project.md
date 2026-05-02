@@ -1,6 +1,6 @@
 # /init-project
 
-> Run the Activation preflight from `agent-methodology.md` before proceeding. If inactive, no-op and exit.
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 >
 > Additional activation behavior for this command: see Step 0 "Global activation mode" below.
 
@@ -15,7 +15,7 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 **0a. Global activation mode** — read this before any other discovery work.
 
-Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `agent-methodology.md`.
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `METHODOLOGY.md`.
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 
@@ -160,6 +160,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.agentic/deploy.md` (only if release signals detected in Step 0)
 - `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
+- `glossary.md` (root) - the project's Ubiquitous Language; seeded with a header and TODO bullet so the team and agents have a place to record domain terms
 - `memory/MEMORY.md` (created at `<cwd>/.agentic/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
 - `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
@@ -386,7 +387,12 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   - `docs/overview/` - high-level summaries and onboarding docs
   ```
   Always include this section.
-- `## Conventions` - a single TODO bullet placeholder; filled in as the project evolves.
+- `## Conventions` - include the glossary line as a fixed bullet, plus a single TODO bullet placeholder; filled in as the project evolves.
+  ```markdown
+  ## Conventions
+  - **Glossary** - see `glossary.md` for the project's domain terms (Ubiquitous Language).
+  - <!-- TODO: Add project conventions as they emerge -->
+  ```
 - `## Session start` section - tool-agnostic instruction for the session agent to verify scaffolding on the first interaction of each new session:
   ```markdown
   ## Session start
@@ -573,11 +579,34 @@ Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer 
 
 If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `agentic-engineering` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
 
-Resolution order at spawn time (per `agent-methodology.md` Spawn presets section): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
+Resolution order at spawn time (per `METHODOLOGY.md` Spawn presets section): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
 
 This step is global (writes outside the project tree). It is idempotent - the file is created on the first `/init-project` invocation on a machine, and subsequent invocations are no-ops. The example library defines `engineer:default`, `engineer:tight-bug`, `skeptic:standard`, `skeptic:plan-review`, `skeptic:security`, and `architect:default`.
 
 Do NOT seed a project-local `.agentic/presets.yml` during init - leave that to the user to author when they want to override a preset for this specific project.
+
+### 6e. Create `glossary.md` (Ubiquitous Language)
+
+Always create at the project root. Only create if the file does not already exist.
+
+This file holds the project's **Ubiquitous Language** - the domain terms the team and agents use to describe the system. Keeping a glossary lets humans and LLM agents work from a shared, intent-revealing vocabulary; it reduces synonym drift (where the same concept gains three names across code, docs, and prompts) and is part of the project's intent layer (see `content/rules/conventions.md`).
+
+Seed with this content:
+
+```markdown
+# Glossary
+
+The Ubiquitous Language for this project - the domain terms the team and any LLM agents working in this repo use to describe the system. Keep this list current as the domain evolves; agents prefer existing terms over inventing synonyms.
+
+<!-- Format: each entry is a term followed by a one-to-two sentence definition. -->
+<!-- Group related terms under H2 headings as the glossary grows. -->
+
+- **TODO** - replace with the project's first domain term and definition.
+```
+
+The root `AGENTS.md` template (Step 3) already includes the glossary bullet under `## Conventions` so agents discover it on session start - no additional edit is needed here.
+
+If the glossary is declined or not relevant for the project, the user can delete the file later; this scaffolding step does not prompt - presence of an empty glossary is harmless and signals "this project may grow one."
 
 ### 7. Create `.claude/settings.local.json`
 

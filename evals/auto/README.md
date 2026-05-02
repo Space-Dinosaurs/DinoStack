@@ -51,7 +51,7 @@ The CLI aborts before spawning any agent if any of these is false:
    allowlist and locked deny-list; check LOC <= `max_edit_loc`.
 5. Apply the diff via `git apply --index`, commit it on the working
    branch, and run `python -m evals.runner.cli run <component>`.
-6. Aggregate the freshly-written TSV rows (median-of-fixture-medians)
+6. Aggregate the freshly-written TSV rows (mean-of-fixture-medians)
    into a scalar. Compare to the prior baseline: if `delta >=
    max(pooled_stdev, 0.02)`, keep the commit. Otherwise `git reset
    --hard` back to the previous base.

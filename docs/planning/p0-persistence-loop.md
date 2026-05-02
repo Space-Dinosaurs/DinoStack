@@ -1,5 +1,7 @@
 # P0 Persistence Loop - Design Plan
 
+> Note: References to "agent-methodology.md" in this historical doc refer to what is now METHODOLOGY.md (assembled from content/sections/). See content/sections/README.md.
+
 ## Problem statement
 
 `/implement-ticket` is a one-shot command: it runs Engineer -> Skeptic -> QA once and then exits, leaving re-routing on Critical and Major findings as ad-hoc prose scattered across Phase 5, 6, and 6b. The current wording says "route back to a fresh engineer agent to fix; re-run Skeptic after" for Critical, and "route back to engineer unless there's a strong reason to defer; re-run Skeptic" for Major - but neither specifies how many times this may repeat, what state carries forward between attempts, or what happens if the loop diverges. In practice, the conductor makes a judgment call each time, which means the number of iterations is unbounded, prior findings may be re-raised on re-review (wasting review cycles), and there is no contract a user can rely on.
