@@ -28,8 +28,9 @@
  *                guaranteed shutdown hook from plugins.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
- *              slightly heavier on /wrap completion (multiple writes plus
- *              one TUI toast HTTP call).
+ *              slightly heavier on /wrap completion (multiple writes, one
+ *              full-file read+parse of events.jsonl for the session_total
+ *              rollup, plus one TUI toast HTTP call).
  */
 
 import path from 'path';
@@ -98,11 +99,9 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
   const MAX_MESSAGES = 10;
 
   /**
-   * Append a session_total event to .agentic/events.jsonl.
-   * Schema follows content/sections/08-events-log.md exactly.
-   * The conductor cannot observe wall_seconds, tokens, or spawn_count from
-   * inside a plugin — emit honest zeros rather than synthesize fake numbers.
-   * Silent failure: any error is logged and swallowed.
+   * Aggregate spawn_complete + conductor_direct events from events.jsonl for
+   * the current session and append a session_total rollup. Mirrors
+   * hooks/stop-context.js writeSessionTotal. Silent failure on every error path.
    */
   async function writeSessionTotal(cwd: string, sessionID: string | null) {
     // M4: Reject cwd values with traversal components before any path join.
@@ -114,6 +113,72 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
 
     const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
     try {
+      const eventsFile = Bun.file(eventsPath);
+      if (!(await eventsFile.exists())) return;
+      const raw = await eventsFile.text();
+      if (!raw.trim()) return;
+
+      const lines = raw.split('\n');
+      let totalWall = 0;
+      let spawnCount = 0;
+      const totalTokens: { input: number; output: number; cache_creation: number; cache_read: number } = {
+        input: 0,
+        output: 0,
+        cache_creation: 0,
+        cache_read: 0,
+      };
+      const byAgent: Record<
+        string,
+        {
+          spawns: number;
+          wall_seconds: number;
+          tokens: { input: number; output: number; cache_creation: number; cache_read: number };
+        }
+      > = {};
+      const tokenKeys = ['input', 'output', 'cache_creation', 'cache_read'] as const;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let obj: any;
+        try {
+          obj = JSON.parse(trimmed);
+        } catch (_) {
+          continue;
+        }
+        const ev = obj && obj.event;
+        if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
+        const data = (obj && obj.data) || {};
+        // Filter to current session when session_uuid is present on the
+        // event payload. Events without session_uuid are included
+        // unconditionally (tolerant of pre-instrumentation events).
+        if (sessionID && data.session_uuid && data.session_uuid !== sessionID) {
+          continue;
+        }
+        const wall = Number(data.wall_seconds) || 0;
+        totalWall += wall;
+        const tokens = data.tokens || {};
+        for (const k of tokenKeys) {
+          totalTokens[k] += Number(tokens[k]) || 0;
+        }
+        if (ev === 'spawn_complete') {
+          spawnCount += 1;
+          const agentName = (obj && obj.agent) || 'unknown';
+          if (!byAgent[agentName]) {
+            byAgent[agentName] = {
+              spawns: 0,
+              wall_seconds: 0,
+              tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+            };
+          }
+          byAgent[agentName].spawns += 1;
+          byAgent[agentName].wall_seconds += wall;
+          for (const k of tokenKeys) {
+            byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
+          }
+        }
+      }
+
       const event = {
         ts: new Date().toISOString(),
         phase: 'session_end',
@@ -121,18 +186,21 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
         agent: null,
         task_id: null,
         data: {
-          wall_seconds: 0,
-          tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-          spawn_count: 0,
-          by_agent: {},
+          wall_seconds: Number(totalWall.toFixed(3)),
+          tokens: totalTokens,
+          spawn_count: spawnCount,
+          by_agent: byAgent,
           session_uuid: sessionID || null,
         },
       };
-      await $`mkdir -p ${path.join(cwd, '.agentic')}`;
       // C3: Use fs/promises.appendFile rather than read-modify-write so
       // concurrent writers cannot lose lines.
       await appendFile(eventsPath, JSON.stringify(event) + '\n');
-      await log('info', 'Appended session_total', { eventsPath });
+      await log('info', 'Appended session_total', {
+        eventsPath,
+        spawn_count: spawnCount,
+        wall_seconds: Number(totalWall.toFixed(3)),
+      });
     } catch (err: any) {
       await log('warn', 'Failed to write session_total', { eventsPath, error: err.message });
     }
@@ -501,13 +569,16 @@ ${toolsLine}
       }
     },
 
-    'command.executed': async ({ name, sessionID }: { name: string; sessionID: string }) => {
+    'command.executed': async ({ name, sessionID }: { name: string; sessionID?: string }) => {
       // /wrap is the once-per-session finalization trigger. The bare command
       // name is "wrap" (no leading slash). Other commands are ignored.
       if (name !== 'wrap') return;
 
+      // Normalize sessionID to match the writers' string|null contract.
+      const sid: string | null = sessionID ?? null;
+
       await log('info', 'command.executed: /wrap detected, running finalization', {
-        sessionID,
+        sessionID: sid,
       });
 
       try {
@@ -523,8 +594,8 @@ ${toolsLine}
 
         // The three finalization writes are independent and best-effort.
         await writeLoopState(cwd);
-        await writeBatchState(cwd, sessionID);
-        await writeSessionTotal(cwd, sessionID);
+        await writeBatchState(cwd, sid);
+        await writeSessionTotal(cwd, sid);
 
         // Surface a TUI toast so the user knows the session was finalized
         // and should be ended cleanly. Toast failure falls back to a log.
