@@ -14,23 +14,44 @@
  * Downstream consumers: OpenCode plugin system (loaded from
  *                        ~/.config/opencode/plugins/ or .opencode/plugins/).
  *
- * Failure modes: Silent failure on every write path. session.idle does
- *                context.md refresh only — no loop-state, batch-state, or
- *                events.jsonl writes happen there. Finalization writes
- *                (loop-state, batch-state, events.jsonl) run only on
- *                /wrap completion via command.executed and are independent
- *                and best-effort: a failure in one does not affect the
- *                others. TUI toast failure falls back to a structured log
- *                line. cwd values with path-traversal components are
- *                rejected by all three writers (defence in depth). The
- *                per-session-once invariant for session_total relies on the
- *                user invoking /wrap; OpenCode does not expose a
- *                guaranteed shutdown hook from plugins.
+ * Failure modes: Silent failure on every write path. The plugin uses two
+ *                distinct OpenCode dispatch mechanisms:
+ *                  1. Direct trigger hook `tool.execute.after` — invoked by
+ *                     name with (input, output) by the runtime's `trigger`
+ *                     dispatcher. Used to accumulate file paths and tools.
+ *                  2. Generic `event` hook — invoked for EVERY bus event
+ *                     (session.idle, message.updated, command.executed,
+ *                     session.created, session.compacted, etc.); the
+ *                     handler discriminates by `event.type` internally.
+ *                     Bus events read their data from `event.properties`,
+ *                     not from a top-level destructure.
+ *                NOTE: an earlier version of this plugin registered
+ *                `'session.idle'`, `'message.updated'`, and
+ *                `'command.executed'` as top-level hook keys. The OpenCode
+ *                runtime never looks those up — bus events only flow
+ *                through the generic `event` hook — so all three handlers
+ *                were dead code. This commit fixes that dispatch bug.
+ *                session.idle does context.md refresh only — no loop-state,
+ *                batch-state, or events.jsonl writes happen there.
+ *                Finalization writes (loop-state, batch-state,
+ *                events.jsonl) run only on /wrap completion via
+ *                command.executed and are independent and best-effort: a
+ *                failure in one does not affect the others. TUI toast
+ *                failure falls back to a structured log line. cwd values
+ *                with path-traversal components are rejected by all three
+ *                writers (defence in depth). The per-session-once
+ *                invariant for session_total relies on the user invoking
+ *                /wrap; OpenCode does not expose a guaranteed shutdown
+ *                hook from plugins.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
  *              slightly heavier on /wrap completion (multiple writes, one
  *              full-file read+parse of events.jsonl for the session_total
- *              rollup, plus one TUI toast HTTP call).
+ *              rollup, plus one TUI toast HTTP call). The generic `event`
+ *              hook fires for every bus event in the session (potentially
+ *              hundreds per session); the unmatched-type early-return must
+ *              stay cheap (a single property read and three string
+ *              comparisons, no allocations, no logs).
  */
 
 import path from 'path';
@@ -406,30 +427,6 @@ ${toolsLine}
   }
 
   return {
-    'message.updated': async ({ message }: { message: Message }) => {
-      if (message.role !== 'user') return;
-      await log('info', 'message.updated hook fired for user message');
-
-      let text = '';
-      if (typeof message.content === 'string') {
-        text = message.content.trim();
-      } else if (Array.isArray(message.content)) {
-        for (const block of message.content) {
-          if (block && block.type === 'text' && typeof block.text === 'string') {
-            text += block.text;
-          }
-        }
-        text = text.trim();
-      }
-
-      if (!text) return;
-
-      recentMessages.push(text);
-      if (recentMessages.length > MAX_MESSAGES) {
-        recentMessages.shift();
-      }
-    },
-
     'tool.execute.after': async ({ tool, args }: { tool: string; args?: ToolExecuteArgs }) => {
       await log('info', 'tool.execute.after hook fired', { tool });
       toolsUsed.add(tool);
@@ -462,81 +459,118 @@ ${toolsLine}
       }
     },
 
-    'session.idle': async () => {
-      // session.idle fires per busy->idle transition (every turn), NOT once
-      // per session. This handler is intentionally limited to context.md
-      // refresh; loop-state / batch-state / session_total writes belong on
-      // /wrap (see command.executed below) so they fire once per session.
-      await log('info', 'session.idle hook handler entered');
+    // The OpenCode runtime fans out EVERY bus event (session.idle,
+    // message.updated, command.executed, session.created, session.compacted,
+    // ...) through this single generic `event` hook. We discriminate by
+    // `event.type` and read payload data from `event.properties`. Unrelated
+    // event types must early-return cheaply: this hook fires hundreds of
+    // times per session.
+    event: async ({ event }: { event: { type: string; properties?: any } }) => {
+      const type = event?.type;
+      const props = event?.properties ?? {};
 
-      try {
-        const cwd = directory || process.cwd();
-        const dateStr = new Date().toISOString().slice(0, 10);
-        await log('info', 'session.idle hook fired', { cwd, date: dateStr });
-        await log('info', 'Collected session data', {
-          messageCount: recentMessages.length,
-          pathCount: filePaths.size,
-          toolCount: toolsUsed.size,
-        });
+      if (type === 'message.updated') {
+        const message: Message | undefined = props.message;
+        if (!message || message.role !== 'user') return;
+        await log('info', 'message.updated event received for user message');
 
-        // --- /wrap coexistence: refresh activity block if file was written by /wrap ---
-        const wrapHandled = await refreshWrapActivityBlock(
-          cwd,
-          dateStr,
-          'Auto-appended by session idle plugin'
-        );
-        if (wrapHandled) {
-          await log('info', 'session.idle processing complete (wrap path)');
-          return;
-        }
-
-        // --- Normal write (no /wrap file present) ---
-        const projectDir = path.join(cwd, '.agentic');
-        const outputPath = path.join(projectDir, 'context.md');
-
-        // Reuse the same git status / focus building logic as the activity
-        // block, but format as a top-level context.md instead.
-        const uncommittedFiles: Array<{ statusCode: string; filePath: string }> = [];
-        try {
-          const result = await $`git status --porcelain`.text();
-          for (const line of result.split('\n')) {
-            if (!line.trim()) continue;
-            const statusCode = line.slice(0, 2).trim();
-            const filePath = line.slice(3).trim();
-            if (statusCode && !statusCode.includes('?') && filePath) {
-              uncommittedFiles.push({ statusCode, filePath });
+        let text = '';
+        if (typeof message.content === 'string') {
+          text = message.content.trim();
+        } else if (Array.isArray(message.content)) {
+          for (const block of message.content) {
+            if (block && block.type === 'text' && typeof block.text === 'string') {
+              text += block.text;
             }
           }
-          await log('info', 'git status completed', { trackedChanges: uncommittedFiles.length });
-        } catch (err: any) {
-          await log('warn', 'git status failed', { error: err.message });
+          text = text.trim();
         }
-        const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
 
-        const recentFocus =
-          recentMessages
-            .slice(-3)
-            .map((m) => {
-              const truncated = m.length > 150 ? m.slice(0, 147) + '...' : m;
-              return '- ' + truncated.replace(/\n/g, ' ');
-            })
-            .join('\n') || '(no user messages captured)';
+        if (!text) return;
 
-        const pathsReferenced =
-          filePaths.size > 0
-            ? [...filePaths].sort().map((p) => '- ' + p).join('\n')
-            : '(none detected)';
+        recentMessages.push(text);
+        if (recentMessages.length > MAX_MESSAGES) {
+          recentMessages.shift();
+        }
+        return;
+      }
 
-        const toolsLine = [...toolsUsed].sort().join(', ') || '(none recorded)';
+      if (type === 'session.idle') {
+        // session.idle fires per busy->idle transition (every turn), NOT
+        // once per session. This branch is intentionally limited to
+        // context.md refresh; loop-state / batch-state / session_total
+        // writes belong on /wrap (see command.executed below) so they fire
+        // once per session.
+        await log('info', 'session.idle event handler entered');
 
-        const uncommittedChangesLines =
-          uncommittedFilesLimited.length > 0
-            ? uncommittedFilesLimited
-                .map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`)
-                .join('\n')
-            : '(working tree clean)';
+        try {
+          const cwd = directory || process.cwd();
+          const dateStr = new Date().toISOString().slice(0, 10);
+          await log('info', 'session.idle event fired', { cwd, date: dateStr });
+          await log('info', 'Collected session data', {
+            messageCount: recentMessages.length,
+            pathCount: filePaths.size,
+            toolCount: toolsUsed.size,
+          });
 
-        const content = `# Session Context
+          // --- /wrap coexistence: refresh activity block if file was written by /wrap ---
+          const wrapHandled = await refreshWrapActivityBlock(
+            cwd,
+            dateStr,
+            'Auto-appended by session idle plugin'
+          );
+          if (wrapHandled) {
+            await log('info', 'session.idle processing complete (wrap path)');
+            return;
+          }
+
+          // --- Normal write (no /wrap file present) ---
+          const projectDir = path.join(cwd, '.agentic');
+          const outputPath = path.join(projectDir, 'context.md');
+
+          // Reuse the same git status / focus building logic as the
+          // activity block, but format as a top-level context.md instead.
+          const uncommittedFiles: Array<{ statusCode: string; filePath: string }> = [];
+          try {
+            const result = await $`git status --porcelain`.text();
+            for (const line of result.split('\n')) {
+              if (!line.trim()) continue;
+              const statusCode = line.slice(0, 2).trim();
+              const filePath = line.slice(3).trim();
+              if (statusCode && !statusCode.includes('?') && filePath) {
+                uncommittedFiles.push({ statusCode, filePath });
+              }
+            }
+            await log('info', 'git status completed', { trackedChanges: uncommittedFiles.length });
+          } catch (err: any) {
+            await log('warn', 'git status failed', { error: err.message });
+          }
+          const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
+
+          const recentFocus =
+            recentMessages
+              .slice(-3)
+              .map((m) => {
+                const truncated = m.length > 150 ? m.slice(0, 147) + '...' : m;
+                return '- ' + truncated.replace(/\n/g, ' ');
+              })
+              .join('\n') || '(no user messages captured)';
+
+          const pathsReferenced =
+            filePaths.size > 0
+              ? [...filePaths].sort().map((p) => '- ' + p).join('\n')
+              : '(none detected)';
+
+          const toolsLine = [...toolsUsed].sort().join(', ') || '(none recorded)';
+
+          const uncommittedChangesLines =
+            uncommittedFilesLimited.length > 0
+              ? uncommittedFilesLimited
+                  .map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`)
+                  .join('\n')
+              : '(working tree clean)';
+
+          const content = `# Session Context
 *Auto-updated by session idle plugin — ${dateStr}. Overwritten each turn. Not committed to git.*
 *Project: ${cwd}*
 
@@ -553,72 +587,85 @@ ${uncommittedChangesLines}
 ${toolsLine}
 `;
 
-        try {
-          await $`mkdir -p ${projectDir}`;
-          await Bun.write(outputPath, content);
-          await log('info', 'Wrote context.md', { outputPath });
+          try {
+            await $`mkdir -p ${projectDir}`;
+            await Bun.write(outputPath, content);
+            await log('info', 'Wrote context.md', { outputPath });
+          } catch (err: any) {
+            await log('warn', 'Failed to write context.md', { outputPath, error: err.message });
+          }
+
+          await log('info', 'session.idle processing complete');
         } catch (err: any) {
-          await log('warn', 'Failed to write context.md', { outputPath, error: err.message });
-        }
-
-        await log('info', 'session.idle processing complete');
-      } catch (err: any) {
-        await log('error', 'session.idle handler crashed', {
-          error: err.message || String(err),
-        });
-      }
-    },
-
-    'command.executed': async ({ name, sessionID }: { name: string; sessionID?: string }) => {
-      // /wrap is the once-per-session finalization trigger. The bare command
-      // name is "wrap" (no leading slash). Other commands are ignored.
-      if (name !== 'wrap') return;
-
-      // Normalize sessionID to match the writers' string|null contract.
-      const sid: string | null = sessionID ?? null;
-
-      await log('info', 'command.executed: /wrap detected, running finalization', {
-        sessionID: sid,
-      });
-
-      try {
-        const cwd = directory || process.cwd();
-        const dateStr = new Date().toISOString().slice(0, 10);
-
-        // Best-effort: refresh the activity block if context.md was written
-        // by /wrap. If the file is missing or lacks the wrap header, skip
-        // the activity-block step but still proceed to bookkeeping writes —
-        // wrap may have failed to write context.md, but finalization runs
-        // anyway.
-        await refreshWrapActivityBlock(cwd, dateStr, 'Auto-appended by /wrap finalization');
-
-        // The three finalization writes are independent and best-effort.
-        await writeLoopState(cwd);
-        await writeBatchState(cwd, sid);
-        await writeSessionTotal(cwd, sid);
-
-        // Surface a TUI toast so the user knows the session was finalized
-        // and should be ended cleanly. Toast failure falls back to a log.
-        try {
-          await client.tui.showToast({
-            body: {
-              message:
-                'Session context written. Start a new session to continue with fresh context.',
-              variant: 'info',
-              duration: 8000,
-            },
-          });
-          await log('info', 'Session finalized via /wrap (toast shown)');
-        } catch (err: any) {
-          await log('info', 'Session finalized via /wrap (toast unavailable)', {
-            error: err.message,
+          await log('error', 'session.idle handler crashed', {
+            error: err.message || String(err),
           });
         }
-      } catch (err: any) {
-        await log('error', 'command.executed handler crashed', {
-          error: err.message || String(err),
-        });
+        return;
       }
+
+      if (type === 'command.executed') {
+        // /wrap is the once-per-session finalization trigger. The bare
+        // command name is "wrap" (no leading slash). Other commands are
+        // ignored.
+        const name: string | undefined = props.name;
+        if (name !== 'wrap') return;
+
+        // Normalize sessionID to match the writers' string|null contract.
+        const sessionID: string | undefined = props.sessionID;
+        const sid: string | null = sessionID ?? null;
+
+        await log('info', 'command.executed: /wrap detected, running finalization', {
+          sessionID: sid,
+        });
+
+        try {
+          const cwd = directory || process.cwd();
+          const dateStr = new Date().toISOString().slice(0, 10);
+
+          // Best-effort: refresh the activity block if context.md was
+          // written by /wrap. If the file is missing or lacks the wrap
+          // header, skip the activity-block step but still proceed to
+          // bookkeeping writes — wrap may have failed to write context.md,
+          // but finalization runs anyway.
+          await refreshWrapActivityBlock(cwd, dateStr, 'Auto-appended by /wrap finalization');
+
+          // The three finalization writes are independent and best-effort.
+          await writeLoopState(cwd);
+          await writeBatchState(cwd, sid);
+          await writeSessionTotal(cwd, sid);
+
+          // Surface a TUI toast so the user knows the session was
+          // finalized and should be ended cleanly. Toast failure falls
+          // back to a log.
+          try {
+            await client.tui.showToast({
+              body: {
+                message:
+                  'Session context written. Start a new session to continue with fresh context.',
+                variant: 'info',
+                duration: 8000,
+              },
+            });
+            await log('info', 'Session finalized via /wrap (toast shown)');
+          } catch (err: any) {
+            await log('info', 'Session finalized via /wrap (toast unavailable)', {
+              error: err.message,
+            });
+          }
+        } catch (err: any) {
+          await log('error', 'command.executed handler crashed', {
+            error: err.message || String(err),
+          });
+        }
+        return;
+      }
+
+      // All other event types: silent ignore. The `event` hook fires for
+      // every bus event; unrelated types must return cheaply.
+      // Debug-only: helps observability when we add new branches in the
+      // future. Uncomment if you need to see what bus events are flowing.
+      // await log('debug', 'event hook fired (unhandled type)', { type });
     },
   };
 };
