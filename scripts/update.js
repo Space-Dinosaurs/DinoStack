@@ -1,36 +1,52 @@
 #!/usr/bin/env node
 
 /**
- * scripts/update.js — interactive updater for agentic-engineering.
+ * Purpose: Interactive updater for agentic-engineering. Presents a TUI
+ *          multi-select menu of adapters, runs git pull --ff-only
+ *          origin main, and executes each selected adapter's install.sh.
  *
- * Presents a TUI multi-select menu of adapters, runs git pull --ff-only
- * origin main, and executes each selected adapter's install.sh.
+ * Public API: main() — CLI entry point. Called directly when the file is
+ *             executed as a script.
+ *
+ * Upstream deps: Node built-ins (fs, path, child_process, readline). No
+ *                external packages.
+ *
+ * Downstream consumers: update.sh (shell shim that delegates here).
+ *
+ * Failure modes: Exits with non-zero code on fatal errors (missing repo,
+ *                git not on PATH, pull failure). Safe to retry; idempotent
+ *                adapter installs and config writes.
+ *
+ * Performance: Standard. TUI is synchronous; git and install script
+ *              operations block until completion.
  *
  * Usage: node scripts/update.js <repo_dir>
- *
- * Upstream deps: Node built-ins only (fs, path, child_process, readline).
- * No external package installs.
  */
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const readline = require('readline');
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const CONFIG_FILENAME = 'config.json';
-
-function getConfigPath(repoDir) {
-  return path.join(repoDir, CONFIG_FILENAME);
+function getConfigPath() {
+  const home = process.env.HOME || process.env.USERPROFILE || '.';
+  const configDir = path.join(home, '.agentic');
+  try {
+    fs.mkdirSync(configDir, { recursive: true });
+  } catch (_) {
+    // ignore
+  }
+  return path.join(configDir, 'agentic-engineering-config.json');
 }
 
-function loadConfig(repoDir) {
-  const configPath = getConfigPath(repoDir);
+function loadConfig() {
+  const configPath = getConfigPath();
   try {
     const data = fs.readFileSync(configPath, 'utf8');
     return JSON.parse(data);
@@ -39,8 +55,8 @@ function loadConfig(repoDir) {
   }
 }
 
-function saveConfig(repoDir, selectedAdapters) {
-  const configPath = getConfigPath(repoDir);
+function saveConfig(selectedAdapters) {
+  const configPath = getConfigPath();
   const config = {
     adapters: {},
     updatedAt: new Date().toISOString()
@@ -113,13 +129,20 @@ function displayName(raw) {
 
 function git(worktree, ...args) {
   try {
-    const result = execSync(
-      `git -C "${worktree}" ${args.map(a => `"${a}"`).join(' ')}`,
-      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-    return { success: true, stdout: result.trim() };
+    const result = spawnSync('git', ['-C', worktree, ...args], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    if (result.status !== 0) {
+      return {
+        success: false,
+        stdout: '',
+        stderr: result.stderr ? result.stderr.toString() : ''
+      };
+    }
+    return { success: true, stdout: (result.stdout || '').trim() };
   } catch (err) {
-    return { success: false, stdout: '', stderr: err.stderr ? err.stderr.toString() : err.message };
+    return { success: false, stdout: '', stderr: err.message };
   }
 }
 
@@ -251,7 +274,7 @@ function runTUI(adapters, preselected) {
         draw();
       } else if (key.name === 'return') {
         confirm();
-      } else if (key.name === 'q' || (key.sequence && key.sequence.toLowerCase() === 'q')) {
+      } else if (key.name === 'q') {
         abort();
       } else if (key.name === 'c' && key.ctrl) {
         abort();
@@ -342,6 +365,7 @@ async function main() {
   // --help flag (handle before TTY check so it works in non-TTY)
   if (args.includes('-h') || args.includes('--help')) {
     console.log('Usage: update.sh [--help]');
+    console.log('       node scripts/update.js <repo_dir> [--help]');
     console.log('');
     console.log('Interactive updater for the agentic-engineering repo. Opens a multi-select');
     console.log("menu of adapters, confirms the plan, then runs");
@@ -368,7 +392,7 @@ async function main() {
 
   // Preflight: git check
   try {
-    execSync('git --version', { stdio: 'ignore' });
+    spawnSync('git', ['--version'], { stdio: 'ignore' });
   } catch (_) {
     console.error("error: 'git' not found on PATH.");
     process.exit(1);
@@ -397,7 +421,7 @@ async function main() {
   }
 
   // Load config for pre-selection
-  const config = loadConfig(resolvedRepoDir);
+  const config = loadConfig();
   let preselected = [];
   if (config && config.adapters) {
     preselected = Object.keys(config.adapters).filter(a => config.adapters[a]);
@@ -514,7 +538,7 @@ async function main() {
   }
 
   // Save config
-  saveConfig(resolvedRepoDir, selected);
+  saveConfig(selected);
 
   // Summary
   console.log('');

@@ -19,9 +19,6 @@ node_modules/
 # Local agent config (project-level tier-map and task state)
 .agentic/
 
-# Update script state (user-specific adapter selections)
-config.json
-
 # AI assistant adapter directories (local-only, not committed)
 .agents/
 .goose/
