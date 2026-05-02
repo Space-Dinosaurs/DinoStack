@@ -242,12 +242,10 @@ if [[ -d "$PLUGINS_SRC" ]]; then
 
   for src_file in "$PLUGINS_SRC"/*.js; do
     [[ -e "$src_file" ]] || continue
-    local name
     name="$(basename "$src_file")"
-    local dst_file="$PLUGINS_DST/$name"
+    dst_file="$PLUGINS_DST/$name"
 
     if [[ -L "$dst_file" ]]; then
-      local current_target
       current_target="$(readlink "$dst_file")"
       if [[ "$current_target" == "$src_file" ]]; then
         echo "  = $name (already linked)"
