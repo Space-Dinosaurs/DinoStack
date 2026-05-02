@@ -1,26 +1,91 @@
 /**
  * Purpose: OpenCode plugin that writes session context to disk when the session
  *          becomes idle, so the next session has lightweight context about what
- *          was happening. Also marks active orchestration loops as interrupted.
+ *          was happening. Also marks active orchestration loops as interrupted
+ *          and appends a session_total event to the project's events.jsonl.
  *
  * Public API: StopContextPlugin — exported plugin function for OpenCode.
  *
- * Upstream deps: Bun runtime APIs ($, Bun.file, Bun.write). No npm deps.
+ * Upstream deps: Bun runtime APIs ($, Bun.file, Bun.write). Node built-in path.
+ *                No npm deps.
  *
  * Downstream consumers: OpenCode plugin system (loaded from
  *                        ~/.config/opencode/plugins/ or .opencode/plugins/).
  *
- * Failure modes: Silent failure on all errors. Context write and loop-state write
- *                are independent — one failing does not affect the other.
+ * Failure modes: Silent failure on all errors. Three independent write paths:
+ *                (1) context.md, (2) loop-state.json, (3) events.jsonl. Any
+ *                path failing does not affect the others. cwd values with path
+ *                traversal components are rejected for loop-state and events
+ *                writes (defence in depth).
  *
  * Performance: ~5-20 ms typical; one git status subprocess call.
  */
+
+import path from 'path';
 
 export const StopContextPlugin = async ({ directory, $ }) => {
   const recentMessages = [];
   const filePaths = new Set();
   const toolsUsed = new Set();
   const MAX_MESSAGES = 10;
+
+  /**
+   * Append a session_total event to .agentic/events.jsonl.
+   * Silent failure: any error is swallowed independently.
+   * @param {string} cwd - Verified project directory.
+   */
+  async function writeSessionTotal(cwd) {
+    try {
+      const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+      const event = {
+        timestamp: new Date().toISOString(),
+        event: 'session_total',
+        session: {
+          user_messages: recentMessages.length,
+          tools_used: toolsUsed.size,
+          files_referenced: filePaths.size,
+        },
+      };
+      const line = JSON.stringify(event) + '\n';
+      await $`mkdir -p ${path.join(cwd, '.agentic')}`;
+      // Append to file (create if absent)
+      const file = Bun.file(eventsPath);
+      const existing = await file.exists() ? await file.text() : '';
+      await Bun.write(eventsPath, existing + line);
+    } catch (_) {
+      // Silent failure
+    }
+  }
+
+  /**
+   * Write interrupted status to loop-state.json if an active loop exists.
+   * Called from ALL exit paths so the loop-state write is never skipped.
+   * M3: Reject cwd values with traversal components before any path join.
+   * @param {string} cwd - Project directory.
+   */
+  async function writeLoopState(cwd) {
+    const resolvedCwd = path.resolve(cwd);
+    if (resolvedCwd !== cwd) {
+      // cwd contains traversal components - skip loop-state write silently.
+      return;
+    }
+
+    try {
+      const loopStatePath = path.join(cwd, '.agentic', 'loop-state.json');
+      const loopStateFile = Bun.file(loopStatePath);
+      if (await loopStateFile.exists()) {
+        const loopState = await loopStateFile.json();
+        if (loopState.status === 'active') {
+          loopState.status = 'interrupted';
+          loopState.interrupted_at = new Date().toISOString();
+          loopState.interrupt_reason = 'unknown';
+          await Bun.write(loopStatePath, JSON.stringify(loopState, null, 2));
+        }
+      }
+    } catch (_) {
+      // Silent failure - the 10-minute implicit-interrupt heuristic handles missed writes
+    }
+  }
 
   return {
     "message.updated": async ({ message }) => {
@@ -97,6 +162,7 @@ export const StopContextPlugin = async ({ directory, $ }) => {
       } catch (_) {
         // Silent failure if git isn't available or cwd isn't a repo
       }
+      const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
 
       const recentFocus = recentMessages.slice(-3).map(m => {
         const truncated = m.length > 150 ? m.slice(0, 147) + '...' : m;
@@ -109,12 +175,12 @@ export const StopContextPlugin = async ({ directory, $ }) => {
 
       const toolsLine = [...toolsUsed].sort().join(', ') || '(none recorded)';
 
-      const uncommittedChangesLines = uncommittedFiles.length > 0
-        ? uncommittedFiles.map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`).join('\n')
+      const uncommittedChangesLines = uncommittedFilesLimited.length > 0
+        ? uncommittedFilesLimited.map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`).join('\n')
         : '(working tree clean)';
 
-      const projectDir = `${cwd}/.agentic`;
-      const outputPath = `${projectDir}/context.md`;
+      const projectDir = path.join(cwd, '.agentic');
+      const outputPath = path.join(projectDir, 'context.md');
 
       // --- /wrap coexistence: append activity block if file was written by /wrap ---
       try {
@@ -152,23 +218,10 @@ ${toolsLine}
               // Silent failure
             }
 
-            // Write loop-state on ALL exit paths, including the wrap-coexistence path.
-            try {
-              const loopStatePath = `${cwd}/.agentic/loop-state.json`;
-              const loopStateFile = Bun.file(loopStatePath);
-              if (await loopStateFile.exists()) {
-                const loopState = await loopStateFile.json();
-                if (loopState.status === 'active') {
-                  loopState.status = 'interrupted';
-                  loopState.interrupted_at = new Date().toISOString();
-                  loopState.interrupt_reason = 'unknown';
-                  await Bun.write(loopStatePath, JSON.stringify(loopState, null, 2));
-                }
-              }
-            } catch (_) {
-              // Silent failure
-            }
-
+            // M1: Write session total and loop-state on ALL exit paths,
+            // including the wrap-coexistence path.
+            await writeSessionTotal(cwd);
+            await writeLoopState(cwd);
             return;
           }
         }
@@ -201,22 +254,9 @@ ${toolsLine}
         // Silent failure
       }
 
-      // Write interrupted status to loop-state.json if an active loop exists
-      try {
-        const loopStatePath = `${cwd}/.agentic/loop-state.json`;
-        const loopStateFile = Bun.file(loopStatePath);
-        if (await loopStateFile.exists()) {
-          const loopState = await loopStateFile.json();
-          if (loopState.status === 'active') {
-            loopState.status = 'interrupted';
-            loopState.interrupted_at = new Date().toISOString();
-            loopState.interrupt_reason = 'unknown';
-            await Bun.write(loopStatePath, JSON.stringify(loopState, null, 2));
-          }
-        }
-      } catch (_) {
-        // Silent failure — the 10-minute implicit-interrupt heuristic handles missed writes
-      }
+      // M1: Write session total and loop-state on ALL exit paths.
+      await writeSessionTotal(cwd);
+      await writeLoopState(cwd);
     }
   };
 };
