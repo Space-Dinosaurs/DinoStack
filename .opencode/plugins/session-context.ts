@@ -4,6 +4,9 @@
  *          equivalent finalization (loop-state, batch-state, session_total,
  *          activity-block refresh) once per session when the user invokes
  *          `/wrap` (`command.executed`). Surfaces a TUI toast on /wrap.
+ *          Note: user-message capture for the "Recent Focus" / "Recent
+ *          Messages" section is currently a placeholder — see Failure
+ *          modes for why and what would be required to implement it.
  *
  * Public API: SessionContextPlugin — exported plugin function for OpenCode.
  *
@@ -43,6 +46,28 @@
  *                invariant for session_total relies on the user invoking
  *                /wrap; OpenCode does not expose a guaranteed shutdown
  *                hook from plugins.
+ *
+ *                User-message capture (deferred): the "Recent Focus" /
+ *                "Recent Messages" slot in .agentic/context.md displays the
+ *                placeholder string "(user-message capture unavailable on
+ *                OpenCode — see plugin manifest)". OpenCode's bus-event
+ *                payloads do not deliver user-prompt text on a single
+ *                `message.updated` event. The `message.updated` payload is
+ *                shaped `{ sessionID, info: Message }` (verified in
+ *                packages/sdk/js/src/v2/gen/types.gen.ts and
+ *                packages/opencode/src/session/message-v2.ts), where
+ *                `Message` is `UserMessage | AssistantMessage` and has no
+ *                `content` field. User-prompt text is delivered via
+ *                streaming `message.part.updated` events as `TextPart`
+ *                records (carrying `messageID` and `text`) cross-referenced
+ *                by messageID. Properly capturing user prompts would
+ *                require: (1) subscribing to `message.part.updated` and
+ *                buffering parts keyed by messageID; (2) flushing the
+ *                buffered parts on the matching `message.updated` event
+ *                when `info.role === 'user'`; (3) handling streaming
+ *                ordering and out-of-order arrival. This is deferred as a
+ *                follow-up — the `message.updated` branch was removed
+ *                rather than left in a broken state.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
  *              slightly heavier on /wrap completion (multiple writes, one
@@ -84,11 +109,6 @@ interface PluginContext {
   };
 }
 
-interface Message {
-  role: string;
-  content: string | Array<{ type: string; text?: string }>;
-}
-
 interface ToolExecuteArgs {
   file_path?: string;
   path?: string;
@@ -114,10 +134,12 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
 
   await log('info', 'Plugin loaded', { directory: directory || null });
 
-  const recentMessages: string[] = [];
   const filePaths = new Set<string>();
   const toolsUsed = new Set<string>();
-  const MAX_MESSAGES = 10;
+  // User-prompt capture is intentionally absent — see manifest "User-message
+  // capture (deferred)" for the rationale and the path forward.
+  const RECENT_MESSAGES_PLACEHOLDER =
+    '(user-message capture unavailable on OpenCode — see plugin manifest)';
 
   /**
    * Aggregate spawn_complete + conductor_direct events from events.jsonl for
@@ -352,14 +374,7 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
     }
     const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
 
-    const recentFocus =
-      recentMessages
-        .slice(-3)
-        .map((m) => {
-          const truncated = m.length > 150 ? m.slice(0, 147) + '...' : m;
-          return '- ' + truncated.replace(/\n/g, ' ');
-        })
-        .join('\n') || '(no user messages captured)';
+    const recentFocus = RECENT_MESSAGES_PLACEHOLDER;
 
     const pathsReferenced =
       filePaths.size > 0
@@ -469,31 +484,15 @@ ${toolsLine}
       const type = event?.type;
       const props = event?.properties ?? {};
 
-      if (type === 'message.updated') {
-        const message: Message | undefined = props.message;
-        if (!message || message.role !== 'user') return;
-        await log('info', 'message.updated event received for user message');
-
-        let text = '';
-        if (typeof message.content === 'string') {
-          text = message.content.trim();
-        } else if (Array.isArray(message.content)) {
-          for (const block of message.content) {
-            if (block && block.type === 'text' && typeof block.text === 'string') {
-              text += block.text;
-            }
-          }
-          text = text.trim();
-        }
-
-        if (!text) return;
-
-        recentMessages.push(text);
-        if (recentMessages.length > MAX_MESSAGES) {
-          recentMessages.shift();
-        }
-        return;
-      }
+      // Note: a `message.updated` branch was previously here but was
+      // structurally incompatible with OpenCode's actual bus payload (it
+      // read `props.message.content`, but the runtime publishes
+      // `{ sessionID, info }` and the `Message` type has no `content`
+      // field — user-prompt text is delivered via streaming
+      // `message.part.updated` TextPart events keyed by messageID).
+      // The branch was removed rather than left in a broken state.
+      // See the manifest header "User-message capture (deferred)" for the
+      // implementation path that would replace it.
 
       if (type === 'session.idle') {
         // session.idle fires per busy->idle transition (every turn), NOT
@@ -508,7 +507,6 @@ ${toolsLine}
           const dateStr = new Date().toISOString().slice(0, 10);
           await log('info', 'session.idle event fired', { cwd, date: dateStr });
           await log('info', 'Collected session data', {
-            messageCount: recentMessages.length,
             pathCount: filePaths.size,
             toolCount: toolsUsed.size,
           });
@@ -547,14 +545,7 @@ ${toolsLine}
           }
           const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
 
-          const recentFocus =
-            recentMessages
-              .slice(-3)
-              .map((m) => {
-                const truncated = m.length > 150 ? m.slice(0, 147) + '...' : m;
-                return '- ' + truncated.replace(/\n/g, ' ');
-              })
-              .join('\n') || '(no user messages captured)';
+          const recentFocus = RECENT_MESSAGES_PLACEHOLDER;
 
           const pathsReferenced =
             filePaths.size > 0
