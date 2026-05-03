@@ -847,6 +847,7 @@
   <a href="#permissions"><span class="nav-dot" style="background: var(--cyan);"></span> Hands-off Config</a>
   <a href="#profiles"><span class="nav-dot" style="background: var(--cyan);"></span> Risk Profiles</a>
   <a href="#risk"><span class="nav-dot" style="background: var(--rose);"></span> Risk Classification</a>
+  <a href="#other-adapters"><span class="nav-dot" style="background: var(--text-muted);"></span> Other Adapters</a>
 </nav>
 
 <div class="doc-header">
@@ -2218,6 +2219,128 @@
   </div>
 </div>
 
+
+<!-- ═══ APPENDIX: Other Adapters ═══ -->
+<div id="other-adapters" class="section">
+  <div class="section-title"><h2>Other Adapters</h2><h3>Translating the methodology to Codex, Cursor, Gemini, Kimi, and OpenCode</h3></div>
+  <p class="desc">The methodology is portable. The doc above uses Claude Code paths and slash commands. Other harnesses share the same delegation model, classification rules, and review protocol - but read from different paths and have different command and hook mechanics. Use this appendix to translate.</p>
+
+  <!-- ── Codex ── -->
+  <div class="rel-card" style="margin-top: 24px; border-color: var(--border-subtle);">
+    <h4 style="color: var(--cyan); font-size: 18px; margin-bottom: 4px;">Codex CLI</h4>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">Native AGENTS.md support - TOML agent format - hook system requires opt-in flag</p>
+    <table>
+      <thead><tr><th>Surface</th><th>Codex equivalent</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively, no shim needed</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td><code>~/.codex/AGENTS.md</code></td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>~/.agents/skills/agentic-engineering/SKILL.md</code></td></tr>
+        <tr><td><strong>Slash commands</strong></td><td>Not first-class. Command files live in <code>.codex/commands/*.md</code> but must be pasted or referenced manually - no auto-invocation via <code>/wrap</code> etc.</td></tr>
+        <tr><td><strong>Agents</strong></td><td><code>~/.codex/agents/*.toml</code> - TOML format (different from Claude Code's prompt-based spawn)</td></tr>
+        <tr><td><strong>Hooks</strong></td><td><code>~/.codex/hooks.json</code> - requires <code>codex_hooks = true</code> in <code>~/.codex/config.toml</code> to enable</td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td><code>stop-context-codex.js</code> writes to <code>~/.codex/projects/[hash]/context.md</code></td></tr>
+        <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
+        <tr><td><strong>Tier resolution</strong></td><td><code>~/.agentic/tier-map.yml</code> - no built-in Haiku/Sonnet/Opus enum; models resolved from the map</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top: 12px; border-left-color: var(--cyan);">
+      <strong>What's different:</strong> Slash commands (<code>/wrap</code>, <code>/init-project</code>, etc.) do not auto-trigger. Reference the command files manually or paste their contents. The hook system is off by default - set <code>codex_hooks = true</code> before expecting Stop-hook context saves.
+    </div>
+  </div>
+
+  <!-- ── Cursor ── -->
+  <div class="rel-card" style="margin-top: 16px; border-color: var(--border-subtle);">
+    <h4 style="color: var(--violet); font-size: 18px; margin-bottom: 4px;">Cursor</h4>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">Rule-file based setup - slash commands work - no native agent system</p>
+    <table>
+      <thead><tr><th>Surface</th><th>Cursor equivalent</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> (manual) or <code>.cursor/rules/*.mdc</code> files</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td><code>~/.cursor/rules/*.mdc</code> with <code>alwaysApply: true</code> in frontmatter - no single global file</td></tr>
+        <tr><td><strong>Skill location</strong></td><td>No skill system. Rules are <code>.mdc</code> files in <code>~/.cursor/rules/</code></td></tr>
+        <tr><td><strong>Slash commands</strong></td><td><code>~/.cursor/commands/*.md</code> - slash commands work natively in Cursor</td></tr>
+        <tr><td><strong>Agents</strong></td><td>Not available - Cursor has no native sub-agent system</td></tr>
+        <tr><td><strong>Hooks</strong></td><td><code>.cursor/hooks.json</code> - <code>beforeSubmitPrompt</code> event for the risk-reminder equivalent</td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td>Stop hook writes to the Claude Code path (<code>~/.claude/projects/...</code>) - not surfaced in Cursor sessions. Rely on manual <code>context.md</code> maintenance.</td></tr>
+        <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
+        <tr><td><strong>Tier resolution</strong></td><td>Inherits the session model - no tier-map lookup</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top: 12px; border-left-color: var(--violet);">
+      <strong>What's different:</strong> No sub-agent spawn primitive. The conductor pattern works as a prompt strategy, but Cursor cannot fan out parallel Workers natively. Session context saves require manual maintenance - the Stop hook does not fire in a Cursor session.
+    </div>
+  </div>
+
+  <!-- ── Gemini ── -->
+  <div class="rel-card" style="margin-top: 16px; border-color: var(--border-subtle);">
+    <h4 style="color: var(--green); font-size: 18px; margin-bottom: 4px;">Gemini CLI</h4>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">GEMINI.md project file - TOML slash commands - agent files via <code>@name</code> mention</p>
+    <table>
+      <thead><tr><th>Surface</th><th>Gemini equivalent</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Project instructions</strong></td><td><code>GEMINI.md</code> at project root</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td><code>~/.gemini/GEMINI.md</code></td></tr>
+        <tr><td><strong>Skill location</strong></td><td>No skill system. Rules are inlined into <code>~/.gemini/GEMINI.md</code></td></tr>
+        <tr><td><strong>Slash commands</strong></td><td><code>~/.gemini/commands/*.toml</code> - first-class TOML slash commands; reload with <code>/commands reload</code></td></tr>
+        <tr><td><strong>Agents</strong></td><td><code>~/.gemini/agents/*.md</code> with YAML frontmatter (<code>kind: local</code>) - invoked via <code>@agent-name</code></td></tr>
+        <tr><td><strong>Hooks</strong></td><td><code>~/.gemini/settings.json</code> hooks key - <code>BeforeAgent</code> and <code>SessionEnd</code> events</td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td><code>stop-context-gemini.js</code> writes to <code>~/.gemini/projects/[hash]/context.md</code> - fires on <code>/exit</code> only</td></tr>
+        <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
+        <tr><td><strong>Tier resolution</strong></td><td><code>~/.agentic/tier-map.yml</code> - same as Codex, no built-in tier enum</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top: 12px; border-left-color: var(--green);">
+      <strong>What's different:</strong> Context save only fires on <code>/exit</code> - force-closing the terminal loses the session context write. Commands use TOML format instead of Markdown. Agent mentions via <code>@agent-name</code> are the invocation primitive (no <code>Agent</code> tool call).
+    </div>
+  </div>
+
+  <!-- ── Kimi ── -->
+  <div class="rel-card" style="margin-top: 16px; border-color: var(--border-subtle);">
+    <h4 style="color: var(--gold); font-size: 18px; margin-bottom: 4px;">Kimi Code CLI</h4>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">Project instructions in <code>.kimi/</code> directory - skill invocation via natural language - hooks fully manual</p>
+    <table>
+      <thead><tr><th>Surface</th><th>Kimi equivalent</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Project instructions</strong></td><td><code>.kimi/AGENTS.md</code> inside the project's <code>.kimi/</code> directory (loaded by Kimi via <code>$KIMI_AGENTS_MD</code>)</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td>No global AGENTS.md equivalent. Global footprint is the skill at <code>~/.kimi/skills/agentic-engineering/SKILL.md</code> (installed via <code>install.sh</code>)</td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>~/.kimi/skills/agentic-engineering/SKILL.md</code> - invoke via <code>/skill:agentic-engineering</code> or natural language</td></tr>
+        <tr><td><strong>Slash commands</strong></td><td>No custom slash commands. Use <code>/skill:agentic-engineering &lt;name&gt;</code> or natural language ("run wrap")</td></tr>
+        <tr><td><strong>Agents</strong></td><td>Built-in types only: coder, explore, plan. Agent files serve as reference prompts mapped to those types.</td></tr>
+        <tr><td><strong>Hooks</strong></td><td><code>~/.kimi/config.toml</code> <code>[[hooks]]</code> blocks - fully manual; the installer does not write this</td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td>Manual - script path must be set by the user in the hooks config</td></tr>
+        <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
+        <tr><td><strong>Tier resolution</strong></td><td>Inherits the built-in sub-agent type - no tier-map lookup</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top: 12px; border-left-color: var(--gold);">
+      <strong>What's different:</strong> No custom slash commands. No installer-written hooks - you must add <code>[[hooks]]</code> blocks manually to <code>~/.kimi/config.toml</code> and configure the Stop hook script path yourself. Session context saves will not work until this is set up.
+    </div>
+  </div>
+
+  <!-- ── OpenCode ── -->
+  <div class="rel-card" style="margin-top: 16px; border-color: var(--border-subtle);">
+    <h4 style="color: var(--rose); font-size: 18px; margin-bottom: 4px;">OpenCode</h4>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">Native AGENTS.md support - per-adapter activation config - no hook system at all</p>
+    <table>
+      <thead><tr><th>Surface</th><th>OpenCode equivalent</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td><code>~/.config/opencode/AGENTS.md</code> and/or <code>instructions</code> field in <code>opencode.json</code></td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>.opencode/skills/agentic-engineering/SKILL.md</code> (project-local) or <code>~/.config/opencode/skills/</code> (global)</td></tr>
+        <tr><td><strong>Slash commands</strong></td><td><code>~/.config/opencode/commands/*.md</code> - slash commands work natively</td></tr>
+        <tr><td><strong>Agents</strong></td><td><code>~/.config/opencode/agents/*.md</code> with <code>mode: subagent</code> and <code>permission:</code> frontmatter</td></tr>
+        <tr><td><strong>Hooks</strong></td><td>Not available - OpenCode has no hook system</td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td>Not available - no session context save. Context must be managed manually.</td></tr>
+        <tr><td><strong>Activation config</strong></td><td>Per-adapter path: <code>~/.config/opencode/agentic-engineering.json</code> (the only adapter with a dedicated config path)</td></tr>
+        <tr><td><strong>Permissions</strong></td><td><code>permission:</code> per-agent in agent frontmatter; <code>instructions:</code> in <code>opencode.json</code> for global rules</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top: 12px; border-left-color: var(--rose);">
+      <strong>What's different:</strong> No hook system. The risk-reminder that fires on <code>UserPromptSubmit</code> in Claude Code is instead embedded in the skill content - there is no event-driven trigger. Session context is never auto-saved; manual <code>context.md</code> maintenance is required. Activation config lives at a per-adapter path rather than the shared <code>~/.claude/</code> location.
+    </div>
+  </div>
+
+</div><!-- /#other-adapters -->
 
 </div>
 <script>
