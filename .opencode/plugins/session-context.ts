@@ -4,9 +4,6 @@
  *          equivalent finalization (loop-state, batch-state, session_total,
  *          activity-block refresh) once per session when the user invokes
  *          `/wrap` (`command.executed`). Surfaces a session prompt on /wrap.
- *          Note: user-message capture for the "Recent Focus" / "Recent
- *          Messages" section is currently a placeholder — see Failure
- *          modes for why and what would be required to implement it.
  *
  * Public API: SessionContextPlugin — exported plugin function for OpenCode.
  *
@@ -17,70 +14,43 @@
  * Downstream consumers: OpenCode plugin system (loaded from
  *                        ~/.config/opencode/plugins/ or .opencode/plugins/).
  *
- * Failure modes: Silent failure on every write path. The plugin uses two
- *                distinct OpenCode dispatch mechanisms:
+ * Failure modes: Silent failure on every write path. Per-process
+ *                deduplication guard (global Symbol) prevents double
+ *                handling when OpenCode loads the plugin from multiple
+ *                discovery paths or fans out bus events twice. The plugin
+ *                uses two distinct OpenCode dispatch mechanisms:
  *                  1. Direct trigger hook `tool.execute.after` — invoked by
  *                     name with (input, output) by the runtime's `trigger`
  *                     dispatcher. Used to accumulate file paths and tools.
  *                  2. Generic `event` hook — invoked for EVERY bus event
- *                     (session.idle, message.updated, command.executed,
- *                     session.created, session.compacted, etc.); the
- *                     handler discriminates by `event.type` internally.
- *                     Bus events read their data from `event.properties`,
- *                     not from a top-level destructure.
- *                NOTE: an earlier version of this plugin registered
- *                `'session.idle'`, `'message.updated'`, and
- *                `'command.executed'` as top-level hook keys. The OpenCode
- *                runtime never looks those up — bus events only flow
- *                through the generic `event` hook — so all three handlers
- *                were dead code. This commit fixes that dispatch bug.
+ *                     (session.idle, command.executed, session.created,
+ *                     session.compacted, etc.); the handler discriminates
+ *                     by `event.type` internally. Bus events read their data
+ *                     from `event.properties`, not from a top-level
+ *                     destructure.
  *                session.idle does context.md refresh only — no loop-state,
  *                batch-state, or events.jsonl writes happen there.
  *                Finalization writes (loop-state, batch-state,
  *                events.jsonl) run only on /wrap completion via
  *                command.executed and are independent and best-effort: a
  *                failure in one does not affect the others. A diagnostic
- *                session.prompt (noreply: true) fires once on the first
- *                session.idle event of an OpenCode process — by then the
- *                session prompt mechanism is fully initialized. The prompt
- *                is fire-and-forget (no await) so it cannot block the
- *                session.idle handler even if delivery hangs. cwd values
- *                with path-traversal components are
- *                rejected by all three writers (defence in depth). The
- *                per-session-once invariant for session_total relies on
- *                the user invoking /wrap; OpenCode does not expose a
- *                guaranteed shutdown hook from plugins.
- *
- *                User-message capture (deferred): the "Recent Focus" /
- *                "Recent Messages" slot in .agentic/context.md displays the
- *                placeholder string "(user-message capture unavailable on
- *                OpenCode — see plugin manifest)". OpenCode's bus-event
- *                payloads do not deliver user-prompt text on a single
- *                `message.updated` event. The `message.updated` payload is
- *                shaped `{ sessionID, info: Message }` (verified in
- *                packages/sdk/js/src/v2/gen/types.gen.ts and
- *                packages/opencode/src/session/message-v2.ts), where
- *                `Message` is `UserMessage | AssistantMessage` and has no
- *                `content` field. User-prompt text is delivered via
- *                streaming `message.part.updated` events as `TextPart`
- *                records (carrying `messageID` and `text`) cross-referenced
- *                by messageID. Properly capturing user prompts would
- *                require: (1) subscribing to `message.part.updated` and
- *                buffering parts keyed by messageID; (2) flushing the
- *                buffered parts on the matching `message.updated` event
- *                when `info.role === 'user'`; (3) handling streaming
- *                ordering and out-of-order arrival. This is deferred as a
- *                follow-up — the `message.updated` branch was removed
- *                rather than left in a broken state.
+ *                session.prompt (noreply: true) fires once on /wrap. The
+ *                prompt is fire-and-forget (no await) so it cannot block
+ *                the handler even if delivery hangs. cwd values with
+ *                path-traversal components are rejected by all three
+ *                writers (defence in depth). The per-session-once invariant
+ *                for session_total relies on the user invoking /wrap;
+ *                OpenCode does not expose a guaranteed shutdown hook from
+ *                plugins.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
  *              slightly heavier on /wrap completion (multiple writes, one
  *              full-file read+parse of events.jsonl for the session_total
- *              rollup). The generic `event`
- *              hook fires for every bus event in the session (potentially
- *              hundreds per session); the unmatched-type early-return must
- *              stay cheap (a single property read and three string
- *              comparisons, no allocations, no logs).
+ *              rollup). The generic `event` hook fires for every bus event
+ *              in the session (potentially hundreds per session); the
+ *              unmatched-type early-return must stay cheap (a single
+ *              property read and three string comparisons, no allocations,
+ *              no logs).
  */
 
 import path from 'path';
@@ -118,11 +88,18 @@ export const SessionContextPlugin: Plugin = async ({
 
   const filePaths = new Set<string>();
   const toolsUsed = new Set<string>();
-  let startupPromptShown = false;
-  // User-prompt capture is intentionally absent — see manifest "User-message
-  // capture (deferred)" for the rationale and the path forward.
   const RECENT_MESSAGES_PLACEHOLDER =
     "(user-message capture unavailable on OpenCode — see plugin manifest)";
+
+  // Per-process deduplication: OpenCode may load the plugin twice (global +
+  // project-local discovery paths) or fan out bus events twice. Use a global
+  // symbol so only the first instance handles events.
+  const PLUGIN_INSTANCE_KEY = Symbol.for("ae-session-context:instance");
+  if ((globalThis as any)[PLUGIN_INSTANCE_KEY]) {
+    await log("info", "Plugin instance already active, skipping duplicate");
+    return {} as any;
+  }
+  (globalThis as any)[PLUGIN_INSTANCE_KEY] = true;
 
   /**
    * Aggregate spawn_complete + conductor_direct events from events.jsonl for
@@ -546,16 +523,6 @@ ${toolsLine}
       const type = event?.type;
       const props = event?.properties ?? {};
 
-      // Note: a `message.updated` branch was previously here but was
-      // structurally incompatible with OpenCode's actual bus payload (it
-      // read `props.message.content`, but the runtime publishes
-      // `{ sessionID, info }` and the `Message` type has no `content`
-      // field — user-prompt text is delivered via streaming
-      // `message.part.updated` TextPart events keyed by messageID).
-      // The branch was removed rather than left in a broken state.
-      // See the manifest header "User-message capture (deferred)" for the
-      // implementation path that would replace it.
-
       if (type === "session.idle") {
         // session.idle fires per busy->idle transition (every turn), NOT
         // once per session. This branch is intentionally limited to
@@ -588,67 +555,20 @@ ${toolsLine}
           const projectDir = path.join(cwd, ".agentic");
           const outputPath = path.join(projectDir, "context.md");
 
-          // Reuse the same git status / focus building logic as the
-          // activity block, but format as a top-level context.md instead.
-          const uncommittedFiles: Array<{
-            statusCode: string;
-            filePath: string;
-          }> = [];
-          try {
-            const result = await $`git status --porcelain`.text();
-            for (const line of result.split("\n")) {
-              if (!line.trim()) continue;
-              const statusCode = line.slice(0, 2).trim();
-              const filePath = line.slice(3).trim();
-              if (statusCode && !statusCode.includes("?") && filePath) {
-                uncommittedFiles.push({ statusCode, filePath });
-              }
-            }
-            await log("info", "git status completed", {
-              trackedChanges: uncommittedFiles.length,
-            });
-          } catch (err: any) {
-            await log("warn", "git status failed", { error: err.message });
-          }
-          const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
-
-          const recentFocus = RECENT_MESSAGES_PLACEHOLDER;
-
-          const pathsReferenced =
-            filePaths.size > 0
-              ? [...filePaths]
-                  .sort()
-                  .map((p) => "- " + p)
-                  .join("\n")
-              : "(none detected)";
-
-          const toolsLine =
-            [...toolsUsed].sort().join(", ") || "(none recorded)";
-
-          const uncommittedChangesLines =
-            uncommittedFilesLimited.length > 0
-              ? uncommittedFilesLimited
-                  .map(
-                    ({ statusCode, filePath }) => `- ${statusCode} ${filePath}`,
-                  )
-                  .join("\n")
-              : "(working tree clean)";
+          const activityBlock = await buildActivityBlock(
+            cwd,
+            dateStr,
+            "Auto-updated by session idle plugin",
+          );
 
           const content = `# Session Context
 *Auto-updated by session idle plugin — ${dateStr}. Overwritten each turn. Not committed to git.*
 *Project: ${cwd}*
 
 ## Recent Focus
-${recentFocus}
+${RECENT_MESSAGES_PLACEHOLDER}
 
-## Paths Referenced
-${pathsReferenced}
-
-## Uncommitted Changes
-${uncommittedChangesLines}
-
-## Tools Used
-${toolsLine}
+${activityBlock.slice(ACTIVITY_SENTINEL.length)}
 `;
 
           try {
