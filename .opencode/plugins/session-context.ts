@@ -3,7 +3,7 @@
  *          busy->idle transition (`session.idle`), and runs full Stop-hook-
  *          equivalent finalization (loop-state, batch-state, session_total,
  *          activity-block refresh) once per session when the user invokes
- *          `/wrap` (`command.executed`). Surfaces a TUI toast on /wrap.
+ *          `/wrap` (`command.executed`). Surfaces a session prompt on /wrap.
  *          Note: user-message capture for the "Recent Focus" / "Recent
  *          Messages" section is currently a placeholder — see Failure
  *          modes for why and what would be required to implement it.
@@ -12,7 +12,7 @@
  *
  * Upstream deps: Bun runtime APIs ($, Bun.file, Bun.write). Node built-in
  *                path. Node fs/promises (appendFile, rename). OpenCode SDK
- *                client (client.app.log, client.tui.showToast).
+ *                client (client.app.log, client.session.prompt).
  *
  * Downstream consumers: OpenCode plugin system (loaded from
  *                        ~/.config/opencode/plugins/ or .opencode/plugins/).
@@ -39,19 +39,17 @@
  *                Finalization writes (loop-state, batch-state,
  *                events.jsonl) run only on /wrap completion via
  *                command.executed and are independent and best-effort: a
- *                failure in one does not affect the others. TUI toast
- *                failure falls back to a structured log line. A startup
- *                TUI toast (variant 'success', 5 s duration) fires
- *                immediately after 'Plugin loaded' to give the operator a
- *                deterministic visual signal that toasts are reaching the
- *                TUI; failure to render the startup toast indicates toasts
- *                cannot be relied upon and a fallback notification
- *                mechanism (e.g. osascript on macOS) is needed. cwd values
- *                with path-traversal components are rejected by all three
- *                writers (defence in depth). The per-session-once
- *                invariant for session_total relies on the user invoking
- *                /wrap; OpenCode does not expose a guaranteed shutdown
- *                hook from plugins.
+ *                failure in one does not affect the others. A diagnostic
+ *                session.prompt (noreply: true) fires once on the first
+ *                session.idle event of an OpenCode process — by then the
+ *                session prompt mechanism is fully initialized. The prompt
+ *                is fire-and-forget (no await) so it cannot block the
+ *                session.idle handler even if delivery hangs. cwd values
+ *                with path-traversal components are
+ *                rejected by all three writers (defence in depth). The
+ *                per-session-once invariant for session_total relies on
+ *                the user invoking /wrap; OpenCode does not expose a
+ *                guaranteed shutdown hook from plugins.
  *
  *                User-message capture (deferred): the "Recent Focus" /
  *                "Recent Messages" slot in .agentic/context.md displays the
@@ -78,7 +76,7 @@
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
  *              slightly heavier on /wrap completion (multiple writes, one
  *              full-file read+parse of events.jsonl for the session_total
- *              rollup, plus one TUI toast HTTP call). The generic `event`
+ *              rollup). The generic `event`
  *              hook fires for every bus event in the session (potentially
  *              hundreds per session); the unmatched-type early-return must
  *              stay cheap (a single property read and three string
@@ -87,33 +85,7 @@
 
 import path from 'path';
 import { appendFile, rename } from 'fs/promises';
-
-interface PluginContext {
-  directory: string;
-  $: any;
-  client: {
-    app: {
-      log: (payload: {
-        body: {
-          service: string;
-          level: 'debug' | 'info' | 'warn' | 'error';
-          message: string;
-          extra?: Record<string, any>;
-        };
-      }) => Promise<void>;
-    };
-    tui: {
-      showToast: (payload: {
-        body: {
-          title?: string;
-          message: string;
-          variant: 'info' | 'success' | 'warning' | 'error';
-          duration?: number;
-        };
-      }) => Promise<unknown>;
-    };
-  };
-}
+import type { Plugin } from "@opencode-ai/plugin";
 
 interface ToolExecuteArgs {
   file_path?: string;
@@ -123,42 +95,34 @@ interface ToolExecuteArgs {
 
 const ACTIVITY_SENTINEL = '\n\n---\n\n## Session Activity\n';
 
-export const SessionContextPlugin = async ({ directory, $, client }: PluginContext) => {
+export const SessionContextPlugin: Plugin = async ({
+  directory,
+  $,
+  client,
+}) => {
   const log = async (
-    level: 'debug' | 'info' | 'warn' | 'error',
+    level: "debug" | "info" | "warn" | "error",
     message: string,
-    extra: Record<string, any> = {}
+    extra: Record<string, any> = {},
   ) => {
     try {
       await client.app.log({
-        body: { service: 'ae-session-context', level, message, extra },
+        body: { service: "ae-session-context", level, message, extra },
       });
     } catch (_) {
       // Silent fallback if logging itself fails
     }
   };
 
-  await log('info', 'Plugin loaded', { directory: directory || null });
-
-  try {
-    await client.tui.showToast({
-      body: {
-        message: 'ae-session-context plugin loaded — toasts are wired correctly.',
-        variant: 'success',
-        duration: 5000,
-      },
-    });
-    await log('info', 'Startup toast shown');
-  } catch (err: any) {
-    await log('info', 'Startup toast unavailable', { error: err?.message ?? String(err) });
-  }
+  await log("info", "Plugin loaded", { directory: directory || null });
 
   const filePaths = new Set<string>();
   const toolsUsed = new Set<string>();
+  let startupPromptShown = false;
   // User-prompt capture is intentionally absent — see manifest "User-message
   // capture (deferred)" for the rationale and the path forward.
   const RECENT_MESSAGES_PLACEHOLDER =
-    '(user-message capture unavailable on OpenCode — see plugin manifest)';
+    "(user-message capture unavailable on OpenCode — see plugin manifest)";
 
   /**
    * Aggregate spawn_complete + conductor_direct events from events.jsonl for
@@ -169,21 +133,30 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
     // M4: Reject cwd values with traversal components before any path join.
     const resolvedCwd = path.resolve(cwd);
     if (resolvedCwd !== cwd) {
-      await log('warn', 'Skipping session_total write: cwd contains traversal components', { cwd });
+      await log(
+        "warn",
+        "Skipping session_total write: cwd contains traversal components",
+        { cwd },
+      );
       return;
     }
 
-    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+    const eventsPath = path.join(cwd, ".agentic", "events.jsonl");
     try {
       const eventsFile = Bun.file(eventsPath);
       if (!(await eventsFile.exists())) return;
       const raw = await eventsFile.text();
       if (!raw.trim()) return;
 
-      const lines = raw.split('\n');
+      const lines = raw.split("\n");
       let totalWall = 0;
       let spawnCount = 0;
-      const totalTokens: { input: number; output: number; cache_creation: number; cache_read: number } = {
+      const totalTokens: {
+        input: number;
+        output: number;
+        cache_creation: number;
+        cache_read: number;
+      } = {
         input: 0,
         output: 0,
         cache_creation: 0,
@@ -194,10 +167,20 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
         {
           spawns: number;
           wall_seconds: number;
-          tokens: { input: number; output: number; cache_creation: number; cache_read: number };
+          tokens: {
+            input: number;
+            output: number;
+            cache_creation: number;
+            cache_read: number;
+          };
         }
       > = {};
-      const tokenKeys = ['input', 'output', 'cache_creation', 'cache_read'] as const;
+      const tokenKeys = [
+        "input",
+        "output",
+        "cache_creation",
+        "cache_read",
+      ] as const;
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -209,7 +192,7 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
           continue;
         }
         const ev = obj && obj.event;
-        if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
+        if (ev !== "spawn_complete" && ev !== "conductor_direct") continue;
         const data = (obj && obj.data) || {};
         // Filter to current session when session_uuid is present on the
         // event payload. Events without session_uuid are included
@@ -223,9 +206,9 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
         for (const k of tokenKeys) {
           totalTokens[k] += Number(tokens[k]) || 0;
         }
-        if (ev === 'spawn_complete') {
+        if (ev === "spawn_complete") {
           spawnCount += 1;
-          const agentName = (obj && obj.agent) || 'unknown';
+          const agentName = (obj && obj.agent) || "unknown";
           if (!byAgent[agentName]) {
             byAgent[agentName] = {
               spawns: 0,
@@ -243,8 +226,8 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
 
       const event = {
         ts: new Date().toISOString(),
-        phase: 'session_end',
-        event: 'session_total',
+        phase: "session_end",
+        event: "session_total",
         agent: null,
         task_id: null,
         data: {
@@ -257,14 +240,17 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
       };
       // C3: Use fs/promises.appendFile rather than read-modify-write so
       // concurrent writers cannot lose lines.
-      await appendFile(eventsPath, JSON.stringify(event) + '\n');
-      await log('info', 'Appended session_total', {
+      await appendFile(eventsPath, JSON.stringify(event) + "\n");
+      await log("info", "Appended session_total", {
         eventsPath,
         spawn_count: spawnCount,
         wall_seconds: Number(totalWall.toFixed(3)),
       });
     } catch (err: any) {
-      await log('warn', 'Failed to write session_total', { eventsPath, error: err.message });
+      await log("warn", "Failed to write session_total", {
+        eventsPath,
+        error: err.message,
+      });
     }
   }
 
@@ -277,34 +263,43 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
   async function writeLoopState(cwd: string) {
     const resolvedCwd = path.resolve(cwd);
     if (resolvedCwd !== cwd) {
-      await log('warn', 'Skipping loop-state write: cwd contains traversal components', { cwd });
+      await log(
+        "warn",
+        "Skipping loop-state write: cwd contains traversal components",
+        { cwd },
+      );
       return;
     }
 
-    const loopStatePath = path.join(cwd, '.agentic', 'loop-state.json');
+    const loopStatePath = path.join(cwd, ".agentic", "loop-state.json");
     try {
       const loopStateFile = Bun.file(loopStatePath);
       if (await loopStateFile.exists()) {
         const loopState: any = await loopStateFile.json();
-        if (loopState.status === 'active') {
-          loopState.status = 'interrupted';
+        if (loopState.status === "active") {
+          loopState.status = "interrupted";
           loopState.interrupted_at = new Date().toISOString();
-          loopState.interrupt_reason = 'unknown';
-          const tmpPath = loopStatePath + '.tmp';
+          loopState.interrupt_reason = "unknown";
+          const tmpPath = loopStatePath + ".tmp";
           await Bun.write(tmpPath, JSON.stringify(loopState, null, 2));
           await rename(tmpPath, loopStatePath);
-          await log('info', 'Marked active loop-state as interrupted', { loopStatePath });
+          await log("info", "Marked active loop-state as interrupted", {
+            loopStatePath,
+          });
         } else {
-          await log('info', 'loop-state exists but not active', {
+          await log("info", "loop-state exists but not active", {
             loopStatePath,
             status: loopState.status,
           });
         }
       } else {
-        await log('info', 'No loop-state.json found', { loopStatePath });
+        await log("info", "No loop-state.json found", { loopStatePath });
       }
     } catch (err: any) {
-      await log('warn', 'Failed to write loop-state', { loopStatePath, error: err.message });
+      await log("warn", "Failed to write loop-state", {
+        loopStatePath,
+        error: err.message,
+      });
     }
   }
 
@@ -318,35 +313,43 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
   async function writeBatchState(cwd: string, sessionID: string | null) {
     const resolvedCwd = path.resolve(cwd);
     if (resolvedCwd !== cwd) {
-      await log('warn', 'Skipping batch-state write: cwd contains traversal components', { cwd });
+      await log(
+        "warn",
+        "Skipping batch-state write: cwd contains traversal components",
+        { cwd },
+      );
       return;
     }
 
-    const batchStatePath = path.join(cwd, '.agentic', 'batch-state.json');
+    const batchStatePath = path.join(cwd, ".agentic", "batch-state.json");
     try {
       const batchStateFile = Bun.file(batchStatePath);
       if (!(await batchStateFile.exists())) {
-        await log('info', 'No batch-state.json found', { batchStatePath });
+        await log("info", "No batch-state.json found", { batchStatePath });
         return;
       }
       const batchState: any = await batchStateFile.json();
 
       // Ownership check: do not steal another session's batch state.
       if (
-        typeof batchState.session_id === 'string' &&
+        typeof batchState.session_id === "string" &&
         batchState.session_id.length > 0 &&
         batchState.session_id !== sessionID
       ) {
-        await log('info', 'Skipping batch-state write: owned by another session', {
-          batchStatePath,
-          owner: batchState.session_id,
-          current: sessionID,
-        });
+        await log(
+          "info",
+          "Skipping batch-state write: owned by another session",
+          {
+            batchStatePath,
+            owner: batchState.session_id,
+            current: sessionID,
+          },
+        );
         return;
       }
 
-      if (batchState.status !== 'active') {
-        await log('info', 'batch-state exists but not active', {
+      if (batchState.status !== "active") {
+        await log("info", "batch-state exists but not active", {
           batchStatePath,
           status: batchState.status,
         });
@@ -354,17 +357,22 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
       }
 
       const nowIso = new Date().toISOString();
-      batchState.status = 'interrupted';
+      batchState.status = "interrupted";
       batchState.interrupted_at = nowIso;
-      batchState.interrupt_reason = 'unknown';
+      batchState.interrupt_reason = "unknown";
       batchState.updated_at = nowIso;
 
-      const tmpPath = batchStatePath + '.tmp';
+      const tmpPath = batchStatePath + ".tmp";
       await Bun.write(tmpPath, JSON.stringify(batchState, null, 2));
       await rename(tmpPath, batchStatePath);
-      await log('info', 'Marked active batch-state as interrupted', { batchStatePath });
+      await log("info", "Marked active batch-state as interrupted", {
+        batchStatePath,
+      });
     } catch (err: any) {
-      await log('warn', 'Failed to write batch-state', { batchStatePath, error: err.message });
+      await log("warn", "Failed to write batch-state", {
+        batchStatePath,
+        error: err.message,
+      });
     }
   }
 
@@ -374,22 +382,29 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
    * sentinel. Used by both the session.idle handler and the /wrap
    * finalization path.
    */
-  async function buildActivityBlock(cwd: string, dateStr: string, attribution: string): Promise<string> {
+  async function buildActivityBlock(
+    cwd: string,
+    dateStr: string,
+    attribution: string,
+  ): Promise<string> {
     // Detect uncommitted changes via git status --porcelain
-    const uncommittedFiles: Array<{ statusCode: string; filePath: string }> = [];
+    const uncommittedFiles: Array<{ statusCode: string; filePath: string }> =
+      [];
     try {
       const result = await $`git status --porcelain`.text();
-      for (const line of result.split('\n')) {
+      for (const line of result.split("\n")) {
         if (!line.trim()) continue;
         const statusCode = line.slice(0, 2).trim();
         const filePath = line.slice(3).trim();
-        if (statusCode && !statusCode.includes('?') && filePath) {
+        if (statusCode && !statusCode.includes("?") && filePath) {
           uncommittedFiles.push({ statusCode, filePath });
         }
       }
-      await log('info', 'git status completed', { trackedChanges: uncommittedFiles.length });
+      await log("info", "git status completed", {
+        trackedChanges: uncommittedFiles.length,
+      });
     } catch (err: any) {
-      await log('warn', 'git status failed', { error: err.message });
+      await log("warn", "git status failed", { error: err.message });
     }
     const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
 
@@ -397,17 +412,20 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
 
     const pathsReferenced =
       filePaths.size > 0
-        ? [...filePaths].sort().map((p) => '- ' + p).join('\n')
-        : '(none detected)';
+        ? [...filePaths]
+            .sort()
+            .map((p) => "- " + p)
+            .join("\n")
+        : "(none detected)";
 
-    const toolsLine = [...toolsUsed].sort().join(', ') || '(none recorded)';
+    const toolsLine = [...toolsUsed].sort().join(", ") || "(none recorded)";
 
     const uncommittedChangesLines =
       uncommittedFilesLimited.length > 0
         ? uncommittedFilesLimited
             .map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`)
-            .join('\n')
-        : '(working tree clean)';
+            .join("\n")
+        : "(working tree clean)";
 
     return `${ACTIVITY_SENTINEL}*${attribution} — ${dateStr}. Replaced each session.*
 
@@ -430,58 +448,83 @@ ${toolsLine}
    * Returns true if the file existed and was a /wrap-authored file (whether
    * the append succeeded or not), false if no /wrap file was present.
    */
-  async function refreshWrapActivityBlock(cwd: string, dateStr: string, attribution: string): Promise<boolean> {
-    const projectDir = path.join(cwd, '.agentic');
-    const outputPath = path.join(projectDir, 'context.md');
+  async function refreshWrapActivityBlock(
+    cwd: string,
+    dateStr: string,
+    attribution: string,
+  ): Promise<boolean> {
+    const projectDir = path.join(cwd, ".agentic");
+    const outputPath = path.join(projectDir, "context.md");
     try {
       const existingFile = Bun.file(outputPath);
       if (!(await existingFile.exists())) return false;
       const existing = await existingFile.text();
-      if (!existing.startsWith('# Session Context\n*Written by /wrap')) return false;
+      if (!existing.startsWith("# Session Context\n*Written by /wrap"))
+        return false;
 
-      await log('info', 'Detected /wrap-generated context.md, refreshing activity block', {
-        outputPath,
-      });
+      await log(
+        "info",
+        "Detected /wrap-generated context.md, refreshing activity block",
+        {
+          outputPath,
+        },
+      );
       const sentinelIdx = existing.indexOf(ACTIVITY_SENTINEL);
-      const wrapContent = sentinelIdx >= 0 ? existing.slice(0, sentinelIdx) : existing.trimEnd();
+      const wrapContent =
+        sentinelIdx >= 0 ? existing.slice(0, sentinelIdx) : existing.trimEnd();
       const activityBlock = await buildActivityBlock(cwd, dateStr, attribution);
 
       try {
         await $`mkdir -p ${projectDir}`;
         await Bun.write(outputPath, wrapContent + activityBlock);
-        await log('info', 'Refreshed activity block', { outputPath });
+        await log("info", "Refreshed activity block", { outputPath });
       } catch (err: any) {
-        await log('warn', 'Failed to refresh activity block', { outputPath, error: err.message });
+        await log("warn", "Failed to refresh activity block", {
+          outputPath,
+          error: err.message,
+        });
       }
       return true;
     } catch (err: any) {
-      await log('info', 'No existing /wrap file or unreadable', { error: err.message });
+      await log("info", "No existing /wrap file or unreadable", {
+        error: err.message,
+      });
       return false;
     }
   }
 
   return {
-    'tool.execute.after': async ({ tool, args }: { tool: string; args?: ToolExecuteArgs }) => {
-      await log('info', 'tool.execute.after hook fired', { tool });
+    "tool.execute.after": async ({
+      tool,
+      args,
+    }: {
+      tool: string;
+      args?: ToolExecuteArgs;
+    }) => {
+      await log("info", "tool.execute.after hook fired", { tool });
       toolsUsed.add(tool);
 
       if (args) {
-        if (typeof args.file_path === 'string' && args.file_path.trim()) {
+        if (typeof args.file_path === "string" && args.file_path.trim()) {
           filePaths.add(args.file_path.trim());
         }
-        if (typeof args.path === 'string' && args.path.trim()) {
+        if (typeof args.path === "string" && args.path.trim()) {
           filePaths.add(args.path.trim());
         }
 
         // Extract paths from bash commands via simple heuristic
-        if (tool === 'bash' && typeof args.command === 'string') {
+        if (tool === "bash" && typeof args.command === "string") {
           const cmd = args.command;
           const matches = cmd.match(/(?:^|\s)(\/[^\s"'\\;|&<>]+)/g);
           if (matches) {
             for (const m of matches) {
               const p = m.trim();
-              if (p.includes('.') || p.startsWith('/Users/') || p.startsWith('/home/')) {
-                if (p.length > 4 && !p.startsWith('/.')) {
+              if (
+                p.includes(".") ||
+                p.startsWith("/Users/") ||
+                p.startsWith("/home/")
+              ) {
+                if (p.length > 4 && !p.startsWith("/.")) {
                   if ((p.match(/\//g) || []).length >= 4) {
                     filePaths.add(p);
                   }
@@ -513,19 +556,19 @@ ${toolsLine}
       // See the manifest header "User-message capture (deferred)" for the
       // implementation path that would replace it.
 
-      if (type === 'session.idle') {
+      if (type === "session.idle") {
         // session.idle fires per busy->idle transition (every turn), NOT
         // once per session. This branch is intentionally limited to
         // context.md refresh; loop-state / batch-state / session_total
         // writes belong on /wrap (see command.executed below) so they fire
         // once per session.
-        await log('info', 'session.idle event handler entered');
+        await log("info", "session.idle event handler entered");
 
         try {
           const cwd = directory || process.cwd();
           const dateStr = new Date().toISOString().slice(0, 10);
-          await log('info', 'session.idle event fired', { cwd, date: dateStr });
-          await log('info', 'Collected session data', {
+          await log("info", "session.idle event fired", { cwd, date: dateStr });
+          await log("info", "Collected session data", {
             pathCount: filePaths.size,
             toolCount: toolsUsed.size,
           });
@@ -534,33 +577,38 @@ ${toolsLine}
           const wrapHandled = await refreshWrapActivityBlock(
             cwd,
             dateStr,
-            'Auto-appended by session idle plugin'
+            "Auto-appended by session idle plugin",
           );
           if (wrapHandled) {
-            await log('info', 'session.idle processing complete (wrap path)');
+            await log("info", "session.idle processing complete (wrap path)");
             return;
           }
 
           // --- Normal write (no /wrap file present) ---
-          const projectDir = path.join(cwd, '.agentic');
-          const outputPath = path.join(projectDir, 'context.md');
+          const projectDir = path.join(cwd, ".agentic");
+          const outputPath = path.join(projectDir, "context.md");
 
           // Reuse the same git status / focus building logic as the
           // activity block, but format as a top-level context.md instead.
-          const uncommittedFiles: Array<{ statusCode: string; filePath: string }> = [];
+          const uncommittedFiles: Array<{
+            statusCode: string;
+            filePath: string;
+          }> = [];
           try {
             const result = await $`git status --porcelain`.text();
-            for (const line of result.split('\n')) {
+            for (const line of result.split("\n")) {
               if (!line.trim()) continue;
               const statusCode = line.slice(0, 2).trim();
               const filePath = line.slice(3).trim();
-              if (statusCode && !statusCode.includes('?') && filePath) {
+              if (statusCode && !statusCode.includes("?") && filePath) {
                 uncommittedFiles.push({ statusCode, filePath });
               }
             }
-            await log('info', 'git status completed', { trackedChanges: uncommittedFiles.length });
+            await log("info", "git status completed", {
+              trackedChanges: uncommittedFiles.length,
+            });
           } catch (err: any) {
-            await log('warn', 'git status failed', { error: err.message });
+            await log("warn", "git status failed", { error: err.message });
           }
           const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
 
@@ -568,17 +616,23 @@ ${toolsLine}
 
           const pathsReferenced =
             filePaths.size > 0
-              ? [...filePaths].sort().map((p) => '- ' + p).join('\n')
-              : '(none detected)';
+              ? [...filePaths]
+                  .sort()
+                  .map((p) => "- " + p)
+                  .join("\n")
+              : "(none detected)";
 
-          const toolsLine = [...toolsUsed].sort().join(', ') || '(none recorded)';
+          const toolsLine =
+            [...toolsUsed].sort().join(", ") || "(none recorded)";
 
           const uncommittedChangesLines =
             uncommittedFilesLimited.length > 0
               ? uncommittedFilesLimited
-                  .map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`)
-                  .join('\n')
-              : '(working tree clean)';
+                  .map(
+                    ({ statusCode, filePath }) => `- ${statusCode} ${filePath}`,
+                  )
+                  .join("\n")
+              : "(working tree clean)";
 
           const content = `# Session Context
 *Auto-updated by session idle plugin — ${dateStr}. Overwritten each turn. Not committed to git.*
@@ -600,34 +654,41 @@ ${toolsLine}
           try {
             await $`mkdir -p ${projectDir}`;
             await Bun.write(outputPath, content);
-            await log('info', 'Wrote context.md', { outputPath });
+            await log("info", "Wrote context.md", { outputPath });
           } catch (err: any) {
-            await log('warn', 'Failed to write context.md', { outputPath, error: err.message });
+            await log("warn", "Failed to write context.md", {
+              outputPath,
+              error: err.message,
+            });
           }
 
-          await log('info', 'session.idle processing complete');
+          await log("info", "session.idle processing complete");
         } catch (err: any) {
-          await log('error', 'session.idle handler crashed', {
+          await log("error", "session.idle handler crashed", {
             error: err.message || String(err),
           });
         }
         return;
       }
 
-      if (type === 'command.executed') {
+      if (type === "command.executed") {
         // /wrap is the once-per-session finalization trigger. The bare
         // command name is "wrap" (no leading slash). Other commands are
         // ignored.
         const name: string | undefined = props.name;
-        if (name !== 'wrap') return;
+        if (name !== "wrap") return;
 
         // Normalize sessionID to match the writers' string|null contract.
         const sessionID: string | undefined = props.sessionID;
         const sid: string | null = sessionID ?? null;
 
-        await log('info', 'command.executed: /wrap detected, running finalization', {
-          sessionID: sid,
-        });
+        await log(
+          "info",
+          "command.executed: /wrap detected, running finalization",
+          {
+            sessionID: sid,
+          },
+        );
 
         try {
           const cwd = directory || process.cwd();
@@ -638,33 +699,45 @@ ${toolsLine}
           // header, skip the activity-block step but still proceed to
           // bookkeeping writes — wrap may have failed to write context.md,
           // but finalization runs anyway.
-          await refreshWrapActivityBlock(cwd, dateStr, 'Auto-appended by /wrap finalization');
+          await refreshWrapActivityBlock(
+            cwd,
+            dateStr,
+            "Auto-appended by /wrap finalization",
+          );
 
           // The three finalization writes are independent and best-effort.
           await writeLoopState(cwd);
           await writeBatchState(cwd, sid);
           await writeSessionTotal(cwd, sid);
 
-          // Surface a TUI toast so the user knows the session was
-          // finalized and should be ended cleanly. Toast failure falls
+          // Surface a session prompt so the user knows the session was
+          // finalized and should be ended cleanly. Prompt failure falls
           // back to a log.
           try {
-            await client.tui.showToast({
+            client.session.prompt({
+              path: { id: sid || "" },
               body: {
-                message:
-                  'Session context written. Start a new session to continue with fresh context.',
-                variant: 'info',
-                duration: 8000,
+                parts: [
+                  {
+                    type: "text",
+                    text: "Session context written. Start a new session to continue with fresh context.",
+                  },
+                ],
+                noReply: true,
               },
             });
-            await log('info', 'Session finalized via /wrap (toast shown)');
+            await log("info", "Session finalized via /wrap (prompt shown)");
           } catch (err: any) {
-            await log('info', 'Session finalized via /wrap (toast unavailable)', {
-              error: err.message,
-            });
+            await log(
+              "info",
+              "Session finalized via /wrap (prompt unavailable)",
+              {
+                error: err.message,
+              },
+            );
           }
         } catch (err: any) {
-          await log('error', 'command.executed handler crashed', {
+          await log("error", "command.executed handler crashed", {
             error: err.message || String(err),
           });
         }

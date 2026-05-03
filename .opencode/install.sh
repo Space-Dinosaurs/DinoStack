@@ -155,6 +155,7 @@ symlink_files() {
   local src_dir="$1"
   local dst_dir="$2"
   local label="$3"
+  local pattern="${4:-*.md}"
 
   if [[ ! -d "$src_dir" ]]; then
     echo "  [skip] $label source directory not found: $src_dir"
@@ -163,7 +164,7 @@ symlink_files() {
 
   mkdir -p "$dst_dir"
 
-  for src_file in "$src_dir"/*.md; do
+  for src_file in "$src_dir"/$pattern; do
     [[ -e "$src_file" ]] || continue
     local name
     name="$(basename "$src_file")"
@@ -240,7 +241,7 @@ PLUGINS_DST="$HOME/.config/opencode/plugins"
 if [[ -d "$PLUGINS_SRC" ]]; then
   mkdir -p "$PLUGINS_DST"
 
-  for src_file in "$PLUGINS_SRC"/*.js; do
+  for src_file in "$PLUGINS_SRC"/*.{js,ts}; do
     [[ -e "$src_file" ]] || continue
     name="$(basename "$src_file")"
     dst_file="$PLUGINS_DST/$name"
@@ -249,15 +250,18 @@ if [[ -d "$PLUGINS_SRC" ]]; then
       current_target="$(readlink "$dst_file")"
       if [[ "$current_target" == "$src_file" ]]; then
         echo "  = $name (already linked)"
+        continue
       else
         echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        continue
       fi
     elif [[ -e "$dst_file" ]]; then
       echo "  ! $name (real file exists at destination - skipping)"
-    else
-      ln -s "$src_file" "$dst_file"
-      echo "  + $name"
+      continue
     fi
+
+    ln -s "$src_file" "$dst_file"
+    echo "  + $name"
   done
 else
   echo "  [skip] plugins source directory not found: $PLUGINS_SRC"
