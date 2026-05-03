@@ -40,7 +40,13 @@
  *                events.jsonl) run only on /wrap completion via
  *                command.executed and are independent and best-effort: a
  *                failure in one does not affect the others. TUI toast
- *                failure falls back to a structured log line. cwd values
+ *                failure falls back to a structured log line. A startup
+ *                TUI toast (variant 'success', 5 s duration) fires
+ *                immediately after 'Plugin loaded' to give the operator a
+ *                deterministic visual signal that toasts are reaching the
+ *                TUI; failure to render the startup toast indicates toasts
+ *                cannot be relied upon and a fallback notification
+ *                mechanism (e.g. osascript on macOS) is needed. cwd values
  *                with path-traversal components are rejected by all three
  *                writers (defence in depth). The per-session-once
  *                invariant for session_total relies on the user invoking
@@ -133,6 +139,19 @@ export const SessionContextPlugin = async ({ directory, $, client }: PluginConte
   };
 
   await log('info', 'Plugin loaded', { directory: directory || null });
+
+  try {
+    await client.tui.showToast({
+      body: {
+        message: 'ae-session-context plugin loaded — toasts are wired correctly.',
+        variant: 'success',
+        duration: 5000,
+      },
+    });
+    await log('info', 'Startup toast shown');
+  } catch (err: any) {
+    await log('info', 'Startup toast unavailable', { error: err?.message ?? String(err) });
+  }
 
   const filePaths = new Set<string>();
   const toolsUsed = new Set<string>();
