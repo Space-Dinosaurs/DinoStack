@@ -2297,12 +2297,12 @@
   <!-- ── Kimi ── -->
   <div class="rel-card" style="margin-top: 16px; border-color: var(--border-subtle);">
     <h4 style="color: var(--gold); font-size: 18px; margin-bottom: 4px;">Kimi Code CLI</h4>
-    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">Env-var project instructions - skill invocation via natural language - hooks fully manual</p>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">Project instructions in <code>.kimi/</code> directory - skill invocation via natural language - hooks fully manual</p>
     <table>
       <thead><tr><th>Surface</th><th>Kimi equivalent</th></tr></thead>
       <tbody>
-        <tr><td><strong>Project instructions</strong></td><td><code>.kimi/AGENTS.md</code> at project root</td></tr>
-        <tr><td><strong>Global instructions</strong></td><td>Set via <code>$KIMI_AGENTS_MD</code> environment variable</td></tr>
+        <tr><td><strong>Project instructions</strong></td><td><code>.kimi/AGENTS.md</code> inside the project's <code>.kimi/</code> directory (loaded by Kimi via <code>$KIMI_AGENTS_MD</code>)</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td>No global AGENTS.md equivalent. Global footprint is the skill at <code>~/.kimi/skills/agentic-engineering/SKILL.md</code> (installed via <code>install.sh</code>)</td></tr>
         <tr><td><strong>Skill location</strong></td><td><code>~/.kimi/skills/agentic-engineering/SKILL.md</code> - invoke via <code>/skill:agentic-engineering</code> or natural language</td></tr>
         <tr><td><strong>Slash commands</strong></td><td>No custom slash commands. Use <code>/skill:agentic-engineering &lt;name&gt;</code> or natural language ("run wrap")</td></tr>
         <tr><td><strong>Agents</strong></td><td>Built-in types only: coder, explore, plan. Agent files serve as reference prompts mapped to those types.</td></tr>
