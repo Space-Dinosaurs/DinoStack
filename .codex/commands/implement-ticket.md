@@ -1016,6 +1016,12 @@ After normalization, re-evaluate the trigger conditions (with `qa_skip` now null
 
 **qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
 
+**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/sections/05-qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/sections/05-qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
+
+**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/sections/05-qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
+
+**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/sections/05-qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
+
 - **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
 - **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
 - **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
@@ -1197,38 +1203,62 @@ Capture the PR number from the URL printed by `gh pr create`.
 
 ## Phase 10: Wait for CI Test URL
 
-The CI workflow deploys the branch to Cloudflare and posts a comment on the PR from `github-actions[bot]` containing a markdown "Test URL" link.
+The CI workflow deploys the branch to a preview environment (Cloudflare Pages, Vercel, Netlify, etc.) and exposes the deployment via a GitHub status check (and often a PR comment as well). Phase 10 polls the **status check rollup** as the authoritative source rather than scraping comment bodies.
 
-Poll every 60 seconds for up to 5 minutes (5 checks):
+**Why status checks, not comments.** Comment-scraping has two failure modes that silently produce a "no Test URL yet" result when the real state is "the deploy was rejected and will never appear":
+
+1. The deploy provider rejects the deploy at the project level (e.g. Vercel project blocked, billing suspended, build quota exceeded) and never posts a comment - the conductor polls forever and times out without ever surfacing the rejection.
+2. The deploy succeeds but the comment is posted by a non-`github-actions[bot]` author (e.g. `vercel[bot]`, a custom CI bot) and the comment-author filter misses it.
+
+`gh pr view --json statusCheckRollup` returns every check the GitHub API knows about, including provider-rejected states with their failure messages, so the conductor can detect blocked-deploy conditions early and surface them to the operator instead of timing out blind.
+
+**qa.md `preview_blocked: true` flag.** If the resolved qa.md (`.agentic/qa.md` preferred) sets `preview_blocked: true`, the conductor SKIPS the status-check poll entirely and treats the Test URL as unavailable from the start. This is for projects where the preview-deploy environment is known to be blocked at the org or project level and waiting is wasted effort. Phase 11 proceeds with the PR link as the only artifact.
+
+**Poll loop.** When `preview_blocked` is not set, poll every 30 seconds for up to 5 minutes (10 checks):
 
 ```bash
 PR_NUMBER=[PR_NUMBER]
 TEST_URL=""
+BLOCKED_REASON=""
 
-for i in 1 2 3 4 5; do
-  BODY=$(gh pr view $PR_NUMBER \
-    --repo $GH_REPO \
-    --json comments \
-    --jq '.comments[] | select(.author.login == "github-actions[bot]") | select(.body | contains("Test URL")) | .body' \
-    2>/dev/null | head -1)
+for i in $(seq 1 10); do
+  ROLLUP=$(gh pr view "$PR_NUMBER" \
+    --repo "$GH_REPO" \
+    --json statusCheckRollup \
+    --jq '.statusCheckRollup' 2>/dev/null)
 
-  if [ -n "$BODY" ]; then
-    echo "CI comment found:"
-    echo "$BODY"
-    # Extract URL from markdown link: [Test URL](https://...)
-    TEST_URL=$(echo "$BODY" | grep -oP '\[Test URL\]\(\K[^)]+')
+  # Detect provider-rejected deploys early. The exact string varies by provider;
+  # match the common cases (Vercel: "project blocked"; generic: "blocked").
+  if echo "$ROLLUP" | grep -qiE 'project[ _-]?blocked|deployment[ _-]?blocked'; then
+    BLOCKED_REASON=$(echo "$ROLLUP" | grep -oiE '[^"]*blocked[^"]*' | head -1)
+    echo "Preview deploy is blocked: $BLOCKED_REASON"
+    break
+  fi
+
+  # Look for a successful deploy check that exposes a target URL.
+  TEST_URL=$(echo "$ROLLUP" | jq -r '
+    .[] | select(.conclusion == "SUCCESS" or .state == "SUCCESS")
+        | .targetUrl // .detailsUrl // empty
+  ' | grep -E '^https?://' | head -1)
+
+  if [ -n "$TEST_URL" ]; then
     echo "Test URL: $TEST_URL"
     break
   fi
 
-  echo "Waiting for CI... ($i/5)"
-  sleep 60
+  echo "Waiting for CI status check... ($i/10)"
+  sleep 30
 done
 
 echo "Final Test URL: ${TEST_URL:-not found}"
+echo "Preview blocked reason: ${BLOCKED_REASON:-none}"
 ```
 
-If CI hasn't posted after 5 minutes, proceed with what you have - post the PR link to the ticket and note that the Test URL is pending.
+**Outcome handling:**
+
+- `TEST_URL` populated: proceed to Phase 11 with the URL.
+- `BLOCKED_REASON` populated: proceed to Phase 11 with PR link only; surface the rejection cause to the operator and recommend setting `preview_blocked: true` in qa.md if the block is persistent.
+- Neither populated after 5 minutes: proceed with the PR link and note that the Test URL is pending.
 
 ---
 
