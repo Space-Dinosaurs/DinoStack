@@ -1838,7 +1838,7 @@
       <span class="flow-arrow">&rarr;</span>
       <span class="flow-box" style="background: rgba(45,90,61,0.08); color:#2d5a3d; border:1px solid rgba(45,90,61,0.25);">merge back to conductor's branch</span>
       <span class="flow-arrow">&rarr;</span>
-      <span class="flow-box" style="background: rgba(90,61,138,0.08); color:#5a3d8a; border:1px solid rgba(90,61,138,0.3);">PR to develop/development</span>
+      <span class="flow-box" style="background: rgba(90,61,138,0.08); color:#5a3d8a; border:1px solid rgba(90,61,138,0.3);">PR to main</span>
       <span class="flow-arrow">&rarr;</span>
       <span class="flow-box" style="background: rgba(26,90,122,0.07); color:#1a5a7a; border:1px solid rgba(26,90,122,0.25);">merge + cleanup</span>
     </div>
@@ -1851,7 +1851,7 @@
         <ul>
           <li><strong>Conductor works directly on its current branch.</strong> The main working tree stays on the conductor's current branch. No conductor-level feature worktrees are created; worktrees are a subagent-only construct.</li>
           <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/agentic-engineering</code> may commit and push directly to <code>main</code>.</li>
-          <li><strong>Base branch resolution:</strong> use <code>develop</code> if it exists, fall back to <code>development</code>, otherwise create <code>develop</code> from <code>main</code>.</li>
+          <li><strong>Base branch resolution:</strong> use <code>main</code> if it exists, fall back to <code>master</code>, then <code>develop</code>, then <code>development</code>.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
           <li><strong>Commit each fix immediately.</strong> Never accumulate uncommitted changes. After each validated fix: create branch, commit, PR, merge, pull - then start the next fix.</li>
         </ul>

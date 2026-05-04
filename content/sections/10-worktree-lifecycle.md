@@ -34,7 +34,7 @@ git worktree prune             # clean up any stale metadata
 # Run at session start (conductor preflight):
 git fetch origin
 git worktree prune
-# Resolve base branch (develop > development > create develop from main/master):
+# Resolve base branch (main > master > develop > development):
 # Cache result as BASE_BRANCH in-context
 # Delete any worktree-agent-* branches not currently checked out in a worktree:
 git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
