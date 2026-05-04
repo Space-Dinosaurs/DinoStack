@@ -27,7 +27,7 @@ The rules in `content/rules/conventions.md` (Git Workflow) address one developer
 
 **Shared `decisions.md` ownership:** `decisions.md` is a single-writer file by convention (per the Memory Protocol). When two developers' Claude sessions both want to write to it, the second write can clobber the first. Before adding a decision: pull latest, append the new entry, then push immediately. Never batch multiple decisions into one uncommitted edit session. If a conflict occurs, merge it manually - do not let an agent auto-resolve a `decisions.md` conflict.
 
-**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `develop`/`development` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `develop`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
+**Simultaneous PRs and rebase strategy:** When multiple developers have open PRs against `main` at the same time, use a rebase-on-pull workflow rather than merge commits. Before pushing updates to a long-lived feature branch, rebase onto the latest `main`. For short-lived PRs that land within a day, plain merges are acceptable. For any branch open more than a day, always rebase before requesting review.
 
 **Worktree ownership:** Each developer maintains their own worktrees on their own machine. Worktrees are not shared. If two developers need to collaborate on the same feature branch, they coordinate via the remote - each pulls from and pushes to `origin`. They do not share or mount each other's local worktrees.
 
