@@ -56,6 +56,20 @@ Use this exact structure. Do not rename or reorder sections.
 2. [...]
 (ordered by dependency — each step should be atomic enough for a Worker to execute)
 
+**Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches. The table is a hard requirement: a Skeptic on the architect plan rejects (Critical finding) any plan that defers per-consumer reasoning to engineer judgement when the trigger fires.
+
+Required columns (visual-change variant):
+
+| `consumer_file:line` | `passes_relevant_prop?` | `uses_compensating_pattern?` | `current_visual` | `new_visual` |
+|---|---|---|---|---|
+
+Required columns (non-visual variant - API surface, behavioral contract, or type narrowing):
+
+| `consumer_file:line` | `passes_relevant_arg?` | `uses_compensating_pattern?` | `current_behavior` | `new_behavior` |
+|---|---|---|---|---|
+
+Use Grep/Glob to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
+
 **Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
 ### QA criteria
