@@ -98,6 +98,15 @@ Survey the current conversation and note down:
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
 - **Note task-state summary** - if `.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
 - **Note loop-state summary** — if `.agentic/loop-state.json` exists: if `status=active`, note in the wrap summary that an incomplete loop was active when `/wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/implement-ticket` invocation will offer to resume). The wrap command does NOT delete or modify `loop-state.json` - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
+- **Enumerate open PRs targeting the conductor's current branch.** /wrap writes AGENTS.md and memory.md additions onto the conductor's current branch (typically `develop`). If those additions cite file paths or feature keys that live on branches with open PRs not yet merged, the doc additions will land on the target branch describing files/keys that do not yet exist there. Capture the open-PR set now so Step 1 can defer such additions:
+
+  ```bash
+  CURRENT_BRANCH=$(git -C $REPO branch --show-current)
+  gh pr list --state open --base "$CURRENT_BRANCH" --json number,headRefName,files \
+    --jq '.[] | {n: .number, branch: .headRefName, files: [.files[].path]}'
+  ```
+
+  Record the resulting `{pr_number, head_branch, modified_files[]}` set as the **open-PR overlap set**. If `gh` is unavailable or returns an error, log "open-PR overlap check skipped (gh unavailable)" to the wrap run output and pass an empty set forward — the deferral logic becomes a no-op rather than blocking the run. The set is supplied to the draft Worker as a dedicated field (see Step 1) so it can flag deferral candidates; the conductor enforces deferral at write time in Step 4.
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
 
@@ -160,6 +169,9 @@ Content:
 
 If no AGENTS.md files were found, write "None."]
 
+**Open-PR overlap set:**
+[paste the `{pr_number, head_branch, modified_files[]}` entries captured in Step 0, or "None" if no open PRs target the conductor's current branch / the check was skipped. The conductor will use this to defer doc additions whose cited paths overlap an open PR — but you should still flag candidates so the conductor's deferral pass has hints.]
+
 **Output 1 — context.md draft**
 
 Produce this exact structure. Include only temporary session state here (current task, files touched, recent errors, next steps). Do not include stable project facts in this file - those belong in Output 2.
@@ -201,6 +213,8 @@ Stable = true every session, not just this one. Temporary = only relevant right 
 
 For architectural and technology decisions especially: the entry must clearly state why the chosen approach was selected on its own merits. Alternatives considered and their rejection reasons are useful supporting context but are secondary - the positive reasoning for the choice is the primary requirement. A future session asking "should we reconsider X?" should find the answer in the entry without re-researching it.
 
+**Deferral hint:** If an entry's substance depends on file paths, feature keys, or symbols that appear in the Open-PR overlap set above (i.e. the fact only becomes true once an unmerged PR lands), append the marker `[defer-pr: <pr_number>]` to the end of the entry text. The conductor uses this hint plus its own path cross-reference to route the entry to `.agentic/memory-pending.md` instead of `.agentic/memory.md`.
+
 **Output 3 — AGENTS.md updates**
 
 For each AGENTS.md file whose current content was provided in the "Existing AGENTS.md file contents" field above, produce proposed additions only - not a full rewrite. Use that existing content as your baseline: do not propose content already present there.
@@ -235,6 +249,7 @@ Rules:
 - Quality directive: lean and curated. No verbose rationale paragraphs, no outdated entries, no conflicting information. Brief, actionable bullets only.
 - If nothing new for a particular file, write "None" for that file.
 - If no AGENTS.md files were found in the project, write "None."
+- **Deferral hint:** if a proposed addition cites a file path, directory, or feature key that appears in the Open-PR overlap set above (i.e. the addition describes something that only exists on an unmerged branch), append the marker `[defer-pr: <pr_number>]` to the end of each affected bullet or section content. The conductor uses this hint plus its own path cross-reference to route the addition to `.agentic/agents-md-pending.md` instead of applying it now.
 
 **New AGENTS.md files:** For any touched directory explicitly noted as a "new AGENTS.md candidate" in the raw session data (i.e. the directory had files touched but has no existing AGENTS.md), propose creating a new file. Use this format:
 
@@ -281,6 +296,8 @@ If Critical or Major findings remain: spawn a new draft Worker with the original
 **Step 4 — Write to disk** (main agent, inline — do NOT delegate to a subagent).
 
 Background subagents cannot reliably get Write/Edit permissions. The main agent must perform all writes directly. Invoking /wrap implies permission to write these files.
+
+**Mandatory Skeptic on hand-authored output.** If the conductor authored any of the final outputs inline — for example, after a draft Worker hallucination, after a re-route loop hit its limit, after a light-path escape hatch fell back to the standard path mid-flight, or any other case where the conductor bypassed the Worker → Skeptic chain in Steps 1–3 — the conductor MUST spawn a fresh Skeptic on the on-disk files BEFORE releasing the lock in Step 6. The conductor's escape hatch from Worker iteration does NOT exempt the outputs from Skeptic review; that loophole is closed. The Skeptic in this case reads the on-disk files directly (`.agentic/context.md`, `.agentic/memory.md`, any AGENTS.md files updated, plus any deferred-write files at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`) and applies the same adversarial brief from Step 2 (with the same scope constraint — the Skeptic's findings only trigger doc rewrites, never code changes). If the Skeptic raises Critical or Major findings, the conductor revises the on-disk files inline and re-spawns a fresh Skeptic until sign-off, subject to the same 3-re-route limit; on cap exhaustion, escalate to the user with the open findings.
 
 **Project directory:** [absolute cwd]
 
@@ -331,17 +348,21 @@ Write the merged result to disk. Return: "Merged context written to [path] (comb
 
 Skip Part B entirely if the memory entries input above is "None".
 
+**Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry, cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `<cwd>/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`. Non-deferred entries continue to the steps below. The pending file is plain markdown — a follow-up doc PR after the source PRs merge can move entries from `.agentic/memory-pending.md` into `.agentic/memory.md`. Rationale: docs land on the conductor's branch (typically `develop`) before source PRs merge; without deferral, memory.md describes paths or keys that do not yet exist on the target branch.
+
 1. Use the Read tool to attempt to read the file at the memory.md path.
 
-2. **If the file does not exist**: write all new entries directly as a markdown list. Return: "Wrote fresh memory to [path]."
+2. **If the file does not exist**: write all non-deferred entries directly as a markdown list. Return: "Wrote fresh memory to [path] (N entries written, M deferred to memory-pending.md)."
 
-3. **If the file exists**: read its content. For each new entry, check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded)."
+3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded, K deferred to memory-pending.md)."
 
 **Part C — Write AGENTS.md updates**
 
 Skip Part C entirely if the AGENTS.md updates input above is "None" or all files within it are marked "None".
 
-For each file listed in the updates:
+**Open-PR deferral pass (run BEFORE iterating files).** For each proposed `Add:`, `New section:`, `New file: true`, and `Update:` block, cross-reference the file paths, directory paths, and feature keys cited in the proposed content against the Open-PR overlap set captured in Step 0. A block is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the block with `[defer-pr: <pr_number>]`. Strip the marker from the block content and route the deferred block to `<cwd>/.agentic/agents-md-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>) — <target AGENTS.md path>`. Non-deferred blocks continue through the per-file write below. A follow-up doc PR after the source PRs merge can move entries from `.agentic/agents-md-pending.md` into the actual AGENTS.md files. Rationale: docs land on the conductor's branch (typically `develop`) before source PRs merge; without deferral, AGENTS.md describes paths or keys that do not yet exist on the target branch — exactly the failure mode that historically produced Critical findings during /wrap Skeptic review.
+
+For each file with non-deferred updates:
 
 1. Use the Read tool to attempt to read the current file content.
 
@@ -440,7 +461,9 @@ If the project is a git repository with a `/cleanup-worktrees` skill available, 
 
 Release the pre-flight lock: `rm -rf <cwd>/.agentic/wrap.lock`. This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`). Also include the cleanup summary if Step 5 ran.
+
+**The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
 Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
 
