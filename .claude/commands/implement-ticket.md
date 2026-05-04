@@ -359,7 +359,7 @@ classifiers:
 
 | Trigger | Confirmation |
 |---|---|
-| JQL/filter URL → any N entries | Yes — print resolved IDs + titles, `(proceed / abort)` |
+| JQL/filter URL → any N entries | **Soft warn + auto-proceed** — print resolved IDs + titles in a one-per-line list, do NOT prompt; emit `resolution_notes` entry. The operator wrote the JQL deliberately; Phase 0a batch triage already presents a per-ticket summary downstream; "as autonomously as possible" is the stated goal. (Aligned with the operator-enumerated >5 row below.) |
 | Screenshot → any N entries | Yes — OCR is approximate, print extracted IDs, `(proceed / abort)` |
 | Mixed input with freeform residue | Yes — `(attach-to-all / drop / abort)`, default `attach-to-all` |
 | Cap hit (>50 from JQL/filter) | Yes — `(narrow / proceed)` |
@@ -668,6 +668,22 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
 
 **Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: "worktree"` (see METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.
+
+**Stale remote branch preflight (mandatory before every engineer spawn).** Before passing `BRANCH_NAME` to the engineer (single-engineer path) or before creating per-unit sub-branches (fan-out path), the conductor MUST run:
+
+```bash
+git -C $REPO ls-remote --heads origin "$BRANCH_NAME"
+```
+
+Decision table:
+
+| `ls-remote` result | Action |
+|---|---|
+| Empty (no remote ref) | Proceed with `BRANCH_NAME` as resolved. |
+| Returns a SHA AND that SHA is reachable from the local resume state for this ticket (resume case - we're picking up our own prior work) | Proceed with `BRANCH_NAME` as resolved. |
+| Returns a SHA that does NOT match anything we intend to push (stale branch from an unrelated session, abandoned PR, prior batch run) | Append a uniqueness suffix to `BRANCH_NAME` BEFORE passing it to the engineer. Default suffix: `-v2`. If `-v2` also collides, use `-<7-char-short-sha>` of the conductor's current HEAD. Re-run `ls-remote` against the new name to confirm it is free. |
+
+The engineer is never asked to handle a rename mid-implementation. The conductor resolves uniqueness once, before the spawn. Log the resolution to `resolution_notes` (one line: `branch_collision: <original> → <renamed> (remote SHA <sha>)`) so the operator can audit later. This preflight runs on every Elevated engineer spawn (single-engineer, fan-out per-unit, and any Phase 7 fix engineer that creates a new branch). Trivial-path conductor-direct branch creation (Phase 4) MUST also apply this preflight.
 
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
@@ -1380,6 +1396,8 @@ After Phase 12 completes for a ticket and BEFORE the conductor advances to the n
 
 1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`.
 2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`.
+
+   **Invariant (binding).** The conductor MUST NOT write `pause_reason: "operator_pause"` to `batch-state.json` unless the operator's most recent message contains the literal substring `pause the batch` (case-insensitive). Conductor self-doubt about remaining wallclock, context pressure, perceived pace, or "feeling like the operator might want a break" is NOT a valid `operator_pause` trigger. The correct conductor behavior in those subjective cases is to spawn the next ticket and let `wallclock_cap` (trigger 3) fire mechanically if the cap is actually hit. A conductor that paraphrases the operator, infers intent from "I'm tired" / "let's stop soon" / "we're running long", or pauses preemptively to avoid a future cap hit is violating this invariant - the operator's literal words are the authoritative trigger. If an operator phrases a pause request differently (e.g. "stop after this one"), the correct response is to surface a one-line confirmation (`Proceeding to pause the batch after the current ticket - confirm with 'pause the batch' or override with 'continue'.`) and continue executing until the literal substring arrives.
 3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`.
 
 (Context-pressure auto-detection is explicitly NOT a trigger; the conductor cannot read its own context %. Operators use trigger 2 if context pressure is observed.)
