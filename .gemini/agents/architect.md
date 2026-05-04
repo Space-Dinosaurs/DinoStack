@@ -56,6 +56,41 @@ Use this exact structure. Do not rename or reorder sections.
 
 **Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
+### QA criteria
+
+**Required for Elevated tickets. Absence is a Critical Skeptic finding on this plan.**
+
+Emit a YAML block named `qa_criteria` with the schema below. The block is consumed by `/implement-ticket` Phase 6b to decide whether to spawn `qa-engineer`, and by the qa-engineer itself as the authoritative test plan.
+
+```yaml
+qa_criteria:
+  qa_skip: <one of: pure-backend-library | config-only | type-only-refactor | dep-bump-no-runtime-change | docs-only> | null
+  qa_skip_rationale: <string, max 200 chars; required iff qa_skip != null>
+  scenarios:
+    - id: 1
+      description: <one observable sentence>
+      method: <browser | api | runtime-required>
+      evidence: <what artifact proves the scenario passed>
+    - id: 2
+      ...
+  manual_smoke: <single paragraph or "none">
+```
+
+**Field rules:**
+
+- `qa_skip` is null by default. Set it to one of the 5 valid enum values ONLY when the ticket genuinely has no runtime-observable surface:
+  - `pure-backend-library` - changes are confined to a backend library with no caller-visible behavior change.
+  - `config-only` - configuration file changes only, no code or runtime effect.
+  - `type-only-refactor` - type-system changes with zero runtime impact (e.g., type aliasing, pure type-level rewrites).
+  - `dep-bump-no-runtime-change` - dependency version bump verified to have no runtime impact.
+  - `docs-only` - documentation file changes only.
+- `qa_skip_rationale` is required iff `qa_skip != null`. One sentence stating why this ticket has no runtime surface to verify. The rationale is reviewed by the Skeptic-on-architect-plan and the Skeptic-on-Brief.
+- `scenarios[]` is required when `qa_skip == null` and must contain at least 1 entry.
+- `method` enum: `browser` (UI verification via agent-browser or Playwright), `api` (HTTP/CLI/RPC call against a running service), `runtime-required` (the criterion fundamentally requires a running system to verify, but the specific tool depends on the qa-engineer's judgment at run time). The escape-hatch value `source-verified-acceptable` is NOT permitted - the whole point of QA is dynamic verification.
+- `manual_smoke` is the human-eyeball check the qa-engineer will perform after automated scenarios pass. Write "none" only when no manual check is meaningful.
+
+**Validation handling at Phase 6b entry:** an invalid `qa_skip` value (not in the 5-enum set and not null) is normalized to null at Phase 6b entry with a Major operator warning, and QA fires. The Skeptic-on-architect-plan flags an invalid enum as a Major finding upstream as defense-in-depth - the normalization is a backstop, not a license to be sloppy.
+
 ### Trade-offs and constraints
 **Alternatives considered (before committing to the chosen approach above):**
 - [Alternative A]: [one-line rationale for rejection]
@@ -76,6 +111,7 @@ Use this exact structure. Do not rename or reorder sections.
 - **Commit to a recommendation.** Do not present a list of options without choosing one. If trade-offs exist, name them and pick.
 - **If critical context is missing** - no codebase path, no task description, or a required constraint is unstated - say so explicitly at the top of your response before attempting a plan. Do not invent assumptions to fill the gap.
 - **If the codebase is large**, focus reading on: entry points, data models, API layer, test conventions, and files named in the task description or directly adjacent to the change area.
+- **Emit `qa_criteria` for Elevated tickets.** The QA criteria section above is mandatory on every Elevated plan. Absence is a Critical Skeptic finding. Do not omit the block; do not write "n/a" - if the ticket genuinely has no runtime surface, set `qa_skip` to one of the 5 valid enum values and supply `qa_skip_rationale`. If the ticket has runtime surface, populate `scenarios[]` with at least 1 entry.
 - Return your output as plain text. Do not wrap the plan in a code block.
 
 ## Variants
