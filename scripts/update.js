@@ -165,7 +165,13 @@ function getDirtyFiles(repoDir) {
   const untracked = [];
   for (const line of lines) {
     const status = line.slice(0, 2);
-    const file = line.slice(3);
+    let file = line.slice(3);
+    // Porcelain v1 renames/copies are formatted as "old -> new". Capture only
+    // the new path so warning output does not show the entire arrow form.
+    if (status[0] === 'R' || status[0] === 'C') {
+      const match = file.match(/^(.+?) -> (.+)$/);
+      if (match) file = match[2];
+    }
     if (status.includes('?')) {
       untracked.push(file);
     } else if (status[0] !== ' ' && status[0] !== '?') {
@@ -215,9 +221,17 @@ function setRawMode(enable) {
 // TUI State
 // ---------------------------------------------------------------------------
 
+// Adapters that are always-on and cannot be deselected from the TUI.
+// Mirrors the prior update.sh contract of unconditionally running .claude/install.sh.
+const LOCKED_ADAPTERS = new Set(['.claude']);
+
 function runTUI(adapters, preselected) {
   return new Promise((resolve, reject) => {
+    // Locked adapters are always selected, regardless of preselected/config state.
     const selected = new Set(preselected.filter(a => adapters.includes(a)));
+    for (const adapter of adapters) {
+      if (LOCKED_ADAPTERS.has(adapter)) selected.add(adapter);
+    }
     let cursor = 0;
     let done = false;
 
@@ -228,9 +242,11 @@ function runTUI(adapters, preselected) {
 
       for (let i = 0; i < adapters.length; i++) {
         const adapter = adapters[i];
+        const locked = LOCKED_ADAPTERS.has(adapter);
         const mark = selected.has(adapter) ? 'x' : ' ';
         const pointer = i === cursor ? '> ' : '  ';
-        console.log(`${pointer}[${mark}] ${displayName(adapter)}`);
+        const suffix = locked ? ' (locked)' : '';
+        console.log(`${pointer}[${mark}] ${displayName(adapter)}${suffix}`);
       }
 
       console.log('\n  ↑/↓ navigate · space toggle · enter confirm · q abort');
@@ -243,6 +259,8 @@ function runTUI(adapters, preselected) {
       showCursor();
       exitAltScreen();
       process.stdin.pause();
+      process.stdin.removeListener('keypress', onKeypress);
+      process.removeListener('SIGINT', sigintHandler);
     }
 
     function abort() {
@@ -251,6 +269,10 @@ function runTUI(adapters, preselected) {
     }
 
     function confirm() {
+      // Ensure locked adapters are always present in the resolved set.
+      for (const adapter of adapters) {
+        if (LOCKED_ADAPTERS.has(adapter)) selected.add(adapter);
+      }
       cleanup();
       resolve(Array.from(selected));
     }
@@ -266,6 +288,10 @@ function runTUI(adapters, preselected) {
         draw();
       } else if (key.name === 'space') {
         const adapter = adapters[cursor];
+        if (LOCKED_ADAPTERS.has(adapter)) {
+          // Locked rows are non-toggleable.
+          return;
+        }
         if (selected.has(adapter)) {
           selected.delete(adapter);
         } else {
@@ -281,6 +307,8 @@ function runTUI(adapters, preselected) {
       }
     }
 
+    const sigintHandler = () => abort();
+
     // Setup
     readline.emitKeypressEvents(process.stdin);
     enterAltScreen();
@@ -292,9 +320,7 @@ function runTUI(adapters, preselected) {
     process.stdin.resume();
 
     // Handle SIGINT gracefully
-    process.on('SIGINT', () => {
-      abort();
-    });
+    process.on('SIGINT', sigintHandler);
   });
 }
 
@@ -391,9 +417,9 @@ async function main() {
   const resolvedRepoDir = path.resolve(repoDir);
 
   // Preflight: git check
-  try {
-    spawnSync('git', ['--version'], { stdio: 'ignore' });
-  } catch (_) {
+  // Note: spawnSync does not throw on ENOENT; it returns result.error instead.
+  const gitProbe = spawnSync('git', ['--version'], { stdio: 'ignore' });
+  if (gitProbe.error || gitProbe.status !== 0) {
     console.error("error: 'git' not found on PATH.");
     process.exit(1);
   }
@@ -473,6 +499,13 @@ async function main() {
       process.exit(130);
     }
     throw err;
+  }
+
+  // Defense in depth: locked adapters are always included regardless of TUI state.
+  for (const adapter of adapters) {
+    if (LOCKED_ADAPTERS.has(adapter) && !selected.includes(adapter)) {
+      selected.push(adapter);
+    }
   }
 
   if (selected.length === 0) {
