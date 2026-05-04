@@ -256,6 +256,9 @@ export const SessionContextPlugin: Plugin = async ({
         if (loopState.status === "active") {
           loopState.status = "interrupted";
           loopState.interrupted_at = new Date().toISOString();
+          // Mirrors Claude Stop hook behavior: 'unknown' is the only writable value
+          // from a session-exit context (we can't distinguish rate-limit vs crash here).
+          // Future explicit-cancel paths should set richer reasons before this writer fires.
           loopState.interrupt_reason = "unknown";
           const tmpPath = loopStatePath + ".tmp";
           await Bun.write(tmpPath, JSON.stringify(loopState, null, 2));
@@ -502,6 +505,8 @@ ${toolsLine}
                 p.startsWith("/home/")
               ) {
                 if (p.length > 4 && !p.startsWith("/.")) {
+                  // Best-effort: only treat as path if 4+ slashes (typical absolute project path).
+                  // Shorter paths like /repo/x.ts are intentionally skipped to reduce false positives.
                   if ((p.match(/\//g) || []).length >= 4) {
                     filePaths.add(p);
                   }

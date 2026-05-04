@@ -238,34 +238,10 @@ echo "Linking plugins..."
 PLUGINS_SRC="$REPO_DIR/.opencode/plugins"
 PLUGINS_DST="$HOME/.config/opencode/plugins"
 
-if [[ -d "$PLUGINS_SRC" ]]; then
-  mkdir -p "$PLUGINS_DST"
-
-  for src_file in "$PLUGINS_SRC"/*.{js,ts}; do
-    [[ -e "$src_file" ]] || continue
-    name="$(basename "$src_file")"
-    dst_file="$PLUGINS_DST/$name"
-
-    if [[ -L "$dst_file" ]]; then
-      current_target="$(readlink "$dst_file")"
-      if [[ "$current_target" == "$src_file" ]]; then
-        echo "  = $name (already linked)"
-        continue
-      else
-        echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
-        continue
-      fi
-    elif [[ -e "$dst_file" ]]; then
-      echo "  ! $name (real file exists at destination - skipping)"
-      continue
-    fi
-
-    ln -s "$src_file" "$dst_file"
-    echo "  + $name"
-  done
-else
-  echo "  [skip] plugins source directory not found: $PLUGINS_SRC"
-fi
+# Route plugins through symlink_files; call once per extension because the
+# helper's glob expansion does not handle brace patterns.
+symlink_files "$PLUGINS_SRC" "$PLUGINS_DST" "plugins" "*.js"
+symlink_files "$PLUGINS_SRC" "$PLUGINS_DST" "plugins" "*.ts"
 
 # ---------------------------------------------------------------------------
 # Update ~/.config/opencode/AGENTS.md with skill loading signal
