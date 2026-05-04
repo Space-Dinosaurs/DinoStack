@@ -301,9 +301,11 @@ Emit breadcrumb: `[phase: batch-triage | N tickets | clusters=K]`.
 
 ---
 
-## Phase 0b: Brief check
+## Phase 0b: Brief check + qa.md snapshot + on-resume Brief migration
 
-Before any architect spawn, check for an existing Brief.
+Before any architect spawn, check for an existing Brief, snapshot qa.md for Elevated tickets, and handle the on-resume Brief migration for tickets predating the `qa_criteria` requirement.
+
+### Brief check
 
 **Slug derivation:** convert the ticket title to kebab-case and strip any ticket-ID prefix
 (e.g. `AE-123 Add user login` becomes `add-user-login`).
@@ -322,6 +324,38 @@ Before any architect spawn, check for an existing Brief.
 
 **If not found:** proceed normally. The promotion gate in Phase 3b determines whether a
 Brief is required based on the unit count from the orchestration-planner.
+
+### qa.md snapshot (Elevated only)
+
+After risk has been classified, if the current ticket is Elevated, snapshot any existing `.agentic/qa.md` to a per-ticket snapshot file. **Trivial invocations skip this step entirely** (preserves bit-for-bit-identical guarantee for Trivial single-ticket invocations - no `.agentic/qa.md.snapshot-*` file is produced).
+
+**Snapshot rules:**
+
+1. If risk is Trivial: skip this entire subsection. Do not create or touch any snapshot file.
+2. If risk is Elevated and `.agentic/qa.md` does not exist: skip silently (nothing to snapshot).
+3. If risk is Elevated and `.agentic/qa.md` exists and `.agentic/qa.md.snapshot-<ticket_id>` does NOT already exist: copy `.agentic/qa.md` to `.agentic/qa.md.snapshot-<ticket_id>` via atomic write (write to `.agentic/qa.md.snapshot-<ticket_id>.tmp`, then rename).
+4. If risk is Elevated and `.agentic/qa.md.snapshot-<ticket_id>` already exists (e.g., on resume of a paused or interrupted ticket): preserve the existing snapshot. Do not overwrite. The original snapshot represents the qa.md state at the start of this ticket's first run.
+
+The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path is gitignored under the existing `.agentic/` umbrella; no `.gitignore` change is needed.
+
+### On-resume Brief migration (qa_criteria backfill)
+
+When Phase 0a-pre or the per-ticket Resume check detects an in-flight ticket whose Brief lacks the `qa_criteria` field (because the ticket was started before the `qa_criteria` requirement was rolled out), apply this migration before spawning any worker:
+
+1. **Probe architect plan.** If the architect plan (referenced from the Brief or stored alongside it) contains a `qa_criteria` block, the conductor authors a retroactive Brief amendment appending the architect's `qa_criteria` block verbatim into the Brief. Proceed normally.
+2. **If neither has `qa_criteria`** (legitimate transition ticket), surface the operator prompt verbatim:
+
+   ```
+   WARNING: this ticket's Brief and architect plan predate the qa_criteria requirement. Options:
+     (a) provide a qa_criteria block now (paste YAML)
+     (b) one-time bypass for this transition ticket (skip QA for this ticket only)
+   Choose (a/b).
+   ```
+
+   On `(a)`: the operator pastes the YAML; conductor injects it into the Brief and proceeds.
+   On `(b)`: conductor records a one-time bypass marker for THIS ticket only (in-context, scoped to this resume) and proceeds with QA skipped. The bypass does NOT extend to future tickets.
+
+3. **New invocations (no in-flight state) hard-fail per architect plan.** Fresh `/implement-ticket` invocations on Elevated tickets without a `qa_criteria` block in the Brief or architect plan emit a Critical Skeptic finding on the architect plan; the conductor does not proceed past Phase 3 until the architect plan supplies the block. The on-resume bypass option is exclusively for tickets that started before this requirement existed.
 
 ---
 
@@ -810,11 +844,27 @@ Fires exactly once per ticket per `/implement-ticket` invocation.
 
 **Cap independence:** Phase 6 and Phase 6b caps are independent - exhausting the Phase 6 Skeptic cap (3 fix passes) does not consume Phase 6b QA cap budget, and vice versa. Each phase gets its own 3-fix-pass budget evaluated separately.
 
-**Trigger:** qa.md exists at either resolver path (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
+**Trigger:** Phase 6b QA fires for Elevated units IFF all of the following hold:
+1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.
+2. `qa_criteria.qa_skip == null`.
+3. `qa_criteria.scenarios[]` is non-empty.
+4. Phase 6 `termination_reason == clean`.
 
-- **If not triggered:** skip directly to Phase 7.
-- **If triggered - UI-visible changes (concurrent path):** when trigger patterns match a UI-visible diff, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
-- **If triggered - non-UI changes (sequential path):** proceed with the QA loop contract below.
+The Trivial path never enters Phase 6b (Trivial units bypass the entire Skeptic/QA loop per METHODOLOGY.md §Risk Classification).
+
+**Invalid `qa_skip` enum normalization (at Phase 6b entry).** If `qa_criteria.qa_skip` is non-null and not in the 5-valid-enum set (`pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`), normalize to null and emit the operator warning verbatim:
+
+```
+WARNING: qa_skip value '<X>' is not a valid enum (one of: pure-backend-library, config-only, type-only-refactor, dep-bump-no-runtime-change, docs-only). Treating as null; QA will fire.
+```
+
+After normalization, re-evaluate the trigger conditions (with `qa_skip` now null, QA fires if scenarios are present).
+
+**qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
+
+- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+- **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
+- **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
 
 For full QA gate rules, see `METHODOLOGY.md §QA Gate`.
 
@@ -842,7 +892,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `qa-engineer` with ticket context, diff, and the resolved qa.md config (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). On iteration 2+, prepend the "Prior QA failures" section to the brief:
+**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
 **Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
@@ -1076,11 +1126,61 @@ Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update
 
 ---
 
+## Phase 11b: Wrap learnings (per-ticket capture)
+
+**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `.agentic/loop-state.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
+
+**Skip conditions:**
+- Phase 9 was skipped (no PR was opened): skip Phase 11b entirely.
+- The current ticket was Trivial: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`.
+
+**Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
+
+**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap.lock` (atomic `mkdir`). The lock is shared with `/wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
+
+- **If the lock is held by another session** (e.g., `/wrap` is running concurrently in another session): skip Phase 11b with the operator note: `"Phase 11b skipped: /wrap is running in another session."` Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+- **If the lock is acquired:** spawn `wrap-ticket` with the inputs below. The conductor releases the lock on every exit path (success, timeout, soft-fail) before proceeding to Phase 12.
+
+**`wrap-ticket` spawn brief inputs:**
+
+- `ticket_id`: the resolved ticket id.
+- `ticket_title`: the ticket title.
+- `ticket_description`: the full ticket description.
+- `architect_plan_path`: absolute path to the architect's plan output (or in-context if no path).
+- `brief_path`: absolute path to the Brief (or "n/a" if no Brief).
+- `findings_log`: read from `.agentic/loop-state.json` `loop_state.findings_log` BEFORE Phase 12 clears the file.
+- `qa_md_diff`: the diff between `.agentic/qa.md.snapshot-<ticket_id>` (created at Phase 0b for Elevated tickets) and the current working-tree `.agentic/qa.md`. Empty if no snapshot exists or qa.md is unchanged.
+- `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
+- `pr_url`: the PR URL captured at Phase 9.
+- `conversation_summary`: a brief recap of the conductor's session covering this ticket.
+
+**Failure semantics:**
+
+- `wrap-ticket` failure NEVER blocks Phase 12 cleanup or PR completion. Soft-fail with a warning line printed to the operator.
+- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user. If `size_advisory` is non-null, print it as a separate line.
+- If `wrap-ticket` returns within 60s but the output is not parseable as JSON: conductor warns the operator (`"Phase 11b: wrap-ticket return was not valid JSON; proceeding without learnings capture."`) and proceeds.
+- If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock is released before timeout.
+- If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
+
+Lock release: `rm -rf .agentic/wrap.lock` runs unconditionally on every Phase 11b exit path before advancing to Phase 12.
+
+Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
+
+---
+
 ## Phase 12: Loop state cleanup
 
-After the PR is open (Phase 9 complete), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
+After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
 
 If the file does not exist (it was never written, e.g. loop never started), skip silently.
+
+**`findings_log` clearing.** Phase 12 is the ONLY clearer of `findings_log`. The findings-curator at Phase 6 exit reads `findings_log` from `.agentic/loop-state.json` but does NOT clear it. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this Phase 12 cleanup. Setting `status: "complete"` (or deleting the file) is the moment `findings_log` is dropped.
+
+**qa.md snapshot cleanup.** Remove `.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
+
+```bash
+rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
+```
 
 ---
 

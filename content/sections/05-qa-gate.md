@@ -1,20 +1,20 @@
 ## QA Gate
 
-**Concurrent QA + Skeptic for UI-visible changes.** When a diff matches QA trigger patterns (UI, frontend routes, visible behavior), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. This eliminates the sequential Skeptic-then-QA delay for UI changes and aligns with the parallel-by-default philosophy.
+**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (Brief/architect plan present, `qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. This eliminates the sequential Skeptic-then-QA delay for UI-visible changes and aligns with the parallel-by-default philosophy.
 
-For non-UI changes, the post-Skeptic QA flow described below remains in effect: check trigger patterns after Skeptic sign-off and spawn QA only if matched.
+For changes whose `qa_criteria` does not match the concurrent path (or where the diff is unknown at planning time), the post-Skeptic QA flow described below remains in effect.
 
-**Pre-spawn trigger check:** Before spawning Workers, the conductor resolves the qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) and checks whether the planned diff is likely to match any `## QA triggers` pattern. If yes, mark the unit for concurrent QA at review time. If the diff is unknown at planning time, defer the check to post-Worker (standard flow).
+**Pre-spawn trigger check:** Before spawning Workers, the conductor inspects the unit's `qa_criteria` (from the Brief or, if no Brief, from the architect plan). If `qa_criteria` is present AND `qa_skip == null` AND `scenarios[]` is non-empty, mark the unit for concurrent QA at review time. The architect's `qa_criteria` is the authoritative trigger - the qa.md trigger patterns are a SUPPLEMENTAL match-set: when both `qa_criteria` and a qa.md trigger match exist, qa-engineer receives both inputs (the scenarios as the test plan, and any matched qa.md project-knowledge entries as supplemental context). qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`. If `qa_criteria` is absent at planning time and the diff is unknown, defer the check to post-Worker (standard flow).
 
 **When QA is skipped:**
-- No qa.md exists at either resolver path (`.agentic/qa.md` or legacy `.claude/qa.md`)
-- The resolved qa.md has no `## QA triggers` section
-- No files in the reviewed diff match any trigger pattern
-- The change is Low risk (direct action)
+- The change is Trivial risk (direct action; existing carve-out preserved).
+- `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
+
+Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision.
 
 **QA gate flow (UI-visible - concurrent):**
-1. Worker returns. Conductor checks trigger patterns against the diff.
-2. If matched: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's acceptance criteria.
+1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
+2. If yes: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's `qa_criteria`. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
 3. Wait for both to return.
 4. If both pass: unit is complete.
 5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
@@ -22,11 +22,11 @@ For non-UI changes, the post-Skeptic QA flow described below remains in effect: 
 
 **QA gate flow (non-UI - post-sign-off):**
 1. Skeptic grants sign-off (minor fixes applied if any)
-2. Conductor checks the resolved qa.md trigger patterns against the diff
-3. If matched: spawn `qa-engineer` with the unit's acceptance criteria and the qa.md config
-4. QA engineer opens the dev server in a browser, verifies functionality, returns pass/fail report
-5. On PASS: unit is complete
-6. On FAIL: spawn fix engineer for each bug, then re-run QA
+2. Conductor inspects the unit's `qa_criteria` (from Brief or architect plan).
+3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
+4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
+5. On PASS: unit is complete.
+6. On FAIL: spawn fix engineer for each bug, then re-run QA.
 
 **Phase breadcrumb:** `[phase: qa-review]`
 
