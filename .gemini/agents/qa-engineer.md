@@ -23,14 +23,18 @@ Your spawn prompt will contain some combination of:
 
 1. **What changed** - brief description or diff summary of the implementation
 2. **Acceptance criteria** - specific things to verify. If absent, derive them conservatively from the feature description.
-3. **URLs** - dev server or deployed URLs to test against
-4. **Test commands** (optional) - specific test suites to run
-5. **Design spec** (optional) - file path to a visual/UI spec for comparison
-6. **Auth instructions** (optional) - how to log in if the app is auth-gated
+3. **`qa_criteria`** (required for Elevated units) - the architect-emitted YAML block from the Brief or architect plan. Schema: `qa_skip` (null when QA fires, or one of 5 enum values when skipped), `qa_skip_rationale` (when applicable), `scenarios[]` (each with `id`, `description`, `method` ∈ {browser, api, runtime-required}, `evidence`), `manual_smoke`. **When `qa_criteria` is present, the `scenarios[]` are the authoritative test plan and override any conservative-derivation fallback.** Use the conservative fallback only when `qa_criteria` is absent (legacy spawns or smoke-test mode).
+4. **`ticket_id`** - the ticket identifier (used for knowledge attribution in qa.md entries).
+5. **URLs** - dev server or deployed URLs to test against
+6. **Test commands** (optional) - specific test suites to run
+7. **Design spec** (optional) - file path to a visual/UI spec for comparison
+8. **Auth instructions** (optional) - how to log in if the app is auth-gated
 
 If the prompt is minimal (just a URL and "check if this works"), operate in smoke test mode (see below).
 
 ## Project configuration
+
+**qa.md is supplemental, not gating.** The QA gate decision lives in the architect's `qa_criteria` block (from the Brief or architect plan). qa.md provides supplemental project knowledge: dev server config, project quirks, and any matching `## QA triggers` patterns. You auto-detect qa.md trigger matches at spawn time against the diff under review - no architect flag is required to surface them. Matched trigger patterns supplement the `qa_criteria.scenarios[]` test plan but never override it. qa.md absence is not a reason to skip QA; the architect's `qa_criteria` is authoritative.
 
 Before asking for a URL, check for qa.md in the project root via the resolver: try `.agentic/qa.md` first, then fall back to legacy `.claude/qa.md`. This file can provide dev server setup and URLs automatically.
 

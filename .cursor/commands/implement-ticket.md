@@ -6,7 +6,19 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 
 ## Invocation
 
-`/implement-ticket [TICKET_ID]`
+`/implement-ticket <input>`
+
+`<input>` accepts any of:
+- A single ticket ID: `DINO-639`
+- A comma- or space-separated list: `DINO-639, DINO-638` or `DINO-639 DINO-638`
+- A tracker issue URL: Jira `/browse/DINO-639`, Linear `/issue/ENG-42/...`
+- A tracker search/filter URL: Jira `/issues?jql=...`, Linear filter URL
+- A pasted screenshot of a tracker board, column, or issue list
+- A freeform description (no tracker reference)
+- Any mixture of the above
+- Any project-local extension classifier defined in `.agentic/phase0-classifiers.yml`
+
+Phase 0 normalizes the input into a canonical ordered list of ticket entries before any other phase runs. Bare-ID, single-issue-URL, and operator-enumerated list invocations bypass the confirmation prompt — backward compatible with the prior single-argument contract.
 
 ---
 
@@ -28,41 +40,6 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **Branch/worktree creation on the Trivial single-engineer path and the Phase 5 parallel fan-out path.** Elevated single-engineer path delegates this to the engineer (see Phase 4).
 
 This list is not exhaustive — any operation listed elsewhere as conductor-direct is also irreducible.
-
----
-
-## Phase 0a-pre: Batch resume check
-
-> Run this phase BEFORE the per-ticket Resume check below. This is the composition anchor: batch-level resume picks the ticket cursor first; the per-ticket Resume check then runs unmodified scoped to that ticket's branch and `loop-state.json`.
-
-**Trigger:** the invocation includes 2 or more ticket IDs (same trigger as Phase 0a). Skip otherwise. Single-ticket invocations (including all Trivial single-ticket flows) bypass this phase entirely - no `.agentic/batch-state.json` is read or created.
-
-**Read** `.agentic/batch-state.json` if present. Apply the decision table below.
-
-| `batch-state.json` state | Action |
-|---|---|
-| absent | Skip Phase 0a-pre. Fall through to the existing per-ticket Resume check, then Setup, then Phase 0a (which initializes `batch-state.json`). |
-| `status=complete` | Print: "Prior batch complete; clearing." Delete the file. Fall through to the existing per-ticket Resume check. |
-| `status=stalled` | Print stalled summary (tickets + reasons). Prompt: `resume / fresh / abandon`. On `abandon`: delete file and exit. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration (below) and pick next pending ticket. |
-| `status=paused` | Print: `"Batch paused at operator request: [last_summary]."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
-| `status=interrupted` | Print: `"Batch interrupted (reason: [interrupt_reason]). N completed, M pending/blocked."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
-| `status=active` AND `last_updated > 10 min` ago | Treat as implicit interrupt. Same prompt as `interrupted` row. |
-| `status=active` AND `last_updated ≤ 10 min` AND `session_id` matches current | Silent re-entry resume (rare; e.g. `/implement-ticket` re-invoked within the same session). Pick next pending ticket from `tickets[]`. |
-| `status=active` AND `last_updated ≤ 10 min` AND (`session_id` differs OR `session_id` is null/absent) | If current invocation is N≥2: refuse with the verbatim Contract C message. If current invocation is N=1: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre is N≥2 only). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
-| Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
-| Inconsistent pair (`batch-state.json` says `active`, `loop-state.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. |
-
-**Resume composition rule (binding).** If Phase 0a-pre confirms resume of an active batch, it sets the in-memory ticket cursor to the next pending ticket from `tickets[]` BEFORE falling through to the existing per-ticket Resume check. The per-ticket Resume check then runs UNMODIFIED but scoped to the picked ticket's branch and `loop-state.json`. The two state mechanisms compose: batch resume picks the ticket; per-ticket resume picks the phase within that ticket. They have non-overlapping scopes.
-
-**Re-plan migration on resume.** When the operator confirms resume of any non-active batch state (`stalled`, `paused`, `interrupted`, or stale-`active` treated as interrupted):
-
-1. `git fetch origin`.
-2. For each ticket in `tickets[]` with `status` `pending` or `blocked`: re-fetch the tracker record. If the ticket has been merged elsewhere (per tracker status, or per `gh pr list --state merged --head <branch>` returning a non-empty result), append a `replan_log` entry `{ts, action: "drop_merged", ticket_id, detail}` and set the ticket's `status` to `skipped_already_merged`.
-3. Spawn `orchestration-planner` over the surviving pending/blocked tickets to re-sequence. Re-spawn `investigator` only when `replan_count >= 2` (counted from `replan_log` entries with `action: "investigator_rerun"`).
-4. All writes apply Contract A (per-write `session_id` gate) and Contract B (`replan_log[]` read-merge-write preservation). See "Batch state contracts" below.
-5. Bump `status` back to `active`. Preserve `wallclock_started_at` from the prior batch (the wallclock cap is per-batch lifetime, not per-session - a batch resumed in a later session continues counting against the original `wallclock_started_at`).
-
-Emit breadcrumb: `[phase: batch-resume | tickets_remaining=K]`.
 
 ---
 
@@ -96,7 +73,7 @@ This preserves the audit log across overlapping writes and across resume migrati
 
 **Contract C — One batch per project root.**
 
-When Phase 0a is initializing a new `batch-state.json` (N≥2 invocation) and the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes: REFUSE the new batch with the verbatim message:
+When Phase 0a is initializing a new `batch-state.json` (invocation where Phase 0 produced ≥ 2 entries) and the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes: REFUSE the new batch with the verbatim message:
 
 ```
 Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke.
@@ -104,13 +81,13 @@ Another batch session is active for this project root (session_id=<X>, last_upda
 
 Concurrent batches per project root are not supported. Operators wanting parallel batches use separate worktrees with separate `.agentic/`.
 
-**N=1 foreign-batch warning.** If the current invocation is N=1 (single-ticket) AND `.agentic/batch-state.json` exists with `status=active` + different `session_id` + `last_updated` within the last 10 minutes: print the verbatim warning:
+**N=1 foreign-batch warning.** If Phase 0 produced exactly 1 entry (single-ticket) AND `.agentic/batch-state.json` exists with `status=active` + different `session_id` + `last_updated` within the last 10 minutes: print the verbatim warning:
 
 ```
 NOTE: a batch session is active for this project root (session_id=<X>, last_updated=<Y>). Single-ticket invocations are not refused, but loop-state.json writes will collide if the same ticket is touched. Identify the live session via .agentic/loop-state.json last_updated. Continue? (yes/no)
 ```
 
-On `no`: abort. On `yes`: proceed with the single-ticket flow. This is the only N=1 interaction with `batch-state.json`.
+On `no`: abort. On `yes`: proceed with the single-ticket flow. This is the only single-entry interaction with `batch-state.json`.
 
 **Contract D — Stop hook mirror.**
 
@@ -221,7 +198,7 @@ else:
 
 **Concurrent session guard.** **REPLACED in this version by Contract A's per-write `session_id`-mismatch abort gate, applied to every conductor write of `loop-state.json` and `batch-state.json`.** See Phase 0a-pre and the "Batch state contracts" section above for the full contract. Every conductor write to `loop-state.json` includes a top-level `session_id: <current session>` field; readers tolerate absence for back-compat with state files written by prior versions.
 
-**N=1 foreign-batch warning.** Before proceeding to Setup on a single-ticket invocation, apply the N=1 foreign-batch check from "Batch state contracts" above. If `.agentic/batch-state.json` exists with `status=active` + different `session_id` + recent (≤10 min): print the verbatim NOTE, prompt yes/no, and abort on `no`.
+**N=1 foreign-batch warning.** Before proceeding to Phase 0a-pre on an invocation where Phase 0 produced exactly 1 entry, apply the N=1 foreign-batch check from "Batch state contracts" above. If `.agentic/batch-state.json` exists with `status=active` + different `session_id` + recent (≤10 min): print the verbatim NOTE, prompt yes/no, and abort on `no`.
 
 ---
 
@@ -264,11 +241,185 @@ All work lives in `$REPO`.
 
 ---
 
-## Phase 0a: Batch triage (N≥2 ticket invocation)
+## Phase 0: Input normalization
 
-**Trigger:** the invocation includes 2 or more ticket IDs.
+> Run this phase BEFORE Phase 0a-pre. Output is the in-memory `normalized_input` structure consumed by every later phase. No disk side-effects.
 
-**Skip:** N=1 invocations (single-ticket Trivial flow). Trivial single-ticket invocations bypass Phase 0a entirely - this is the backward-compatibility anchor. Mixed input (one ticket ID plus a URL or freeform task description) counts as N=1 and skips Phase 0a.
+<!--
+Phase 0 manifest:
+  Purpose: normalize any form of /implement-ticket input into a canonical entries[] list.
+  Public contract: produces in-memory normalized_input { entries[], freeform_task, additional_operator_context, raw_invocation, resolution_notes[] }.
+  Upstream deps: TRACKER/TICKET_PREFIX/JIRA_BASE_URL from Setup; tracker MCP tools; .agentic/phase0-classifiers.yml (optional).
+  Downstream consumers: Phase 0a-pre, Phase 0a, Phase 1, Phase 3 architect, Phase 5 engineer, Phase 12a (all key off len(entries) or batch-state.json).
+  Failure modes: pagination cap (50, narrow/proceed), sanity ceiling (200, refuse), JQL auth failure (abort), no entries + no freeform (exit). Confirmation runs only for ambiguous, screenshot, residue-attached, cap-hit, no-IDs+TRACKER≠none, or operator-enumerated >5.
+  Performance: single tracker API roundtrip per URL (paginated up to 50); screenshot read is local multimodal.
+-->
+
+**Goal:** convert any form of `<input>` into a deterministic ordered list of `{ticket_id, source}` entries, an optional `freeform_task`, and an optional `additional_operator_context`. Confirm only when classification is ambiguous or destructive.
+
+**Fast paths (no confirmation, no operator-visible output beyond the resolution itself).**
+
+| Condition | Action |
+|---|---|
+| Invocation is a single token matching `^[A-Z][A-Z0-9_]+-\d+$` AND matches `TICKET_PREFIX` (when TRACKER ≠ none) | `entries=[{ticket_id, source: "literal"}]`, proceed to Phase 0a-pre. Zero new operator output. |
+| `TRACKER == none` AND input is freeform text only (no tickets, no URLs, no images) | `entries=[]`, `freeform_task=<input>`, proceed. No confirmation prompt. (TRACKER=none has zero ambiguity for freeform — Phase 1's prior freeform prompt is now redundant.) |
+
+**Otherwise, classify the input.** Built-in classifiers run first, in this order; project-local classifiers (see "Extension point" below) run after for inputs that fall through.
+
+| Input shape | Detection | Resolution |
+|---|---|---|
+| Bare ticket ID | matches `^[A-Z][A-Z0-9_]+-\d+$` | append `{ticket_id, source: "literal"}` |
+| Comma/space-separated list | tokenize on `[,\s]+`, each token matches bare-ID regex | append each as `source: "list"` |
+| Jira issue URL | `^https?://[^/]+/browse/([A-Z][A-Z0-9_]+-\d+)` | extract group 1, append `source: "url:jira-issue"` |
+| Jira JQL/search URL | host matches `JIRA_BASE_URL` host AND path is `/issues` (or `/jira/.../issues`) AND query contains `jql=` | URL-decode `jql`, call `mcp__mcp-atlassian__jira_search`, paginate up to cap, append each as `source: "url:jira-jql"` with `title` |
+| Linear issue URL | `^https?://linear\.app/[^/]+/issue/([A-Z][A-Z0-9_]+-\d+)` | extract group 1, append `source: "url:linear-issue"` |
+| Linear filter URL | `linear.app/<workspace>/view/...` or filter query string | call `mcp__linear__list_issues` with decoded filter, paginate to cap, append `source: "url:linear-filter"` with `title` |
+| Pasted screenshot | **Any image attachment present in the operator's user-message payload (image MIME type or attachment marker indicating an image was uploaded with the invocation)** | conductor reads the image directly (Tier 2, multimodal). Extract every distinct `[A-Z][A-Z0-9_]+-\d+` substring. Append each as `source: "screenshot"`. **Do not spawn an OCR subagent.** |
+| Freeform residue | any non-matching text after all classifiers consumed their inputs | held aside; see Freeform handling below |
+
+**Extension point (project-local classifiers).**
+
+If `.agentic/phase0-classifiers.yml` exists at the project root, load it after Setup and before built-in classifiers run. Built-in classifiers run FIRST; project-local classifiers run only against inputs that fell through (residue not matched by any built-in). Schema:
+
+```yaml
+# .agentic/phase0-classifiers.yml
+classifiers:
+  - source_label: "github-issue"           # appended as source: "extension:github-issue"
+    detect: "^https?://github\\.com/[^/]+/[^/]+/issues/(\\d+)"   # regex; capture group 1 is the ID
+    resolver: "gh issue view $1 --json number,title --jq '{ticket_id: \"GH-\\(.number)\", title: .title}'"
+    # resolver is either a shell command (string) or an mcp_tool spec object:
+    #   resolver:
+    #     mcp_tool: "mcp__some-server__some-tool"
+    #     args: { id: "$1" }
+    #     response_path: "$.data"   # optional; default omitted (read top-level)
+  - source_label: "asana-task"
+    detect: "^https?://app\\.asana\\.com/0/\\d+/(\\d+)"
+    resolver:
+      mcp_tool: "mcp__asana__get_task"
+      args: { gid: "$1" }
+      response_path: "$.data"
+```
+
+**Resolution rules:**
+1. `detect` is a regex applied to each fall-through input token/URL.
+2. `resolver` is either a shell command (string) or an MCP tool spec (object with `mcp_tool`, `args`, optional `response_path`). The resolver MUST yield (directly or via `response_path` extraction) at minimum `ticket_id` (and optionally `title`).
+3. Resolver failures are treated like "Unparseable URL" — appended to `resolution_notes`, no entry produced.
+4. Each matched input contributes one entry with `source: "extension:<source_label>"`.
+
+**Shell-command resolver contract (binding).**
+
+- **Output channel:** resolver MUST emit JSON on stdout. Stderr is captured and logged to `resolution_notes` but is NOT parsed.
+- **Exit code:** zero exit = success; non-zero exit = treat as "no entries from this resolver" (log stderr, continue Phase 0; do NOT abort).
+- **JSON shape:** stdout MUST be either a single object `{ticket_id: string, title?: string}` OR a JSON array of such objects. Any other shape (non-JSON, missing `ticket_id`, wrong types) is a resolver failure.
+- **Capture-group substitution:** `$1` through `$9` correspond to regex capture groups from `detect`. Substituted values MUST be shell-escaped by wrapping the value in single quotes and replacing every embedded single quote `'` with the four-character sequence `'\''`. Example: a capture value `O'Brien's repo` is substituted as `'O'\''Brien'\''s repo'`. The engineer MUST NOT use unquoted `$1` substitution under any circumstance — raw URLs and tracker IDs may contain shell metacharacters (`;`, `&`, `` ` ``, `$()`, `|`, newlines) that would otherwise inject commands into the conductor shell.
+- **Timeout:** 10 seconds per resolver invocation. On timeout: kill the process, treat as zero entries, append a `"resolver timeout: <source_label>"` warning to `resolution_notes`.
+
+**MCP-tool resolver contract (binding).**
+
+- **Invocation:** the conductor calls the named MCP tool with `args` as the input dict. Capture-group substitution `$1`-`$9` applies to string-typed values inside `args` by literal string replacement. Shell-escaping does NOT apply (these are tool-call arguments, not shell tokens). The conductor MUST type-check each substituted value against the schema the MCP tool advertises — if the tool expects an integer and substitution produces a non-numeric string, treat as resolver failure and log; do NOT silently coerce.
+- **Response parsing:** the resolver entry MAY specify `response_path:` — a JSONPath-like expression (root `$`, dot-traversal, optional array index e.g. `$.data.items[0]`) telling the conductor which sub-object of the tool response carries `ticket_id` and `title`. If `response_path` is omitted, the conductor reads `ticket_id`/`title` directly from the top-level response object. If `response_path` is present but does not resolve (key missing, type mismatch), treat as resolver failure.
+- **Failure & timeout:** MCP tool errors and tool-side timeouts are treated identically to shell-command non-zero exit — log and continue.
+
+**Security model.**
+
+`.agentic/phase0-classifiers.yml` runs with full conductor privileges: shell-command resolvers execute as the operator's shell user, and MCP-tool resolvers can invoke any MCP server the conductor has access to. Trust level is therefore equivalent to executable code committed to the repository — anyone who can land a change to this file can execute arbitrary commands in any session that runs `/implement-ticket` against the affected branch. **Operators MUST review changes to `.agentic/phase0-classifiers.yml` whenever pulling an untrusted or unfamiliar branch (collaborator PR, fork, dependabot, agent-authored branch) before invoking `/implement-ticket` on that branch.** The file is project-local by convention and is not signed, sandboxed, or sandbox-enforced. This trust posture matches the rest of the `.agentic/` umbrella but is called out explicitly here because Phase 0 runs before any other phase and is therefore the first execution surface a malicious classifier file could exploit.
+
+**Rationale for `.agentic/phase0-classifiers.yml`** (over the AGENTS.md `## Tracker` extension): the project-local YAML keeps the classifier registry decoupled from tracker config (which is single-tracker by design); supports multiple un-enumerated trackers simultaneously (a project may use Jira primary + GitHub Issues secondary); and matches the `.agentic/` convention for project-local agentic state. AGENTS.md `## Tracker` remains the single-tracker config; new trackers don't replace it.
+
+**Pagination cap.** Default 50 issues per URL/filter (combined across pagination). On overflow, prompt: `"JQL/filter returned >50 issues; capped at 50. Narrow the query or proceed with the first 50? (narrow / proceed)"`. On `narrow`: abort Phase 0. On `proceed`: keep first 50, log to `resolution_notes`.
+
+**Sanity ceiling.** Hard refuse if `len(entries) > 200` after all classifiers and pagination. Print: `"Phase 0 resolved >200 tickets; refusing as a sanity ceiling. Narrow your input."` Exit. This is the ONLY hard refusal in Phase 0.
+
+**Deduplication.** Dedupe `entries[]` by `ticket_id` preserving first-seen order. Record dropped duplicates in `resolution_notes`.
+
+**Freeform handling (mixed-input residue).**
+
+| Condition | Action |
+|---|---|
+| `entries` non-empty AND freeform residue present | **Default: route residue to `additional_operator_context`** (attach to every entry's downstream brief). Print residue + entries summary, prompt: `"Mixed input detected. Residue: '<first 200 chars>'. Entries: <list>. Attach residue as additional context to all entries, drop, or abort? (attach-to-all / drop / abort)  [default: attach-to-all]"`. On `attach-to-all`: set `additional_operator_context=<residue>`. On `drop`: set `additional_operator_context=null`, log to `resolution_notes`. On `abort`: exit. |
+| `entries` empty AND residue AND `TRACKER=none` | Fast path above already caught this case. |
+| `entries` empty AND residue AND `TRACKER ≠ none` | Confirm: `"No tracker IDs detected and TRACKER=<tracker>. Treat input as freeform task (no tracker fetch), or abort? (freeform / abort)"`. On `freeform`: set `freeform_task=<residue>`, `entries=[]`. On `abort`: exit. |
+| `entries` empty AND no residue | Print: `"Phase 0 produced no entries and no freeform task. Re-invoke with a ticket reference or description."` Exit. |
+
+**Failure handling per classifier.**
+
+| Failure | Action |
+|---|---|
+| Unparseable URL | Treat as freeform residue. Log to `resolution_notes`. |
+| JQL/filter returns 0 results | Print `"JQL/filter returned 0 issues."` Continue with other inputs. |
+| JQL/filter auth failure | Print verbatim error. Abort Phase 0 (no silent freeform fallback — masks credential issues). |
+| Screenshot has no detectable IDs | Print `"Screenshot contained no <PREFIX>-NNN matches."` Continue. |
+| Screenshot ID prefix ≠ TICKET_PREFIX | Append anyway with `resolution_notes` warning. Phase 1 fetch is authoritative. |
+| Mixed input where some IDs don't exist in tracker | Phase 0 validates *shape*, not *existence*. Phase 1's per-ticket fetch is authoritative. |
+| Project-local classifier resolver failure | Treat as Unparseable URL. Log to `resolution_notes`. |
+
+**Confirmation policy.** Confirmation runs ONLY in the cases below. All other resolutions proceed silently with a one-line `[phase: input-normalization | entries=<N> | freeform=<bool> | extra_context=<bool>]` breadcrumb.
+
+| Trigger | Confirmation |
+|---|---|
+| JQL/filter URL → any N entries | Yes — print resolved IDs + titles, `(proceed / abort)` |
+| Screenshot → any N entries | Yes — OCR is approximate, print extracted IDs, `(proceed / abort)` |
+| Mixed input with freeform residue | Yes — `(attach-to-all / drop / abort)`, default `attach-to-all` |
+| Cap hit (>50 from JQL/filter) | Yes — `(narrow / proceed)` |
+| No IDs + TRACKER ≠ none + freeform residue | Yes — `(freeform / abort)` |
+| Operator-enumerated sources (literal IDs, comma/space lists, single issue URLs, mixed bare-IDs+issue-URLs) producing >5 entries | **Soft warn + auto-proceed** — print loud warning enumerating all resolved IDs in a one-per-line list, do NOT prompt; emit `resolution_notes` entry. (Threshold of 5 is chosen because a single visual scan can verify ≤5 IDs; >5 deserves an explicit list so the operator catches typos, but the operator already enumerated each one — confirming would violate "as autonomously as possible".) |
+| All other operator-enumerated cases (≤5 IDs, single URL, fully unambiguous) | **No confirmation.** Proceed silently. |
+| Sanity ceiling (>200) | Refused (no prompt; hard exit). |
+
+**Tier:** Tier 2 (conductor-direct, including screenshot read and resolver execution).
+
+---
+
+## Phase 0a-pre: Batch resume check
+
+> Run this phase BEFORE the per-ticket Resume check below. This is the composition anchor: batch-level resume picks the ticket cursor first; the per-ticket Resume check then runs unmodified scoped to that ticket's branch and `loop-state.json`.
+
+**Trigger:** Phase 0 normalization produced ≥ 2 entries (same trigger as Phase 0a). Skip otherwise. Single-entry invocations (Phase 0 produced exactly 1 entry, including the bare-ID fast path used by all Trivial single-ticket flows) bypass this phase entirely - no `.agentic/batch-state.json` is read or created.
+
+**Read** `.agentic/batch-state.json` if present. Apply the decision table below.
+
+| `batch-state.json` state | Action |
+|---|---|
+| absent | Skip Phase 0a-pre. Fall through to the existing per-ticket Resume check, then Setup, then Phase 0a (which initializes `batch-state.json`). |
+| `status=complete` | Print: "Prior batch complete; clearing." Delete the file. Fall through to the existing per-ticket Resume check. |
+| `status=stalled` | Print stalled summary (tickets + reasons). Prompt: `resume / fresh / abandon`. On `abandon`: delete file and exit. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration (below) and pick next pending ticket. |
+| `status=paused` | Print: `"Batch paused at operator request: [last_summary]."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
+| `status=interrupted` | Print: `"Batch interrupted (reason: [interrupt_reason]). N completed, M pending/blocked."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
+| `status=active` AND `last_updated > 10 min` ago | Treat as implicit interrupt. Same prompt as `interrupted` row. |
+| `status=active` AND `last_updated ≤ 10 min` AND `session_id` matches current | Silent re-entry resume (rare; e.g. `/implement-ticket` re-invoked within the same session). Pick next pending ticket from `tickets[]`. |
+| `status=active` AND `last_updated ≤ 10 min` AND (`session_id` differs OR `session_id` is null/absent) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
+| Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
+| Inconsistent pair (`batch-state.json` says `active`, `loop-state.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. |
+
+**Move ordering hazard (resume case).** On resume, `batch-state.json.tickets[]` is the authoritative ticket cursor and supersedes any Phase 0 output produced in the resuming session. If the operator re-supplied input that does not match the on-disk `tickets[]`, Phase 0a-pre MUST surface a warning before falling through:
+
+```
+WARNING: resumed batch tickets[] = [<list>] do not match this invocation's Phase 0 entries[] = [<list>].
+The on-disk batch state takes precedence on resume. Continue resuming the prior batch, or abandon resume and use the new input?
+(continue-resume / abandon-resume-and-use-new-input)
+```
+
+On `continue-resume`: discard Phase 0 output, use `batch-state.json.tickets[]`. On `abandon-resume-and-use-new-input`: delete `batch-state.json` and re-run Phase 0a from the new entries.
+
+**Resume composition rule (binding).** If Phase 0a-pre confirms resume of an active batch, it sets the in-memory ticket cursor to the next pending ticket from `tickets[]` BEFORE falling through to the existing per-ticket Resume check. The per-ticket Resume check then runs UNMODIFIED but scoped to the picked ticket's branch and `loop-state.json`. The two state mechanisms compose: batch resume picks the ticket; per-ticket resume picks the phase within that ticket. They have non-overlapping scopes.
+
+**Re-plan migration on resume.** When the operator confirms resume of any non-active batch state (`stalled`, `paused`, `interrupted`, or stale-`active` treated as interrupted):
+
+1. `git fetch origin`.
+2. For each ticket in `tickets[]` with `status` `pending` or `blocked`: re-fetch the tracker record. If the ticket has been merged elsewhere (per tracker status, or per `gh pr list --state merged --head <branch>` returning a non-empty result), append a `replan_log` entry `{ts, action: "drop_merged", ticket_id, detail}` and set the ticket's `status` to `skipped_already_merged`.
+3. Spawn `orchestration-planner` over the surviving pending/blocked tickets to re-sequence. Re-spawn `investigator` only when `replan_count >= 2` (counted from `replan_log` entries with `action: "investigator_rerun"`).
+4. All writes apply Contract A (per-write `session_id` gate) and Contract B (`replan_log[]` read-merge-write preservation). See "Batch state contracts" below.
+5. Bump `status` back to `active`. Preserve `wallclock_started_at` from the prior batch (the wallclock cap is per-batch lifetime, not per-session - a batch resumed in a later session continues counting against the original `wallclock_started_at`).
+
+Emit breadcrumb: `[phase: batch-resume | tickets_remaining=K]`.
+
+---
+
+## Phase 0a: Batch triage (Phase 0 produced ≥ 2 entries)
+
+**Trigger:** Phase 0 normalization produced ≥ 2 entries.
+
+**Skip:** Phase 0 produced exactly 1 entry. Mixed-form inputs that Phase 0 normalized down to a single entry count as single-entry and skip Phase 0a.
 
 **Flow:**
 
@@ -297,9 +448,11 @@ Emit breadcrumb: `[phase: batch-triage | N tickets | clusters=K]`.
 
 ---
 
-## Phase 0b: Brief check
+## Phase 0b: Brief check + qa.md snapshot + on-resume Brief migration
 
-Before any architect spawn, check for an existing Brief.
+Before any architect spawn, check for an existing Brief, snapshot qa.md for Elevated tickets, and handle the on-resume Brief migration for tickets predating the `qa_criteria` requirement.
+
+### Brief check
 
 **Slug derivation:** convert the ticket title to kebab-case and strip any ticket-ID prefix
 (e.g. `AE-123 Add user login` becomes `add-user-login`).
@@ -319,11 +472,47 @@ Before any architect spawn, check for an existing Brief.
 **If not found:** proceed normally. The promotion gate in Phase 3b determines whether a
 Brief is required based on the unit count from the orchestration-planner.
 
+### qa.md snapshot (Elevated only)
+
+After risk has been classified, if the current ticket is Elevated, snapshot any existing `.agentic/qa.md` to a per-ticket snapshot file. **Trivial invocations skip this step entirely** (preserves bit-for-bit-identical guarantee for Trivial single-ticket invocations - no `.agentic/qa.md.snapshot-*` file is produced).
+
+**Snapshot rules:**
+
+1. If risk is Trivial: skip this entire subsection. Do not create or touch any snapshot file.
+2. If risk is Elevated and `.agentic/qa.md` does not exist: skip silently (nothing to snapshot).
+3. If risk is Elevated and `.agentic/qa.md` exists and `.agentic/qa.md.snapshot-<ticket_id>` does NOT already exist: copy `.agentic/qa.md` to `.agentic/qa.md.snapshot-<ticket_id>` via atomic write (write to `.agentic/qa.md.snapshot-<ticket_id>.tmp`, then rename).
+4. If risk is Elevated and `.agentic/qa.md.snapshot-<ticket_id>` already exists (e.g., on resume of a paused or interrupted ticket): preserve the existing snapshot. Do not overwrite. The original snapshot represents the qa.md state at the start of this ticket's first run.
+
+The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path is gitignored under the existing `.agentic/` umbrella; no `.gitignore` change is needed.
+
+### On-resume Brief migration (qa_criteria backfill)
+
+When Phase 0a-pre or the per-ticket Resume check detects an in-flight ticket whose Brief lacks the `qa_criteria` field (because the ticket was started before the `qa_criteria` requirement was rolled out), apply this migration before spawning any worker:
+
+1. **Probe architect plan.** If the architect plan (referenced from the Brief or stored alongside it) contains a `qa_criteria` block, the conductor authors a retroactive Brief amendment appending the architect's `qa_criteria` block verbatim into the Brief. Proceed normally.
+2. **If neither has `qa_criteria`** (legitimate transition ticket), surface the operator prompt verbatim:
+
+   ```
+   WARNING: this ticket's Brief and architect plan predate the qa_criteria requirement. Options:
+     (a) provide a qa_criteria block now (paste YAML)
+     (b) one-time bypass for this transition ticket (skip QA for this ticket only)
+   Choose (a/b).
+   ```
+
+   On `(a)`: the operator pastes the YAML; conductor injects it into the Brief and proceeds.
+   On `(b)`: conductor records a one-time bypass marker for THIS ticket only (in-context, scoped to this resume) and proceeds with QA skipped. The bypass does NOT extend to future tickets.
+
+3. **New invocations (no in-flight state) hard-fail per architect plan.** Fresh `/implement-ticket` invocations on Elevated tickets without a `qa_criteria` block in the Brief or architect plan emit a Critical Skeptic finding on the architect plan; the conductor does not proceed past Phase 3 until the architect plan supplies the block. The on-resume bypass option is exclusively for tickets that started before this requirement existed.
+
 ---
 
 ## Phase 1: Understand the ticket
 
 (Setup has already resolved TRACKER. Execute exactly one of the sub-sections below.)
+
+**Iteration:** Phase 1 runs once per `entry` in `normalized_input.entries`. The current `[TICKET_ID]` refers to `entry.ticket_id`. When `normalized_input.entries` is empty AND `normalized_input.freeform_task` is set, only the `TRACKER is none` sub-section executes, with `freeform_task` as the description. When `entries` is non-empty, the `TRACKER is none` sub-section is skipped regardless of TRACKER value.
+
+When `normalized_input.additional_operator_context` is non-null, append it verbatim to every entry's downstream architect (Phase 3) and engineer (Phase 5) brief, prefixed with `"Additional operator context (applied to all entries):"`. This routes mixed-input residue into the per-entry brief without dropping operator intent.
 
 #### If TRACKER is `linear`
 
@@ -341,7 +530,7 @@ Brief is required based on the unit count from the orchestration-planner.
 
 #### If TRACKER is `none`
 
-No ticket to fetch. Ask the user: "No tracker configured. Please describe what you want to implement." Use the user's description as the ticket content for all downstream phases. Set ticket type to "feature" unless the user indicates otherwise.
+No ticket to fetch. **Use `normalized_input.freeform_task` as the ticket content** for all downstream phases. The pre-existing operator prompt is superseded by Phase 0's freeform fast path. Set ticket type to "feature" unless the operator's description indicates otherwise.
 
 ---
 
@@ -806,11 +995,27 @@ Fires exactly once per ticket per `/implement-ticket` invocation.
 
 **Cap independence:** Phase 6 and Phase 6b caps are independent - exhausting the Phase 6 Skeptic cap (3 fix passes) does not consume Phase 6b QA cap budget, and vice versa. Each phase gets its own 3-fix-pass budget evaluated separately.
 
-**Trigger:** qa.md exists at either resolver path (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) AND has a `## QA triggers` section AND the diff matches at least one trigger pattern.
+**Trigger:** Phase 6b QA fires for Elevated units IFF all of the following hold:
+1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.
+2. `qa_criteria.qa_skip == null`.
+3. `qa_criteria.scenarios[]` is non-empty.
+4. Phase 6 `termination_reason == clean`.
 
-- **If not triggered:** skip directly to Phase 7.
-- **If triggered - UI-visible changes (concurrent path):** when trigger patterns match a UI-visible diff, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
-- **If triggered - non-UI changes (sequential path):** proceed with the QA loop contract below.
+The Trivial path never enters Phase 6b (Trivial units bypass the entire Skeptic/QA loop per METHODOLOGY.md §Risk Classification).
+
+**Invalid `qa_skip` enum normalization (at Phase 6b entry).** If `qa_criteria.qa_skip` is non-null and not in the 5-valid-enum set (`pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`), normalize to null and emit the operator warning verbatim:
+
+```
+WARNING: qa_skip value '<X>' is not a valid enum (one of: pure-backend-library, config-only, type-only-refactor, dep-bump-no-runtime-change, docs-only). Treating as null; QA will fire.
+```
+
+After normalization, re-evaluate the trigger conditions (with `qa_skip` now null, QA fires if scenarios are present).
+
+**qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
+
+- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+- **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
+- **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
 
 For full QA gate rules, see `METHODOLOGY.md §QA Gate`.
 
@@ -838,7 +1043,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `qa-engineer` with ticket context, diff, and the resolved qa.md config (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). On iteration 2+, prepend the "Prior QA failures" section to the brief:
+**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
 **Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
@@ -1072,17 +1277,67 @@ Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update
 
 ---
 
+## Phase 11b: Wrap learnings (per-ticket capture)
+
+**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `.agentic/loop-state.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
+
+**Skip conditions:**
+- Phase 9 was skipped (no PR was opened): skip Phase 11b entirely.
+- The current ticket was Trivial: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`.
+
+**Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
+
+**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap.lock` (atomic `mkdir`). The lock is shared with `/wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
+
+- **If the lock is held by another session** (e.g., `/wrap` is running concurrently in another session): skip Phase 11b with the operator note: `"Phase 11b skipped: /wrap is running in another session."` Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+- **If the lock is acquired:** spawn `wrap-ticket` with the inputs below. The conductor releases the lock on every exit path (success, timeout, soft-fail) before proceeding to Phase 12.
+
+**`wrap-ticket` spawn brief inputs:**
+
+- `ticket_id`: the resolved ticket id.
+- `ticket_title`: the ticket title.
+- `ticket_description`: the full ticket description.
+- `architect_plan_path`: absolute path to the architect's plan output (or in-context if no path).
+- `brief_path`: absolute path to the Brief (or "n/a" if no Brief).
+- `findings_log`: read from `.agentic/loop-state.json` `loop_state.findings_log` BEFORE Phase 12 clears the file.
+- `qa_md_diff`: the diff between `.agentic/qa.md.snapshot-<ticket_id>` (created at Phase 0b for Elevated tickets) and the current working-tree `.agentic/qa.md`. Empty if no snapshot exists or qa.md is unchanged.
+- `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
+- `pr_url`: the PR URL captured at Phase 9.
+- `conversation_summary`: a brief recap of the conductor's session covering this ticket.
+
+**Failure semantics:**
+
+- `wrap-ticket` failure NEVER blocks Phase 12 cleanup or PR completion. Soft-fail with a warning line printed to the operator.
+- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user. If `size_advisory` is non-null, print it as a separate line.
+- If `wrap-ticket` returns within 60s but the output is not parseable as JSON: conductor warns the operator (`"Phase 11b: wrap-ticket return was not valid JSON; proceeding without learnings capture."`) and proceeds.
+- If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock is released before timeout.
+- If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
+
+Lock release: `rm -rf .agentic/wrap.lock` runs unconditionally on every Phase 11b exit path before advancing to Phase 12.
+
+Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
+
+---
+
 ## Phase 12: Loop state cleanup
 
-After the PR is open (Phase 9 complete), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
+After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
 
 If the file does not exist (it was never written, e.g. loop never started), skip silently.
+
+**`findings_log` clearing.** Phase 12 is the ONLY clearer of `findings_log`. The findings-curator at Phase 6 exit reads `findings_log` from `.agentic/loop-state.json` but does NOT clear it. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this Phase 12 cleanup. Setting `status: "complete"` (or deleting the file) is the moment `findings_log` is dropped.
+
+**qa.md snapshot cleanup.** Remove `.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
+
+```bash
+rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
+```
 
 ---
 
 ## Phase 12a: Handoff evaluation (batch only)
 
-**Trigger:** N≥2 batch invocation (`.agentic/batch-state.json` exists). Skip on N=1 entirely.
+**Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session). Skip when batch-state.json is absent.
 
 After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, evaluate the three handoff triggers below. If any one fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
 
