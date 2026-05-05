@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
   "baseline_id": "2026-05-pre-icl-restructure",
-  "captured_at_utc": "2026-05-05T11:43:24.788961+00:00",
+  "captured_at_utc": "2026-05-05T11:52:46.407789+00:00",
   "captured_by": "evals-baseline-capture@v1",
   "stochasticity_disclaimer": "This baseline is one sample of a stochastic distribution. Stage 6 comparison MUST be distributional (e.g. Wilcoxon signed-rank against recorded n=3 medians or per-fixture-stdev-multiplied bands), NOT point-equality or fixed-percent thresholds.",
   "git": {
-    "ai_tools_sha": "2b29c7f64a752c45845583ff4d52af7b72b2caeb",
+    "ai_tools_sha": "50f8b22a8c009cabf22cb1aa3af1f4c4bfef84d6",
     "ai_tools_dirty": false,
-    "agentic_engineering_sha": null,
+    "agentic_engineering_sha": "35b34631147fff05fe264f69dc5aa01a08faaa08",
     "agentic_engineering_dirty": false,
     "helios_sha": null,
     "helios_dirty": false
   },
   "environment": {
     "claude_cli_version": "2.1.128 (Claude Code)",
-    "claude_config_snapshot": "What config? Options:\n- `/config` (Claude Code built-in: theme, model, etc.)\n- `update-config` skill (settings.json: hooks, permissions, env vars)\n- Project config file (which one?)",
+    "claude_config_snapshot": "null:command-failed:non-zero exit",
     "agentic_engineering_json": {
       "mode": "opt-out",
       "profile": "default",
