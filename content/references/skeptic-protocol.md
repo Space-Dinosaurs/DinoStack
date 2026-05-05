@@ -1,3 +1,37 @@
+<!--
+Purpose: Defines the Skeptic Protocol - the adversarial review loop that governs
+         all Elevated-risk changes. Sections are referenced directly by conductors
+         and spawn briefs; section numbers are stable identifiers.
+
+Public API: Referenced by section number across the methodology. Key sections:
+  Section 2 - Skeptic loop orchestration (conductor entry point)
+  Section 4.5 - Global-context input set (required in every spawn brief)
+  Section 5 - Re-route limits and convergence failure
+  Section 6 - Findings classification (Critical/Major/Minor definitions)
+  Section 8 - Adversarial brief templates (domain-specific)
+  Section 9 - Review scope guidance for decomposed tasks
+  Section 11 - Sign-off format and validation rules
+  Section 12 - Elevated + Cleanup path (/simplify integration)
+  Section 14 - Skeptic calibration and meta-review telemetry
+
+Upstream deps: content/agents/skeptic.md (Skeptic agent identity),
+               content/rules/module-manifest.md (manifest policy enforced by Skeptic),
+               content/agents/engineer.md (Worker the Skeptic reviews),
+               METHODOLOGY.md (risk classification, re-route limits, QA gate)
+
+Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block),
+                      content/commands/implement-ticket.md (Phase 6 Skeptic loop),
+                      METHODOLOGY.md (imports loop semantics and re-route limits),
+                      content/agents/architect.md (plan Skeptic references Section 8)
+
+Failure modes: If this document goes stale, conductors construct incorrect spawn
+               briefs (missing Global-context block), Skeptics apply wrong findings
+               thresholds, and sign-off format validation fails. Section numbers
+               are cross-referenced by string match - renumbering any section
+               without a grep-and-replace sweep breaks all in-flight briefs.
+
+Performance: N/A - methodology document consumed by LLMs at spawn time.
+-->
 # The Skeptic Protocol — Adversarial Review Methodology
 
 ## 0. Risk Assessment
