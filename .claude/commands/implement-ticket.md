@@ -210,7 +210,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 
 - `REPO` — absolute path to the repo root
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
-- `BASE_BRANCH` — the branch all work is based from. If not declared in `AGENTS.md`, resolve in this order: (1) `develop` if it exists locally; (2) `development` if it exists locally; (3) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
+- `BASE_BRANCH` — the branch all work is based from. If not declared in `AGENTS.md`, resolve in this order: (1) `main` if it exists locally; (2) `master` if it exists locally; (3) `develop` if it exists locally; (4) `development` if it exists locally; (5) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
 
 **Tracker resolution** — read tracker config using this fallback chain:
@@ -359,7 +359,7 @@ classifiers:
 
 | Trigger | Confirmation |
 |---|---|
-| JQL/filter URL → any N entries | Yes — print resolved IDs + titles, `(proceed / abort)` |
+| JQL/filter URL → any N entries | **Soft warn + auto-proceed** — print resolved IDs + titles in a one-per-line list, do NOT prompt; emit `resolution_notes` entry. The operator wrote the JQL deliberately; Phase 0a batch triage already presents a per-ticket summary downstream; "as autonomously as possible" is the stated goal. (Aligned with the operator-enumerated >5 row below.) |
 | Screenshot → any N entries | Yes — OCR is approximate, print extracted IDs, `(proceed / abort)` |
 | Mixed input with freeform residue | Yes — `(attach-to-all / drop / abort)`, default `attach-to-all` |
 | Cap hit (>50 from JQL/filter) | Yes — `(narrow / proceed)` |
@@ -667,6 +667,24 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
 
+**Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: "worktree"` (see METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.
+
+**Stale remote branch preflight (mandatory before every engineer spawn).** Before passing `BRANCH_NAME` to the engineer (single-engineer path) or before creating per-unit sub-branches (fan-out path), the conductor MUST run:
+
+```bash
+git -C $REPO ls-remote --heads origin "$BRANCH_NAME"
+```
+
+Decision table:
+
+| `ls-remote` result | Action |
+|---|---|
+| Empty (no remote ref) | Proceed with `BRANCH_NAME` as resolved. |
+| Returns a SHA AND that SHA is reachable from the local resume state for this ticket (resume case - we're picking up our own prior work) | Proceed with `BRANCH_NAME` as resolved. |
+| Returns a SHA that does NOT match anything we intend to push (stale branch from an unrelated session, abandoned PR, prior batch run) | Append a uniqueness suffix to `BRANCH_NAME` BEFORE passing it to the engineer. Default suffix: `-v2`. If `-v2` also collides, use `-<7-char-short-sha>` of the conductor's current HEAD. Re-run `ls-remote` against the new name to confirm it is free. |
+
+The engineer is never asked to handle a rename mid-implementation. The conductor resolves uniqueness once, before the spawn. Log the resolution to `resolution_notes` (one line: `branch_collision: <original> → <renamed> (remote SHA <sha>)`) so the operator can audit later. This preflight runs on every Elevated engineer spawn (single-engineer, fan-out per-unit, and any Phase 7 fix engineer that creates a new branch). Trivial-path conductor-direct branch creation (Phase 4) MUST also apply this preflight.
+
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
 - `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence.
@@ -939,6 +957,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 **Step 4. Engineer fix pass.** Spawn a fresh `engineer` agent with:
 - The open Critical and Major findings from `findings_log` (status=open)
 - The `last_engineer_summary` from the prior iteration
+- **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — hallucinating the parts it cannot see and producing output that diverges from prior iterations. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
 - Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
 - The branch name and repo path
 - Instruction to run `$QUALITY_CMD` before finishing
@@ -1015,6 +1034,12 @@ After normalization, re-evaluate the trigger conditions (with `qa_skip` now null
 
 **qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
 
+**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/sections/05-qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/sections/05-qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
+
+**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/sections/05-qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
+
+**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/sections/05-qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
+
 - **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
 - **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
 - **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
@@ -1045,7 +1070,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). On iteration 2+, prepend the "Prior QA failures" section to the brief:
+**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
 **Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
@@ -1070,7 +1095,7 @@ The following failures were identified and fix attempts were made in earlier ite
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and hallucinates; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
@@ -1102,7 +1127,7 @@ All checks must pass (typecheck, lint, tests, knip, jscpd). Do not suppress or s
 This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter. Instead:
 
 1. Before spawning the Phase 7 engineer: write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
-2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry.
+2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: "worktree"` on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble).
 3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
 4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
 5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
@@ -1196,38 +1221,62 @@ Capture the PR number from the URL printed by `gh pr create`.
 
 ## Phase 10: Wait for CI Test URL
 
-The CI workflow deploys the branch to Cloudflare and posts a comment on the PR from `github-actions[bot]` containing a markdown "Test URL" link.
+The CI workflow deploys the branch to a preview environment (Cloudflare Pages, Vercel, Netlify, etc.) and exposes the deployment via a GitHub status check (and often a PR comment as well). Phase 10 polls the **status check rollup** as the authoritative source rather than scraping comment bodies.
 
-Poll every 60 seconds for up to 5 minutes (5 checks):
+**Why status checks, not comments.** Comment-scraping has two failure modes that silently produce a "no Test URL yet" result when the real state is "the deploy was rejected and will never appear":
+
+1. The deploy provider rejects the deploy at the project level (e.g. Vercel project blocked, billing suspended, build quota exceeded) and never posts a comment - the conductor polls forever and times out without ever surfacing the rejection.
+2. The deploy succeeds but the comment is posted by a non-`github-actions[bot]` author (e.g. `vercel[bot]`, a custom CI bot) and the comment-author filter misses it.
+
+`gh pr view --json statusCheckRollup` returns every check the GitHub API knows about, including provider-rejected states with their failure messages, so the conductor can detect blocked-deploy conditions early and surface them to the operator instead of timing out blind.
+
+**qa.md `preview_blocked: true` flag.** If the resolved qa.md (`.agentic/qa.md` preferred) sets `preview_blocked: true`, the conductor SKIPS the status-check poll entirely and treats the Test URL as unavailable from the start. This is for projects where the preview-deploy environment is known to be blocked at the org or project level and waiting is wasted effort. Phase 11 proceeds with the PR link as the only artifact.
+
+**Poll loop.** When `preview_blocked` is not set, poll every 30 seconds for up to 5 minutes (10 checks):
 
 ```bash
 PR_NUMBER=[PR_NUMBER]
 TEST_URL=""
+BLOCKED_REASON=""
 
-for i in 1 2 3 4 5; do
-  BODY=$(gh pr view $PR_NUMBER \
-    --repo $GH_REPO \
-    --json comments \
-    --jq '.comments[] | select(.author.login == "github-actions[bot]") | select(.body | contains("Test URL")) | .body' \
-    2>/dev/null | head -1)
+for i in $(seq 1 10); do
+  ROLLUP=$(gh pr view "$PR_NUMBER" \
+    --repo "$GH_REPO" \
+    --json statusCheckRollup \
+    --jq '.statusCheckRollup' 2>/dev/null)
 
-  if [ -n "$BODY" ]; then
-    echo "CI comment found:"
-    echo "$BODY"
-    # Extract URL from markdown link: [Test URL](https://...)
-    TEST_URL=$(echo "$BODY" | grep -oP '\[Test URL\]\(\K[^)]+')
+  # Detect provider-rejected deploys early. The exact string varies by provider;
+  # match the common cases (Vercel: "project blocked"; generic: "blocked").
+  if echo "$ROLLUP" | grep -qiE 'project[ _-]?blocked|deployment[ _-]?blocked'; then
+    BLOCKED_REASON=$(echo "$ROLLUP" | grep -oiE '[^"]*blocked[^"]*' | head -1)
+    echo "Preview deploy is blocked: $BLOCKED_REASON"
+    break
+  fi
+
+  # Look for a successful deploy check that exposes a target URL.
+  TEST_URL=$(echo "$ROLLUP" | jq -r '
+    .[] | select(.conclusion == "SUCCESS" or .state == "SUCCESS")
+        | .targetUrl // .detailsUrl // empty
+  ' | grep -E '^https?://' | head -1)
+
+  if [ -n "$TEST_URL" ]; then
     echo "Test URL: $TEST_URL"
     break
   fi
 
-  echo "Waiting for CI... ($i/5)"
-  sleep 60
+  echo "Waiting for CI status check... ($i/10)"
+  sleep 30
 done
 
 echo "Final Test URL: ${TEST_URL:-not found}"
+echo "Preview blocked reason: ${BLOCKED_REASON:-none}"
 ```
 
-If CI hasn't posted after 5 minutes, proceed with what you have - post the PR link to the ticket and note that the Test URL is pending.
+**Outcome handling:**
+
+- `TEST_URL` populated: proceed to Phase 11 with the URL.
+- `BLOCKED_REASON` populated: proceed to Phase 11 with PR link only; surface the rejection cause to the operator and recommend setting `preview_blocked: true` in qa.md if the block is persistent.
+- Neither populated after 5 minutes: proceed with the PR link and note that the Test URL is pending.
 
 ---
 
@@ -1347,6 +1396,8 @@ After Phase 12 completes for a ticket and BEFORE the conductor advances to the n
 
 1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`.
 2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`.
+
+   **Invariant (binding).** The conductor MUST NOT write `pause_reason: "operator_pause"` to `batch-state.json` unless the operator's most recent message contains the literal substring `pause the batch` (case-insensitive). Conductor self-doubt about remaining wallclock, context pressure, perceived pace, or "feeling like the operator might want a break" is NOT a valid `operator_pause` trigger. The correct conductor behavior in those subjective cases is to spawn the next ticket and let `wallclock_cap` (trigger 3) fire mechanically if the cap is actually hit. A conductor that paraphrases the operator, infers intent from "I'm tired" / "let's stop soon" / "we're running long", or pauses preemptively to avoid a future cap hit is violating this invariant - the operator's literal words are the authoritative trigger. If an operator phrases a pause request differently (e.g. "stop after this one"), the correct response is to surface a one-line confirmation (`Proceeding to pause the batch after the current ticket - confirm with 'pause the batch' or override with 'continue'.`) and continue executing until the literal substring arrives.
 3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`.
 
 (Context-pressure auto-detection is explicitly NOT a trigger; the conductor cannot read its own context %. Operators use trigger 2 if context pressure is observed.)

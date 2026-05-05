@@ -62,7 +62,68 @@ Begin every response with a status header on the first line:
 - `Status: NEEDS_CONTEXT` - cannot proceed without specific missing information (state what is missing)
 - `Status: BLOCKED` - hit a hard blocker requiring a human or architectural decision (state what it is)
 
-Then return a plain-text summary. Cover:
+**Elevated-path structured block (mandatory).** Immediately after the status line, emit a single fenced ` ```yaml ` (or ` ```json `) block containing the structured return fields. Free-form prose notes go AFTER the structured block, not before and not interleaved. The conductor parses this block deterministically; variance in field placement or naming forces fragile prose-scraping and is the largest source of Phase 5/6/7 parse errors.
+
+Schema (YAML shown; equivalent JSON is acceptable):
+
+```yaml
+status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+task_id: <string or null>            # echoed from execution contract; null on single-unit
+files_modified:
+  - path: <repo-relative path>
+    change: created | modified | deleted | renamed
+    summary: <one-line description>
+quality_gate_results:
+  lint: pass | fail | not_run
+  typecheck: pass | fail | not_run
+  test: pass | fail | not_run
+  raw_output: |
+    <truncated to 4000 chars; tail-wins on truncation>
+commit_sha: <full 40-char SHA, or null if no commit was made>
+branch_name: <string, or null>
+pr_description_body: |
+  <markdown body suitable for the PR; conductor may wrap with title/footer>
+```
+
+JSON-Schema fragment (informative; the conductor uses this to validate):
+
+```json
+{
+  "type": "object",
+  "required": ["status", "files_modified", "quality_gate_results"],
+  "properties": {
+    "status": { "enum": ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
+    "task_id": { "type": ["string", "null"] },
+    "files_modified": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "change", "summary"],
+        "properties": {
+          "path": { "type": "string" },
+          "change": { "enum": ["created", "modified", "deleted", "renamed"] },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "quality_gate_results": {
+      "type": "object",
+      "required": ["lint", "typecheck", "test", "raw_output"],
+      "properties": {
+        "lint": { "enum": ["pass", "fail", "not_run"] },
+        "typecheck": { "enum": ["pass", "fail", "not_run"] },
+        "test": { "enum": ["pass", "fail", "not_run"] },
+        "raw_output": { "type": "string", "maxLength": 4000 }
+      }
+    },
+    "commit_sha": { "type": ["string", "null"] },
+    "branch_name": { "type": ["string", "null"] },
+    "pr_description_body": { "type": "string" }
+  }
+}
+```
+
+After the structured block, return a plain-text summary covering:
 
 - **What was changed** - files modified or created, and what each change does
 - **Why** - brief rationale for any non-obvious decisions made during implementation
@@ -70,7 +131,9 @@ Then return a plain-text summary. Cover:
 - **Out of scope** - anything the prompt implied but you deliberately did not do, and why
 - **Blockers or open questions** - anything that needs human input or a follow-up decision
 
-Keep it brief. A reviewer reading this summary plus a diff should be able to verify the implementation quickly.
+Keep prose brief. A reviewer reading the structured block plus prose summary plus a diff should be able to verify the implementation quickly.
+
+**Trivial-path solo spawns** are exempt from the fenced structured block: the lightweight return (status line + prose) is sufficient because no `quality_gate_results` contract applies (see Trivial-path carve-out in `/implement-ticket` Phase 5).
 
 ## Rules
 
