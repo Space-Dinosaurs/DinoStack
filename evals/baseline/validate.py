@@ -17,8 +17,8 @@ Downstream consumers:
       (`python -m evals.baseline.validate evals/baselines/2026-05-pre-icl-restructure.json` exits 0)
     - Stage-6 comparison runner: imports validate_baseline to confirm the loaded baseline
       is schema-valid before reading score data
-    - evals/auto/ smoke scenario: imports validate_baseline to assert ok==True on the
-      fixture baseline
+    - evals/auto/tests/test_baseline_validate_smoke.py: imports validate_baseline to
+      assert ok==True on the fixture baseline (Stage 0 verification gate)
 
 Failure modes:
     - File not found: ValidationResult(ok=False, errors=["file not found: ..."])
@@ -112,8 +112,10 @@ def validate_baseline(path: Path) -> ValidationResult:
                 f"git.{key} is True - baseline must be captured on a clean working tree"
             )
 
-    if "ai_tools_sha" not in git or not git["ai_tools_sha"]:
-        errors.append("git.ai_tools_sha is missing or empty")
+    # agentic_engineering_sha is required; ai_tools_sha is best-effort (may be null
+    # when capture runs inside a worktree whose parent root cannot be resolved).
+    if "agentic_engineering_sha" not in git or not git["agentic_engineering_sha"]:
+        errors.append("git.agentic_engineering_sha is missing or empty")
 
     # --- Step 4: Dynamic manifest enumeration ---
     components_dir = _EVALS_DIR / "components"

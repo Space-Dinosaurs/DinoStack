@@ -186,24 +186,95 @@ def _sha_for_submodule(name: str) -> tuple[Optional[str], bool]:
     return sha, dirty
 
 
+def _resolve_parent_repo_root() -> Optional[Path]:
+    """
+    Resolve the parent (ai-tools) repo root when capture.py runs inside a git
+    worktree of the agentic-engineering submodule clone.
+
+    Strategy:
+      1. Read the .git file in _REPO_ROOT (which is the ae worktree root).
+         If it is a regular directory (main worktree), there is no parent.
+      2. If .git is a file, it contains "gitdir: <path>".  Parse the path to
+         get the git common dir, then walk up two levels:
+           <common-dir>  = .../agentic-engineering/.git
+           <ae-dir>      = .../agentic-engineering/
+           <parent-root> = .../ai-tools/    <- what we want
+      3. Verify the candidate is itself a git repo (contains a .git entry).
+      4. Return None on any error so the caller can record null gracefully.
+    """
+    git_marker = _REPO_ROOT / ".git"
+    if not git_marker.exists():
+        return None
+
+    # Case: regular directory - this IS the main worktree, no parent
+    if git_marker.is_dir():
+        return None
+
+    # Case: .git file -> worktree
+    try:
+        content = git_marker.read_text().strip()
+    except OSError:
+        return None
+
+    # Expected: "gitdir: /abs/path/to/.git/worktrees/<name>"
+    if not content.startswith("gitdir:"):
+        return None
+    git_dir = Path(content.split(":", 1)[1].strip())
+
+    # The common git dir for a worktree is resolved via git rev-parse
+    rc, common_dir_str, _ = _run(["git", "rev-parse", "--git-common-dir"], cwd=_REPO_ROOT)
+    if rc != 0 or not common_dir_str:
+        # Fall back: walk up from the gitdir path
+        # gitdir = <common>/.git/worktrees/<name>  -> common = gitdir.parent.parent.parent
+        common_dir = git_dir.parent.parent.parent
+    else:
+        common_dir = Path(common_dir_str).resolve()
+
+    # common_dir is <ae-root>/.git  -> ae-root = common_dir.parent
+    ae_root = common_dir.parent
+    parent_root = ae_root.parent
+
+    # Sanity check: parent should be a git repo
+    if not (parent_root / ".git").exists():
+        return None
+
+    return parent_root
+
+
 def collect_git_metadata() -> GitDict:
     """
-    Collect git SHAs and dirty-tree status for the repo root and known submodules.
-    Aborts if git HEAD is unreadable (can't proceed without a reliable SHA).
+    Collect git SHAs and dirty-tree status for the ae worktree HEAD and the
+    parent (ai-tools) repo HEAD.
+
+    When capture.py runs inside the agentic-engineering worktree:
+      - agentic_engineering_sha = git rev-parse HEAD  (the ae branch HEAD)
+      - ai_tools_sha             = parent repo HEAD    (the ai-tools gitlink SHA)
+
+    If the parent repo root cannot be resolved, ai_tools_sha is recorded as
+    None with a note rather than aborting; agentic_engineering_sha is always
+    required (aborts on failure).
     """
-    rc, sha, err = _run(["git", "rev-parse", "HEAD"])
+    # ae HEAD - required; abort if unreadable
+    rc, ae_sha, err = _run(["git", "rev-parse", "HEAD"])
     if rc != 0:
         _abort(f"Cannot read git HEAD: {err}")
 
     rc_dirty, dirty_out, _ = _run(["git", "status", "--porcelain"])
-    ai_tools_dirty = bool(dirty_out.strip()) if rc_dirty == 0 else False
+    ae_dirty = bool(dirty_out.strip()) if rc_dirty == 0 else False
 
-    ae_sha, ae_dirty = _sha_for_submodule("agentic-engineering")
+    # parent (ai-tools) HEAD - best-effort; null if not resolvable
+    parent_root = _resolve_parent_repo_root()
+    if parent_root is not None:
+        rc_p, parent_sha, _ = _run(["git", "rev-parse", "HEAD"], cwd=parent_root)
+        ai_tools_sha: Optional[str] = parent_sha if rc_p == 0 else None
+    else:
+        ai_tools_sha = None
+
     helios_sha, helios_dirty = _sha_for_submodule("helios")
 
     return GitDict(
-        ai_tools_sha=sha,
-        ai_tools_dirty=ai_tools_dirty,
+        ai_tools_sha=ai_tools_sha,
+        ai_tools_dirty=False,  # dirty check is for the ae worktree, not parent
         agentic_engineering_sha=ae_sha,
         agentic_engineering_dirty=ae_dirty,
         helios_sha=helios_sha,
@@ -417,7 +488,8 @@ def capture_baseline(output_path: Path, resume: bool = False) -> BaselineResult:
 
     # Collect git metadata first - abort if HEAD unreadable
     git_meta = collect_git_metadata()
-    current_sha = git_meta["ai_tools_sha"]
+    # current_sha is the ae worktree HEAD; used for resume SHA pinning
+    current_sha = git_meta["agentic_engineering_sha"]
 
     # --- Resume or fresh start ---
     progress = _load_progress(output_path)
@@ -436,7 +508,19 @@ def capture_baseline(output_path: Path, resume: bool = False) -> BaselineResult:
             f"{len(completed_by_name)} components already captured."
         )
     elif resume and progress is None:
-        print("--resume specified but no progress file found. Starting fresh.")
+        p = _progress_path(output_path)
+        if not p.exists():
+            _abort(
+                f"--resume specified but progress file not found: {p}\n"
+                "  Precondition 1 failed: progress file does not exist. "
+                "Run without --resume to start a fresh capture."
+            )
+        else:
+            _abort(
+                f"--resume specified but progress file could not be parsed: {p}\n"
+                "  Precondition 1 failed: file exists but JSON is invalid or corrupt. "
+                "Delete the progress file and run without --resume to start fresh."
+            )
     elif not resume and progress is not None:
         print(
             "WARNING: A progress file exists from a prior session but --resume was not "
