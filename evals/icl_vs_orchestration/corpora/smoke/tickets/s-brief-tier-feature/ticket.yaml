@@ -1,0 +1,33 @@
+ticket_id: s-brief-tier-feature
+ticket_class: brief-tier
+description: |
+  Add a /health endpoint to the Express API that returns {status: "ok",
+  version: <package_json_version>}. The endpoint must be unauthenticated
+  and respond within 100ms. Add tests in tests/health.test.ts.
+expected_files:
+  - src/routes/health.ts
+  - src/app.ts
+  - tests/health.test.ts
+expects_regression_test: true
+architect_plan: |
+  ## Architect Plan
+
+  Add GET /health endpoint returning {status: "ok", version: string}.
+
+  ## Rationale
+  Health checks are industry standard for container orchestration (k8s, ECS).
+  The endpoint must be unauthenticated to allow load balancer checks without
+  credentials.
+
+  ## Changes
+  1. Create src/routes/health.ts with the handler.
+  2. Register the route in src/app.ts before auth middleware.
+  3. Add tests/health.test.ts with happy path and version field assertions.
+
+  ## qa_criteria
+  qa_skip: null
+  scenarios:
+    - id: 1
+      description: GET /health returns 200 with status=ok and version field
+      method: api
+      evidence: pytest passes
