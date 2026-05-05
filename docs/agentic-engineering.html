@@ -1096,7 +1096,7 @@
   <div style="margin-bottom: 24px;">
     <div style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">skeptic-protocol.md <span class="load-badge on-demand">on demand</span> <a class="slide-link" href="slides/skeptic-protocol-slides.html" target="_blank" rel="noopener noreferrer">slides</a></div>
-      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Adversarial Review Methodology - 12 sections. The core quality mechanism.</div>
+      <div style="font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Adversarial Review Methodology - 14 sections. The core quality mechanism.</div>
     </div>
     <div class="two-col">
       <div>
@@ -1105,6 +1105,7 @@
           <ul>
             <li>Worker implements &rarr; fresh Skeptic critiques &rarr; findings routed back &rarr; repeat until clean sign-off</li>
             <li><strong>Fresh Skeptic every round</strong> - never continued from prior round. Independence requires clean context (no anchoring to Worker's justifications)</li>
+            <li><strong>Global-context input set (Section 4.5)</strong> - every Skeptic spawn prompt includes: architect plan, Brief/Plan artifact, <code>qa_criteria</code> block, per-consumer impact table, related files, diff under review. Step 0 validates completeness before any review content is produced; incomplete inputs return BLOCKED. Supplemental reviewers (<code>security-auditor</code>, <code>perf-analyst</code>) receive a lexically distinct Supplemental-context block with no Step-0 enforcement.</li>
             <li>Resolved Issues Preflight prevents re-raising fixed items, but Skeptic can contest insufficient resolutions</li>
             <li>Same finding contested 2+ re-routes &rarr; escalate to human (prevents infinite loops)</li>
             <li>Simple/targeted changes: capped at 1 Skeptic round. Standard Elevated: 2-re-route limit</li>
