@@ -14,7 +14,7 @@ This Plan-tier assembly covers Stage 0 and Stage 1 of the 10-unit task: `evals-b
 
 ## Cross-unit assumptions
 
-- Under Q1=(a) single-shot AE, the AE condition produces final_text in one shot with no separate architect plan artifact. eval-harness-v1's AE adapter still records `rationale_extraction_method = "structured"` per its plan, but this label is informational; under single-shot, the structured rationale is whatever the model emits in its plan-section of final_text. The harness engineer revalidates this path when implementing the AE adapter; if single-shot does not produce parseable structured rationale, fall back to `rationale_extraction_method = "fallback-full-text"` (same path ICL uses) and record per-ticket. P-prod-ICL gate validates the structured upgrade when sdk-multiturn or python-conductor-sim modes land in v2.
+- Under Q1=(a) single-shot AE, the AE condition produces final_text in one shot with no separate architect plan artifact - the same shape as ICL. Per architect-plan-eval-harness-v1.md step 7, both AE and ICL adapters use the symmetric rationale-extraction rule: try structured-section parse first; fall back to entire `final_text` on miss; record `rationale_extraction_method = "structured"` or `"fallback-full-text"` per-ticket. Under Q1=(b) sdk-multiturn or (c) python-conductor-sim, AE produces a real architect plan artifact and structured sections are likely always present (fallback would be a no-op). P-prod-ICL gate validates the structured upgrade when sdk-multiturn or python-conductor-sim modes land in v2.
 
 ## Problem
 
