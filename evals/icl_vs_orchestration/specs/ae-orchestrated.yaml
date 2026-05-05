@@ -1,0 +1,15 @@
+# AE-orchestrated condition spec - stub.
+# content_sha is set to the Stage-0 baseline git.agentic_engineering_sha
+# (35b34631147fff05fe264f69dc5aa01a08faaa08) so Stage-3 and Stage-6 share
+# a recorded protocol SHA. Update via --baseline flag at CLI invocation.
+spec_version: v1
+content_sha: "35b34631147fff05fe264f69dc5aa01a08faaa08"
+implement_ticket_path: content/commands/implement-ticket.md
+agent_paths:
+  architect: content/agents/architect.md
+  engineer: content/agents/engineer.md
+  skeptic: content/agents/skeptic.md
+  qa_engineer: content/agents/qa-engineer.md
+execution_mode: single-shot
+invocation_mode: replay
+model: claude-sonnet

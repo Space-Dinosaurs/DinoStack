@@ -1,0 +1,17 @@
+# ICL-baseline condition spec - stub.
+# prompt_template_path is 'stub' to exercise the v1 fallback extraction rule
+# in smoke runs. Replace with a concrete template path when icl-baseline-spec
+# (Stage 2) lands.
+# Note: the absence of a structured rationale-section delimiter in this stub
+# means rationale_extraction_method will be "fallback-full-text" in smoke;
+# this is the intended behavior per architect-plan round-4 Major #2 resolution.
+spec_version: v1
+file_selection_rule: all
+context_budget_tokens: 200000
+prompt_template_path: stub
+model: claude-sonnet
+max_turns: 1
+allowed_tools:
+  - Read
+  - Grep
+  - Glob
