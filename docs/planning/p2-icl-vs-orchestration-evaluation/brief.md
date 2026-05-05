@@ -8,6 +8,14 @@
 
 ---
 
+## Plan scope
+
+This Plan-tier assembly covers Stage 0 and Stage 1 of the 10-unit task: `evals-baseline-capture`, `eval-harness-v1`, `skeptic-global-context`. Stage 2-7 units (`eval-corpus-curate`, `icl-baseline-spec`, `loop-engineer-spec`, `prompt-assembly-canonical`, `implement-ticket-restructure`, `planner-into-architect`, `eval-routing-rules`) require their own Plan-tier assembly cycle (architect plans, orchestration-planner output, coverage docs, second Skeptic) before their engineers can spawn. Brief sequencing (lines 113-122) drives when each subsequent assembly fires.
+
+## Cross-unit assumptions
+
+- Under Q1=(a) single-shot AE, the AE condition produces final_text in one shot with no separate architect plan artifact. eval-harness-v1's AE adapter still records `rationale_extraction_method = "structured"` per its plan, but this label is informational; under single-shot, the structured rationale is whatever the model emits in its plan-section of final_text. The harness engineer revalidates this path when implementing the AE adapter; if single-shot does not produce parseable structured rationale, fall back to `rationale_extraction_method = "fallback-full-text"` (same path ICL uses) and record per-ticket. P-prod-ICL gate validates the structured upgrade when sdk-multiturn or python-conductor-sim modes land in v2.
+
 ## Problem
 
 The protocol has grown in two opposing directions over the past month. Verification surfaces have hardened in ways the Melbourne paper validates: `qa_criteria` is mandatory on architect plans, `source-verified-acceptable` is forbidden, INCONCLUSIVE is a real terminal state, structured engineer returns replaced prose-scraping, per-consumer impact tables force whole-system reasoning at the architect stage. These are paper-aligned changes - they buy verification value with their token cost.
@@ -85,7 +93,7 @@ Promotion to Plan tier (vs Brief tier) is justified by:
 - Cross-track surface (touches `content/`, `evals/`, `content/scripts/`, multiple adapter outputs)
 - Architecture decision constraining future choices (`loop-engineer` variant changes the engineer contract)
 
-This Brief is the assembly entrypoint. The companion files in this Plan directory (to be authored on Skeptic sign-off) are:
+This Brief is the assembly entrypoint. The companion files in this Plan directory (authored 2026-05-04 in this directory) are:
 - `architect-plan.md` - design output for each unit, produced by spawning architect on the units below
 - `orchestration.jsonl` - planner output across the units
 - `risk-register.md` - operational risks (in-flight session breakage, eval cost overrun, false-confidence on a too-small corpus)

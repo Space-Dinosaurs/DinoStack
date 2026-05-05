@@ -161,7 +161,7 @@ Heading is `## Supplemental context` (not `## Global-context inputs`); fields ma
 
     Splitting the two contracts (Step-0 enforcement vs report-format) makes each artifact single-purpose and lets `eval-harness-v1`'s architect consume them independently (the Step-0 enforcement scenarios may land before the cost-normalization report shape, or vice versa).
 
-18. **NEW - Brief amendment SPEC (resolves MAJOR option (a)).** Author the diff for a small targeted Brief amendment to `agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation.md`. The conductor will spawn an engineer for this based on this spec; do NOT apply in this plan.
+18. **NEW - Brief amendment SPEC (resolves MAJOR option (a)).** [ALREADY APPLIED 2026-05-04 via Brief amendment #2 commit 669d4ec on feature/brief-amendment-2-inbound-deps; the amendment is now part of brief.md lines 102-105. This step is preserved as historical record.] Author the diff for a small targeted Brief amendment to `agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/brief.md`. The conductor will spawn an engineer for this based on this spec; do NOT apply in this plan.
 
     **Diff target:** the unit-list table at lines 97-108. Locate the `eval-harness-v1` row (line 100).
 
@@ -286,6 +286,8 @@ Q-A from round 2 is CLOSED (resolved by steps 17/18/19 - dedicated `scenarios-to
 
 Remaining operator-blocking:
 
+> [SUPERSEDED 2026-05-04 - see "Operator-confirmed Open Questions" header at top of file. Q-A is CLOSED via steps 17/18/19; Q-B is RESOLVED to (B1) no Step-0 enforcement; Q-C is RESOLVED to (C1) per-unit-slug counter file. The text below is preserved verbatim from the round-4 architect plan as historical record; do not act on these sections as if these questions are open.]
+
 **Q-B. Should the multi-dimensional reviewers (`security-auditor`, `perf-analyst`) ALSO Step-0 BLOCK on missing Global-context inputs?** Current plan: no (steps 11, 16 - Supplemental-context block, no enforcement). Operator decides:
 - (B1) No Step-0 enforcement (current plan default; informational supplemental block).
 - (B2) Step-0 enforcement extended to `security-auditor` and `perf-analyst`.
@@ -321,4 +323,4 @@ Default recommendation: C1.
 - `/Users/tyson/Documents/Development/ai-tools/agentic-engineering/content/sections/05-qa-gate.md`
 - New artifact (step 17a): `/Users/tyson/Documents/Development/ai-tools/agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/scenarios-todo.md`
 - New artifact (step 17b): `/Users/tyson/Documents/Development/ai-tools/agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/cost-normalization-contract.md`
-- Brief amendment target (step 18): `/Users/tyson/Documents/Development/ai-tools/agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation.md`
+- Brief amendment target (step 18): `/Users/tyson/Documents/Development/ai-tools/agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/brief.md`

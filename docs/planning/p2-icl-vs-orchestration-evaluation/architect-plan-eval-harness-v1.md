@@ -32,7 +32,8 @@ What this unit adds: two-condition runner orchestration; multi-dimension symmetr
 
 The engineer reads these at implementation time:
 
-- **`agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/scenarios-todo.md`** (authored by `skeptic-global-context`'s engineer alongside this unit's rework). Provides Skeptic Step-0 enforcement scenarios that this harness must surface in its smoke fixtures, plus a **cost-confounder normalization contract** that this harness's `cost_gate.py` and `report.py` must implement. The engineer reads this file before scaffolding the smoke fixtures (step 16) and before finalizing the report schema (step 13). If the file is absent at engineer-spawn time, the engineer returns BLOCKED - this is a hard input dependency.
+- **`agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/scenarios-todo.md`** (authored by `skeptic-global-context`'s engineer alongside this unit's rework). Provides Skeptic Step-0 enforcement scenarios that this harness must surface in its smoke fixtures. The engineer reads this file before scaffolding the smoke fixtures (step 16). If the file is absent at engineer-spawn time, the engineer returns BLOCKED - this is a hard input dependency.
+- **`agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/cost-normalization-contract.md`** (authored by `skeptic-global-context`'s engineer alongside this unit's rework, per `architect-plan-skeptic-global-context.md` step 17b). Provides the **cost-confounder normalization contract** that this harness's `cost_gate.py` and `report.py` must implement. The engineer reads this file before finalizing the report schema (step 13) and the cost gate (step 4). If the file is absent at engineer-spawn time, the engineer returns BLOCKED - this is a hard input dependency.
 - `evals/LEARNINGS.md`, `evals/OVERFITTING-RULE.md`: mandatory pre-read.
 - `agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation.md`: governing Brief.
 
@@ -238,7 +239,7 @@ class BudgetExceeded(Exception):
     totals: dict
 ```
 
-The `cost-confounder normalization contract` from `scenarios-todo.md` is implemented inside `cost_gate.py` and surfaced in `report.py` per that file's instructions. Engineer reads `scenarios-todo.md` before finalizing those modules.
+The `cost-confounder normalization contract` from `cost-normalization-contract.md` is implemented inside `cost_gate.py` and surfaced in `report.py` per that file's instructions. Engineer reads `cost-normalization-contract.md` before finalizing those modules.
 
 **6. CLI and resume.** Unchanged from round 3 (write-order: ticket_results -> tally; reconcile re-derives tally from ticket_results on resume).
 
@@ -277,14 +278,14 @@ Scenario 1's evidence asserts strict per-condition match against this binding (n
 - `output_coherence_method: "fixed-common-pair-binarized-v1"` (round-4: pinned binarized-per-type variant)
 - `output_coherence_taxonomy_version: "v1"` (NEW round-4: surfaces the taxonomy version explicitly so cross-stage comparability is auditable)
 - `rationale_extraction_method_count: dict[str, dict[str, int]]` (NEW round-4: per-condition count of `structured` vs `fallback-full-text` extractions; surfaces v1 fallback usage)
-- Cost-confounder normalization fields per `scenarios-todo.md` contract (engineer implements per that file).
+- Cost-confounder normalization fields per `cost-normalization-contract.md` contract (engineer implements per that file).
 
 ### Implementation steps
 
-1. Directory scaffold: `__init__.py`, `AGENTS.md` (includes "Required binaries on PATH" section + "Required input artifacts" section pointing at `scenarios-todo.md`), `.gitignore`, `README.md`. AGENTS.md - new non-trivial module, manifest header **required** (six fields populated).
+1. Directory scaffold: `__init__.py`, `AGENTS.md` (includes "Required binaries on PATH" section + "Required input artifacts" section pointing at `scenarios-todo.md` and `cost-normalization-contract.md`), `.gitignore`, `README.md`. AGENTS.md - new non-trivial module, manifest header **required** (six fields populated).
 2. `schema.py` (validators for manifest/ticket/ae-spec/icl-spec). Stdlib + pyyaml. **Required, six fields populated.**
 3. `corpus.py` (loader, corpus_sha). **Required, six fields populated.**
-4. `cost_gate.py` (global + per-cell; cost-confounder normalization per `scenarios-todo.md`). **Required, six fields populated.**
+4. `cost_gate.py` (global + per-cell; cost-confounder normalization per `cost-normalization-contract.md`). **Required, six fields populated.**
 5. `metering.py` (token/cost extraction reusing `evals/runner/normalizer.py`). **Required, six fields populated.**
 6. `conditions/base.py` (Protocol + TypedDicts including `ConditionArtifacts` with `rationale_extraction_method`). **Required, six fields populated.**
 7. `conditions/ae_orchestrated/` directory with `single_shot.py`, `sdk_multiturn.py`, `python_conductor_sim.py`. Only the operator-selected mode (Open Q1) implemented; others raise NotImplementedError. Each module **required, six fields populated.** Each adapter populates `ConditionArtifacts.rationale_or_plan` from architect plan text (`rationale_extraction_method = "structured"`), `diff` from the produced diff; commit message and architect-plan-path captured optionally for trace.
@@ -293,7 +294,7 @@ Scenario 1's evidence asserts strict per-condition match against this binding (n
 10. `scoring/registry.py` + `scoring/weights.yaml`. **Required, six fields populated.** Weights sum-to-1.0 assertion at load. Symmetric-dimset invariant assertion per ticket.
 11. `smoke_gate.py` (>2x dominance check). **Required, six fields populated.**
 12. `runner.py` (orchestration loop; write-order: ticket_results -> tally; per-cell budget handling). **Required, six fields populated.**
-13. `report.py` (assembles JSON; round-4 schema fields including `output_coherence_method`, `output_coherence_taxonomy_version`, `rationale_extraction_method_count`; cost-confounder normalization fields per `scenarios-todo.md`). **Required, six fields populated.**
+13. `report.py` (assembles JSON; round-4 schema fields including `output_coherence_method`, `output_coherence_taxonomy_version`, `rationale_extraction_method_count`; cost-confounder normalization fields per `cost-normalization-contract.md`). **Required, six fields populated.**
 14. `cli.py` (run + resume; preflight; reconcile algorithm). **Required, six fields populated.**
 15. `run.ts` (bun wrapper). Includes preflight check (`Bun.which("python3")`); exits 4 on miss. Manifest header recommended (small wrapper, <50 LOC).
 16. `corpora/smoke/` fixtures + `COVERAGE.md` (round-4 per-condition binding matrix; Skeptic Step-0 enforcement scenarios from `scenarios-todo.md` surfaced as required).
@@ -307,7 +308,8 @@ Scenario 1's evidence asserts strict per-condition match against this binding (n
 |---|---|---|---|---|
 | `eval-corpus-curate:corpora/<name>/{manifest.yaml,tickets/}` | yes (writes per `corpus.py` schema) | no | n/a | produces corpus matching schema |
 | `icl-baseline-spec:specs/icl-baseline.yaml` + template | yes (writes per `ICLSpec`) | no | n/a | produces spec matching schema; v1 fallback bridges its absence |
-| `skeptic-global-context:scenarios-todo.md` | reads (this unit's engineer reads at scaffold time) | no | n/a | provides Skeptic Step-0 enforcement scenarios + cost-confounder normalization contract |
+| `skeptic-global-context:scenarios-todo.md` | reads (this unit's engineer reads at scaffold time) | no | n/a | provides Skeptic Step-0 enforcement scenarios |
+| `skeptic-global-context:cost-normalization-contract.md` | reads (this unit's engineer reads before finalizing cost_gate.py and report.py) | no | n/a | provides cost-confounder normalization contract for Stage 3 vs Stage 6 cost-comparison report |
 | Stage 3 baseline run (CLI invocation) | yes (`--ae-spec` content_sha = pre-restructure HEAD) | no | n/a | writes Stage-3 report at `results/<run_id>/results-v1.json` |
 | Stage 6 comparison run (CLI invocation) | yes (same harness SHA, same corpus, content_sha = post-restructure HEAD) | no | n/a | writes Stage-6 report |
 | `eval-routing-rules:results-v1.json` | reads only | n/a | n/a | reads both Stage 3 and Stage 6 reports; owns `results-v1-comparison.json` |
@@ -394,6 +396,8 @@ qa_criteria:
 - **ICL fallback extraction may produce noisier output-coherence scores in v1 than under the production ICL spec (NEW round-4).** When `rationale_extraction_method = "fallback-full-text"`, the entire `final_text` is the rationale half of the pair; this can include scratch reasoning that genuinely contradicts the diff in ways the production-spec structured rationale would have excluded. Surfaced via `rationale_extraction_method_count`; not a defect, but a measured artifact of the v1 default. The P-prod-ICL gate validates the upgrade path.
 
 ### Open questions
+
+> [SUPERSEDED 2026-05-04 - see "Operator-confirmed Open Questions" header at top of file. Q1 is RESOLVED to (a) single-shot; Q2 is RESOLVED to (b) test-pass with (a) AC-keyword fallback. The text below is preserved verbatim from the round-4 architect plan as historical record; do not act on this section as if these questions are open.]
 
 **Q1 (CRITICAL - operator decision required before any engineer spawn). AE-orchestrated execution mechanics.** Unchanged from rounds 2-3. Three options: (a) `single-shot`; (b) `sdk-multiturn`; (c) `python-conductor-sim`. Each has different cost, fidelity, and "what is being measured" implications. Recommendation (advisory): (a) for v1 with explicit caveat in report. Operator resolution required.
 

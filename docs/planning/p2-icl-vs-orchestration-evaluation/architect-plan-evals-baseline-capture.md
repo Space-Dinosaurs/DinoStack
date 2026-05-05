@@ -193,7 +193,11 @@ Rationale check: capture.py is a one-shot CLI, validate.py is an offline JSON ch
 
 ### Open questions
 
+> [SUPERSEDED 2026-05-04 - see "Operator-confirmed Open Questions" header at top of file. The text below is preserved verbatim from the round-2 architect plan as historical record; do not act on this section.]
+
 **Q-ROUTING (operator decision required - contradicts Brief constraint).** The Brief Constraints section states "All changes routed through /update-agentic-engineering (content/** is methodology source-of-truth)." This unit writes `evals/baseline/*.py`, `evals/baselines/*.json`, and a `.gitignore` entry - none of which fall within `/update-agentic-engineering`'s documented scope (`content/**`, `.codex/skill/**`, `build.sh` scripts, `hooks/**`, `.codex/hooks/**`). The Brief constraint is over-broad as written. Recommended resolution: amend the Brief to scope the routing constraint to `content/**` work specifically; route `evals/**` work through normal feature-branch + PR into `develop`. Operator must confirm before engineer spawn.
+
+> [SUPERSEDED 2026-05-04 - see "Operator-confirmed Open Questions" header at top of file. The text below is preserved verbatim from the round-2 architect plan as historical record; do not act on this section.]
 
 **Q-NOISE (operator decision required - Brief P1 success criterion change).** Brief P1 says "no per-component score regression beyond a 5% noise band." Empirical data from `evals/results/skeptic.tsv`: across n=15 fixtures with stdev>0, mean per-fixture stdev is **0.186** on a [0,1] scale, max **0.346**, median **0.173**. A 5% absolute band would mark essentially every fixture as a regression on a same-SHA re-run. Two viable resolutions:
   - **(a)** Replace the absolute band with a per-fixture multiple of recorded stdev (e.g., flag regression only when `new_median < old_median - k * old_stdev`, k=2 default).
