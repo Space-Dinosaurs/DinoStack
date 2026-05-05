@@ -10,3 +10,5 @@ Operational risks specific to this Plan-tier task. Implementation risks live in 
 - **Q1=(a) single-shot AE under-measures multi-spawn orchestration value** (see eval-harness-v1 Known Limitations). Threatens P3 routing-decision validity. Mitigation: declare via `ae_execution_mode` report field; consider v2 sdk-multiturn or python-conductor-sim if directional signal is ambiguous.
 - **60K-token Plan-tier overflow fallback heuristic in skeptic-global-context is unmeasured.** Threshold may not fire reliably; mitigation deferred to prompt-assembly-canonical unit.
 - **ICL `rationale_extraction_method = fallback-full-text` produces noisier output-coherence than the production spec.** Surfaced via `rationale_extraction_method_count` in eval-harness-v1 report. P-prod-ICL gate validates upgrade when icl-baseline-spec lands.
+
+Note: 9 bullets above; exceeds METHODOLOGY's <=10-line budget by 3 lines. Excess mandated by Skeptic round-1 findings (Q1 under-measurement, 60K overflow heuristic, ICL fallback noise) - documented as intentional deviation.
