@@ -182,6 +182,86 @@ The preflight list prevents the Skeptic from re-raising already-addressed findin
 
 ---
 
+## 4.5. Global-Context Input Set
+
+Every Skeptic spawn prompt MUST include the following block in this order, after the adversarial brief and before the artifact under review:
+
+```
+## Global-context inputs
+
+1. Architect plan: <absolute path to plan.md, OR "n/a - <enumerated reason>">
+2. Brief / Plan tier artifact: <absolute path, OR "n/a - <enumerated reason>">
+3. qa_criteria block (verbatim YAML, OR "n/a - <enumerated reason>")
+4. Per-consumer impact table (verbatim, OR "n/a - <enumerated reason>")
+5. Related files (list of absolute paths the diff touches OR is logically coupled to)
+6. Diff under review: <git diff command OR file paths>
+```
+
+### Enumerated `n/a` rationale set
+
+A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any other string triggers Skeptic Step 0 BLOCKED.
+
+- `n/a - Trivial direct edit`
+- `n/a - permission-blocked carve-out`
+- `n/a - Brief tier (per-consumer lives in architect plan path above)` (per-consumer table only, on Skeptic-on-Brief)
+- `n/a - non-shared-utility surface (importer count below 5 threshold)` (per-consumer table only)
+- `n/a - architect plan deferred to Plan-tier second pass` (Brief field only)
+- `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
+- `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
+
+### Skeptic Step 0 - Input validation (BLOCKED on incomplete inputs)
+
+Before reading any artifact or producing any findings, the Skeptic verifies the Global-context input set is complete and well-formed:
+
+1. All 6 fields are present.
+2. Any `n/a` value is one of the enumerated strings above.
+
+If either check fails, the Skeptic returns immediately with:
+
+```
+BLOCKED - Global-context input set incomplete: <missing or invalid fields listed>
+```
+
+No review content follows the BLOCKED line. The Skeptic does NOT produce findings, a "Reviewed:" line, or a sign-off.
+
+**BLOCKED return semantics for the conductor:**
+
+- `loop-state.json` `last_phase_action` is set to `skeptic_blocked_input`.
+- Resume re-spawns the Skeptic with corrected inputs; iteration counter does NOT advance.
+- Step-0 BLOCKED is conductor-fault, not engineer-fault. Does NOT count toward the 3-fix-pass re-route cap (Section 5). Consumes a separate counter capped at 3, tracked in a per-unit-slug counter file.
+- The CONDUCTOR fixes the spawn brief, NOT the Engineer.
+
+**Per-unit-slug counter files (Q-C=C1):**
+
+The conductor tracks Step-0 BLOCKED returns per spawn target using counter files at `.agentic/.spawn-block-counter-<unit_slug>`. For single-unit spawns, `unit_slug` is `single`. Each BLOCKED return increments the counter. After 3 BLOCKED returns on the same target, the conductor escalates to the human operator and does NOT retry.
+
+Cleanup: after Phase 6 loop terminates with sign-off, run `rm -f .agentic/.spawn-block-counter-*` to clear all counter files for the session.
+
+### Plan-tier second-pass overflow fallback
+
+When the combined Global-context input set for a Plan-tier second-pass Skeptic exceeds 60K input tokens, the conductor switches to per-unit second-pass mode: one Skeptic per unit (each with that unit's Global-context subset) plus one lightweight integration Skeptic receiving the combined findings list only (not the full Global-context). Documented in `content/sections/03-planning-artifacts.md`.
+
+### Supplemental-context block for multi-dimensional supplemental reviewers
+
+`security-auditor` and `perf-analyst` in the multi-dimensional fan-out (`multi-dimensional` skeptic_strategy, see Section 13) receive a **Supplemental-context** block instead of the Global-context input set. This block uses a different heading (`## Supplemental context`) and is informational only - Step 0 BLOCKED enforcement does NOT apply.
+
+```
+## Supplemental context (informational, NOT Step-0 enforced)
+
+- Architect plan: <absolute path>
+- Brief / Plan tier artifact: <absolute path or omitted>
+- qa_criteria block: <verbatim YAML or omitted>
+- Per-consumer impact table: <verbatim or omitted>
+- Related files: <list>
+- Diff under review: <as today>
+```
+
+Fields may be omitted without triggering any block. The `n/a` enum does not apply. See `content/agents/security-auditor.md` and `content/agents/perf-analyst.md` for the Reading-your-spawn-prompt item enumerating this block.
+
+**Heading distinction:** `## Global-context inputs` is the correctness-Skeptic heading (Step-0 enforced). `## Supplemental context` is the supplemental-reviewer heading (no enforcement). These headings are lexically distinct by design; a future reviewer class that requires a third contract receives its own heading rather than reusing either existing one.
+
+---
+
 ## 5. Escalation Protocol
 
 If the same finding is contested for **2 or more re-routes** without resolution, the primary agent must stop and escalate to a human operator with:
@@ -259,6 +339,8 @@ Adversarial review applies whenever risk is classified as Elevated. The main age
 The adversarial brief defines the threat model the Skeptic must adopt. It is written by the primary agent (or human operator) and must be passed to the Worker verbatim.
 
 **The primary agent must use the brief verbatim when invoking each Skeptic. The primary agent must not soften, summarize, or editorialize the brief.** The brief is an instruction to the Skeptic, not a suggestion. Softening it degrades adversarial independence.
+
+**Global-context input set (Section 4.5):** Every Skeptic spawn prompt must also include the Global-context input set (architect plan, Brief/Plan artifact, qa_criteria block, per-consumer impact table, related files, diff under review) in addition to the adversarial brief. See Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics.
 
 The brief should be specific to the domain and threat model of the work being reviewed. Generic briefs produce generic findings.
 
