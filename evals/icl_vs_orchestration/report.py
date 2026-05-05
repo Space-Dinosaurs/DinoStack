@@ -7,24 +7,26 @@ Public API:
   build_summary(ticket_scores: dict) -> dict
   validate_report(report: dict) -> None
     Raises ValueError on missing required top-level fields.
+  build_methodology(normalization_block: dict | None) -> dict
+    Returns the methodology top-level block for results-v1.json.
   REQUIRED_REPORT_FIELDS: frozenset[str]
 
-Upstream deps: scoring/output_coherence.py (TAXONOMY_VERSION); stdlib.
+Upstream deps: scoring/output_coherence.py (TAXONOMY_VERSION);
+               cost_gate.build_normalization_block; stdlib.
 
 Downstream consumers: runner.py, cli.py.
 
 Failure modes: validate_report raises ValueError with the missing fields listed.
                build_summary returns an empty-but-valid summary on empty input.
+               build_methodology uses a default normalization block when none
+               is supplied (safe fallback; callers should supply the block from
+               CostGate.finalize() for correctness).
 
 Performance: O(tickets * conditions * dimensions); standard.
-
-NOTE: cost-confounder normalization fields are stubbed pending delivery of
-cost-normalization-contract.md from the skeptic-global-context engineer.
-Once that file is available, implement the normalization contract here and
-in cost_gate.py, then remove the cost_normalization_pending=True marker.
 """
 from __future__ import annotations
 
+from .cost_gate import build_normalization_block
 from .scoring.output_coherence import TAXONOMY_VERSION
 
 REQUIRED_REPORT_FIELDS = frozenset(
@@ -43,10 +45,30 @@ REQUIRED_REPORT_FIELDS = frozenset(
         "floored_dim_count_per_condition",
         "rationale_extraction_method_count",
         "cost",
+        "methodology",
         "summary",
         "tickets",
     ]
 )
+
+
+def build_methodology(normalization_block: dict | None = None) -> dict:
+    """Return the methodology top-level block for results-v1.json.
+
+    Contains the skeptic_input_cost_normalization block per
+    cost-normalization-contract.md. If no normalization_block is supplied,
+    builds a default (applied=False, fixed-estimate 5,000 tokens).
+
+    Args:
+        normalization_block: pre-built normalization dict from
+            cost_gate.build_normalization_block() or CostGate.finalize()
+            ["skeptic_input_cost_normalization"]. If None, a default is built.
+
+    Returns:
+        dict with key "skeptic_input_cost_normalization".
+    """
+    block = normalization_block if normalization_block is not None else build_normalization_block()
+    return {"skeptic_input_cost_normalization": block}
 
 
 def validate_report(report: dict) -> None:
@@ -61,6 +83,20 @@ def validate_report(report: dict) -> None:
             f"Report output_coherence_taxonomy_version must be '{TAXONOMY_VERSION}'; "
             f"got '{report.get('output_coherence_taxonomy_version')}'."
         )
+    # Validate methodology block contains normalization block per contract.
+    methodology = report.get("methodology", {})
+    norm = methodology.get("skeptic_input_cost_normalization")
+    if norm is None:
+        raise ValueError(
+            "Report methodology.skeptic_input_cost_normalization is missing. "
+            "Per cost-normalization-contract.md, this block is required."
+        )
+    for field in ("applied", "method", "baseline_tokens", "post_restructure_tokens"):
+        if field not in norm:
+            raise ValueError(
+                f"Report methodology.skeptic_input_cost_normalization missing "
+                f"required field '{field}'."
+            )
 
 
 def build_summary(ticket_scores: dict) -> dict:

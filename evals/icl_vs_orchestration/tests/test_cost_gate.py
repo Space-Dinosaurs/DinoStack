@@ -1,4 +1,5 @@
-"""Tests for cost_gate.py - covers QA scenarios 2, 3, 6, 7 (budget gating)."""
+"""Tests for cost_gate.py - covers QA scenarios 2, 3, 6, 7 (budget gating)
+and cost-normalization-contract.md compliance."""
 import json
 import os
 import tempfile
@@ -9,6 +10,7 @@ import pytest
 from evals.icl_vs_orchestration.cost_gate import (
     BudgetExceeded,
     CostGate,
+    build_normalization_block,
     reconcile_tally,
 )
 
@@ -123,3 +125,76 @@ def test_finalize_aborted_with_pending_work(tmp_path):
     gate._global_usd = 0.002
     result = gate.finalize(cells_pending=True, tickets_in_flight=False)
     assert result["aborted"] is True
+
+
+# ---------------------------------------------------------------------------
+# cost-normalization-contract.md compliance tests
+# ---------------------------------------------------------------------------
+
+def test_finalize_includes_normalization_block(tmp_path):
+    """finalize() result must contain skeptic_input_cost_normalization per contract."""
+    gate = _make_gate(tmp_path)
+    result = gate.finalize(cells_pending=False, tickets_in_flight=False)
+    assert "skeptic_input_cost_normalization" in result, (
+        "finalize() must include skeptic_input_cost_normalization "
+        "per cost-normalization-contract.md"
+    )
+
+
+def test_finalize_normalization_block_has_required_fields(tmp_path):
+    """normalization block must have applied, method, baseline_tokens,
+    post_restructure_tokens per cost-normalization-contract.md."""
+    gate = _make_gate(tmp_path)
+    result = gate.finalize(cells_pending=False, tickets_in_flight=False)
+    norm = result["skeptic_input_cost_normalization"]
+    for field in ("applied", "method", "baseline_tokens", "post_restructure_tokens"):
+        assert field in norm, f"normalization block missing required field '{field}'"
+
+
+def test_finalize_no_cost_normalization_pending_flag(tmp_path):
+    """finalize() must NOT contain cost_normalization_pending flag (stub removed)."""
+    gate = _make_gate(tmp_path)
+    result = gate.finalize(cells_pending=False, tickets_in_flight=False)
+    assert "cost_normalization_pending" not in result, (
+        "cost_normalization_pending stub flag must be removed"
+    )
+
+
+def test_build_normalization_block_default_applied_false():
+    """Default normalization block has applied=False (fixed-estimate path)."""
+    block = build_normalization_block()
+    assert block["applied"] is False
+
+
+def test_build_normalization_block_baseline_tokens_zero():
+    """baseline_tokens must be 0 (pre-restructure Skeptics have no Global-context)."""
+    block = build_normalization_block()
+    assert block["baseline_tokens"] == 0
+
+
+def test_build_normalization_block_default_post_restructure_tokens():
+    """Default post_restructure_tokens is 5000 (contract's fixed estimate midpoint)."""
+    block = build_normalization_block()
+    assert block["post_restructure_tokens"] == 5000
+
+
+def test_build_normalization_block_applied_true_method():
+    """When applied=True, method describes normalization applied."""
+    block = build_normalization_block(applied=True)
+    assert block["applied"] is True
+    assert "subtract" in block["method"].lower()
+
+
+def test_build_normalization_block_applied_false_includes_confounder_language():
+    """When applied=False, method must include confounder language per contract."""
+    block = build_normalization_block(applied=False)
+    method = block["method"]
+    # Contract requires the limitations text to include the confounder claim
+    assert "Global-context" in method or "global-context" in method.lower()
+    assert "verification-surface" in method or "overhead" in method.lower()
+
+
+def test_build_normalization_block_custom_post_restructure_tokens():
+    """post_restructure_tokens can be customized (for empirical measurement)."""
+    block = build_normalization_block(post_restructure_tokens=7500)
+    assert block["post_restructure_tokens"] == 7500

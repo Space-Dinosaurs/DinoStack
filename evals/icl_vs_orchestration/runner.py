@@ -35,6 +35,7 @@ from typing import Any
 
 from .corpus import load_corpus
 from .cost_gate import BudgetExceeded, CostGate, reconcile_tally
+from .report import build_methodology
 from .scoring.registry import ScorerRegistry, load_registry
 from .smoke_gate import check_smoke_dominance
 
@@ -291,6 +292,9 @@ def _build_report(
         "floored_dim_count_per_condition": floored_dim_count,
         "rationale_extraction_method_count": rationale_method_count,
         "cost": tally,
+        "methodology": build_methodology(
+            tally.get("skeptic_input_cost_normalization")
+        ),
         "summary": summary,
         "tickets": ticket_scores,
         "smoke_gate": (
@@ -303,9 +307,6 @@ def _build_report(
             if smoke_gate_result
             else None
         ),
-        # TODO: cost-confounder normalization fields per cost-normalization-contract.md
-        # (pending skeptic-global-context engineer delivery)
-        "cost_normalization_pending": True,
     }
     return report
 

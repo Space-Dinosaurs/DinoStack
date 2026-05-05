@@ -26,11 +26,11 @@ Failure modes: BudgetExceeded raised when a ceiling is hit; callers catch
 
 Performance: per-record cost is O(1); tally write is O(cells).
 
-NOTE: cost-confounder normalization fields (per cost-normalization-contract.md)
-      are stubbed here as TODO placeholders. They will be filled in once
-      the sibling engineer (skeptic-global-context) delivers
-      cost-normalization-contract.md. See architect-plan note: "engineer reads
-      cost-normalization-contract.md before finalizing cost_gate.py and report.py."
+Cost-confounder normalization: per cost-normalization-contract.md, finalize()
+returns a skeptic_input_cost_normalization block. The harness uses the
+fixed-estimate method (5,000 tokens per spawn, conservative midpoint of
+3,000-10,000 range) documented in the contract. baseline_tokens is 0
+(pre-restructure Skeptics do not receive Global-context).
 """
 from __future__ import annotations
 
@@ -198,9 +198,11 @@ class CostGate:
         finalization only (no pending/in-flight), set
         budget_breached_at_finalization=True, aborted=False, no abort.flag.
 
-        NOTE: cost-confounder normalization fields are stubbed pending
-        cost-normalization-contract.md delivery from the sibling engineer.
-        TODO: implement normalization fields per cost-normalization-contract.md
+        Includes skeptic_input_cost_normalization per cost-normalization-contract.md:
+        applied=False with the confounder flagged in the limitations-ready field.
+        The harness cannot measure per-spawn Global-context token counts without
+        live Skeptic telemetry, so it uses the contract's fixed-estimate path
+        (applied=False, confounder flagged, post_restructure_tokens=5000).
         """
         with self._lock:
             g_usd = self._global_usd
@@ -220,11 +222,7 @@ class CostGate:
             "per_cell": cells_copy,
             "budget_breached_at_finalization": breached and not aborted,
             "aborted": aborted,
-            # TODO: cost-confounder normalization fields per
-            # cost-normalization-contract.md (pending sibling delivery).
-            # These will appear in the final report schema under the
-            # normalization contract's field names.
-            "cost_normalization_pending": True,
+            "skeptic_input_cost_normalization": build_normalization_block(),
         }
 
     def _write_tally_locked(self) -> None:
@@ -237,6 +235,47 @@ class CostGate:
         tmp = self._tally_path().with_suffix(".tmp")
         tmp.write_text(json.dumps(tally, indent=2))
         os.replace(tmp, self._tally_path())
+
+
+def build_normalization_block(
+    applied: bool = False,
+    post_restructure_tokens: int = 5000,
+) -> dict:
+    """Return the skeptic_input_cost_normalization block per cost-normalization-contract.md.
+
+    The harness uses applied=False because it cannot measure per-spawn
+    Global-context token counts without live Skeptic telemetry. The contract
+    requires the confounder to be explicitly flagged when applied=False.
+
+    The fixed estimate of 5,000 tokens is the conservative midpoint of the
+    3,000-10,000 range documented in cost-normalization-contract.md.
+
+    Args:
+        applied: True if cost-ratio was normalized; False if raw (confounder flagged).
+        post_restructure_tokens: median Global-context input tokens per Skeptic
+            spawn in Stage 6 (post-restructure). Default 5,000 per contract.
+
+    Returns dict with keys: applied, method, baseline_tokens, post_restructure_tokens.
+    """
+    if applied:
+        method = "subtract_median_global_context_tokens_per_spawn"
+    else:
+        method = (
+            "not_applied - confounder flagged in limitations: "
+            "post-restructure Skeptic spawns carry Global-context input overhead "
+            f"of approximately {post_restructure_tokens} tokens per spawn that "
+            "pre-restructure Skeptics did not pay. This overhead represents "
+            "verification-surface investment, not routing complexity. "
+            "The cost-ratio figure without normalization overstates the "
+            "post-restructure condition's per-ticket cost by an amount "
+            "proportional to the number of Skeptic spawns per ticket."
+        )
+    return {
+        "applied": applied,
+        "method": method,
+        "baseline_tokens": 0,
+        "post_restructure_tokens": post_restructure_tokens,
+    }
 
 
 def reconcile_tally(run_dir: Path) -> dict:
