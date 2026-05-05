@@ -97,7 +97,14 @@ This Brief is the assembly entrypoint. The companion files in this Plan director
 | Slug | Description | Surface | Risk | Depends on |
 |---|---|---|---|---|
 | `evals-baseline-capture` | Capture and commit current `evals/auto/` + `evals/components/` scores to `evals/baselines/2026-05-pre-icl-restructure.json` at a recorded SHA. Stage 0 precondition for P1. | evals/baselines/ | Elevated | none (Stage 0) |
-| `eval-harness-v1` | Build the head-to-head eval in `evals/icl-vs-orchestration/`: corpus loader, two-condition runner, scorer, JSON report, cost-tally + abort-on-ceiling. | evals/ | Elevated | none (kickoff) |
+| `eval-harness-v1` | Build the head-to-head eval in `evals/icl-vs-orchestration/`: corpus loader, two-condition runner, scorer, JSON report, cost-tally + abort-on-ceiling. (see inbound-dependencies note below this row) | evals/ | Elevated | none (kickoff) |
+
+> **Inbound dependencies (added by `skeptic-global-context` round-4):** `eval-harness-v1`'s architect plan MUST consume the following artifacts as input and either implement the contracts they describe OR explicitly defer with rationale:
+> - `agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/scenarios-todo.md` - Skeptic Step-0 enforcement eval scenarios.
+> - `agentic-engineering/docs/planning/p2-icl-vs-orchestration-evaluation/cost-normalization-contract.md` - report-format contract for the Stage 3 vs Stage 6 cost-comparison normalization confounder.
+
+| Slug | Description | Surface | Risk | Depends on |
+|---|---|---|---|---|
 | `eval-corpus-curate` | Select 30-50 historical tickets per corpus (Helios, agentic-engineering self-tickets) with known-good outcomes AND a metadata-sufficiency filter (architect plan + qa_criteria + scenarios present). Document rejection rate. Tag by ticket class. | evals/ | Elevated | eval-harness-v1 |
 | `icl-baseline-spec` | Author the concrete spec for the "ICL baseline" prompt: file-selection rule, context-budget cap, prompt-assembly order. Ambiguity here is the moving-target risk; this spec is the freeze. | evals/icl-vs-orchestration/ | Elevated | eval-harness-v1 |
 | `loop-engineer-spec` | Author `content/agents/loop-engineer.md` with the full-context contract and structured return schema | content/agents/ | Elevated | architect plan signed off |
