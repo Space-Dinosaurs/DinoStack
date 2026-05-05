@@ -120,8 +120,10 @@ def run_eval(config: RunConfig) -> dict:
     # aborted correctly. If loop exited early (local aborted=True) but no cells
     # are actually pending or dropped, finalize() correctly returns aborted=False
     # with budget_breached_at_finalization=True per architect plan step 19.
+    # Do NOT pass `or aborted` here - `aborted` is loop-control state only and
+    # must not bleed into finalize()'s judgment about whether cells were pending.
     tally = cost_gate.finalize(
-        cells_pending=len(cells_dropped) > 0 or aborted,
+        cells_pending=len(cells_dropped) > 0,
         tickets_in_flight=False,
     )
 
@@ -521,8 +523,10 @@ def resume_run(run_id: str, run_dir: Path, config: RunConfig) -> dict:
     for tid, scores in new_ticket_scores.items():
         ticket_scores.setdefault(tid, {}).update(scores)
 
+    # Do NOT pass `or aborted` here - loop-control state must not bleed into
+    # finalize()'s judgment. If no cells were dropped, cells_pending=False.
     tally_final = cost_gate.finalize(
-        cells_pending=len(cells_dropped) > 0 or aborted,
+        cells_pending=len(cells_dropped) > 0,
         tickets_in_flight=False,
     )
     report_aborted = tally_final["aborted"]
