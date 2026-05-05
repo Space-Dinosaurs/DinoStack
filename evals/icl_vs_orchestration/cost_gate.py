@@ -97,8 +97,14 @@ class CostGate:
         tokens dict expected keys: input, output (int each).
         Raises BudgetExceeded if a ceiling is hit after recording.
         """
-        token_total = int(tokens.get("input", 0)) + int(
-            tokens.get("output", 0)
+        # Sum all token types toward the global ceiling: input, output,
+        # cache_creation, and cache_read. Cache tokens represent real LLM
+        # compute and must count against the budget ceiling.
+        token_total = (
+            int(tokens.get("input", 0))
+            + int(tokens.get("output", 0))
+            + int(tokens.get("cache_creation", 0))
+            + int(tokens.get("cache_read", 0))
         )
         with self._lock:
             self._global_usd += cost_usd
@@ -308,7 +314,13 @@ def reconcile_tally(run_dir: Path) -> dict:
             continue
         cost = float(data.get("cost_usd", 0.0))
         tokens = data.get("tokens", {})
-        tok_total = int(tokens.get("input", 0)) + int(tokens.get("output", 0))
+        # Include cache tokens consistent with CostGate.record() ceiling logic.
+        tok_total = (
+            int(tokens.get("input", 0))
+            + int(tokens.get("output", 0))
+            + int(tokens.get("cache_creation", 0))
+            + int(tokens.get("cache_read", 0))
+        )
         tally["global_usd"] += cost
         tally["global_tokens"] += tok_total
         cell = tally["cells"].setdefault(cell_id, {"usd": 0.0, "tokens": 0})

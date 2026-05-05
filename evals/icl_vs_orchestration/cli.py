@@ -173,6 +173,14 @@ def main(argv: list[str] | None = None) -> None:
             traceback.print_exc()
             sys.exit(1)
 
+        # Validate report schema; exit 5 on validation error.
+        from .report import validate_report
+        try:
+            validate_report(report)
+        except ValueError as e:
+            print(f"ERROR: Report validation failed: {e}", file=sys.stderr)
+            sys.exit(5)
+
         if report.get("aborted"):
             print(
                 f"Run aborted: {report.get('abort_reason', 'budget exceeded')}",

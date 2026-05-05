@@ -126,6 +126,14 @@ def build_summary(ticket_scores: dict) -> dict:
             primary = sc.get("primary", 0.0)
             primaries_by_condition.setdefault(cid, []).append(primary)
 
+            # Accumulate rationale_extraction_method counts per condition.
+            # The runner injects "_rationale_extraction_method" so report.py
+            # does not need the raw result artifacts.
+            method = sc.get("_rationale_extraction_method")
+            if method:
+                rc = rationale_method_count.setdefault(cid, {})
+                rc[method] = rc.get(method, 0) + 1
+
             # Ticket class from score metadata (if available)
             # (would need ticket_yaml reference; omit from summary for now)
 

@@ -198,3 +198,85 @@ def test_build_normalization_block_custom_post_restructure_tokens():
     """post_restructure_tokens can be customized (for empirical measurement)."""
     block = build_normalization_block(post_restructure_tokens=7500)
     assert block["post_restructure_tokens"] == 7500
+
+
+# ---------------------------------------------------------------------------
+# Regression: Minor 3 - cache tokens count toward token ceiling
+# ---------------------------------------------------------------------------
+
+def test_cache_tokens_count_toward_global_ceiling(tmp_path):
+    """[Minor3-regression] cache_creation and cache_read tokens must trip
+    the global token ceiling. Prior bug: only input+output were counted."""
+    # Set a low ceiling that only cache tokens will exceed
+    gate = _make_gate(tmp_path, max_usd=1000.0, max_tokens=50)
+    # input+output = 20, but cache tokens push total to 70 > 50
+    with pytest.raises(BudgetExceeded) as exc:
+        gate.record(
+            "ae-orchestrated",
+            "t1",
+            {"input": 10, "output": 10, "cache_creation": 25, "cache_read": 25},
+            cost_usd=0.001,
+        )
+    assert exc.value.scope == "global", (
+        "cache tokens must push the global token total over the ceiling"
+    )
+
+
+def test_record_without_cache_tokens_not_tripped(tmp_path):
+    """Without cache tokens, ceiling not tripped if only input+output are low."""
+    gate = _make_gate(tmp_path, max_usd=1000.0, max_tokens=50)
+    # input+output = 20, no cache tokens - should NOT raise
+    gate.record(
+        "ae-orchestrated",
+        "t1",
+        {"input": 10, "output": 10},
+        cost_usd=0.001,
+    )
+    # No exception means the ceiling was not tripped
+
+
+def test_reconcile_tally_counts_cache_tokens(tmp_path):
+    """[Minor3-regression] reconcile_tally must include cache tokens in total."""
+    results_dir = tmp_path / "ticket_results"
+    results_dir.mkdir()
+    (results_dir / "t1__ae-orchestrated.json").write_text(json.dumps({
+        "cost_usd": 0.01,
+        "tokens": {
+            "input": 100,
+            "output": 50,
+            "cache_creation": 200,
+            "cache_read": 300,
+        },
+    }))
+    tally = reconcile_tally(tmp_path)
+    # Prior bug: cache tokens were excluded; total was 150 instead of 650
+    assert tally["global_tokens"] == 650, (
+        f"Expected global_tokens=650 (all token types), got {tally['global_tokens']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: M2 - finalize() aborted field is authoritative
+# ---------------------------------------------------------------------------
+
+def test_finalize_budget_at_finalization_no_pending_returns_not_aborted(tmp_path):
+    """[M2-regression] finalize() returns aborted=False when budget is breached
+    at finalization with no pending/in-flight work (cells_pending=False,
+    tickets_in_flight=False). Prior bug: runner used local aborted=True."""
+    gate = _make_gate(tmp_path, max_usd=0.001, max_tokens=1_000_000)
+    gate._global_usd = 0.002  # Manually exceed limit
+    tally = gate.finalize(cells_pending=False, tickets_in_flight=False)
+    assert tally["aborted"] is False, (
+        "aborted must be False when budget breached at finalization with no pending work"
+    )
+    assert tally["budget_breached_at_finalization"] is True, (
+        "budget_breached_at_finalization must be True"
+    )
+
+
+def test_finalize_budget_with_cells_pending_returns_aborted(tmp_path):
+    """[M2-regression] finalize() returns aborted=True when cells_pending=True."""
+    gate = _make_gate(tmp_path, max_usd=0.001)
+    gate._global_usd = 0.002
+    tally = gate.finalize(cells_pending=True, tickets_in_flight=False)
+    assert tally["aborted"] is True

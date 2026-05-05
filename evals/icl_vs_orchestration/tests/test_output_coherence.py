@@ -64,13 +64,17 @@ def test_boundary_all_taxonomy_types_score_0():
     )
     result = _make_result(rationale=rationale, diff=diff)
     s = score(result, _make_ticket())
-    # count should be in [0, len(TAXONOMY)]; score in [0.0, 1.0]
-    assert 0.0 <= s["score"] <= 1.0
     count = s["diagnostic"]["distinct_types_fired"]
-    assert 0 <= count <= len(TAXONOMY)
-    # The binarized score formula: score = 1.0 - count/len(TAXONOMY)
-    expected_score = 1.0 - count / len(TAXONOMY)
-    assert abs(s["score"] - expected_score) < 1e-9
+    assert count == len(TAXONOMY), (
+        f"Expected all {len(TAXONOMY)} taxonomy types to fire, got {count}. "
+        f"Fired types: {s['diagnostic'].get('types_fired', [])}. "
+        "Fix the fixture to trigger all taxonomy contradiction types."
+    )
+    # All types fired -> score must be exactly 0.0
+    assert s["score"] == 0.0, (
+        f"Expected score=0.0 when all {len(TAXONOMY)} types fire, got {s['score']}"
+    )
+    assert s["status"] == "scored"
 
 
 def test_count_never_exceeds_taxonomy_length():

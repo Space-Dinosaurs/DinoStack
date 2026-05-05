@@ -98,105 +98,16 @@ def run_eval(config: RunConfig) -> dict:
         max_tokens_per_cell=config.max_tokens_per_cell,
     )
 
-    ticket_scores: dict[str, dict] = {}  # {ticket_id: {ae: score, icl: score}}
-    cells_dropped: list[str] = []
-    aborted = False
-    abort_reason: str | None = None
-
-    for ticket in tickets:
-        ticket_id = ticket["ticket_id"]
-        _LOG.info("Running ticket %s", ticket_id)
-
-        condition_results: dict[str, dict] = {}
-        condition_scores: dict[str, dict] = {}
-
-        for condition in conditions:
-            cid = condition.condition_id
-            cell_id = cid  # v1: cell = condition
-
-            if cell_id in cells_dropped:
-                _LOG.info("Skipping dropped cell %s for ticket %s", cell_id, ticket_id)
-                continue
-
-            result_path = results_dir / f"{ticket_id}__{cid}.json"
-
-            # Prepare workspace
-            workspace = run_dir / "workspaces" / f"{ticket_id}__{cid}"
-            workspace.mkdir(parents=True, exist_ok=True)
-
-            try:
-                condition.prepare(ticket, workspace)
-            except Exception as e:
-                _LOG.error("prepare() failed for %s/%s: %s", ticket_id, cid, e)
-                continue
-
-            # Run condition
-            try:
-                result = condition.run(
-                    ticket=ticket,
-                    workspace=workspace,
-                    cost_gate=cost_gate,
-                    timeout_seconds=config.timeout_seconds,
-                )
-            except BudgetExceeded as e:
-                _LOG.warning("Budget exceeded during ticket %s/%s: %s", ticket_id, cid, e)
-                aborted = True
-                abort_reason = str(e)
-                _write_abort_flag(run_dir, cells_pending=True)
-                break
-            except Exception as e:
-                _LOG.error("condition.run() failed for %s/%s: %s", ticket_id, cid, e)
-                result = _error_result(ticket_id, cid, str(e))
-
-            # Write-order: ticket result first, then cost tally
-            result["raw_trace_path"] = str(result.get("raw_trace_path", ""))
-            result_path.write_text(json.dumps(result, default=str))
-
-            try:
-                cost_gate.record(
-                    cell_id=cell_id,
-                    ticket_id=ticket_id,
-                    tokens=result.get("tokens", {}),
-                    cost_usd=result.get("cost_usd", 0.0),
-                )
-            except BudgetExceeded as e:
-                if e.scope == "cell":
-                    _LOG.warning("Per-cell budget exceeded for cell %s: %s", cell_id, e)
-                    cells_dropped.append(cell_id)
-                else:
-                    _LOG.warning("Global budget exceeded: %s", e)
-                    aborted = True
-                    abort_reason = str(e)
-                    _write_abort_flag(run_dir, cells_pending=bool(cells_dropped))
-                    break
-
-            condition_results[cid] = result
-
-            # Score
-            try:
-                ticket_score = registry.score_result(result, ticket)
-                condition_scores[cid] = ticket_score
-            except Exception as e:
-                _LOG.error("Scoring failed for %s/%s: %s", ticket_id, cid, e)
-                condition_scores[cid] = {"status": "scoring-error", "error": str(e)}
-
-        if aborted:
-            break
-
-        # Symmetric-dimset invariant check
-        if "ae-orchestrated" in condition_scores and "icl-baseline" in condition_scores:
-            try:
-                registry.assert_symmetric_dimset(
-                    condition_scores["ae-orchestrated"],
-                    condition_scores["icl-baseline"],
-                )
-            except AssertionError as e:
-                _LOG.error("Invariant violation for ticket %s: %s", ticket_id, e)
-                for cid in condition_scores:
-                    condition_scores[cid]["status"] = "invariant-violation"
-                    condition_scores[cid]["invariant_error"] = str(e)
-
-        ticket_scores[ticket_id] = condition_scores
+    # Run all tickets via shared helper (also used by resume_run)
+    ticket_scores, cells_dropped, aborted, abort_reason = _run_tickets(
+        tickets=tickets,
+        conditions=conditions,
+        registry=registry,
+        cost_gate=cost_gate,
+        run_dir=run_dir,
+        config=config,
+        results_dir=results_dir,
+    )
 
     # Smoke-gate dominance check
     smoke_gate_result = None
@@ -205,11 +116,22 @@ def run_eval(config: RunConfig) -> dict:
         cells = [c.condition_id for c in conditions]
         smoke_gate_result = check_smoke_dominance(list(smoke_agg.values()), cells)
 
-    # Finalize
+    # Finalize: pass actual pending/in-flight state so finalize() can compute
+    # aborted correctly. If loop exited early (local aborted=True) but no cells
+    # are actually pending or dropped, finalize() correctly returns aborted=False
+    # with budget_breached_at_finalization=True per architect plan step 19.
     tally = cost_gate.finalize(
-        cells_pending=len(cells_dropped) > 0,
+        cells_pending=len(cells_dropped) > 0 or aborted,
         tickets_in_flight=False,
     )
+
+    # Use finalize()'s authoritative aborted value, not the local loop-control
+    # variable. This reconciles two semantics: local-loop-aborted (early exit
+    # due to BudgetExceeded) vs report-aborted (whether pending work was lost).
+    # When budget is hit during finalization with no in-flight/pending work,
+    # finalize() returns aborted=False, budget_breached_at_finalization=True.
+    report_aborted = tally["aborted"]
+    report_abort_reason = abort_reason if report_aborted else None
 
     report = _build_report(
         config=config,
@@ -217,15 +139,14 @@ def run_eval(config: RunConfig) -> dict:
         ticket_scores=ticket_scores,
         tally=tally,
         cells_dropped=cells_dropped,
-        aborted=aborted,
-        abort_reason=abort_reason,
+        aborted=report_aborted,
+        abort_reason=report_abort_reason,
         smoke_gate_result=smoke_gate_result,
     )
 
-    # If no in-flight work when budget breached, no abort.flag
-    if tally.get("budget_breached_at_finalization") and not aborted:
+    # Propagate budget_breached_at_finalization flag when not aborted.
+    if tally.get("budget_breached_at_finalization"):
         report["budget_breached_at_finalization"] = True
-        report["aborted"] = False
 
     # Write report
     report_dir = Path("evals/icl_vs_orchestration/results") / config.run_id
@@ -249,7 +170,6 @@ def _build_report(
 ) -> dict:
     """Assemble the results-v1.json report dict."""
     from .scoring.output_coherence import TAXONOMY_VERSION
-    import importlib
 
     # Count rationale_extraction_method per condition
     rationale_method_count: dict[str, dict] = {}
@@ -266,6 +186,15 @@ def _build_report(
                 for dim in sc.get("floored_dims", []):
                     fc = floored_dim_count.setdefault(cid, {})
                     fc[dim] = fc.get(dim, 0) + 1
+            # Accumulate rationale_extraction_method counts per condition.
+            # The runner injects "_rationale_extraction_method" into scorer
+            # output dicts so _build_report can count them without needing
+            # the raw results. Values: "structured" | "fallback-full-text".
+            if isinstance(sc, dict):
+                method = sc.get("_rationale_extraction_method")
+                if method:
+                    rc = rationale_method_count.setdefault(cid, {})
+                    rc[method] = rc.get(method, 0) + 1
 
     summary = {
         "tickets_run": len(ticket_scores),
@@ -370,6 +299,138 @@ def _error_result(ticket_id: str, condition_id: str, error: str) -> dict:
     }
 
 
+def _run_tickets(
+    tickets: list[dict],
+    conditions: list,
+    registry,
+    cost_gate: "CostGate",
+    run_dir: Path,
+    config: "RunConfig",
+    results_dir: Path,
+    cells_dropped_init: list[str] | None = None,
+) -> tuple[dict, list[str], bool, str | None]:
+    """Execute per-ticket condition loop; return (ticket_scores, cells_dropped, aborted, abort_reason).
+
+    Extracted from run_eval() so resume_run() can reuse the same execution path
+    for remaining tickets without duplicating logic.
+    """
+    ticket_scores: dict[str, dict] = {}
+    cells_dropped: list[str] = list(cells_dropped_init or [])
+    aborted = False
+    abort_reason: str | None = None
+
+    for ticket in tickets:
+        ticket_id = ticket["ticket_id"]
+        _LOG.info("Running ticket %s", ticket_id)
+
+        condition_results: dict[str, dict] = {}
+        condition_scores: dict[str, dict] = {}
+
+        for condition in conditions:
+            cid = condition.condition_id
+            cell_id = cid  # v1: cell = condition
+
+            if cell_id in cells_dropped:
+                _LOG.info("Skipping dropped cell %s for ticket %s", cell_id, ticket_id)
+                continue
+
+            result_path = results_dir / f"{ticket_id}__{cid}.json"
+
+            # Prepare workspace
+            workspace = run_dir / "workspaces" / f"{ticket_id}__{cid}"
+            workspace.mkdir(parents=True, exist_ok=True)
+
+            try:
+                condition.prepare(ticket, workspace)
+            except Exception as e:
+                _LOG.error("prepare() failed for %s/%s: %s", ticket_id, cid, e)
+                continue
+
+            # Run condition
+            try:
+                result = condition.run(
+                    ticket=ticket,
+                    workspace=workspace,
+                    cost_gate=cost_gate,
+                    timeout_seconds=config.timeout_seconds,
+                )
+            except BudgetExceeded as e:
+                _LOG.warning("Budget exceeded during ticket %s/%s: %s", ticket_id, cid, e)
+                aborted = True
+                abort_reason = str(e)
+                # Only write abort.flag when there is actually pending work
+                # (dropped cells or remaining tickets). If this is the first
+                # cell of the first ticket with no prior drops, no abort.flag.
+                _write_abort_flag(
+                    run_dir,
+                    cells_pending=len(cells_dropped) > 0,
+                )
+                break
+            except Exception as e:
+                _LOG.error("condition.run() failed for %s/%s: %s", ticket_id, cid, e)
+                result = _error_result(ticket_id, cid, str(e))
+
+            # Write-order: ticket result first, then cost tally
+            result["raw_trace_path"] = str(result.get("raw_trace_path", ""))
+            result_path.write_text(json.dumps(result, default=str))
+
+            try:
+                cost_gate.record(
+                    cell_id=cell_id,
+                    ticket_id=ticket_id,
+                    tokens=result.get("tokens", {}),
+                    cost_usd=result.get("cost_usd", 0.0),
+                )
+            except BudgetExceeded as e:
+                if e.scope == "cell":
+                    _LOG.warning("Per-cell budget exceeded for cell %s: %s", cell_id, e)
+                    cells_dropped.append(cell_id)
+                else:
+                    _LOG.warning("Global budget exceeded: %s", e)
+                    aborted = True
+                    abort_reason = str(e)
+                    _write_abort_flag(run_dir, cells_pending=bool(cells_dropped))
+                    break
+
+            condition_results[cid] = result
+
+            # Score; inject rationale_extraction_method into scorer output
+            try:
+                ticket_score = registry.score_result(result, ticket)
+                # Inject rationale_extraction_method from raw result artifacts
+                # so _build_report can accumulate per-condition counts without
+                # needing access to the raw result dicts.
+                method = result.get("artifacts", {}).get(
+                    "rationale_extraction_method"
+                )
+                if method:
+                    ticket_score["_rationale_extraction_method"] = method
+                condition_scores[cid] = ticket_score
+            except Exception as e:
+                _LOG.error("Scoring failed for %s/%s: %s", ticket_id, cid, e)
+                condition_scores[cid] = {"status": "scoring-error", "error": str(e)}
+
+        if aborted:
+            break
+
+        # Symmetric-dimset invariant check
+        if "ae-orchestrated" in condition_scores and "icl-baseline" in condition_scores:
+            try:
+                registry.assert_symmetric_dimset(
+                    condition_scores["ae-orchestrated"],
+                    condition_scores["icl-baseline"],
+                )
+            except AssertionError as e:
+                _LOG.error("Invariant violation for ticket %s: %s", ticket_id, e)
+                for cid in condition_scores:
+                    condition_scores[cid]["status"] = "invariant-violation"
+                    condition_scores[cid]["invariant_error"] = str(e)
+
+        ticket_scores[ticket_id] = condition_scores
+
+    return ticket_scores, cells_dropped, aborted, abort_reason
+
+
 def resume_run(run_id: str, run_dir: Path, config: RunConfig) -> dict:
     """Resume an interrupted run by reconciling tally from ticket_results/."""
     _LOG.info("Resuming run %s from %s", run_id, run_dir)
@@ -394,12 +455,13 @@ def resume_run(run_id: str, run_dir: Path, config: RunConfig) -> dict:
 
     # Find already-completed ticket+condition pairs
     results_dir = run_dir / "ticket_results"
+    results_dir.mkdir(parents=True, exist_ok=True)
     completed: set[str] = set()
     if results_dir.exists():
         for f in results_dir.glob("*__*.json"):
             completed.add(f.stem)
 
-    # Load corpus and re-run remaining tickets
+    # Load corpus and determine remaining tickets
     manifest, all_tickets = load_corpus(config.corpus_dir)
     if config.smoke:
         all_tickets = all_tickets[:5]
@@ -420,28 +482,64 @@ def resume_run(run_id: str, run_dir: Path, config: RunConfig) -> dict:
         len(remaining_tickets),
     )
 
-    if not remaining_tickets:
-        _LOG.info("All tickets already complete. Rebuilding report only.")
-    else:
-        config.run_id = run_id
-        config.run_dir = run_dir
-        # Re-run only remaining tickets by overriding the corpus load
-        # (simple approach: set max_tickets to skip completed ones)
+    config.run_id = run_id
+    config.run_dir = run_dir
 
-    # Rebuild report from all completed results
-    ticket_scores = _load_completed_scores(results_dir, load_registry(config.weights_path))
-    tally_final = cost_gate.finalize(cells_pending=False, tickets_in_flight=False)
+    new_ticket_scores: dict[str, dict] = {}
+    cells_dropped: list[str] = []
+    aborted = False
+    abort_reason: str | None = None
+
+    if remaining_tickets:
+        from .conditions.ae_orchestrated.single_shot import make_ae_condition
+        from .conditions.icl_baseline import ICLBaseline
+
+        ae_condition = make_ae_condition(config.ae_spec_path)
+        icl_condition = ICLBaseline(config.icl_spec_path)
+        conditions = [ae_condition, icl_condition]
+        registry = load_registry(config.weights_path)
+
+        new_ticket_scores, cells_dropped, aborted, abort_reason = _run_tickets(
+            tickets=remaining_tickets,
+            conditions=conditions,
+            registry=registry,
+            cost_gate=cost_gate,
+            run_dir=run_dir,
+            config=config,
+            results_dir=results_dir,
+        )
+        _LOG.info(
+            "Resume: ran %d remaining tickets; aborted=%s",
+            len(remaining_tickets),
+            aborted,
+        )
+
+    # Rebuild report from ALL completed results (prior + newly run)
+    registry_for_report = load_registry(config.weights_path)
+    ticket_scores = _load_completed_scores(results_dir, registry_for_report)
+    # Merge new scores into loaded scores (in case some are not on disk yet)
+    for tid, scores in new_ticket_scores.items():
+        ticket_scores.setdefault(tid, {}).update(scores)
+
+    tally_final = cost_gate.finalize(
+        cells_pending=len(cells_dropped) > 0 or aborted,
+        tickets_in_flight=False,
+    )
+    report_aborted = tally_final["aborted"]
+    report_abort_reason = abort_reason if report_aborted else None
 
     report = _build_report(
         config=config,
         manifest=manifest,
         ticket_scores=ticket_scores,
         tally=tally_final,
-        cells_dropped=[],
-        aborted=False,
-        abort_reason=None,
+        cells_dropped=cells_dropped,
+        aborted=report_aborted,
+        abort_reason=report_abort_reason,
         smoke_gate_result=None,
     )
+    if tally_final.get("budget_breached_at_finalization"):
+        report["budget_breached_at_finalization"] = True
 
     report_dir = Path("evals/icl_vs_orchestration/results") / run_id
     report_dir.mkdir(parents=True, exist_ok=True)

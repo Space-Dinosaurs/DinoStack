@@ -163,3 +163,56 @@ def test_build_summary_multiple_tickets_mean():
     summary = build_summary(scores)
     assert summary["tickets_run"] == 2
     assert abs(summary["per_condition_primary_mean"]["ae-orchestrated"] - 0.6) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# Regression: M1 - rationale_extraction_method_count populates correctly
+# ---------------------------------------------------------------------------
+
+def test_build_summary_rationale_method_count_structured(tmp_path):
+    """[M1-regression] build_summary accumulates rationale_extraction_method_count
+    from _rationale_extraction_method field injected by runner.py."""
+    scores = {
+        "t1": {
+            "ae-orchestrated": {
+                "primary": 0.8,
+                "_rationale_extraction_method": "structured",
+            },
+        },
+        "t2": {
+            "ae-orchestrated": {
+                "primary": 0.6,
+                "_rationale_extraction_method": "structured",
+            },
+        },
+        "t3": {
+            "ae-orchestrated": {
+                "primary": 0.4,
+                "_rationale_extraction_method": "fallback-full-text",
+            },
+        },
+    }
+    summary = build_summary(scores)
+    counts = summary["rationale_extraction_method_count"]
+    assert "ae-orchestrated" in counts, (
+        "rationale_extraction_method_count must have a key per condition"
+    )
+    ae_counts = counts["ae-orchestrated"]
+    assert ae_counts.get("structured") == 2, (
+        f"Expected 2 'structured' for ae-orchestrated, got {ae_counts}"
+    )
+    assert ae_counts.get("fallback-full-text") == 1, (
+        f"Expected 1 'fallback-full-text' for ae-orchestrated, got {ae_counts}"
+    )
+
+
+def test_build_summary_rationale_method_count_empty_on_no_method(tmp_path):
+    """[M1-regression] rationale_extraction_method_count stays {} when no method set."""
+    scores = {
+        "t1": {"ae-orchestrated": {"primary": 0.8}},  # no _rationale_extraction_method
+    }
+    summary = build_summary(scores)
+    counts = summary["rationale_extraction_method_count"]
+    assert counts == {}, (
+        f"Expected empty dict when no _rationale_extraction_method set, got {counts}"
+    )
