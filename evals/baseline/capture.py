@@ -350,7 +350,7 @@ def _file_sha256(path: Path) -> str:
 def collect_component_scores(
     component_yaml: Path,
     results_tsv: Path,
-    ai_tools_sha: str,
+    fallback_captured_at_sha: str,
 ) -> ComponentEntry:
     """
     Extract fixture scores from a pre-computed results TSV for one component.
@@ -359,6 +359,12 @@ def collect_component_scores(
     Expected TSV columns (tab-separated, first row is header):
         commit, component_content_hash, fixture_hash, primary_score_median,
         primary_score_stdev, n_runs, status, diagnostic_json, description
+
+    Note: the architect plan spec showed 2 parameters; a 3rd parameter
+    (fallback_captured_at_sha) was added during implementation to populate the
+    captured_at_sha field on TSV rows that lack a "commit" column. The value
+    passed at the call site is git_meta["agentic_engineering_sha"] (the AE HEAD
+    SHA), which is the correct fallback since captures run inside the AE worktree.
     """
     name = component_yaml.stem
     manifest_path = str(component_yaml.relative_to(_REPO_ROOT))
@@ -377,7 +383,7 @@ def collect_component_scores(
                     primary_score_stdev=float(row["primary_score_stdev"]),
                     n_runs=int(row["n_runs"]),
                     status=row["status"],
-                    captured_at_sha=row.get("commit", ai_tools_sha),
+                    captured_at_sha=row.get("commit", fallback_captured_at_sha),
                 ))
             except (KeyError, ValueError):
                 # Malformed row; skip but don't abort

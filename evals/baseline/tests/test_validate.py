@@ -251,6 +251,32 @@ def test_ae_json_explicit_null_dict_accepted(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Step 3b: agentic_engineering_sha required (regression for F1 SHA inversion fix)
+# ---------------------------------------------------------------------------
+
+def test_missing_agentic_engineering_sha_rejected(tmp_path):
+    """Regression: validator must reject baselines with no agentic_engineering_sha key."""
+    components_dir = _components_dir()
+    data = _minimal_valid_baseline(components_dir)
+    del data["git"]["agentic_engineering_sha"]
+    p = _write_baseline(tmp_path, data)
+    result = validate_baseline(p)
+    assert not result.ok
+    assert any("agentic_engineering_sha" in e for e in result.errors)
+
+
+def test_empty_agentic_engineering_sha_rejected(tmp_path):
+    """Regression: validator must reject baselines where agentic_engineering_sha is empty string."""
+    components_dir = _components_dir()
+    data = _minimal_valid_baseline(components_dir)
+    data["git"]["agentic_engineering_sha"] = ""
+    p = _write_baseline(tmp_path, data)
+    result = validate_baseline(p)
+    assert not result.ok
+    assert any("agentic_engineering_sha" in e for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
 # Happy path
 # ---------------------------------------------------------------------------
 
