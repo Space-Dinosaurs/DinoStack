@@ -1,0 +1,1331 @@
+{
+  "schema_version": 1,
+  "baseline_id": "2026-05-pre-icl-restructure",
+  "captured_at_utc": "2026-05-05T11:43:24.788961+00:00",
+  "captured_by": "evals-baseline-capture@v1",
+  "stochasticity_disclaimer": "This baseline is one sample of a stochastic distribution. Stage 6 comparison MUST be distributional (e.g. Wilcoxon signed-rank against recorded n=3 medians or per-fixture-stdev-multiplied bands), NOT point-equality or fixed-percent thresholds.",
+  "git": {
+    "ai_tools_sha": "2b29c7f64a752c45845583ff4d52af7b72b2caeb",
+    "ai_tools_dirty": false,
+    "agentic_engineering_sha": null,
+    "agentic_engineering_dirty": false,
+    "helios_sha": null,
+    "helios_dirty": false
+  },
+  "environment": {
+    "claude_cli_version": "2.1.128 (Claude Code)",
+    "claude_config_snapshot": "What config? Options:\n- `/config` (Claude Code built-in: theme, model, etc.)\n- `update-config` skill (settings.json: hooks, permissions, env vars)\n- Project config file (which one?)",
+    "agentic_engineering_json": {
+      "mode": "opt-out",
+      "profile": "default",
+      "set_at": "2026-05-01T20:43:22Z"
+    },
+    "agentic_engineering_json_path": "/Users/tyson/.claude/agentic-engineering.json",
+    "model_tier_default": "sonnet:profile=default",
+    "python_version": "3.9.6",
+    "platform": "darwin-arm64",
+    "hostname": "Tysons-MacBook-Pro-2.local"
+  },
+  "components": [
+    {
+      "name": "architect",
+      "manifest_path": "evals/components/architect.yaml",
+      "manifest_sha256": "f36a83212fa87989f14e5d135693015805d95b1bd0720fa17f686b3f7ee2a0bd",
+      "fixtures": [
+        {
+          "fixture_hash": "921ca5f3f36e86dd0717c2f8d36f461c062341654068083b2f19f9dc87cd4e7b",
+          "fixture_description": "Add a new REST endpoint to an existing Express API - baseline ceiling-capable fixture with clean additive scope.",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.086603,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "fa4da4de8063c94b19b2843cef22073ae1e3bc67"
+        },
+        {
+          "fixture_hash": "80ed994b11162d6f753e13a468d3d314adaab5518a2893b49dff551db981c70d",
+          "fixture_description": "Schema migration with no-downtime backfill - below-ceiling fixture that forces an online migration class decision.",
+          "primary_score_median": 0.87125,
+          "primary_score_stdev": 0.005774,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "fa4da4de8063c94b19b2843cef22073ae1e3bc67"
+        },
+        {
+          "fixture_hash": "5cf64625f1dd7d235ff3b133e560571f643d2f170a0734ce45db1643f7854f39",
+          "fixture_description": "Insert a new auth middleware into an existing chain - API-fidelity heavy.",
+          "primary_score_median": 0.927778,
+          "primary_score_stdev": 0.03308,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "fa4da4de8063c94b19b2843cef22073ae1e3bc67"
+        },
+        {
+          "fixture_hash": "4cbeb8e2e04e81d5a886f1538256faf60ad0d8f2e9f84cc0257314843cb3f188",
+          "fixture_description": "Optimize a hot-path ranker function - below-ceiling fixture; anti-pattern trap if the plan proposes a full rewrite.",
+          "primary_score_median": 0.845,
+          "primary_score_stdev": 0.020817,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "fa4da4de8063c94b19b2843cef22073ae1e3bc67"
+        },
+        {
+          "fixture_hash": "774cdc4f5b299374634f1f416d70c677bafc75eb4b7350e2c4c2839a4c040470",
+          "fixture_description": "Add a feature to an event-sourced system - below-ceiling; anti-pattern trap if the plan introduces a mutable row table.",
+          "primary_score_median": 0.828571,
+          "primary_score_stdev": 0.064812,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "fa4da4de8063c94b19b2843cef22073ae1e3bc67"
+        }
+      ]
+    },
+    {
+      "name": "cleanup-worktrees",
+      "manifest_path": "evals/components/cleanup-worktrees.yaml",
+      "manifest_sha256": "6337960719cbf6bd71706cbfa8fd33e60cad1ca983a9440c9a678d0d284a62cd",
+      "fixtures": [
+        {
+          "fixture_hash": "865b3139169eb11e9d3d2154efdfc247fbaf3fc5a915a388be86faf59d1bcdb0",
+          "fixture_description": "Clean multi-worktree: 1 clean isolation + 1 dirty isolation + 1 merged feature.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "3448d8b643369725668cdd712d949c663f59c30d"
+        },
+        {
+          "fixture_hash": "280634aa6b1e91e1282abdf66e20cb5d21085d05cea66a277f4cbf2adc25a4da",
+          "fixture_description": "Feature worktree with an OPEN PR - must be preserved and reported.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "3448d8b643369725668cdd712d949c663f59c30d"
+        },
+        {
+          "fixture_hash": "0348e417293820756126893d914d83ccee767d90983212fceab97fd4b11f504b",
+          "fixture_description": "Below-ceiling: gh CLI missing/broken. Feature worktree preserved with manual-review flag.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "3448d8b643369725668cdd712d949c663f59c30d"
+        },
+        {
+          "fixture_hash": "f63ceb1ecc3d60275cc8f6a1385c148cf372e96341658c8eeebb0b3eb96af4a3",
+          "fixture_description": "Orphaned worktree-agent-* branches with pre-pruned metadata; both must be deleted.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "3448d8b643369725668cdd712d949c663f59c30d"
+        },
+        {
+          "fixture_hash": "d86b48f31ce6aec08e331afd2c7d53714a4db29100e0f1a860432b43965873a5",
+          "fixture_description": "Below-ceiling: unknown branch shape experiment/spike-xyz preserved and reported as skipped.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "3448d8b643369725668cdd712d949c663f59c30d"
+        }
+      ]
+    },
+    {
+      "name": "conductor",
+      "manifest_path": "evals/components/conductor.yaml",
+      "manifest_sha256": "b8ba787b28c992fe4eb8a93d7141ca2a985372318797950282ab3eac27629587",
+      "fixtures": [
+        {
+          "fixture_hash": "298dfa5a5eab98df878324ea17e9abd38ac1a00fd8be7ef5fc34beed26a8abaf",
+          "fixture_description": "Phase 6 Skeptic loop at iteration 3/3 with a Major finding still open; correct routing is escalate cap_reached, NOT spawn another engineer.",
+          "primary_score_median": 0.2,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "e3eb9e5f3e7e7dd6a38b5fa93783a5a69eb99561d1ecd58a38000d52c92e9e16",
+          "fixture_description": "Convergence failure - a Critical finding is re_raised unchanged after a claimed fix at iteration 2; one re-raise is sufficient under the loop contract.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "6b629b2bc64c156295cba22c535b136da3050d74a063acbe2271ef0526534f0b",
+          "fixture_description": "Engineer returns BLOCKED inside Phase 6 loop citing an architectural conflict; BLOCKED triggers immediate escalation regardless of iteration count.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "89544ce04d138d7ef9f63bc8a54cb1427b41e9b5d86b9dbff1a07df38cb6857b",
+          "fixture_description": "Tight-fix path eligible bug fix: debugger High confidence, single file + colocated test, no security surface; correct routing is solo engineer with pre-commit verification, skip Skeptic.",
+          "primary_score_median": 0.333333,
+          "primary_score_stdev": 0.19245,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "79bd295eba81c2d4a66354c9e2f40f5907600601b514ddb232ff6add18f5bbc8",
+          "fixture_description": "Standard Skeptic loop at iteration 1/3 with Major findings; correct routing is re-enter the loop with a fresh engineer fix pass.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "53ade4fe34182945fc4fbb8ec5e3a211cecb0601308a66f2c94a4011e56c093f",
+          "fixture_description": "Trivial single-file copy change with no subagents running; conductor edits directly - no engineer, no Skeptic, no QA.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "226575fe361329df2c41bfa0ad50b28e93c3eb97197d538ba29469a18b217c4b",
+          "fixture_description": "Unfamiliar codebase area: investigator must run before architect so the architect can design on top of a real blast-radius map.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "a5e14abe34ebd38563f4b3523b136ddf26c123d245795cc7022bad20fce633c1",
+          "fixture_description": "Phase 6 Skeptic loop exited cleanly; the diff matches .claude/qa.md trigger patterns; correct routing is spawn qa-engineer (Phase 6b).",
+          "primary_score_median": 0.285714,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "4701692715a17de57bfedc4e7ccb7e5b09045852143117b6e900ab730655a33e",
+          "fixture_description": "Phase 6 cap was reached on a prior unrelated path; QA loop is independent at iteration 1 with failures; correct routing is re-enter Phase 6b loop, not escalate.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "68d72bb7f7399adda7b71f29fc095e2625bf4f80b06d5be44563167f493f5cab",
+          "fixture_description": "Change touches auth surface, Skeptic signed off and QA passed; correct routing is spawn security-auditor before declaring complete.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "0e3963d0c5c8ea57d2c7665e12815bcb84a4e5b7e7efcbc056ce92c8b985c3a2",
+          "fixture_description": "Phase 6 Skeptic loop at iteration 3/3 with a Major-only open finding (no Criticals); cap-reached escalation applies regardless of severity mix.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.46188,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "34a384c0a81bbf22c2c5b8ceb0c9c2c31c3b7491b6653d50ecfac621ec370712",
+          "fixture_description": "Engineer returns BLOCKED citing a missing external-service credential; no architect can resolve this - human must provide the secret.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "7cec057975b23ae7e2833f74e0093e469a8796771a37978aa0c862ef7998c1a4",
+          "fixture_description": "Pre-implementation on a design-heavy new feature: data-model, API shape, and cross-module integration decisions remain; correct routing is spawn architect before engineer.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "af5ffba29c2115655f77307fa0ba19e00c4f31c0556779160872bd341dae7cd8",
+          "fixture_description": "User reports a performance regression with a reproducer but no root-cause hypothesis; correct routing is spawn perf-analyst before engineer.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "63eefbf3b9f3a6d0c33a385d090dd9148c1614cc5ab18a0c5110c1817ee05f0c",
+          "fixture_description": "User requests cutting a release (version bump, changelog, tag, deploy); correct routing is spawn release-orchestrator, not engineer.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "b0788e28536c22deb22c668beb3974eb642e7b02f0f9bca49102b2750312681d",
+          "fixture_description": "User requests a supply-chain audit of the project's dependency graph; correct routing is spawn dependency-auditor, not security-auditor or engineer.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "7f68bf6bfe81ac4c561acec2d19a4fdac5deaabb26c8df68c5e45219033eb701",
+          "fixture_description": "Phase 6 Skeptic loop at iteration 2/3 with a newly-raised Critical finding (not a re-raise); budget remains - correct routing is re-enter loop, NOT escalate.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "999d26489fd40839b2dfc09de64a379c38795568248862762b74797d6ec6bd4a",
+          "fixture_description": "Skeptic signed off, QA passed, quality gate clean, no security or release signals; correct routing is terminate_clean.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "fd53893fe3b616b3fa60b3fc92a1e0402c6dc3bd762ee370f0cb8cf471f3a4d6",
+          "fixture_description": "Single-file string change that looks trivial but the string drives control flow in a consumer module; reverts to standard Elevated engineer + Skeptic, NOT trivial_direct_edit.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "8f1628892bbe3b62ad39be55c46246c3f0a9bef9df769bd515b2271f2688211b",
+          "fixture_description": "Cross-worker handoff in a multi-unit plan: unit A engineer returned DONE and Skeptic signed off; unit B depends on A and is now eligible; correct routing is spawn engineer for unit B.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        }
+      ]
+    },
+    {
+      "name": "debugger",
+      "manifest_path": "evals/components/debugger.yaml",
+      "manifest_sha256": "166ec6ab62fc6872774a1645131a4d8bcc5041a0b038e7dd5eb00c6878606b85",
+      "fixtures": [
+        {
+          "fixture_hash": "6af0758cd5f140c23ace8e3b4769aed3a523a5af0c6a1e98a7302ccd1c2f907b",
+          "fixture_description": "compute_window inclusive boundary bug; half-open [start,end) contract violated by `ts > end` check.",
+          "primary_score_median": 0.78,
+          "primary_score_stdev": 0.069282,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "2c9d09ccc637a067cafdbfe810d36a103678bbed903ed6e841551196232b9ee4",
+          "fixture_description": "handleRequest dereferences req.session.activeOrg on unauthenticated routes where session is undefined.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "24259c05d5bbf64ef7701f59fb9abc3c7e051e4579e449ffe0fb61620694853a",
+          "fixture_description": "Token bucket intermittently lets more requests through than capacity; decrement sits outside the refill lock.",
+          "primary_score_median": 0.83,
+          "primary_score_stdev": 0.057735,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "5f9bf63662ca018fc5258f4fe1ccc789e36f2a6ee14b9e142bed2bb424e79ce8",
+          "fixture_description": "Consumer acks silently dropped after library upgrade v2.8 to v3.2; no docs/bash available to confirm API change.",
+          "primary_score_median": 0.766667,
+          "primary_score_stdev": 0.064729,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        },
+        {
+          "fixture_hash": "b0f11bd021b127fce111b7c51fe673f5612d26958b65a610978987bd2c253f83",
+          "fixture_description": "PR #4412 set timeout_ms: 30 meaning 30ms, not 30s; defect is in config.yaml, not source.py.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "c18d53ca510a0a64c686bee2cfa5bafc71aea671"
+        }
+      ]
+    },
+    {
+      "name": "implement-ticket",
+      "manifest_path": "evals/components/implement-ticket.yaml",
+      "manifest_sha256": "eef657793455bd10aba5a6b5ea6cf3976523ac7f44452c3dd6479b395440f8af",
+      "fixtures": [
+        {
+          "fixture_hash": "3f9ed2a33bd1a8e7a19d1e5324eb39ebf64455a40951a03a23bea18df9922b18",
+          "fixture_description": "Node simple function add (ceiling); add isEven helper to math-utils",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "e4762240a923211c07d95db72a8e21343503c790"
+        },
+        {
+          "fixture_hash": "219f95e819e7c7472c4bdf5c082fc4b74c10410f44ccbd6117dabb625cb42f2e",
+          "fixture_description": "Python bugfix small (ceiling); percent calc off-by-one in report.py",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "e4762240a923211c07d95db72a8e21343503c790"
+        },
+        {
+          "fixture_hash": "065b457e740235e0a7c98a24abf2274633fa81639c8a1cd90fcc2276a936322b",
+          "fixture_description": "Node scope-stressor (below-ceiling); add one handler - tempts refactor of many files",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "e4762240a923211c07d95db72a8e21343503c790"
+        },
+        {
+          "fixture_hash": "5abef572eb3633c1ef1ff4d6a44bb66155096048f503e529f858a058b385c2d6",
+          "fixture_description": "Quality-gate fix-path (below-ceiling); strict script rejects unused vars",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "e4762240a923211c07d95db72a8e21343503c790"
+        },
+        {
+          "fixture_hash": "ec49783479645e5337c85db25c030d84a2a3f481969260524eba4b22df71cbc7",
+          "fixture_description": "Go readme touch (ceiling); document the run command in README.md",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "e4762240a923211c07d95db72a8e21343503c790"
+        }
+      ]
+    },
+    {
+      "name": "init-project",
+      "manifest_path": "evals/components/init-project.yaml",
+      "manifest_sha256": "2799c62eba0c452b746543c21e0ffe0867deadc16587c69107f21d32bdf029fa",
+      "fixtures": [
+        {
+          "fixture_hash": "37915af792149fb569a20ed827520122cd3a35e22e7015b50c7128ed7dcd4233",
+          "fixture_description": "Node + Next.js + pnpm + web UI; expects qa.md, no deploy.md, no tracking.md",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        },
+        {
+          "fixture_hash": "618b107ec3a47ab009c7040163caae6d74d6fc82588c5da75c20e6f783266223",
+          "fixture_description": "Python + poetry + pytest; no web UI, no release, no tracker",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        },
+        {
+          "fixture_hash": "5a1a965056d07278ad270d6a82d350fe15ad260b943ef758bd16d9a2ea1e2523",
+          "fixture_description": "Go + Dockerfile + release workflow; release signals; no web UI",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.028868,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        },
+        {
+          "fixture_hash": "6d01e2dcc076c9af12a6fa9e1b3b34d8afdfa779270b83080b436203cef58fe0",
+          "fixture_description": "Monorepo Next.js + Python; web UI present; no release signals",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        },
+        {
+          "fixture_hash": "44c5219d2ef85ab0608d9b82e00c43604e561dc28aaa267e14411c1f080df7af",
+          "fixture_description": "Greenfield project; README-only; minimum-signal path",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        },
+        {
+          "fixture_hash": "b1f4454a9a80ec5e95863c308d8c907cb25a58e010a5d022789e79835ec0603f",
+          "fixture_description": "Node + Next.js decisions-heavy; web UI; stresses AGENTS.md line budget",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        },
+        {
+          "fixture_hash": "40ff8faa767cccba9105aa593dbb868d78c92778925b56c100aeaba49fb5df18",
+          "fixture_description": "Node + Next.js + Linear tracker signal; expects qa.md and tracking.md",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        },
+        {
+          "fixture_hash": "77860a19c88d3c1eb56a7d0cd8bb9a4d00812635297112b573c5c6fdaa0382f4",
+          "fixture_description": "Node library; README prose claims deploy + UI but signals absent",
+          "primary_score_median": 0.95,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b01c820bc021e2ba7d1004ef041b80e0c7735554"
+        }
+      ]
+    },
+    {
+      "name": "memory-update",
+      "manifest_path": "evals/components/memory-update.yaml",
+      "manifest_sha256": "94e03212de1d74a9e61351bc6e3122318d2a19cd9dc91d0572f2d23f81f3064c",
+      "fixtures": [
+        {
+          "fixture_hash": "cf2557ac1927690b47c131c6461938b61b2f9c5234a84c06ddbc626119a6af03",
+          "fixture_description": "New-entry happy path; no seeded MEMORY.md; event-store PostgreSQL+JSONB decision",
+          "primary_score_median": 0.85,
+          "primary_score_stdev": 0.048112,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "0b1a0c90713a606c33de11cfdeee039ed21b0ae8"
+        },
+        {
+          "fixture_hash": "eb27c74766d46b489da40eac3c64f7cad0b0a0e63c29939ece165a14c7797613",
+          "fixture_description": "Update-in-place; seeded rate-limiter bullet at 100 rps; decision bumps to 250 rps",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "0b1a0c90713a606c33de11cfdeee039ed21b0ae8"
+        },
+        {
+          "fixture_hash": "c73eb73833c3fc9f65b9268ad6bd7b1860075d65c43d8eed9185277fcd1aa5ae",
+          "fixture_description": "Noop: same decision already captured in seeded MEMORY.md. Below-ceiling: Worker may duplicate.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "0b1a0c90713a606c33de11cfdeee039ed21b0ae8"
+        },
+        {
+          "fixture_hash": "7f7e5dfc0dbcbcf899e9530742996ecf08be2b63a60a9f34e31c2795f3ee9435",
+          "fixture_description": "Does-not-qualify: conversational meeting scheduling; MEMORY.md must not be created",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "0b1a0c90713a606c33de11cfdeee039ed21b0ae8"
+        },
+        {
+          "fixture_hash": "5b04f9cf604defb8785c4af53798da39194b264c455103b23c860818ef49d11a",
+          "fixture_description": "Verification discipline: decision context asserts a claim that contradicts src/cache.ts. Below-ceiling: Worker must soften or omit the contradicted claim.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "0b1a0c90713a606c33de11cfdeee039ed21b0ae8"
+        }
+      ]
+    },
+    {
+      "name": "perf-analyst",
+      "manifest_path": "evals/components/perf-analyst.yaml",
+      "manifest_sha256": "35eff7395c2c78e137243085b5615a1713e50fec0f0cbf248a833ba1af8b49de",
+      "fixtures": [
+        {
+          "fixture_hash": "55d0f0ff9d26f1beeb7830d27bd5311c4029e0294a6c7a15c497c98f65ac7759",
+          "fixture_description": "N+1 query on orders list endpoint; 47 queries per request, 94% of latency in the loop.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "fa4da4de8063c94b19b2843cef22073ae1e3bc67"
+        }
+      ]
+    },
+    {
+      "name": "prune-harness",
+      "manifest_path": "evals/components/prune-harness.yaml",
+      "manifest_sha256": "3c27a2aabc9d6ce92aeb51610b45f145e61808727105ba580efe61fa90ce1d15",
+      "fixtures": [
+        {
+          "fixture_hash": "34163465b8dd53c31ea3be797a1e3127702d292519676ca3fd5a147fdb44b5e8",
+          "fixture_description": "Signal 1 HIGH: content/rules/agent-methodology.md names Claude 3.5 Sonnet explicitly; findings.md absent so Signal 4 must be skipped",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "912082de6fdff89737503f8ee6f63dff7a486738"
+        },
+        {
+          "fixture_hash": "4f2271537a1637fb82c69462fc3eb38cb44cc6b71a46e6311c32e6bfc1581704",
+          "fixture_description": "No candidates: clean corpus; every signal applied; findings.md absent so Signal 4 must be skipped; proposal must state this explicitly",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "912082de6fdff89737503f8ee6f63dff7a486738"
+        },
+        {
+          "fixture_hash": "91bafda6b39161b9b699274bfdf5ea593bfafb05c613c8ca8b1cdbd76b68cfbe",
+          "fixture_description": "Trap: shared preamble across agent-methodology.md and implement-ticket.md is Signal 3 cross-ref exception (NOT a candidate); skeptic-protocol.md legacy fallback IS a real Signal 5 TP",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "912082de6fdff89737503f8ee6f63dff7a486738"
+        },
+        {
+          "fixture_hash": "a2daba0d2a3aa2cb92e07ebd28b35d30027ac154b87c0eb5c3695efeeb378703",
+          "fixture_description": "findings.md seeded at .agentic/findings.md; Signal 4 must NOT be skipped; conventions.md contradicts git-add-all finding -> Signal 4 MEDIUM TP",
+          "primary_score_median": 0.6,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "912082de6fdff89737503f8ee6f63dff7a486738"
+        },
+        {
+          "fixture_hash": "059dffd3bdb780d02815b28780390e59b272006744d40802e2e72f939c7d6675",
+          "fixture_description": "Forbidden-write tripwire: clean corpus; no TPs expected; safety floor is that the analyst must not mutate any content/ file",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "912082de6fdff89737503f8ee6f63dff7a486738"
+        }
+      ]
+    },
+    {
+      "name": "qa-engineer",
+      "manifest_path": "evals/components/qa-engineer.yaml",
+      "manifest_sha256": "fce4f0c75deeb6eece40cf34845940392cd8f7032613d7b0395fa8887220c153",
+      "fixtures": [
+        {
+          "fixture_hash": "ed2893875f4c6fd44c42525f432ecd5fe5906b352de815c1a3804106f9e54a1c",
+          "fixture_description": "pass_clean - dashboard heading and KPI cards render, no console errors. Expected PASS (ceiling).",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 1,
+          "status": "ok",
+          "captured_at_sha": "fdc40768df985756287f138dbd5cd46507ba80d5"
+        }
+      ]
+    },
+    {
+      "name": "release-orchestrator",
+      "manifest_path": "evals/components/release-orchestrator.yaml",
+      "manifest_sha256": "4821176e257080aca29a8d98061a4fd2b82927d5b0556e69b5c83facb5d0d453",
+      "fixtures": [
+        {
+          "fixture_hash": "a161071f50db596c40beb0563d8e9cfe3d8a15b682665681a9cd1f0004a32401",
+          "fixture_description": "Clean patch release 1.4.2 -> 1.4.3; all gates pass; normal full 9-phase sequence.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.0,
+          "n_runs": 1,
+          "status": "ok",
+          "captured_at_sha": "b76e9815edd177109e72360d4584e25e17004348"
+        }
+      ]
+    },
+    {
+      "name": "representation-audit",
+      "manifest_path": "evals/components/representation-audit.yaml",
+      "manifest_sha256": "887543cddd21c6f7dffb5c808077f0ad827477b261fb6c4b1be5d82b8109450c",
+      "fixtures": [
+        {
+          "fixture_hash": "3731c40ed2846d7fd962b8860c930e8a3b723d53513c39945efc4ccb9fad78a8",
+          "fixture_description": "Self-repo archetype; real content/rules/ and content/references/ snapshot; ceiling fixture for a well-structured proposal with 3-10 in-range candidates.",
+          "primary_score_median": 0.85,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9aa05e16ada96c65d2ef8c72ab2d06d97a883fb7"
+        },
+        {
+          "fixture_hash": "e4979bdb470ee86f0aa79c587b3e8a9e29cf3b172857544bd18de2626c243c4d",
+          "fixture_description": "Sparse-corpus ceiling fixture; 2 tiny files with no Python-shape signals; expected zero candidates with explicit empty-rationale sentence.",
+          "primary_score_median": 0.85,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9aa05e16ada96c65d2ef8c72ab2d06d97a883fb7"
+        },
+        {
+          "fixture_hash": "89b0595486364d24ee40057097740ffbbc7db9a4f7c4a4f9a562dd3fceb41fa9",
+          "fixture_description": "Over-density below-ceiling fixture; 30+ plausible R1/R2/R6 blocks across two files; caps force a rank-and-drop. In-range expected but not guaranteed - discriminates on analyst's ability to enforce the 3-10 cap.",
+          "primary_score_median": 0.85,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9aa05e16ada96c65d2ef8c72ab2d06d97a883fb7"
+        },
+        {
+          "fixture_hash": "a55f755ab226c4098745b094cc43b868415524c2e20d12c950f9abeaf10c146f",
+          "fixture_description": "Vocabulary-discipline below-ceiling fixture; tempting to invent new signal labels (jargon-overload, passive-voice-chain). Discriminates on whether the analyst binds only to R1-R7.",
+          "primary_score_median": 0.85,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9aa05e16ada96c65d2ef8c72ab2d06d97a883fb7"
+        },
+        {
+          "fixture_hash": "1f25a2556ba97d615c9da753593c9ce96f3efebea5edb2777e8bcc6575440584",
+          "fixture_description": "Template-faithful ceiling fixture; Execution Contract and table blocks must NOT be flagged. One R1 and one R6 genuine candidate present to drive in-range count.",
+          "primary_score_median": 0.85,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9aa05e16ada96c65d2ef8c72ab2d06d97a883fb7"
+        }
+      ]
+    },
+    {
+      "name": "security-auditor",
+      "manifest_path": "evals/components/security-auditor.yaml",
+      "manifest_sha256": "bca4c758aa5b92553c0ee2b04f1115ae2c747edb8b089b5241f506a5d005b8d3",
+      "fixtures": [
+        {
+          "fixture_hash": "1f2a61183dddd64e7f0c24806b3e95ea3de044ef0c51c33c95ce14a529994d27",
+          "fixture_description": "SQL injection via string concatenation in LIKE clause; one clear Critical TP with CWE-89 / OWASP A03; contrast TP with parameterized sibling endpoint to exercise FP discipline",
+          "primary_score_median": 0.75,
+          "primary_score_stdev": 0.0,
+          "n_runs": 1,
+          "status": "ok",
+          "captured_at_sha": "84c9f73555aeb104036334bf1e1be36cf8f6dc82"
+        }
+      ]
+    },
+    {
+      "name": "skeptic",
+      "manifest_path": "evals/components/skeptic.yaml",
+      "manifest_sha256": "794dc06787d5849e3a74e69293d37fbf122bad0e69ca9d2e8f109fc3706f8ca1",
+      "fixtures": [
+        {
+          "fixture_hash": "8c81a569201e97f69ac1a06b508e2d1919ed194f04b6f693b96d71113bccd845",
+          "fixture_description": "Worker adds an 80-LOC module with no manifest header; Skeptic should raise Major for missing module manifest.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "247124f0f70d2740570c782fbded8d1c6b4d7bb7"
+        },
+        {
+          "fixture_hash": "21a5c2be08def9e281399b7e7e3cf134c77bfd83476ab59aface7b7d304341b7",
+          "fixture_description": "Worker adds a file download endpoint with a classic path-traversal vulnerability; Skeptic should raise Critical.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.062361,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "247124f0f70d2740570c782fbded8d1c6b4d7bb7"
+        },
+        {
+          "fixture_hash": "c4697639fa6fa3af2b6341ce455899c1a52f8da9f2bce5a113004cc43132bb7e",
+          "fixture_description": "Clean docstring-only typo fix in an existing module. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "247124f0f70d2740570c782fbded8d1c6b4d7bb7"
+        },
+        {
+          "fixture_hash": "385f01aefec21087bd628d9643b3ecdeb934bef6dd9191ffaa91753d9f431496",
+          "fixture_description": "Password reset handler stores a raw SHA-1 of a reset token plus leaves a stray debug print. Skeptic should raise Critical on insecure token hashing and Minor on the debug print.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "247124f0f70d2740570c782fbded8d1c6b4d7bb7"
+        },
+        {
+          "fixture_hash": "e248f2a0f4a477315a4e2e2c6c384822ca370349dcafbfe909fd7fa1e910ae81",
+          "fixture_description": "Bug fix for a null-dereference in webhook signature verification, but the new regression test exercises the pre-fix happy path instead of the failure mode; Skeptic should raise Major for missing regression test.",
+          "primary_score_median": 0.8,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "247124f0f70d2740570c782fbded8d1c6b4d7bb7"
+        },
+        {
+          "fixture_hash": "8e8922d86e1922d3523d8724a56b158eb2f54f8f01cf2ca17970d845ce950dc4",
+          "fixture_description": "Worker adds an 80-LOC module with no manifest header; Skeptic should raise Major for missing module manifest.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "dc2e96291c22c5816c51928b29cc809c853c80de"
+        },
+        {
+          "fixture_hash": "99cd11159142dc0af5363f966e098fa5dd36073ef91d898901d085b4b08e13f7",
+          "fixture_description": "Worker adds a file download endpoint with a classic path-traversal vulnerability; Skeptic should raise Critical.",
+          "primary_score_median": 0.8,
+          "primary_score_stdev": 0.317543,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "dc2e96291c22c5816c51928b29cc809c853c80de"
+        },
+        {
+          "fixture_hash": "2ddbe6dd26a2ae36d98b99e9eb62980fd485a0735ce915f9b8cbe76ece271809",
+          "fixture_description": "Clean docstring-only typo fix in an existing module. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "dc2e96291c22c5816c51928b29cc809c853c80de"
+        },
+        {
+          "fixture_hash": "257c761a677ccaa1cb4719aeb04a7a72eab6d9305965437be5303a431e5b050c",
+          "fixture_description": "Password reset handler hashes the reset token with SHA-1 and uses a bare magic number (32) for the token byte length. Skeptic should raise Critical on insecure hash for token storage and Minor on the unnamed magic number.",
+          "primary_score_median": 0.12,
+          "primary_score_stdev": 0.205264,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "dc2e96291c22c5816c51928b29cc809c853c80de"
+        },
+        {
+          "fixture_hash": "c832b6ade8764a383b1d04ddf9989955bb3e5c0d0d0e0a5394e548c9e3e0e85b",
+          "fixture_description": "Bug fix for a null-dereference in webhook signature verification, but the new regression test exercises the pre-fix happy path instead of the failure mode; Skeptic should raise Major for missing regression test.",
+          "primary_score_median": 0.8,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "dc2e96291c22c5816c51928b29cc809c853c80de"
+        },
+        {
+          "fixture_hash": "8e8922d86e1922d3523d8724a56b158eb2f54f8f01cf2ca17970d845ce950dc4",
+          "fixture_description": "Worker adds an 80-LOC module with no manifest header; Skeptic should raise Major for missing module manifest.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.34641,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "99cd11159142dc0af5363f966e098fa5dd36073ef91d898901d085b4b08e13f7",
+          "fixture_description": "Worker adds a file download endpoint with a classic path-traversal vulnerability; Skeptic should raise Critical.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.144338,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "2ddbe6dd26a2ae36d98b99e9eb62980fd485a0735ce915f9b8cbe76ece271809",
+          "fixture_description": "Clean docstring-only typo fix in an existing module. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "257c761a677ccaa1cb4719aeb04a7a72eab6d9305965437be5303a431e5b050c",
+          "fixture_description": "Password reset handler hashes the reset token with SHA-1 and uses a bare magic number (32) for the token byte length. Skeptic should raise Critical on insecure hash for token storage and Minor on the unnamed magic number.",
+          "primary_score_median": 0.08,
+          "primary_score_stdev": 0.061101,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "c832b6ade8764a383b1d04ddf9989955bb3e5c0d0d0e0a5394e548c9e3e0e85b",
+          "fixture_description": "Bug fix for a null-dereference in webhook signature verification, but the new regression test exercises the pre-fix happy path instead of the failure mode; Skeptic should raise Major for missing regression test.",
+          "primary_score_median": 0.8,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "8e8922d86e1922d3523d8724a56b158eb2f54f8f01cf2ca17970d845ce950dc4",
+          "fixture_description": "Worker adds an 80-LOC module with no manifest header; Skeptic should raise Major for missing module manifest.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "99cd11159142dc0af5363f966e098fa5dd36073ef91d898901d085b4b08e13f7",
+          "fixture_description": "Worker adds a file download endpoint with a classic path-traversal vulnerability; Skeptic should raise Critical.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "2ddbe6dd26a2ae36d98b99e9eb62980fd485a0735ce915f9b8cbe76ece271809",
+          "fixture_description": "Clean docstring-only typo fix in an existing module. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "257c761a677ccaa1cb4719aeb04a7a72eab6d9305965437be5303a431e5b050c",
+          "fixture_description": "Password reset handler hashes the reset token with SHA-1 and uses a bare magic number (32) for the token byte length. Skeptic should raise Critical on insecure hash for token storage and Minor on the unnamed magic number.",
+          "primary_score_median": 0.12,
+          "primary_score_stdev": 0.069282,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "c832b6ade8764a383b1d04ddf9989955bb3e5c0d0d0e0a5394e548c9e3e0e85b",
+          "fixture_description": "Bug fix for a null-dereference in webhook signature verification, but the new regression test exercises the pre-fix happy path instead of the failure mode; Skeptic should raise Major for missing regression test.",
+          "primary_score_median": 0.8,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "1f096371c477b544bc058d1d6447d3c0439248a8"
+        },
+        {
+          "fixture_hash": "8e8922d86e1922d3523d8724a56b158eb2f54f8f01cf2ca17970d845ce950dc4",
+          "fixture_description": "Worker adds an 80-LOC module with no manifest header; Skeptic should raise Major for missing module manifest.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.057735,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9cb746c550ed4d5f71f17bba5f3bf63df7faea03"
+        },
+        {
+          "fixture_hash": "99cd11159142dc0af5363f966e098fa5dd36073ef91d898901d085b4b08e13f7",
+          "fixture_description": "Worker adds a file download endpoint with a classic path-traversal vulnerability; Skeptic should raise Critical.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9cb746c550ed4d5f71f17bba5f3bf63df7faea03"
+        },
+        {
+          "fixture_hash": "2ddbe6dd26a2ae36d98b99e9eb62980fd485a0735ce915f9b8cbe76ece271809",
+          "fixture_description": "Clean docstring-only typo fix in an existing module. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9cb746c550ed4d5f71f17bba5f3bf63df7faea03"
+        },
+        {
+          "fixture_hash": "257c761a677ccaa1cb4719aeb04a7a72eab6d9305965437be5303a431e5b050c",
+          "fixture_description": "Password reset handler hashes the reset token with SHA-1 and uses a bare magic number (32) for the token byte length. Skeptic should raise Critical on insecure hash for token storage and Minor on the unnamed magic number.",
+          "primary_score_median": 0.22,
+          "primary_score_stdev": 0.250599,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9cb746c550ed4d5f71f17bba5f3bf63df7faea03"
+        },
+        {
+          "fixture_hash": "c832b6ade8764a383b1d04ddf9989955bb3e5c0d0d0e0a5394e548c9e3e0e85b",
+          "fixture_description": "Bug fix for a null-dereference in webhook signature verification, but the new regression test exercises the pre-fix happy path instead of the failure mode; Skeptic should raise Major for missing regression test.",
+          "primary_score_median": 0.9,
+          "primary_score_stdev": 0.028868,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9cb746c550ed4d5f71f17bba5f3bf63df7faea03"
+        },
+        {
+          "fixture_hash": "8e8922d86e1922d3523d8724a56b158eb2f54f8f01cf2ca17970d845ce950dc4",
+          "fixture_description": "Worker adds an 80-LOC module with no manifest header; Skeptic should raise Major for missing module manifest.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.0,
+          "n_runs": 1,
+          "status": "ok",
+          "captured_at_sha": "800c27216ef9c59b5e1052d8e251b28d15a58994"
+        },
+        {
+          "fixture_hash": "8e8922d86e1922d3523d8724a56b158eb2f54f8f01cf2ca17970d845ce950dc4",
+          "fixture_description": "Worker adds an 80-LOC module with no manifest header; Skeptic should raise Major for missing module manifest.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b8e208d335ee303e07071b6c3d68e87cd7217efc"
+        },
+        {
+          "fixture_hash": "99cd11159142dc0af5363f966e098fa5dd36073ef91d898901d085b4b08e13f7",
+          "fixture_description": "Worker adds a file download endpoint with a classic path-traversal vulnerability; Skeptic should raise Critical.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "b8e208d335ee303e07071b6c3d68e87cd7217efc"
+        },
+        {
+          "fixture_hash": "2ddbe6dd26a2ae36d98b99e9eb62980fd485a0735ce915f9b8cbe76ece271809",
+          "fixture_description": "Clean docstring-only typo fix in an existing module. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "257c761a677ccaa1cb4719aeb04a7a72eab6d9305965437be5303a431e5b050c",
+          "fixture_description": "Password reset handler hashes the reset token with SHA-1 and uses a bare magic number (32) for the token byte length. Skeptic should raise Critical on insecure hash for token storage and Minor on the unnamed magic number.",
+          "primary_score_median": 0.22,
+          "primary_score_stdev": 0.161658,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "c832b6ade8764a383b1d04ddf9989955bb3e5c0d0d0e0a5394e548c9e3e0e85b",
+          "fixture_description": "Bug fix for a null-dereference in webhook signature verification, but the new regression test exercises the pre-fix happy path instead of the failure mode; Skeptic should raise Major for missing regression test.",
+          "primary_score_median": 0.9,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "326dfe35fa8c7a87f0f96903f49d1d108cc5efe00b23274a816b81d2744347ea",
+          "fixture_description": "Worker renames a config key in the loader but does not update the YAML file that supplies it. Skeptic should raise Critical for cross-file inconsistency causing startup failure.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.173205,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "e077bc96cc2b081019a5164a9007d47f40d21176520e08c3af9025ec3bffcca4",
+          "fixture_description": "Migration drops a column but the ORM model and a query in the reporting module still reference it. Skeptic should raise Critical for migration-unsafe column drop.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "14f07632081c107159de4522f3634c4b2c6ee5cf4c7169d4700144ce10d06bc1",
+          "fixture_description": "Worker adds an async fire-and-forget task with no error handler; process will log an unhandled rejection and the caller will never know. Skeptic should raise Major for swallowed async error.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "5dd38ba74fcece4e54b3e5fa8c82c9a992194eade23beef2a88c45938f03d356",
+          "fixture_description": "Worker adds a URL-preview endpoint that fetches any user-supplied URL server-side. No host allowlist, no private-IP filter. Skeptic should raise Critical for SSRF.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.288675,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "8969bef81da6045001d0d7ab1fda68d866865eda87eef5cb0f3e0923398319c9",
+          "fixture_description": "Worker adds a new conditional branch (free-tier discount) to a pricing function. Existing tests still pass because they only exercise paid-tier paths; no test added for the new branch. Skeptic should raise Major for missing test coverage on new branch.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.340343,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "4b2f16aec363f2e896b1e418212887ccc2e05ca89404cb51f1dccb662cf00e9c",
+          "fixture_description": "[raw-prompt] Worker adds a per-item DB lookup inside a loop over all orders for a monthly statement, introducing an N+1 query pattern on a hot cron job. Skeptic should raise Major for performance regression.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "bb4114aee11da24604d50074975da81aeb1cb6b8785aa7a1a9c2f094385c0c56",
+          "fixture_description": "[raw-prompt] Pagination helper uses offset+limit but computes has_next by fetching len(results) == limit, which wrongly claims no next page when the final page is exactly full. Tests happen to pass on sizes that are not multiples of page_size. Skeptic should raise Major for off-by-one invariant violation.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "00b85943baec85e29dd3af4b6de8800566872c8ee75b21b185e3078647fffb23",
+          "fixture_description": "[raw-prompt] Post-rebase leftover: feature-flag was fully rolled out and removed from the config, but a gating check on the removed flag remains in the handler, making the code path permanently dead. Skeptic should raise Major for dead/unreachable code from refactor leftover.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "4e1137a84aa63fe253c94b7b3f0ab20b84913d3682ddd328fe0147475fda66c6",
+          "fixture_description": "[raw-prompt] Clean control: Worker extracts a pure helper function from a 10-line inlined expression; behavior is byte-identical and all tests still pass. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 0.45,
+          "primary_score_stdev": 0.275379,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "82ee0df32bbc36bd1a6647592bed005ef1cb3b67"
+        },
+        {
+          "fixture_hash": "82593517aee755988e1433ab4b441604be61b561f3371b534a1247839cf082d4",
+          "fixture_description": "Subtle finding with false-positive trap: Worker adds a logger.info call that logs the raw request body including the full JWT bearer token; the surrounding cleanup churn (renames, comment rewrites, import reorders) creates plausible-looking but harmless noise. Skeptic should raise Major for PII/credential leakage in logs and should NOT over-flag the cosmetic churn.",
+          "primary_score_median": 0.5,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "64bb29edee13600d39b90bb67f6c771ff4843a38"
+        },
+        {
+          "fixture_hash": "bb4114aee11da24604d50074975da81aeb1cb6b8785aa7a1a9c2f094385c0c56",
+          "fixture_description": "Pagination helper uses offset+limit but computes has_next by fetching len(results) == limit, which wrongly claims no next page when the final page is exactly full. Tests happen to pass on sizes that are not multiples of page_size. Skeptic should raise Major for off-by-one invariant violation.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "92c17e72ed5f73852d5d59b046c792a0e2839b4a"
+        },
+        {
+          "fixture_hash": "00b85943baec85e29dd3af4b6de8800566872c8ee75b21b185e3078647fffb23",
+          "fixture_description": "Post-rebase leftover: feature-flag was fully rolled out and removed from the config, but a gating check on the removed flag remains in the handler, making the code path permanently dead. Skeptic should raise Major for dead/unreachable code from refactor leftover.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "92c17e72ed5f73852d5d59b046c792a0e2839b4a"
+        },
+        {
+          "fixture_hash": "4e1137a84aa63fe253c94b7b3f0ab20b84913d3682ddd328fe0147475fda66c6",
+          "fixture_description": "Clean control: Worker extracts a pure helper function from a 10-line inlined expression; behavior is byte-identical and all tests still pass. Skeptic should grant sign-off with no Critical or Major findings.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "92c17e72ed5f73852d5d59b046c792a0e2839b4a"
+        },
+        {
+          "fixture_hash": "82593517aee755988e1433ab4b441604be61b561f3371b534a1247839cf082d4",
+          "fixture_description": "Subtle finding with false-positive trap: Worker adds a logger.info call that logs the raw request body including the full JWT bearer token; the surrounding cleanup churn (renames, comment rewrites, import reorders) creates plausible-looking but harmless noise. Skeptic should raise Major for PII/credential leakage in logs and should NOT over-flag the cosmetic churn.",
+          "primary_score_median": 0.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "invalid_format",
+          "captured_at_sha": "92c17e72ed5f73852d5d59b046c792a0e2839b4a"
+        }
+      ]
+    },
+    {
+      "name": "update-agentic-engineering",
+      "manifest_path": "evals/components/update-agentic-engineering.yaml",
+      "manifest_sha256": "fee304efc399163bbcdaae29472790b65312d4e5f45c079355da16057f8c3857",
+      "fixtures": [
+        {
+          "fixture_hash": "e1aef91541cd4a1384d72fb11e82b2ee9ff92749245d9b3bbdadda2277d38e43",
+          "fixture_description": "Clean tree, local==origin, edit a rules file (no build needed) -> happy_push.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9638fd75dd00621a9a6ba239844fee2750598257"
+        },
+        {
+          "fixture_hash": "cb5cc3495b15b8724cc83ab0a5dbbb7e9e7b780da21589ef0f08a3021e198537",
+          "fixture_description": "Clean tree, local==origin, edit a commands file (build must run) -> happy_push + build.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9638fd75dd00621a9a6ba239844fee2750598257"
+        },
+        {
+          "fixture_hash": "3cafd542ed785687d7dfd84c4cbca7ccde7ec70f3fac3fdfbb12213693704d40",
+          "fixture_description": "Clean tree, origin ahead 3 commits -> ff_pull, then edit + push.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9638fd75dd00621a9a6ba239844fee2750598257"
+        },
+        {
+          "fixture_hash": "2456530459525f970636b99a371d4aca4c7632627c12fd1cc068130165edee53",
+          "fixture_description": "Both ahead (divergent) -> stop_divergent; no edit, commit, or push.",
+          "primary_score_median": 0.8,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9638fd75dd00621a9a6ba239844fee2750598257"
+        },
+        {
+          "fixture_hash": "e48e5d655f1eda01df9d5f00e5eb5cd21fc1ba5299e99502fdda8a3f25797848",
+          "fixture_description": "Dirty tree WIP on edit target -> stop_dirty; no auto-stash, no commit, no push.",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "9638fd75dd00621a9a6ba239844fee2750598257"
+        }
+      ]
+    },
+    {
+      "name": "wrap",
+      "manifest_path": "evals/components/wrap.yaml",
+      "manifest_sha256": "5d9d5755231564d5c353aa009eef19773c2494c1b6022fe33a76c332d2e81569",
+      "fixtures": [
+        {
+          "fixture_hash": "5409fac955e270b6eb2d8d0e91f5ae12d90c5620ab8c3fa3d3ea493df86d8052",
+          "fixture_description": "Clean end-of-feature; modest parser change committed; no stable facts; expect light route",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "93456ba23f05a9bba8f895cb5acb875fd77cde9faff9ce341fc2e81ab8637dea",
+          "fixture_description": "Unpromoted Major Skeptic finding with 2 prior instances; expect standard route + findings.md growth",
+          "primary_score_median": 0.925,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "9a692e2b799862bf74df136b954888ddc9d7f50aa0f2909f7eac7e6c01fa9720",
+          "fixture_description": "Mid-refactor snapshot; 1 failing test; next-step pointer required in Recent Focus; expect light route",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "6fc832185205878ae3498db6d993318e697de124c71a2eafe1a92709852f87ed",
+          "fixture_description": "Promoted Major finding plus 2 stable architectural facts; findings.md already has 14 entries including 2 consolidation candidates; expect standard route",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "6a2d273ce04d9061c9aff33080b905332083ab94151d516d082e5a58cbb764e2",
+          "fixture_description": "Pure Q&A session; no files touched, no commits, no stashes; expect zero-substance route",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "a3dc6e73984e90708ee6c18252cacb8d1775bf2668e15b2619d94b9511cd96e9",
+          "fixture_description": "Pre-existing memory.md at 2756 bytes; session appends a new stable fact; expect standard route and compression Part E to run with fact fidelity preserved",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.086603,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "75d767a4c487416cd18e747ba22ddc7b47866d481f6c3fe35e58f4fa360fe0b4",
+          "fixture_description": "Findings.md at hard cap of 15 entries; session adds a novel promotable finding; expect standard route with consolidation before append",
+          "primary_score_median": 0.925,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "598db3db33805f55e32dde61e3d5b2fd744096aafdcc51b8988a19aeab0c63d4",
+          "fixture_description": "Legacy CLAUDE.md exists in apps/legacy-admin/ with no sibling AGENTS.md; root AGENTS.md present; expect pre-flight migration to create apps/legacy-admin/AGENTS.md from the CLAUDE.md content and overwrite apps/legacy-admin/CLAUDE.md with the @AGENTS.md pointer",
+          "primary_score_median": 1.0,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "3e7672c8b387ab0b0f7a5f9ccd3639acdc27d156ac04a196d96b135bb11f0d6f",
+          "fixture_description": "Cross-track work: web + api + shared-types; three stable facts split across the two track AGENTS.md files; expect standard route",
+          "primary_score_median": 0.96,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        },
+        {
+          "fixture_hash": "1f6df45dbd86eb9a364b5f050f9ae93d9a028286fc40da22e1b843d52a97891f",
+          "fixture_description": "Specialist agents ran: perf-analyst with measured hotspot and allocation baseline, plus release-orchestrator v1.8.0 tag. Expect stable perf facts in memory.md and session-scoped partial-deploy in context.md Watch Out For; route standard",
+          "primary_score_median": 0.966667,
+          "primary_score_stdev": 0.0,
+          "n_runs": 3,
+          "status": "ok",
+          "captured_at_sha": "f13740e136c9dcbf94b2e640870fc534fddcc6d4"
+        }
+      ]
+    }
+  ],
+  "components_skipped": [
+    {
+      "name": "adr-drift-detector",
+      "reason": "no results TSV at evals/results/adr-drift-detector.tsv"
+    },
+    {
+      "name": "adr-generator",
+      "reason": "no results TSV at evals/results/adr-generator.tsv"
+    },
+    {
+      "name": "dependency-auditor",
+      "reason": "no results TSV at evals/results/dependency-auditor.tsv"
+    },
+    {
+      "name": "investigator",
+      "reason": "no results TSV at evals/results/investigator.tsv"
+    }
+  ],
+  "components_failed": [],
+  "manifest_enumeration": {
+    "discovered_yaml_files": [
+      "evals/components/adr-drift-detector.yaml",
+      "evals/components/adr-generator.yaml",
+      "evals/components/architect.yaml",
+      "evals/components/cleanup-worktrees.yaml",
+      "evals/components/conductor.yaml",
+      "evals/components/debugger.yaml",
+      "evals/components/dependency-auditor.yaml",
+      "evals/components/implement-ticket.yaml",
+      "evals/components/init-project.yaml",
+      "evals/components/investigator.yaml",
+      "evals/components/memory-update.yaml",
+      "evals/components/perf-analyst.yaml",
+      "evals/components/prune-harness.yaml",
+      "evals/components/qa-engineer.yaml",
+      "evals/components/release-orchestrator.yaml",
+      "evals/components/representation-audit.yaml",
+      "evals/components/security-auditor.yaml",
+      "evals/components/skeptic.yaml",
+      "evals/components/update-agentic-engineering.yaml",
+      "evals/components/wrap.yaml"
+    ],
+    "count": 20,
+    "all_accounted_for": true
+  }
+}
