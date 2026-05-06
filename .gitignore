@@ -19,6 +19,10 @@ node_modules/
 # Local agent config (project-level tier-map and task state)
 .agentic/
 
+# Generated Kimi per-command skills (built by .kimi/build.sh from content/commands/)
+.kimi/skills/*/
+!.kimi/skills/agentic-engineering/
+
 # AI assistant adapter directories (local-only, not committed)
 .agents/
 .goose/

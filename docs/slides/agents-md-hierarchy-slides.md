@@ -196,7 +196,7 @@ Each tier inherits from the one above. An agent working in <code>api/</code> see
 | Level | Contains | Example |
 |---|---|---|
 | **Global** | Behavioral rules, skill triggers, em-dash ban, commit style | "Never use em dashes" |
-| **Project root** | Project name, decisions (brief), repo map, tools, tracker config | "Base branch: develop" |
+| **Project root** | Project name, decisions (brief), repo map, tools, tracker config | "Base branch: main" |
 | **Subdirectory** | Stack, key conventions, commands, schemas, gotchas | "All API routes use Zod validation" |
 
 And what does **not** go in AGENTS.md - the rest of the **intent layer**:

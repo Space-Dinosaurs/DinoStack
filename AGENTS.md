@@ -8,6 +8,8 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - Methodology source-of-truth lives in `content/sections/01-*.md` through `10-*.md`. The legacy `content/rules/agent-methodology.md` path no longer exists - edit `content/sections/` for any methodology change.
 - `scripts/build-methodology.sh` is the canonical methodology assembly script. Adapter builds (`.claude/build.sh`, `.codex/build.sh`, `.gemini/build.sh`, `.kimi/build.sh`) invoke it via `bash "$REPO_DIR/scripts/build-methodology.sh"`. `.cursor/build.sh` has a different output structure and does not use it.
 - `.claude/install.sh` manages `~/.claude/CLAUDE.md` via a `managed_content` Python string (lines ~364-380). Four @-import lines (METHODOLOGY.md plus 3 rules files under `rules/`) must appear in that string or rules will not auto-inject in Claude Code sessions. Re-run install.sh after any changes to that string.
+- Auto-harness keep-metric is mean-of-medians (`evals/auto/runner_shim.py:147`, PR #41). Median was blind to single-fixture wins when ≥half fixtures sat at ceiling 1.0.
+- Auto-harness dimension signal (`evals/auto/loop.py:_build_dimension_signal`, PR #49) requires scorers to emit `{dim: {score: float}}`. Components using semantically-rich nested dicts (`tp_recall.matched[*].credit`, `signal_discipline` tiers, etc.) are dim-signal-blind until per-component extractors are added.
 
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
@@ -24,7 +26,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - `docs/overview/` - high-level summaries and onboarding docs
 
 ## Conventions
-- Conductor never creates worktrees for itself - it edits directly on its current branch. Worktrees are exclusively for subagents, created at `.agentic/worktrees/<branch-name>` and branching from the conductor's current branch. Subagent branches merge back to the conductor's branch; the conductor's branch then PRs to develop/development.
+- Conductor never creates worktrees for itself - it edits directly on its current branch. Worktrees are exclusively for subagents, created at `.agentic/worktrees/<branch-name>` and branching from the conductor's current branch. Subagent branches merge back to the conductor's branch; the conductor's branch then PRs to `main`.
 - When isolation:worktree Workers are used across multiple sequential spawns in the same task, the worktree is cleaned up between them and subsequent Workers fall back to the main tree. Tell follow-up Workers this explicitly.
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
 - The pre-commit hook does not currently auto-stage `.claude/skills/agentic-engineering/METHODOLOGY.md` or `.codex/agents/*.toml`. After any `content/` edit, either stage these regenerated artifacts manually or extend the `git add` list in `hooks/pre-commit`.

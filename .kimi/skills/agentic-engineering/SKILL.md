@@ -11,12 +11,16 @@ description: >
 
 **Auto-trigger:** The skill loads automatically when you describe software development work.
 
-**Explicit load:** Type `/skill:agentic-engineering` followed by your request.
+**Direct command invocation (preferred):** Each command is available as its own skill.
+Example: `/skill:wrap`, `/skill:skeptic`, `/skill:implement-ticket`
+
+**Full skill load:** Type `/skill:agentic-engineering` followed by your request.
 Example: `/skill:agentic-engineering init-project`
 
+**Natural language:** Just ask ("run init-project", "do a wrap").
+
 **IMPORTANT:** Kimi does NOT support custom slash commands like `/init-project` or `/wrap`.
-Those are Claude Code conventions. In Kimi, always use `/skill:agentic-engineering <command>`
-or natural language ("run init-project", "do a wrap").
+Use `/skill:<command-name>` or natural language instead.
 
 ---
 

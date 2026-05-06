@@ -102,4 +102,47 @@ symlink_dir "../../../content/sections"  "$SKILL_DST/sections"
 symlink_dir "../../../content/commands"  "$SKILL_DST/commands"
 symlink_dir "../../../content/agents"    "$SKILL_DST/agents"
 
+# ---------------------------------------------------------------------------
+# Create per-command skill directories
+# Each command gets its own SKILL.md so it can be invoked directly via
+# /skill:<command-name> without requiring /skill:agentic-engineering <command>.
+# ---------------------------------------------------------------------------
+
+# Clean up stale per-command skills (commands removed from content/)
+for existing_dir in "$KIMI_DIR/skills/"*/; do
+  existing_name="$(basename "$existing_dir")"
+  if [[ "$existing_name" == "agentic-engineering" ]]; then
+    continue
+  fi
+  if [[ -f "$existing_dir/SKILL.md" ]]; then
+    cmd_file="$CONTENT/commands/$existing_name.md"
+    if [[ ! -f "$cmd_file" ]]; then
+      rm -rf "$existing_dir"
+      echo "  - removed stale command skill: $existing_name"
+    fi
+  fi
+done
+
+for cmd_file in "$CONTENT/commands/"*.md; do
+  cmd_name="$(basename "$cmd_file" .md)"
+  cmd_skill_dir="$KIMI_DIR/skills/$cmd_name"
+  mkdir -p "$cmd_skill_dir"
+
+  # Read command content, strip the "# /command" header line
+  cmd_content="$(cat "$cmd_file")"
+  body="$(echo "$cmd_content" | sed '1{/^# \/.*/d;}')"
+
+  cat > "$cmd_skill_dir/SKILL.md" <<SKILLEOF
+---
+name: ${cmd_name}
+description: >
+  agentic-engineering command: ${cmd_name}. Run the ${cmd_name} workflow from the agentic engineering protocol.
+---
+
+${body}
+SKILLEOF
+
+  echo "  + command skill: $cmd_name"
+done
+
 echo "Kimi adapter build complete."
