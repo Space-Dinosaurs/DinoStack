@@ -231,19 +231,61 @@ else
   echo "  + sections"
 fi
 
+# ---------------------------------------------------------------------------
+# Install per-command skills
+# Each command (init-project, skeptic, wrap, etc.) is a separate skill directory
+# that can be invoked directly via /skill:<command-name>.
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "Installing command skills..."
+
+for cmd_dir in "$REPO_DIR/.kimi/skills/"*/; do
+  cmd_name="$(basename "$cmd_dir")"
+
+  # Skip the main skill directory
+  if [[ "$cmd_name" == "agentic-engineering" ]]; then
+    continue
+  fi
+
+  # Only process directories that have a SKILL.md (per-command skills)
+  if [[ ! -f "$cmd_dir/SKILL.md" ]]; then
+    continue
+  fi
+
+  dst="$HOME/.kimi/skills/$cmd_name"
+
+  if [[ -L "$dst" ]]; then
+    current_target="$(readlink "$dst")"
+    if [[ "$current_target" == "$cmd_dir" ]]; then
+      echo "  = $cmd_name (already linked)"
+    else
+      rm "$dst"
+      ln -s "$cmd_dir" "$dst"
+      echo "  ~ $cmd_name (re-linked)"
+    fi
+  elif [[ -e "$dst" ]]; then
+    echo "  ! $cmd_name exists and is not a symlink - leaving it"
+  else
+    ln -s "$cmd_dir" "$dst"
+    echo "  + $cmd_name"
+  fi
+done
+
 echo ""
 echo "Kimi adapter install complete."
 echo ""
 echo "Project-level usage: .kimi/AGENTS.md and .kimi/skills/ are automatically"
 echo "discovered when working in this repository."
 echo ""
-echo "Global usage: the skill is now available in all projects via ~/.kimi/skills/."
+echo "Global usage: the skill and all commands are now available in all projects"
+echo "via ~/.kimi/skills/."
 echo ""
 echo "NOTE: If you edit files in content/, run 'bash .kimi/build.sh' to regenerate"
-echo "AGENTS.md. The global skill's symlinks will pick up content changes instantly,"
-echo "but SKILL.md changes require re-running install.sh."
+echo "AGENTS.md and per-command skills. The global skill's symlinks will pick up"
+echo "content changes instantly, but SKILL.md changes require re-running install.sh."
 echo ""
-echo "IMPORTANT: Kimi does not support custom slash commands like /init-project."
-echo "Invoke commands via: /skill:agentic-engineering <command-name>"
-echo "   Example: /skill:agentic-engineering init-project"
+echo "Invoke commands directly: /skill:<command-name>"
+echo "   Examples: /skill:wrap    /skill:skeptic    /skill:implement-ticket"
+echo "Or load the full skill: /skill:agentic-engineering <command-name>"
 echo "Or just ask: 'run init-project'"
