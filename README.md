@@ -49,7 +49,7 @@ cd agentic-engineering
 bash .claude/install.sh
 ```
 
-For other tools (Cursor, Codex, Gemini, OpenCode), see the install instructions in each adapter's README.
+For other tools (Cursor, Codex, Gemini, OpenCode, Hermes), see the install instructions in each adapter's README.
 
 ## Installation modes
 
@@ -65,7 +65,7 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The same flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, and `.omp/install.sh` - the config file is shared across adapters.
+The same flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, `.omp/install.sh`, and `.hermes/install.sh` - the config file is shared across adapters.
 
 **Per-project marker:** add a single line to the project's root `AGENTS.md`:
 
@@ -141,6 +141,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | Kimi Code CLI | `.kimi/` | See [.kimi/README.md](.kimi/README.md) |
 | OpenCode | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
 | Pi (oh-my-pi) | `.omp/` | See [.omp/README.md](.omp/README.md) |
+| Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
@@ -176,6 +177,7 @@ agentic-engineering/
   .kimi/                Kimi Code CLI adapter (AGENTS.md, skill, commands, install/uninstall)
   .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
   .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
+  .hermes/               Hermes Agent adapter (skill, METHODOLOGY.md, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters

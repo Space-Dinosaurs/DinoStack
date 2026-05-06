@@ -12,15 +12,15 @@ This guide is for adding support for a new AI coding tool. The methodology conte
 
 Each tool has its own mechanisms for the same core concepts:
 
-| Concept | Claude Code | Cursor | Codex CLI | Gemini CLI | Kimi Code CLI | OpenCode | Pi (oh-my-pi) |
-|---|---|---|---|---|---|---|---|
-| Auto-loaded rules | `~/.claude/rules/*.md` | `.cursor/rules/*.mdc` (`alwaysApply: true`) | `~/.codex/AGENTS.md` | `~/.gemini/GEMINI.md` | `.kimi/AGENTS.md` (`${KIMI_AGENTS_MD}`) | `AGENTS.md` + `instructions` in opencode.json | `.omp/skills/<name>/SKILL.md` (Pi also auto-discovers `.claude/`, `.cursor/`, etc.) |
-| Conditional rules | Skills (`SKILL.md`) | `.cursor/rules/*.mdc` (`globs`) | Skills (`~/.agents/skills/<name>/SKILL.md`) | Not available (all rules go in GEMINI.md) | Skills (`.kimi/skills/<name>/SKILL.md`) | Skills (`.opencode/skills/<name>/SKILL.md`) | Skills (`.omp/skills/<name>/SKILL.md`) |
-| Agent definitions | `~/.claude/agents/*.md` | Custom modes / subagent configs | `~/.codex/agents/*.toml` (TOML w/ frontmatter) | `~/.gemini/agents/*.md` (markdown w/ frontmatter; `kind: local`) | Built-in subagent types (`coder`, `explore`, `plan`) | `~/.config/opencode/agents/*.md` (markdown w/ frontmatter) | Built-in subagent types (`explore`, `plan`, `designer`, `reviewer`, `task`, `quick_task`) |
-| Slash commands | `~/.claude/commands/*.md` | `.cursor/commands/*.md` | `~/.codex/commands/*.md` (hardlinks, no transform) | `~/.gemini/commands/*.toml` (TOML generated from content/commands/*.md) | `/skill:<name>` (no custom slash commands) | `~/.config/opencode/commands/*.md` (markdown w/ frontmatter) | Native TypeScript commands (no custom markdown commands) |
-| Lifecycle hooks | `settings.json` hooks | `.cursor/hooks.json` | `~/.codex/hooks.json` | `~/.gemini/settings.json` | `[[hooks]]` in `~/.kimi/config.toml` | Not available | Not available |
-| Risk reminder | UserPromptSubmit hook | beforeSubmitPrompt hook | UserPromptSubmit hook | BeforeAgent hook | `PreToolUse` hook | Embedded in skill content | Embedded in skill content |
-| Session context save | Stop hook | stop hook | Stop hook | SessionEnd hook | `Stop` hook | Not available | Not available |
+| Concept | Claude Code | Cursor | Codex CLI | Gemini CLI | Kimi Code CLI | OpenCode | Pi (oh-my-pi) | Hermes Agent |
+|---|---|---|---|---|---|---|---|---|
+| Auto-loaded rules | `~/.claude/rules/*.md` | `.cursor/rules/*.mdc` (`alwaysApply: true`) | `~/.codex/AGENTS.md` | `~/.gemini/GEMINI.md` | `.kimi/AGENTS.md` (`${KIMI_AGENTS_MD}`) | `AGENTS.md` + `instructions` in opencode.json | `.omp/skills/<name>/SKILL.md` (Pi also auto-discovers `.claude/`, `.cursor/`, etc.) | Skills with matching `description` frontmatter (loaded on demand from `~/.hermes/skills/<category>/<name>/`) |
+| Conditional rules | Skills (`SKILL.md`) | `.cursor/rules/*.mdc` (`globs`) | Skills (`~/.agents/skills/<name>/SKILL.md`) | Not available (all rules go in GEMINI.md) | Skills (`.kimi/skills/<name>/SKILL.md`) | Skills (`.opencode/skills/<name>/SKILL.md`) | Skills (`.omp/skills/<name>/SKILL.md`) | Skills (`~/.hermes/skills/<category>/<name>/SKILL.md`) |
+| Agent definitions | `~/.claude/agents/*.md` | Custom modes / subagent configs | `~/.codex/agents/*.toml` (TOML w/ frontmatter) | `~/.gemini/agents/*.md` (markdown w/ frontmatter; `kind: local`) | Built-in subagent types (`coder`, `explore`, `plan`) | `~/.config/opencode/agents/*.md` (markdown w/ frontmatter) | Built-in subagent types (`explore`, `plan`, `designer`, `reviewer`, `task`, `quick_task`) | `delegate_task` with role-specific context from `agents/*.md` |
+| Slash commands | `~/.claude/commands/*.md` | `.cursor/commands/*.md` | `~/.codex/commands/*.md` (hardlinks, no transform) | `~/.gemini/commands/*.toml` (TOML generated from content/commands/*.md) | `/skill:<name>` (no custom slash commands) | `~/.config/opencode/commands/*.md` (markdown w/ frontmatter) | Native TypeScript commands (no custom markdown commands) | Commands in skill `commands/` directory (read on demand, no slash command registration) |
+| Lifecycle hooks | `settings.json` hooks | `.cursor/hooks.json` | `~/.codex/hooks.json` | `~/.gemini/settings.json` | `[[hooks]]` in `~/.kimi/config.toml` | Not available | Not available | Not available |
+| Risk reminder | UserPromptSubmit hook | beforeSubmitPrompt hook | UserPromptSubmit hook | BeforeAgent hook | `PreToolUse` hook | Embedded in skill content | Embedded in skill content | Embedded in skill content |
+| Session context save | Stop hook | stop hook | Stop hook | SessionEnd hook | `Stop` hook | Not available | Not available | Not available |
 
 ## Checklist for a new adapter
 
@@ -54,6 +54,7 @@ Each adapter directory matches the tool's native config directory name:
 - Pi (oh-my-pi) uses `.omp/` - adapter lives in `.omp/`
 - Continue.dev uses `.continue/` - adapter would live in `.continue/`
 - Windsurf uses `.windsurf/` - adapter would live in `.windsurf/`
+- Hermes Agent uses `.hermes/` - adapter lives in `.hermes/`
 
 ## Existing adapters as reference
 
@@ -64,3 +65,4 @@ Each adapter directory matches the tool's native config directory name:
 - **Kimi Code CLI** (`.kimi/`): Uses SKILL.md with YAML frontmatter for on-demand loading via `/skill:agentic-engineering`. AGENTS.md is assembled from `content/sections/` via `scripts/build-methodology.sh` and loaded automatically via `${KIMI_AGENTS_MD}`. Agents map to Kimi's three built-in subagent types (`coder`, `explore`, `plan`) with detailed role prompts. Commands are invoked via `/skill:agentic-engineering <command>` or natural language. Hooks use `[[hooks]]` in `~/.kimi/config.toml`. Install symlinks skill to `~/.kimi/skills/`.
 - **OpenCode** (`.opencode/`): Uses SKILL.md with YAML frontmatter for on-demand loading, matching opencode's native skill discovery. Methodology body assembled from `content/sections/` via `scripts/build-methodology.sh` into `METHODOLOGY.md`. Agents are markdown files with `description`, `mode`, and `permission` frontmatter (converted from Claude's `name`/`tools` format). Commands use `description`/`agent` frontmatter. Rules are loaded via `instructions` in opencode.json rather than symlinked. No hook system available; risk reminder is embedded in skill content. Install symlinks to `~/.config/opencode/`.
 - **Pi (oh-my-pi)** (`.omp/`): Uses SKILL.md with YAML frontmatter for on-demand loading. Pi has built-in subagent types (`explore`, `plan`, `designer`, `reviewer`, `task`, `quick_task`) so no custom markdown agent definitions are created. Pi commands are native TypeScript, so no markdown command files are generated. Rules, references, commands, and agents are symlinked from `content/` into the skill directory. No hook system available; risk reminder is embedded in skill content. Install copies SKILL.md and symlinks content dirs to `~/.omp/agent/skills/`.
+- **Hermes Agent** (`.hermes/`): Uses SKILL.md with YAML frontmatter for on-demand loading via Hermes's skill discovery (`~/.hermes/skills/<category>/<name>/`). The skill's `description` frontmatter triggers automatically on software development tasks. Methodology body is assembled from `content/sections/` via `scripts/build-methodology.sh` into `METHODOLOGY.md`. Agent role definitions in `agents/` are used as context when spawning `delegate_task` subagents. Commands are stored as markdown files in the skill's `commands/` directory and read on demand. No hook system available; risk reminder is embedded in skill content. Install symlinks the skill to `~/.hermes/skills/autonomous-ai-agents/agentic-engineering/`.
