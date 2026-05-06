@@ -45,13 +45,12 @@ The following files are consumed by this harness and must exist before a full ru
 
 - `docs/planning/p2-icl-vs-orchestration-evaluation/scenarios-todo.md` -
   Skeptic Step-0 enforcement scenarios (authored by `skeptic-global-context`).
-  Required for full smoke fixture construction. NOT required for smoke runs
-  against the current stub fixtures; see COVERAGE.md for the current binding.
+  Consumed by `tests/test_skeptic_step0.py` and the COVERAGE.md scenario matrix.
 
 - `docs/planning/p2-icl-vs-orchestration-evaluation/cost-normalization-contract.md` -
   Cost-confounder normalization contract (authored by `skeptic-global-context`).
-  Required before finalizing the report schema. Stubbed in `cost_gate.py` and
-  `report.py` with `cost_normalization_pending: true` markers.
+  Consumed by `cost_gate.build_normalization_block()` and `report.build_methodology()`;
+  v1 ships with `applied: false` (confounder flagged, not normalized).
 
 ## Quick start (smoke run)
 
@@ -125,13 +124,18 @@ based on individual fixture scores from this harness.
 
 ## Known limitations
 
-- `cost_normalization_pending: true` in report output: cost-confounder
-  normalization fields are stubbed pending `cost-normalization-contract.md`
-  delivery. Do not compare absolute cost figures across Stage 3 and Stage 6
-  until this is implemented.
+- v1 ships with `methodology.skeptic_input_cost_normalization.applied: false` -
+  the harness flags the Skeptic-input-cost confounder rather than normalizing
+  it. Do not compare absolute cost figures across Stage 3 and Stage 6 until
+  `applied: true` (requires empirical post-restructure token measurement at
+  Stage 6; pass `post_restructure_tokens=<measured>` to `build_normalization_block`).
 - AE single-shot mode (Q1=(a)) measures "can the full AE context produce
   a good result in one shot"; it does not measure orchestration value.
   See `ae_execution_mode` field in the report.
 - rationale_extraction_method="fallback-full-text" in smoke runs indicates
   the v1 stub ICL spec lacks a structured prompt template. Expected behavior
   until `icl-baseline-spec` lands.
+- Runtime QA scenarios (1, 2, 3, 6, 12 in scenarios-todo.md) require live LLM
+  invocation and have not been exercised; only the 150 unit tests in `tests/`
+  prove shape correctness. Run the smoke command before treating any results
+  JSON as evidence.
