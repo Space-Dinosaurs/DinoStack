@@ -453,22 +453,20 @@ async function main() {
     preselected = Object.keys(config.adapters).filter(a => config.adapters[a]);
   }
 
-  // Warning: non-main branch
+  // Hard-block: non-main branch
+  // Pulling origin main onto a non-main branch creates a confusing merge
+  // situation. The old script blocked this; keep the hard-block.
   const currentBranch = getCurrentBranch(resolvedRepoDir);
   if (currentBranch !== 'main') {
-    console.warn(`\nwarning: currently on '${currentBranch}' branch (not 'main').`);
-    console.warn('         update will pull from origin main regardless.\n');
-    const proceed = await promptYesNo('Proceed anyway?', false);
-    if (!proceed) {
-      console.log('aborted.');
-      process.exit(0);
-    }
+    console.error(`error: update.sh must be run from the 'main' branch (currently on '${currentBranch}').`);
+    process.exit(1);
   }
 
   // Warning: dirty tree
   if (isWorkingTreeDirty(resolvedRepoDir)) {
     const dirty = getDirtyFiles(resolvedRepoDir);
     console.warn('\nwarning: local changes present — git pull needs a clean working tree.');
+    console.warn('         git pull --ff-only will fail with these changes uncommitted.');
     if (dirty.staged.length > 0) {
       console.warn('  Staged for commit:');
       dirty.staged.forEach(f => console.warn(`    ${f}`));
@@ -557,16 +555,17 @@ async function main() {
     commitsPulled = countResult.success ? parseInt(countResult.stdout, 10) : 0;
   }
 
-  // Run install scripts
+  // Run install scripts (fail-fast: stop on first failure)
   const successes = [];
-  const failures = [];
 
   for (const adapter of selected) {
     const result = await runInstallScript(resolvedRepoDir, adapter);
     if (result.success) {
       successes.push(result.display);
     } else {
-      failures.push({ display: result.display, code: result.code });
+      console.error(`\nerror: ${result.display}/install.sh failed (exit ${result.code}).`);
+      console.error('       Fix the failure and re-run ./update.sh.');
+      process.exit(result.code || 1);
     }
   }
 
@@ -600,15 +599,6 @@ async function main() {
     console.warn('\n  These are likely build artifacts from the adapter install scripts.');
     console.warn('  If they should be tracked, run: git add <files> && git commit');
     console.warn('  If they are generated files that should not be tracked, add them to .gitignore.');
-  }
-
-  if (failures.length > 0) {
-    console.error('\nFailed adapters:');
-    for (const f of failures) {
-      console.error(`  ${f.display} (exit ${f.code})`);
-    }
-    console.error('\nRe-run ./update.sh after resolving the failures.');
-    process.exit(1);
   }
 }
 
