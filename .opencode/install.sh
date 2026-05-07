@@ -155,6 +155,7 @@ symlink_files() {
   local src_dir="$1"
   local dst_dir="$2"
   local label="$3"
+  local pattern="${4:-*.md}"
 
   if [[ ! -d "$src_dir" ]]; then
     echo "  [skip] $label source directory not found: $src_dir"
@@ -163,7 +164,7 @@ symlink_files() {
 
   mkdir -p "$dst_dir"
 
-  for src_file in "$src_dir"/*.md; do
+  for src_file in "$src_dir"/$pattern; do
     [[ -e "$src_file" ]] || continue
     local name
     name="$(basename "$src_file")"
@@ -227,6 +228,20 @@ symlink_files "$REPO_DIR/.opencode/agents" "$HOME/.config/opencode/agents" "agen
 
 echo "Linking commands..."
 symlink_files "$REPO_DIR/.opencode/commands" "$HOME/.config/opencode/commands" "commands"
+
+# ---------------------------------------------------------------------------
+# Symlink plugins
+# ---------------------------------------------------------------------------
+
+echo "Linking plugins..."
+
+PLUGINS_SRC="$REPO_DIR/.opencode/plugins"
+PLUGINS_DST="$HOME/.config/opencode/plugins"
+
+# Route plugins through symlink_files; call once per extension because the
+# helper's glob expansion does not handle brace patterns.
+symlink_files "$PLUGINS_SRC" "$PLUGINS_DST" "plugins" "*.js"
+symlink_files "$PLUGINS_SRC" "$PLUGINS_DST" "plugins" "*.ts"
 
 # ---------------------------------------------------------------------------
 # Update ~/.config/opencode/AGENTS.md with skill loading signal
@@ -370,6 +385,7 @@ echo "Installed to:"
 echo "  ~/.config/opencode/skills/agentic-engineering/ -> $REPO_DIR/.opencode/skills/agentic-engineering/"
 echo "  ~/.config/opencode/agents/ -> $REPO_DIR/.opencode/agents/"
 echo "  ~/.config/opencode/commands/ -> $REPO_DIR/.opencode/commands/"
+echo "  ~/.config/opencode/plugins/ -> $REPO_DIR/.opencode/plugins/"
 echo ""
 echo "Configuration updated:"
 echo "  ~/.config/opencode/opencode.json (permissions, instructions)"
