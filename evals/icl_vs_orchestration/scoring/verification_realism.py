@@ -1,3 +1,4 @@
+# Deprecated in v1 eval; not registered. May return in v2 with corpus tickets that ship qa_criteria.
 """
 Purpose: Verification-realism dimension scorer. Checks whether the condition
          produced an architect plan with qa_criteria. ICL-baseline floors at

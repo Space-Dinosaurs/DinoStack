@@ -3,12 +3,14 @@
 Binding per-condition dimension coverage for the 4 smoke fixtures.
 Format: `AE:<status> / ICL:<status>` where status is one of:
   - `scored` - dimension is actively scored
-  - `floored` - dimension floors at 0.0 by design (no architect plan / qa_criteria)
+  - `floored` - dimension floors at 0.0 by design
   - `N/A-both` - not-applicable to BOTH conditions (symmetric; must match)
 
-The `verification-realism` dimension is ALWAYS floored for ICL-baseline
-(no architect plan by design) and scored for AE-orchestrated (when plan
-+ qa_criteria is present).
+**v1 dimset (5 dimensions):** `verification-realism` has been removed from the
+v1 registered dimset. Both conditions scored 0.0 on every ticket because the
+replay corpus does not ship architect_plan.md files with qa_criteria blocks.
+The scorer module is preserved (evals/icl_vs_orchestration/scoring/verification_realism.py)
+and may be re-registered in v2 when the corpus includes tickets with qa_criteria.
 
 Skeptic Step-0 enforcement scenarios from `scenarios-todo.md` (authored by the
 `skeptic-global-context` engineer, Stage 1) are binding test coverage targets.
@@ -16,17 +18,15 @@ These scenarios test conductor-level and Skeptic-level behavior. They are not
 corpus tickets (no fixture YAML required) - they are unit/integration tests in
 `tests/test_skeptic_step0.py`. See that file for the 4 scenario implementations.
 
-| Fixture (class)        | correctness              | scope-discipline         | quality-gate-pass        | regression-test-presence | verification-realism      | output-coherence         |
-|------------------------|--------------------------|--------------------------|--------------------------|--------------------------|---------------------------|--------------------------|
-| `s-trivial-typo`       | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | N/A-both                 | AE:scored / ICL:floored   | AE:scored / ICL:scored   |
-| `s-single-elev-bug`    | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:floored   | AE:scored / ICL:scored   |
-| `s-brief-tier-feature` | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:floored   | AE:scored / ICL:scored   |
-| `s-plan-tier-cross`    | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:floored   | AE:scored / ICL:scored   |
+| Fixture (class)        | correctness              | scope-discipline         | quality-gate-pass        | regression-test-presence | output-coherence         |
+|------------------------|--------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| `s-trivial-typo`       | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | N/A-both                 | AE:scored / ICL:scored   |
+| `s-single-elev-bug`    | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   |
+| `s-brief-tier-feature` | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   |
+| `s-plan-tier-cross`    | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   | AE:scored / ICL:scored   |
 
 ## Binding assertions (for Scenario 1 evidence)
 
-- `verification-realism` ICL is ALWAYS `floored` (score=0.0) because ICL produces
-  no architect plan by design.
 - `regression-test-presence` is `N/A-both` for `s-trivial-typo` because
   `expects_regression_test: false` is set symmetrically on that ticket.
 - All other cells are `scored` on both conditions.
