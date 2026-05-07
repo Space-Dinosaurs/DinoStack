@@ -135,7 +135,7 @@ def _select_files(
     d = Path(relevant_files_dir)
     if not d.exists():
         return []
-    files = sorted(d.iterdir())
+    files = sorted(p for p in d.rglob("*") if p.is_file() and p.name != ".gitkeep")
     if rule == "all":
         pass  # include all
     elif rule == "top_k":
@@ -143,12 +143,11 @@ def _select_files(
     # else: unknown rule treated as "all"
     result = []
     for f in files:
-        if f.is_file():
-            try:
-                content = f.read_text()
-                result.append((f.name, content))
-            except OSError:
-                pass
+        try:
+            content = f.read_text()
+            result.append((str(f.relative_to(d)), content))
+        except OSError:
+            pass
     return result
 
 

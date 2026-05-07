@@ -75,21 +75,17 @@ def test_build_calls_git_show_and_writes_files(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_build_is_idempotent(tmp_path: Path) -> None:
-    """Running build twice overwrites files but does not raise or duplicate."""
+    """Running build twice produces byte-identical output (idempotent)."""
     corpus_root = tmp_path / "corpora" / "replay"
-    call_count = 0
+    fixed_content = "# fixed content for idempotency check\n"
 
-    def fake_run(cmd, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        m = MagicMock()
-        m.returncode = 0
-        m.stdout = f"content-v{call_count}\n"
-        return m
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = fixed_content
 
     with patch(
         "evals.icl_vs_orchestration.scripts.build_replay_corpus.subprocess.run",
-        side_effect=fake_run,
+        return_value=mock_result,
     ):
         build(corpus_root, dry_run=False, ticket_filter="r-brief-tier-dimension-signal")
         first_content = (
@@ -109,9 +105,9 @@ def test_build_is_idempotent(tmp_path: Path) -> None:
             / "evals/auto/loop.py"
         ).read_text()
 
-    # Second run overwrites cleanly
-    assert first_content != second_content  # content changed (call_count incremented)
-    assert second_content.startswith("content-v")
+    # Both runs produce identical output
+    assert second_content == first_content
+    assert first_content == fixed_content
 
 
 # ---------------------------------------------------------------------------

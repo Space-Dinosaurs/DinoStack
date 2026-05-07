@@ -156,3 +156,29 @@ class TestICLAdapterPrepareWorkspaceFiles:
         icl_adapter.prepare(_make_ticket(ticket_dir), workspace)
 
         assert workspace.exists()
+
+    def test_gitkeep_files_skipped(self, icl_adapter, tmp_path: Path) -> None:
+        """.gitkeep files in workspace_files/ are not copied by ICL adapter."""
+        ticket_dir = tmp_path / "ticket"
+        ws_files = ticket_dir / "workspace_files"
+        ws_files.mkdir(parents=True)
+        (ws_files / ".gitkeep").write_text("")
+        (ws_files / "real.py").write_text("# real\n")
+
+        workspace = tmp_path / "workspace"
+        icl_adapter.prepare(_make_ticket(ticket_dir), workspace)
+
+        assert not (workspace / ".gitkeep").exists(), ".gitkeep must not be copied"
+        assert (workspace / "real.py").exists(), "real.py must be copied"
+
+    def test_subtree_structure_preserved(self, icl_adapter, tmp_path: Path) -> None:
+        """ICL adapter: nested subdirectory structure under workspace_files/ is mirrored."""
+        ticket_dir = tmp_path / "ticket"
+        ws_files = ticket_dir / "workspace_files"
+        (ws_files / "evals" / "auto").mkdir(parents=True)
+        (ws_files / "evals" / "auto" / "apply.py").write_text("# apply\n")
+
+        workspace = tmp_path / "workspace"
+        icl_adapter.prepare(_make_ticket(ticket_dir), workspace)
+
+        assert (workspace / "evals" / "auto" / "apply.py").read_text() == "# apply\n"

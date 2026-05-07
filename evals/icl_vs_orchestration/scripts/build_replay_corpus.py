@@ -14,7 +14,10 @@ Upstream deps: subprocess (git show), pathlib, argparse; stdlib only.
 
 Downstream consumers: invoked directly via
   python3 -m evals.icl_vs_orchestration.scripts.build_replay_corpus
-  Called by corpus.py indirectly through the filesystem it populates.
+  No direct code consumers. This is a one-shot build tool; its OUTPUT
+  (corpora/replay/tickets/<slug>/relevant_files/ and workspace_files/) is
+  consumed at eval-runtime by the corpus loader (corpus.py), not by importing
+  this module.
 
 Failure modes: raises RuntimeError when git show fails (bad SHA or path).
                Caller sees the error message and the offending git command.

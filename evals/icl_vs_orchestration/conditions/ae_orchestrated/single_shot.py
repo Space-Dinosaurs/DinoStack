@@ -212,10 +212,12 @@ class AEOrchestratedSingleShot:
 
         relevant_files_dir = ticket.get("relevant_files_dir")
         if relevant_files_dir and Path(relevant_files_dir).exists():
-            for p in sorted(Path(relevant_files_dir).iterdir()):
-                if p.is_file():
+            rf_root = Path(relevant_files_dir)
+            for p in sorted(rf_root.rglob("*")):
+                if p.is_file() and p.name != ".gitkeep":
+                    rel = p.relative_to(rf_root)
                     parts += [
-                        f"## File: {p.name}",
+                        f"## File: {rel}",
                         p.read_text(),
                         "",
                     ]
