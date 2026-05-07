@@ -96,7 +96,7 @@ The deny list merges with any existing deny rules. See [.claude/README.md](.clau
 
 ## Updating
 
-**Run `./update.sh`:** quickly update this repo and refresh `.claude`, with optional adapters like Cursor, Codex, Gemini, and OpenCode available from the interactive menu.
+**Run `./update.sh`:** interactive updater that pulls the latest `main` branch and refreshes selected adapters. Uses a native Node.js TUI—arrow keys to navigate, space to toggle adapters, enter to confirm. The `.claude` adapter is always-on (locked, non-toggleable); the TUI is for selecting ADDITIONAL adapters to refresh. Your selections are saved to `~/.agentic/agentic-engineering-config.json` for future runs. Warnings are shown (but non-blocking) if you're not on `main` or have a dirty working tree. Failed adapter installs are reported at the end without aborting the others.
 
 **Or update manually:**
 
