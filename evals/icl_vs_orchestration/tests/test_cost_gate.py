@@ -13,6 +13,7 @@ from evals.icl_vs_orchestration.cost_gate import (
     build_normalization_block,
     reconcile_tally,
 )
+from evals.icl_vs_orchestration.metering import estimate_cost_usd
 
 
 def _make_gate(tmp_path: Path, max_usd=10.0, max_tokens=100_000,
@@ -280,3 +281,46 @@ def test_finalize_budget_with_cells_pending_returns_aborted(tmp_path):
     gate._global_usd = 0.002
     tally = gate.finalize(cells_pending=True, tickets_in_flight=False)
     assert tally["aborted"] is True
+
+
+# ---------------------------------------------------------------------------
+# Kimi K2.6 metering rate regression test
+# ---------------------------------------------------------------------------
+
+def test_kimi_k2_6_input_rate():
+    """[kimi-eval-routing] estimate_cost_usd returns correct input rate for
+    claude-kimi-k2.6 (Moonshot public pricing: $0.60/M input tokens).
+    Without a _MODEL_RATES entry this returns $0.00 and logs a warning."""
+    cost = estimate_cost_usd(
+        {"input": 1_000_000, "output": 0, "cache_creation": 0, "cache_read": 0},
+        "claude-kimi-k2.6",
+    )
+    assert cost == pytest.approx(0.60), (
+        f"Expected $0.60 for 1M input tokens on claude-kimi-k2.6, got ${cost}. "
+        "Ensure metering._MODEL_RATES contains a 'claude-kimi-k2' entry with input=0.60."
+    )
+
+
+def test_kimi_k2_6_output_rate():
+    """[kimi-eval-routing] estimate_cost_usd returns correct output rate for
+    claude-kimi-k2.6 (Moonshot public pricing: $2.50/M output tokens)."""
+    cost = estimate_cost_usd(
+        {"input": 0, "output": 1_000_000, "cache_creation": 0, "cache_read": 0},
+        "claude-kimi-k2.6",
+    )
+    assert cost == pytest.approx(2.50), (
+        f"Expected $2.50 for 1M output tokens on claude-kimi-k2.6, got ${cost}."
+    )
+
+
+def test_kimi_k2_6_nonzero_for_mixed_tokens():
+    """[kimi-eval-routing] estimate_cost_usd returns >0 for any non-zero token count
+    on claude-kimi-k2.6 (guards against silent $0 regression)."""
+    cost = estimate_cost_usd(
+        {"input": 1000, "output": 500, "cache_creation": 0, "cache_read": 0},
+        "claude-kimi-k2.6",
+    )
+    assert cost > 0, (
+        "estimate_cost_usd must return >0 for claude-kimi-k2.6 with non-zero tokens. "
+        "Got $0 - likely missing _MODEL_RATES entry."
+    )

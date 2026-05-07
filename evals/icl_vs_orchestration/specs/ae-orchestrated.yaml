@@ -2,6 +2,16 @@
 # content_sha is set to the Stage-0 baseline git.agentic_engineering_sha
 # (35b34631147fff05fe264f69dc5aa01a08faaa08) so Stage-3 and Stage-6 share
 # a recorded protocol SHA. Update via --baseline flag at CLI invocation.
+#
+# litellm-proxy routing requirement:
+# This spec uses claude-kimi-k2.6, which is served via a local litellm proxy
+# that presents it with a claude- prefix so the claude CLI accepts it.
+# Before running, set:
+#   ANTHROPIC_BASE_URL=http://localhost:4000
+#   ANTHROPIC_AUTH_TOKEN=$KIMI_API_KEY
+# Without these, the claude CLI will talk to api.anthropic.com, which has no
+# claude-kimi-k2.6 model and will return a 404 - this is a configuration
+# error, not a harness bug.
 spec_version: v1
 content_sha: "35b34631147fff05fe264f69dc5aa01a08faaa08"
 implement_ticket_path: content/commands/implement-ticket.md
@@ -12,4 +22,4 @@ agent_paths:
   qa_engineer: content/agents/qa-engineer.md
 execution_mode: single-shot
 invocation_mode: replay
-model: claude-sonnet
+model: claude-kimi-k2.6

@@ -54,7 +54,15 @@ The following files are consumed by this harness and must exist before a full ru
 
 ## Quick start (smoke run)
 
+Both spec yamls pin `model: claude-kimi-k2.6`. This model is served via a
+local litellm proxy that exposes it with a `claude-` prefix so the claude CLI
+accepts it. Without `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` set, the
+claude CLI talks to `api.anthropic.com`, which has no `claude-kimi-k2.6` model
+and will return a 404 - this is a configuration error, not a harness bug.
+
 ```bash
+ANTHROPIC_BASE_URL=http://localhost:4000 \
+ANTHROPIC_AUTH_TOKEN=$KIMI_API_KEY \
 python -m evals.icl_vs_orchestration.cli run \
   --corpus smoke \
   --ae-spec evals/icl_vs_orchestration/specs/ae-orchestrated.yaml \
@@ -64,6 +72,8 @@ python -m evals.icl_vs_orchestration.cli run \
 
 Or via bun:
 ```bash
+ANTHROPIC_BASE_URL=http://localhost:4000 \
+ANTHROPIC_AUTH_TOKEN=$KIMI_API_KEY \
 bun evals/icl_vs_orchestration/run.ts \
   --corpus smoke \
   --ae-spec evals/icl_vs_orchestration/specs/ae-orchestrated.yaml \

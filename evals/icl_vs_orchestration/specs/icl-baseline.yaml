@@ -5,11 +5,21 @@
 # Note: the absence of a structured rationale-section delimiter in this stub
 # means rationale_extraction_method will be "fallback-full-text" in smoke;
 # this is the intended behavior per architect-plan round-4 Major #2 resolution.
+#
+# litellm-proxy routing requirement:
+# This spec uses claude-kimi-k2.6, which is served via a local litellm proxy
+# that presents it with a claude- prefix so the claude CLI accepts it.
+# Before running, set:
+#   ANTHROPIC_BASE_URL=http://localhost:4000
+#   ANTHROPIC_AUTH_TOKEN=$KIMI_API_KEY
+# Without these, the claude CLI will talk to api.anthropic.com, which has no
+# claude-kimi-k2.6 model and will return a 404 - this is a configuration
+# error, not a harness bug.
 spec_version: v1
 file_selection_rule: all
 context_budget_tokens: 200000
 prompt_template_path: stub
-model: claude-sonnet
+model: claude-kimi-k2.6
 max_turns: 1
 allowed_tools:
   - Read

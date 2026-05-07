@@ -57,6 +57,17 @@ _MODEL_RATES: dict[str, dict[str, float]] = {
         "cache_creation": 0.0,
         "cache_read": 0.0,
     },
+    # Kimi K2 (Moonshot AI) - approximate public pricing as of 2026-05.
+    # Input: $0.60/M, Output: $2.50/M. Moonshot does not publish a distinct
+    # cache-creation rate; using input rate as a conservative estimate.
+    # Cache-read at ~10% of input per Moonshot documentation. Refresh if
+    # Moonshot updates public pricing at https://platform.moonshot.cn/docs/pricing.
+    "claude-kimi-k2": {
+        "input": 0.60,
+        "output": 2.50,
+        "cache_creation": 0.60,
+        "cache_read": 0.06,
+    },
 }
 
 
