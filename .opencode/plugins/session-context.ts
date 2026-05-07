@@ -650,7 +650,7 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
                 ],
                 noReply: true,
               },
-            });
+            }).catch(() => {});
             await log("info", "Session finalized via /wrap (prompt shown)");
           } catch (err: any) {
             await log(
