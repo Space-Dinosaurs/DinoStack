@@ -6,20 +6,18 @@
 # means rationale_extraction_method will be "fallback-full-text" in smoke;
 # this is the intended behavior per architect-plan round-4 Major #2 resolution.
 #
-# litellm-proxy routing requirement:
-# This spec uses claude-kimi-k2.6, which is served via a local litellm proxy
-# that presents it with a claude- prefix so the claude CLI accepts it.
-# Before running, set:
+# Default model: claude-sonnet (runs against api.anthropic.com with no extra config).
+# To re-route through a local litellm proxy (e.g. Kimi, Owl, or another model
+# served with a claude- prefix), change model: to a claude-prefixed litellm id
+# and set at invocation time:
 #   ANTHROPIC_BASE_URL=http://localhost:4000
-#   ANTHROPIC_AUTH_TOKEN=$KIMI_API_KEY
-# Without these, the claude CLI will talk to api.anthropic.com, which has no
-# claude-kimi-k2.6 model and will return a 404 - this is a configuration
-# error, not a harness bug.
+#   ANTHROPIC_AUTH_TOKEN=$YOUR_PROVIDER_API_KEY
+# Without those env vars the spec runs against api.anthropic.com as usual.
 spec_version: v1
 file_selection_rule: all
 context_budget_tokens: 200000
 prompt_template_path: stub
-model: claude-kimi-k2.6
+model: claude-sonnet
 max_turns: 1
 allowed_tools:
   - Read

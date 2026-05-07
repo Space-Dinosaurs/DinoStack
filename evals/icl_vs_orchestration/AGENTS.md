@@ -54,15 +54,10 @@ The following files are consumed by this harness and must exist before a full ru
 
 ## Quick start (smoke run)
 
-Both spec yamls pin `model: claude-kimi-k2.6`. This model is served via a
-local litellm proxy that exposes it with a `claude-` prefix so the claude CLI
-accepts it. Without `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` set, the
-claude CLI talks to `api.anthropic.com`, which has no `claude-kimi-k2.6` model
-and will return a 404 - this is a configuration error, not a harness bug.
+Both spec yamls default to `model: claude-sonnet` and run against
+`api.anthropic.com` with no extra configuration needed.
 
 ```bash
-ANTHROPIC_BASE_URL=http://localhost:4000 \
-ANTHROPIC_AUTH_TOKEN=$KIMI_API_KEY \
 python -m evals.icl_vs_orchestration.cli run \
   --corpus smoke \
   --ae-spec evals/icl_vs_orchestration/specs/ae-orchestrated.yaml \
@@ -72,14 +67,33 @@ python -m evals.icl_vs_orchestration.cli run \
 
 Or via bun:
 ```bash
-ANTHROPIC_BASE_URL=http://localhost:4000 \
-ANTHROPIC_AUTH_TOKEN=$KIMI_API_KEY \
 bun evals/icl_vs_orchestration/run.ts \
   --corpus smoke \
   --ae-spec evals/icl_vs_orchestration/specs/ae-orchestrated.yaml \
   --icl-spec evals/icl_vs_orchestration/specs/icl-baseline.yaml \
   --smoke
 ```
+
+### Re-routing through litellm (Kimi/Owl/etc.)
+
+To run against a different model served via a local litellm proxy (which
+exposes it with a `claude-` prefix so the claude CLI accepts it):
+
+1. Edit the `model:` field in both spec yamls to the litellm id (e.g.
+   `claude-kimi-k2.6`).
+2. Prefix the run command with the env vars pointing at your proxy:
+
+```bash
+ANTHROPIC_BASE_URL=http://localhost:4000 \
+ANTHROPIC_AUTH_TOKEN=$YOUR_PROVIDER_API_KEY \
+python -m evals.icl_vs_orchestration.cli run \
+  --corpus smoke \
+  --ae-spec evals/icl_vs_orchestration/specs/ae-orchestrated.yaml \
+  --icl-spec evals/icl_vs_orchestration/specs/icl-baseline.yaml \
+  --smoke
+```
+
+Without those env vars the CLI talks to `api.anthropic.com` as usual.
 
 ## Module map
 
