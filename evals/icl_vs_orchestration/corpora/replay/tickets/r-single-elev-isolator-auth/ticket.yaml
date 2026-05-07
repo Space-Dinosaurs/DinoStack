@@ -1,0 +1,11 @@
+ticket_id: r-single-elev-isolator-auth
+ticket_class: single-elev
+description: >
+  Extend evals/runner/isolator.py to propagate auth credentials into the
+  isolated worktree environment. Single Elevated unit: new behaviour behind
+  an existing interface, reviewed by a Skeptic in the original session.
+pre_merge_sha: 61eb71591e098faba88166dc8bc5df5268b00004
+merge_sha: 5bfe8e6de0070a525d1cce8bed177da2b54191f7
+expected_files:
+  - evals/runner/isolator.py
+expects_regression_test: true
