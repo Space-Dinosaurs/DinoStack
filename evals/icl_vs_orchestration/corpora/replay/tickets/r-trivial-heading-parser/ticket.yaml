@@ -1,0 +1,13 @@
+ticket_id: r-trivial-heading-parser
+ticket_class: trivial
+description: >
+  Add a heading parser helper to evals/auto/apply.py and evals/auto/loop.py
+  that normalises section headings in LLM output before pattern matching.
+  Update the corresponding test suite in evals/auto/tests/test_apply.py.
+pre_merge_sha: 7eec21ab84a4eba381b7a28a6e51f8dfb064eb46
+merge_sha: 917dc205c9009e1b54b826ea7b7d4cdc16680c50
+expected_files:
+  - evals/auto/apply.py
+  - evals/auto/loop.py
+  - evals/auto/tests/test_apply.py
+expects_regression_test: false

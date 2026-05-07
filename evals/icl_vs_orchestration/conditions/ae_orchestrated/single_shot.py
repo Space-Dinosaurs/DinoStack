@@ -33,6 +33,7 @@ Performance: one LLM call per ticket; dominated by model latency (seconds
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -80,6 +81,17 @@ class AEOrchestratedSingleShot:
         if brief_path and Path(brief_path).exists():
             dest = workspace / "brief.md"
             dest.write_text(Path(brief_path).read_text())
+
+        ticket_dir = ticket.get("ticket_dir")
+        if ticket_dir:
+            workspace_files_dir = Path(ticket_dir) / "workspace_files"
+            if workspace_files_dir.exists():
+                for src in workspace_files_dir.rglob("*"):
+                    if src.is_file() and src.name != ".gitkeep":
+                        rel = src.relative_to(workspace_files_dir)
+                        dest = workspace / rel
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dest)
 
     def run(
         self,
@@ -200,10 +212,12 @@ class AEOrchestratedSingleShot:
 
         relevant_files_dir = ticket.get("relevant_files_dir")
         if relevant_files_dir and Path(relevant_files_dir).exists():
-            for p in sorted(Path(relevant_files_dir).iterdir()):
-                if p.is_file():
+            rf_root = Path(relevant_files_dir)
+            for p in sorted(rf_root.rglob("*")):
+                if p.is_file() and p.name != ".gitkeep":
+                    rel = p.relative_to(rf_root)
                     parts += [
-                        f"## File: {p.name}",
+                        f"## File: {rel}",
                         p.read_text(),
                         "",
                     ]

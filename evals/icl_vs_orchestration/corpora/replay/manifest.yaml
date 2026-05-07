@@ -1,0 +1,12 @@
+corpus_name: replay
+ticket_classes:
+  - trivial
+  - single-elev
+  - brief-tier
+  - plan-tier
+tickets:
+  - r-trivial-heading-parser
+  - r-single-elev-isolator-auth
+  - r-brief-tier-whole-file
+  - r-brief-tier-dimension-signal
+  - r-plan-tier-agentic-disable
