@@ -1,0 +1,12 @@
+ticket_id: r-plan-tier-agentic-disable
+ticket_class: plan-tier
+description: >
+  Plan-tier implementation of the /agentic-disable command: new files only,
+  no existing files modified. A full Plan directory was assembled (brief,
+  architect plan, orchestration JSONL, risk register, rollback, verification
+  gate) before any engineer spawned. Cross-track: touches both
+  agentic-engineering/ and helios/ tracks.
+pre_merge_sha: 4412c4ffeaf54295e8e9de689a1f975de253f98b
+merge_sha: c18d53ca510a0a64c686bee2cfa5bafc71aea671
+expected_files: []
+expects_regression_test: true

@@ -1,0 +1,14 @@
+# Smoke corpus for ICL-vs-orchestration eval harness.
+# 4 tickets covering the 4 ticket classes from the architect plan.
+# Used for the --smoke end-to-end validation gate.
+corpus_name: smoke
+ticket_classes:
+  - trivial
+  - single-elev
+  - brief-tier
+  - plan-tier
+tickets:
+  - s-trivial-typo
+  - s-single-elev-bug
+  - s-brief-tier-feature
+  - s-plan-tier-cross

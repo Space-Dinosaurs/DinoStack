@@ -1,0 +1,12 @@
+# Scorer weights for ICL-vs-orchestration eval harness.
+# All values must sum to exactly 1.0 (asserted at load time).
+# Dimensions correspond to the 5 v1 rubric dimensions.
+# verification-realism was removed from v1 (both conditions scored 0.0 because
+# the replay corpus does not ship architect_plan.md files with qa_criteria blocks).
+# Its weight (0.15) was redistributed equally (+0.05 each) across scope-discipline,
+# regression-test-presence, and output-coherence; correctness and quality-gate-pass held constant.
+correctness: 0.30
+scope-discipline: 0.20
+quality-gate-pass: 0.20
+regression-test-presence: 0.15
+output-coherence: 0.15
