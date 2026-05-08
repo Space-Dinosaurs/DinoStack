@@ -5,13 +5,22 @@ Purpose: Parse Claude CLI stream-json stdout into a normalized per-run trace
 Public API: parse_stream_json(raw_stdout: str, expect_subagent: bool = False) -> dict,
             build_trace(runs: list[dict]) -> dict.
 
+            parse_stream_json return dict includes:
+              "usage": dict - token counts from the result event's usage sub-object,
+                       with at minimum the keys input_tokens (int), output_tokens (int),
+                       cache_creation_input_tokens (int), cache_read_input_tokens (int).
+                       Empty dict ({}) when the result event is absent or carries no
+                       usage sub-object (e.g. dry-run, error exit, or older CLI version).
+
 Upstream deps: stdlib json.
 
 Downstream consumers: evals.runner.invoker, evals.scoring.skeptic_lite.
 
 Failure modes: malformed JSON lines are skipped with a note in the trace's
                _parse_warnings list rather than raising. An empty stream
-               produces a trace with empty final_text and turns_used=0.
+               produces a trace with empty final_text and turns_used=0 and
+               usage={}. If the result event carries no usage sub-object (older
+               CLI versions, error exits), usage is {} and no exception is raised.
 
                Two-level spawn: when expect_subagent=True, the parser prefers
                the text returned inside the Task tool's tool_result event (the
@@ -96,6 +105,7 @@ def parse_stream_json(raw_stdout: str, expect_subagent: bool = False) -> dict:
     last_assistant_text: str = ""
     subagent_text: str | None = None
     outer_result_text: str = ""
+    result_usage: dict = {}
 
     for line in raw_stdout.splitlines():
         line = line.strip()
@@ -137,12 +147,14 @@ def parse_stream_json(raw_stdout: str, expect_subagent: bool = False) -> dict:
                 if extracted:
                     subagent_text = extracted
         elif t == "result":
-            # Final event; carries num_turns and total_cost_usd in current CLI.
+            # Final event; carries num_turns, total_cost_usd, and usage in current CLI.
             turns_used = int(obj.get("num_turns", obj.get("turns", 0)) or 0)
             if "total_cost_usd" in obj:
                 cost_usd = float(obj["total_cost_usd"])
             if obj.get("result"):
                 outer_result_text = obj["result"]
+            if isinstance(obj.get("usage"), dict):
+                result_usage = obj["usage"]
 
     # Determine final_text and invocation_mode.
     if expect_subagent:
@@ -166,6 +178,7 @@ def parse_stream_json(raw_stdout: str, expect_subagent: bool = False) -> dict:
         "turns_used": turns_used,
         "cost_usd": cost_usd,
         "invocation_mode": invocation_mode,
+        "usage": result_usage,
         "_parse_warnings": warnings,
     }
 

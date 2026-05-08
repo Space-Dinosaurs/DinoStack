@@ -44,3 +44,12 @@ evals/results/*.runlog.jsonl
 evals/.auto-harness.lock
 evals/auto/state/
 evals/auto/editor-logs/
+
+# Baseline capture: in-progress sibling file is ephemeral (not committed).
+# The completed baseline JSON IS committed.
+evals/baselines/*.progress
+evals/baselines/*.progress.tmp
+
+# ICL-vs-orchestration eval: per-run result JSON files are generated artifacts.
+# Committed results (if any) are explicitly added with git add -f.
+evals/icl_vs_orchestration/results/

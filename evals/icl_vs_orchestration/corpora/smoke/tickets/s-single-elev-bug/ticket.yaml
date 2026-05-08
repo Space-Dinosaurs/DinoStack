@@ -1,0 +1,9 @@
+ticket_id: s-single-elev-bug
+ticket_class: single-elev
+description: |
+  Fix a bug in src/auth/middleware.ts: the isAuthenticated() function
+  returns true for expired tokens because it checks token presence but
+  not expiry. Add an expiry check using the existing token.expiresAt field.
+expected_files:
+  - src/auth/middleware.ts
+expects_regression_test: true
