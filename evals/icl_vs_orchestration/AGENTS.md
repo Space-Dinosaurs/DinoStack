@@ -121,7 +121,7 @@ evals/icl_vs_orchestration/
     scope_discipline.py - file-set inclusion check
     quality_gate_pass.py
     regression_test_presence.py
-    verification_realism.py - floors ICL at 0.0 by design
+    verification_realism.py - (deprecated v1; not registered; reserved for v2)
     output_coherence.py     - binarized-per-type formula (v1)
   corpora/
     smoke/

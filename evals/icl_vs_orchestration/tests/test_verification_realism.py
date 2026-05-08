@@ -91,6 +91,9 @@ def test_symmetric_floor_in_aggregate():
 
     This verifies that floored dims are included in the registry aggregate (not dropped),
     so the primary score is computed over the same dim set.
+
+    NOTE: verification-realism is deprecated in v1 and NOT registered. This test
+    verifies the symmetric-dimset invariant holds over the 5 v1 dimensions.
     """
     from evals.icl_vs_orchestration.scoring.registry import load_registry, DIMENSIONS
 
@@ -102,14 +105,13 @@ def test_symmetric_floor_in_aggregate():
     ae_score = registry.score_result(ae_result, ticket)
     icl_score = registry.score_result(icl_result, ticket)
 
-    # Both conditions compute primary over the same DIMENSIONS
+    # Both conditions compute primary over the same DIMENSIONS (5-dim v1 set)
     assert set(ae_score["dimensions"].keys()) == set(DIMENSIONS)
     assert set(icl_score["dimensions"].keys()) == set(DIMENSIONS)
 
-    # ICL verification-realism is floored
-    icl_vr = icl_score["dimensions"]["verification-realism"]
-    assert icl_vr["status"] == "floored"
-    assert icl_vr["score"] == 0.0
+    # verification-realism is NOT registered in v1 - must not appear in output
+    assert "verification-realism" not in ae_score["dimensions"]
+    assert "verification-realism" not in icl_score["dimensions"]
 
-    # floored_dim_count_per_condition for ICL includes verification-realism
-    assert "verification-realism" in icl_score.get("floored_dims", [])
+    # Symmetric-dimset invariant: both conditions have same na_dims
+    assert set(ae_score.get("na_dims", [])) == set(icl_score.get("na_dims", []))

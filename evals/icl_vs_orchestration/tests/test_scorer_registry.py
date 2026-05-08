@@ -37,25 +37,23 @@ def test_bad_weights_raise_assertion():
     """Weights summing != 1.0 causes registry load to raise AssertionError."""
     bad_weights = {
         "correctness": 0.30,
-        "scope-discipline": 0.15,
+        "scope-discipline": 0.20,
         "quality-gate-pass": 0.20,
-        "regression-test-presence": 0.10,
-        "verification-realism": 0.15,
-        "output-coherence": 0.05,  # Total = 0.95, not 1.0
+        "regression-test-presence": 0.15,
+        "output-coherence": 0.10,  # Total = 0.95, not 1.0
     }
     with pytest.raises(AssertionError, match="sum to 1.0"):
         ScorerRegistry(bad_weights)
 
 
 def test_good_weights_pass():
-    """Weights summing to 1.0 load without error."""
+    """Weights summing to 1.0 load without error (5-dim v1 set)."""
     good_weights = {
         "correctness": 0.30,
-        "scope-discipline": 0.15,
+        "scope-discipline": 0.20,
         "quality-gate-pass": 0.20,
-        "regression-test-presence": 0.10,
-        "verification-realism": 0.15,
-        "output-coherence": 0.10,
+        "regression-test-presence": 0.15,
+        "output-coherence": 0.15,
     }
     registry = ScorerRegistry(good_weights)
     assert registry is not None
@@ -65,12 +63,22 @@ def test_missing_dimension_in_weights_raises():
     """Weights dict missing a dimension raises AssertionError."""
     incomplete_weights = {
         "correctness": 0.40,
-        "scope-discipline": 0.20,
-        "quality-gate-pass": 0.20,
-        # missing regression-test-presence, verification-realism, output-coherence
+        "scope-discipline": 0.30,
+        "quality-gate-pass": 0.30,
+        # missing regression-test-presence, output-coherence
     }
     with pytest.raises(AssertionError):
         ScorerRegistry(incomplete_weights)
+
+
+def test_verification_realism_not_in_registered_dims():
+    """verification-realism is deprecated in v1 and must NOT appear in DIMENSIONS."""
+    assert "verification-realism" not in DIMENSIONS
+
+
+def test_dimensions_count_is_five():
+    """v1 dimset has exactly 5 dimensions."""
+    assert len(DIMENSIONS) == 5
 
 
 # ---- Symmetric-dimset invariant ----
@@ -95,7 +103,7 @@ def test_symmetric_dimset_fails_when_different():
 # ---- score_result returns all DIMENSIONS ----
 
 def test_score_result_returns_all_dimensions():
-    """score_result includes all 6 dimensions in its output."""
+    """score_result includes all 5 v1 dimensions in its output."""
     registry = load_registry()
     result = _minimal_result()
     ticket = _minimal_ticket()

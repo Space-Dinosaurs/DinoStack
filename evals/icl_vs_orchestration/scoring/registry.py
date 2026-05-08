@@ -9,11 +9,12 @@ Public API:
     Returns TicketScore-shaped dict.
   ScorerRegistry.assert_symmetric_dimset(ae_score: dict, icl_score: dict) -> None
     Raises AssertionError if DIMENSIONS differ between the two conditions.
-  DIMENSIONS: list[str]  -- the 6 canonical dimension names
+  DIMENSIONS: list[str]  -- the 5 canonical dimension names (v1)
 
 Upstream deps: scoring/correctness.py, scope_discipline.py, quality_gate_pass.py,
-               regression_test_presence.py, verification_realism.py,
-               output_coherence.py; pyyaml; stdlib.
+               regression_test_presence.py, output_coherence.py; pyyaml; stdlib.
+               Note: verification_realism.py exists but is NOT registered in v1
+               (deprecated; returns in v2 when corpus ships qa_criteria blocks).
 
 Downstream consumers: runner.py.
 
@@ -39,7 +40,6 @@ from . import (
     quality_gate_pass,
     regression_test_presence,
     scope_discipline,
-    verification_realism,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -49,7 +49,6 @@ DIMENSIONS: list[str] = [
     "scope-discipline",
     "quality-gate-pass",
     "regression-test-presence",
-    "verification-realism",
     "output-coherence",
 ]
 
@@ -58,17 +57,15 @@ _SCORER_MAP = {
     "scope-discipline": scope_discipline,
     "quality-gate-pass": quality_gate_pass,
     "regression-test-presence": regression_test_presence,
-    "verification-realism": verification_realism,
     "output-coherence": output_coherence,
 }
 
 _DEFAULT_WEIGHTS = {
     "correctness": 0.30,
-    "scope-discipline": 0.15,
+    "scope-discipline": 0.20,
     "quality-gate-pass": 0.20,
-    "regression-test-presence": 0.10,
-    "verification-realism": 0.15,
-    "output-coherence": 0.10,
+    "regression-test-presence": 0.15,
+    "output-coherence": 0.15,
 }
 
 

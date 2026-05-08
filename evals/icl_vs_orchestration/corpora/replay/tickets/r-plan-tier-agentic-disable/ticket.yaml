@@ -9,4 +9,4 @@ description: >
 pre_merge_sha: 4412c4ffeaf54295e8e9de689a1f975de253f98b
 merge_sha: c18d53ca510a0a64c686bee2cfa5bafc71aea671
 expected_files: []
-expects_regression_test: false
+expects_regression_test: true
