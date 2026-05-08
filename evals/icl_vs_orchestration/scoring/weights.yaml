@@ -3,7 +3,8 @@
 # Dimensions correspond to the 5 v1 rubric dimensions.
 # verification-realism was removed from v1 (both conditions scored 0.0 because
 # the replay corpus does not ship architect_plan.md files with qa_criteria blocks).
-# Its weight (0.15) was redistributed proportionally across the remaining dims.
+# Its weight (0.15) was redistributed equally (+0.05 each) across scope-discipline,
+# regression-test-presence, and output-coherence; correctness and quality-gate-pass held constant.
 correctness: 0.30
 scope-discipline: 0.20
 quality-gate-pass: 0.20
