@@ -9,8 +9,11 @@ Public API:
   run_eval(config: RunConfig) -> dict  # returns partial or complete report dict
   resume_run(run_id: str, run_dir: Path, config: RunConfig) -> dict
 
-Upstream deps: corpus.py, cost_gate.py (CostGate, BudgetExceeded),
-               smoke_gate.py, scoring/registry.py, report.py; stdlib.
+Upstream deps: corpus.py (load_corpus, preflight_test_commands),
+               cost_gate.py (CostGate, BudgetExceeded),
+               smoke_gate.py, scoring/registry.py, report.py,
+               test_executor.py (run_tests - lazy import, tickets with test_command only);
+               stdlib.
 
 Downstream consumers: cli.py.
 
@@ -19,8 +22,13 @@ Failure modes: BudgetExceeded triggers abort.flag write + partial report.
                runner continues unless abort.flag is present.
                Write-order: ticket_results -> tally (tally is always derivable
                from ticket_results on crash recovery via reconcile_tally).
+               preflight_test_commands raises RuntimeError on misconfigured
+               test_command (non-import-error failures); caller should not
+               proceed with the eval in that case.
 
 Performance: dominated by LLM invocations. Harness overhead is O(tickets * dims).
+             preflight_test_commands adds one pytest --collect-only per ticket
+             with test_command (O(tickets * file-reads) at corpus load time).
 """
 from __future__ import annotations
 
@@ -33,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .corpus import load_corpus
+from .corpus import load_corpus, preflight_test_commands
 from .cost_gate import BudgetExceeded, CostGate, reconcile_tally
 from .report import build_methodology
 from .scoring.registry import ScorerRegistry, load_registry
@@ -77,6 +85,12 @@ def run_eval(config: RunConfig) -> dict:
         tickets = tickets[:5]
     if config.max_tickets:
         tickets = tickets[: config.max_tickets]
+
+    # Preflight: validate test_command fields before spending any LLM budget.
+    # workspace_root=config.corpus_dir is the baseline workspace for --collect-only;
+    # each ticket's test files are validated against the corpus directory before any
+    # per-condition workspace is constructed.
+    preflight_test_commands(tickets, config.corpus_dir, _LOG)
 
     # Load conditions
     from .conditions.ae_orchestrated.single_shot import make_ae_condition
@@ -198,6 +212,31 @@ def _build_report(
                     rc = rationale_method_count.setdefault(cid, {})
                     rc[method] = rc.get(method, 0) + 1
 
+    # Determine correctness_method label by inspecting which scoring methods
+    # produced per-ticket correctness diagnostics.
+    # ticket_scores: dict[ticket_id, dict[cid, score_dict]]
+    methods_seen: set[str] = set()
+    for ticket_id, cid_scores in ticket_scores.items():
+        for cid_score in cid_scores.values():
+            if isinstance(cid_score, dict):
+                correctness = cid_score.get("correctness", {})
+                method = (
+                    correctness.get("diagnostic", {}).get("method")
+                    if isinstance(correctness, dict)
+                    else None
+                )
+                if method:
+                    methods_seen.add(method)
+    if methods_seen == {"test-pass-real"}:
+        correctness_method_label = "test-execution"
+    elif methods_seen == {"ac-keyword"}:
+        correctness_method_label = "ac-keyword"
+    elif not methods_seen:
+        # No scored tickets or no diagnostics; default to ac-keyword for v1 smoke
+        correctness_method_label = "ac-keyword"
+    else:
+        correctness_method_label = "mixed"
+
     summary = {
         "tickets_run": len(ticket_scores),
         "conditions": ["ae-orchestrated", "icl-baseline"],
@@ -212,7 +251,7 @@ def _build_report(
         "icl_spec": str(config.icl_spec_path),
         "baseline_sha_pinned": config.baseline_sha,
         "ae_execution_mode": "single-shot",  # Q1=(a) resolved
-        "correctness_method": "ac-keyword",  # Q2 primary is test-pass; fallback is ac-keyword; reported as ac-keyword for v1 smoke (no real tests)
+        "correctness_method": correctness_method_label,
         "output_coherence_method": "fixed-common-pair-binarized-v1",
         "output_coherence_taxonomy_version": TAXONOMY_VERSION,
         "smoke": config.smoke,
@@ -371,6 +410,19 @@ def _run_tickets(
             except Exception as e:
                 _LOG.error("condition.run() failed for %s/%s: %s", ticket_id, cid, e)
                 result = _error_result(ticket_id, cid, str(e))
+
+            # Inject real pytest outcome when the ticket supplies a test_command.
+            # Lazy import keeps test_executor off the cold path for tickets
+            # without test_command.
+            test_cmd = ticket.get("test_command")
+            if test_cmd:
+                from .test_executor import run_tests
+                result["test_execution"] = run_tests(
+                    test_command=test_cmd,
+                    workspace=workspace,
+                    pythonpath=ticket.get("test_pythonpath", "."),
+                    timeout_seconds=ticket.get("test_timeout_seconds", 30),
+                )
 
             # Write-order: ticket result first, then cost tally
             result["raw_trace_path"] = str(result.get("raw_trace_path", ""))
