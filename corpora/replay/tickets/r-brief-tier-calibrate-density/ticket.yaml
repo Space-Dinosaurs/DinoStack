@@ -1,0 +1,14 @@
+ticket_id: r-brief-tier-calibrate-density
+ticket_class: brief-tier
+description: |
+  Add bin/agentic-calibrate Python script with density subcommand. The density subcommand reads
+  .agentic/events.jsonl (path overridable via AGENTIC_DIR env var), computes findings-per-100-lines
+  density per spawn_complete event, excludes zero-diff rows, and emits a warming-up notice when
+  fewer than 10 qualifying events exist. Synthetic tests cover all three ACs.
+expected_files: [bin/agentic-calibrate]
+expects_regression_test: true
+pre_merge_sha: 21016adfac012b59045027bec5623773fb923d9b
+merge_sha: 4412c4ffeaf54295e8e9de689a1f975de253f98b
+test_command: "pytest evals/auto/tests/test_calibrate_density.py -x -q"
+test_pythonpath: "."
+test_timeout_seconds: 30
