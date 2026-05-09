@@ -163,3 +163,6 @@ based on individual fixture scores from this harness.
   invocation and have not been exercised; only the 150 unit tests in `tests/`
   prove shape correctness. Run the smoke command before treating any results
   JSON as evidence.
+- v1 `test_command` validation rejects pytest parametrize node IDs (paths containing `[` or `]`). Use file-level paths only, e.g. `pytest evals/auto/tests/test_apply.py -x -q`. Parametrize selectors are not supported until v2.
+- Resume from disk reuses the stored `test_execution` result without re-running preflight. Preflight is a startup-only gate; stale workspace changes made after a run started are not rechecked on resume. V1 known limitation.
+- Path C v1 carries `test_command` on only one viable ticket (`r-brief-tier-whole-file`). `r-trivial-heading-parser` ships the same `test_apply.py` test file and uses the keyword fallback to avoid correlated signal. Follow-up: synthesize a ticket-specific test file for `r-trivial-heading-parser` in a subsequent corpus iteration.
