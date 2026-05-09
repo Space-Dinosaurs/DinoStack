@@ -8,9 +8,12 @@ Public API:
   validate_ticket(data: dict, ticket_id: str) -> None
   validate_ae_spec(data: dict) -> None
   validate_icl_spec(data: dict) -> None
-  _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None
   REQUIRED_TICKET_FIELDS: frozenset[str]
   REQUIRED_MANIFEST_FIELDS: frozenset[str]
+
+Internal helpers:
+  _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None
+    (called only from validate_ticket; not part of the public surface)
 
 Upstream deps: stdlib only (re).
 
@@ -82,7 +85,7 @@ def _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None:
 
     if "test_timeout_seconds" in ticket:
         val = ticket["test_timeout_seconds"]
-        if not isinstance(val, int):
+        if isinstance(val, bool) or not isinstance(val, int):
             raise ValueError(
                 f"Ticket '{ticket_id}' test_timeout_seconds must be an integer."
             )
