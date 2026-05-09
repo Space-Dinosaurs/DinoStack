@@ -10,3 +10,7 @@ tickets:
   - r-brief-tier-whole-file
   - r-brief-tier-dimension-signal
   - r-plan-tier-agentic-disable
+  - r-single-elev-mean-of-medians
+  - r-trivial-preserve-results
+  - r-single-elev-parse-subagent
+  - r-brief-tier-calibrate-density
