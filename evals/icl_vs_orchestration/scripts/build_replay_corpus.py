@@ -5,6 +5,13 @@ Purpose: CLI tool that populates the replay corpus by extracting historical
          both relevant_files/ (read-only context) and workspace_files/ (editable
          starting state) under corpora/replay/tickets/<slug>/.
 
+         Ticket entries support two file-list keys:
+           files              - seeded into BOTH relevant_files/ and workspace_files/
+           relevant_files_only - seeded into relevant_files/ ONLY (workspace_files/
+                                 writes are skipped; existing workspace files are
+                                 never overwritten, so manually-authored synthetic
+                                 tests survive re-builds).
+
 Public API:
   build(corpus_root: Path, dry_run: bool, ticket_filter: str | None) -> None
   write_file_from_git(sha: str, path: str, dest: Path) -> None
@@ -71,6 +78,26 @@ TICKETS: dict[str, dict] = {
         "pre_merge_sha": "4412c4ffeaf54295e8e9de689a1f975de253f98b",
         "files": [],  # all new files in this ticket; nothing to seed
     },
+    "r-single-elev-mean-of-medians": {
+        "pre_merge_sha": "1344a96223d1d937407b213d21bbd48e1e4c2d16",
+        "files": ["evals/auto/runner_shim.py"],
+        "relevant_files_only": ["evals/auto/tests/test_runner_shim.py"],  # synthetic test in workspace
+    },
+    "r-trivial-preserve-results": {
+        "pre_merge_sha": "e8650f518ae761e1fb06163998456295701ab201",
+        "files": ["evals/auto/loop.py"],
+        "relevant_files_only": [],
+    },
+    "r-single-elev-parse-subagent": {
+        "pre_merge_sha": "f5fde5dc0f6f2ea88bddb7de5394f8b4c29013e7",
+        "files": [],
+        "relevant_files_only": [],
+    },
+    "r-brief-tier-calibrate-density": {
+        "pre_merge_sha": "21016adfac012b59045027bec5623773fb923d9b",
+        "files": [],
+        "relevant_files_only": [],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -119,15 +146,17 @@ def build(
             continue
 
         sha = spec["pre_merge_sha"]
-        files: list[str] = spec["files"]
+        files: list[str] = spec.get("files", [])
+        relevant_files_only: list[str] = spec.get("relevant_files_only", [])
 
-        if not files:
+        if not files and not relevant_files_only:
             if dry_run:
                 print(f"DRY: {slug} - no files to seed (new-file-only ticket)")
             else:
                 print(f"{slug}: no files to seed (new-file-only ticket)")
             continue
 
+        # files -> both relevant_files/ and workspace_files/
         for file_path in files:
             for subdir in ("relevant_files", "workspace_files"):
                 dest = corpus_root / "tickets" / slug / subdir / file_path
@@ -136,6 +165,23 @@ def build(
                 else:
                     write_file_from_git(sha, file_path, dest)
                     print(f"wrote {dest}")
+
+        # relevant_files_only -> relevant_files/ only; never touch workspace_files/
+        for file_path in relevant_files_only:
+            dest = corpus_root / "tickets" / slug / "relevant_files" / file_path
+            if dry_run:
+                print(f"DRY: would write {dest} (relevant_files/ only)")
+            else:
+                write_file_from_git(sha, file_path, dest)
+                print(f"wrote {dest} (relevant_files/ only)")
+
+            # Guard: skip workspace_files/ write if the file already exists there
+            ws_dest = corpus_root / "tickets" / slug / "workspace_files" / file_path
+            if ws_dest.exists():
+                if dry_run:
+                    print(f"DRY: skip {ws_dest} (already exists; not overwriting synthetic file)")
+                else:
+                    print(f"skip {ws_dest} (already exists; not overwriting synthetic file)")
 
 
 # ---------------------------------------------------------------------------

@@ -166,3 +166,21 @@ based on individual fixture scores from this harness.
 - v1 `test_command` validation rejects pytest parametrize node IDs (paths containing `[` or `]`). Use file-level paths only, e.g. `pytest evals/auto/tests/test_apply.py -x -q`. Parametrize selectors are not supported until v2.
 - Resume from disk reuses the stored `test_execution` result without re-running preflight. Preflight is a startup-only gate; stale workspace changes made after a run started are not rechecked on resume. V1 known limitation.
 - Path C v1 carries `test_command` on only one viable ticket (`r-brief-tier-whole-file`). `r-trivial-heading-parser` ships the same `test_apply.py` test file and uses the keyword fallback to avoid correlated signal. Follow-up: synthesize a ticket-specific test file for `r-trivial-heading-parser` in a subsequent corpus iteration.
+- **Path B v2 synthetic-test-visible tickets:** Four tickets in the replay corpus
+  v2 use synthetic test files committed directly to `workspace_files/` rather than
+  extracted from the original PR's git state. The test assertions are visible to
+  both AE and ICL conditions, so these tickets measure "can the agent implement
+  code given failing tests" rather than "does AE orchestration produce better
+  implementations than ICL on equivalent prose descriptions."
+
+  The 4 synthetic-test-visible tickets:
+  - `r-single-elev-mean-of-medians` (replaces pre-merge median test with asymmetric-input mean test)
+  - `r-trivial-preserve-results` (synthetic round-trip helper test)
+  - `r-single-elev-parse-subagent` (synthetic token+wall_seconds test)
+  - `r-brief-tier-calibrate-density` (synthetic density-subcommand tests)
+
+  When reporting AE/ICL deltas, tag results from these tickets as `test-visible`
+  to distinguish them from `r-brief-tier-whole-file` (git-extracted real test) and
+  the keyword-fallback proxy-scored tickets (`r-trivial-heading-parser`,
+  `r-single-elev-isolator-auth`, `r-brief-tier-dimension-signal`,
+  `r-plan-tier-agentic-disable`).

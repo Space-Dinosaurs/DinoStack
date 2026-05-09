@@ -1,0 +1,14 @@
+ticket_id: r-single-elev-parse-subagent
+ticket_class: single-elev
+description: |
+  Add bin/agentic-parse-subagent-usage Python script that parses Claude Code stream-JSON transcripts
+  and returns aggregated token usage (input, output, cache_creation, cache_read) summed across all
+  assistant turns plus wall_seconds derived from first/last timestamps in the file. The synthetic
+  test exercises token summation and wall_seconds calculation only (path resolution is out of scope).
+expected_files: [bin/agentic-parse-subagent-usage]
+expects_regression_test: true
+pre_merge_sha: f5fde5dc0f6f2ea88bddb7de5394f8b4c29013e7
+merge_sha: f932080649c726be13bda84c4ec1905b5edc38b9
+test_command: "pytest evals/auto/tests/test_parse_subagent_usage.py -x -q"
+test_pythonpath: "."
+test_timeout_seconds: 30
