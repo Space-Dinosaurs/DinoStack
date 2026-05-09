@@ -1,28 +1,43 @@
 """
 Purpose: Load and validate an icl-vs-orchestration corpus directory,
          producing TicketInput records and a corpus_sha for report pinning.
+         Also provides tolerant preflight validation of ticket test commands.
 
 Public API:
   load_corpus(corpus_dir: Path) -> tuple[dict, list[TicketInput]]
     Returns (manifest, tickets) where tickets is a list of TicketInput dicts.
   corpus_sha(manifest_path: Path) -> str
     Returns sha256 hex of the corpus manifest for report pinning.
+  preflight_test_commands(tickets, workspace_root, log) -> None
+    Validates each ticket's test_command via pytest --collect-only.
+    Defers tickets with unresolvable imports (warning); raises RuntimeError
+    for other collection failures.
 
 Upstream deps: schema.py (validate_corpus_manifest, validate_ticket);
-               pyyaml; stdlib hashlib/pathlib.
+               pyyaml; stdlib hashlib/pathlib/re/shlex/subprocess/logging.
 
 Downstream consumers: runner.py, cli.py.
 
 Failure modes: raises FileNotFoundError when corpus_dir or required
                subdirectories are absent. Raises ValueError (via schema.py)
-               on malformed manifest or ticket YAML.
+               on malformed manifest or ticket YAML. preflight_test_commands
+               raises RuntimeError when pytest --collect-only fails for a
+               reason other than an unresolvable import (e.g. typo in path,
+               missing file); in that case the message includes ticket_id and
+               the first 500 chars of combined stdout+stderr.
 
-Performance: standard; O(tickets * file-reads).
+Performance: standard; O(tickets * file-reads). preflight_test_commands adds
+             one subprocess call per ticket that has a test_command (30s
+             timeout each).
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
+import shlex
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -105,6 +120,54 @@ def corpus_sha(corpus_dir: Path) -> str:
     manifest_path = corpus_dir / "manifest.yaml"
     data = manifest_path.read_bytes()
     return hashlib.sha256(data).hexdigest()
+
+
+def preflight_test_commands(
+    tickets: list[dict],
+    workspace_root: Path,
+    log: logging.Logger,
+) -> None:
+    """Validate each ticket's test_command via pytest --collect-only.
+
+    For each ticket with a truthy test_command:
+    - returncode 0: pass, continue silently.
+    - returncode != 0 AND output contains ImportError/ModuleNotFoundError:
+        emit log.warning and continue (deferred; will validate at runtime).
+    - returncode != 0 AND no import-error pattern: raise RuntimeError.
+
+    Tickets without test_command (or test_command: null) are silently skipped.
+    """
+    for ticket in tickets:
+        test_command = ticket.get("test_command")
+        if not test_command:
+            continue
+
+        ticket_id = ticket.get("ticket_id", "<unknown>")
+        args = ["pytest", "--collect-only", "-q"] + shlex.split(test_command)
+        proc = subprocess.run(
+            args,
+            cwd=workspace_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        combined = (proc.stdout or "") + (proc.stderr or "")
+
+        if proc.returncode == 0:
+            continue
+
+        if re.search(r"ImportError|ModuleNotFoundError", combined, re.IGNORECASE):
+            log.warning(
+                "preflight deferred: ticket %s test import not resolvable "
+                "against baseline workspace; will validate at runtime",
+                ticket_id,
+            )
+            continue
+
+        raise RuntimeError(
+            f"preflight failed for ticket {ticket_id}: pytest --collect-only "
+            f"exited {proc.returncode}; output: {combined[:500]}"
+        )
 
 
 def load_baseline_sha(baseline_path: Path) -> str:
