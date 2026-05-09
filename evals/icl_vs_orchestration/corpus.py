@@ -152,9 +152,17 @@ def preflight_test_commands(
         if parts and parts[0] == "pytest":
             parts = parts[1:]
         args = [sys.executable, "-m", "pytest", "--collect-only", "-q"] + parts
+        # Per-ticket cwd: prefer the ticket's own workspace_files/ if it exists
+        # (tests for synthetic-test tickets live there, not at workspace_root).
+        # Fall back to workspace_root for tickets whose tests are repo-rooted
+        # (e.g., r-brief-tier-whole-file's evals/auto/tests/test_apply.py exists
+        # in the agentic-engineering repo at workspace_root).
+        ticket_dir = ticket.get("ticket_dir")
+        ws_files = (Path(ticket_dir) / "workspace_files") if ticket_dir else None
+        cwd_for_collect = ws_files if (ws_files and ws_files.exists()) else workspace_root
         proc = subprocess.run(
             args,
-            cwd=workspace_root,
+            cwd=cwd_for_collect,
             capture_output=True,
             text=True,
             timeout=30,
