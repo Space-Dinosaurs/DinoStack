@@ -38,6 +38,7 @@ import logging
 import re
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -150,7 +151,7 @@ def preflight_test_commands(
         parts = shlex.split(test_command)
         if parts and parts[0] == "pytest":
             parts = parts[1:]
-        args = ["pytest", "--collect-only", "-q"] + parts
+        args = [sys.executable, "-m", "pytest", "--collect-only", "-q"] + parts
         proc = subprocess.run(
             args,
             cwd=workspace_root,

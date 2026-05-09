@@ -53,7 +53,7 @@ VALID_CONDITION_IDS = frozenset(["ae-orchestrated", "icl-baseline"])
 
 def _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None:
     """Validate optional test_command / test_pythonpath / test_timeout_seconds fields."""
-    if "test_command" in ticket:
+    if "test_command" in ticket and ticket["test_command"] is not None:
         val = ticket["test_command"]
         if not isinstance(val, str) or not val:
             raise ValueError(
@@ -72,7 +72,7 @@ def _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None:
                 f"'evals/auto/tests/test_apply.py -x -q')."
             )
 
-    if "test_pythonpath" in ticket:
+    if "test_pythonpath" in ticket and ticket["test_pythonpath"] is not None:
         val = ticket["test_pythonpath"]
         if not isinstance(val, str):
             raise ValueError(
@@ -83,7 +83,7 @@ def _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None:
                 f"Ticket '{ticket_id}' test_pythonpath must not be an absolute path."
             )
 
-    if "test_timeout_seconds" in ticket:
+    if "test_timeout_seconds" in ticket and ticket["test_timeout_seconds"] is not None:
         val = ticket["test_timeout_seconds"]
         if isinstance(val, bool) or not isinstance(val, int):
             raise ValueError(

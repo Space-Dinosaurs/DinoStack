@@ -31,6 +31,7 @@ Performance: per-call overhead is the test command's own runtime plus ~10 ms for
 import os
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -68,6 +69,11 @@ def run_tests(
             ``"error"``, otherwise ``None``
     """
     args = shlex.split(test_command)
+    # If test_command starts with bare "pytest", rewrite to use the current
+    # interpreter's pytest module so the harness works regardless of whether
+    # the bare `pytest` binary is on PATH.
+    if args and args[0] == "pytest":
+        args = [sys.executable, "-m", "pytest"] + args[1:]
     env = os.environ.copy()
     abs_pypath = str((workspace / pythonpath).resolve())
     existing = env.get("PYTHONPATH", "")
