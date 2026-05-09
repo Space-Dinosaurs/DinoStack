@@ -8,10 +8,11 @@ Public API:
   validate_ticket(data: dict, ticket_id: str) -> None
   validate_ae_spec(data: dict) -> None
   validate_icl_spec(data: dict) -> None
+  _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None
   REQUIRED_TICKET_FIELDS: frozenset[str]
   REQUIRED_MANIFEST_FIELDS: frozenset[str]
 
-Upstream deps: stdlib only.
+Upstream deps: stdlib only (re).
 
 Downstream consumers: corpus.py, conditions/ae_orchestrated/single_shot.py,
                       conditions/icl_spec.py.
@@ -19,9 +20,14 @@ Downstream consumers: corpus.py, conditions/ae_orchestrated/single_shot.py,
 Failure modes: raises ValueError with a descriptive message on any schema
                violation. Never raises on valid input.
 
-Performance: standard; dict field-presence checks only.
+Performance: standard; dict field-presence checks and regex matching only.
 """
 from __future__ import annotations
+
+import re
+
+_SHELL_METACHAR_RE = re.compile(r"[|&;<>$`\\!(){}*?~]")
+_BRACKET_RE = re.compile(r"[\[\]]")
 
 REQUIRED_MANIFEST_FIELDS = frozenset(
     ["corpus_name", "ticket_classes", "tickets"]
@@ -40,6 +46,50 @@ VALID_AE_EXECUTION_MODES = frozenset(
 )
 
 VALID_CONDITION_IDS = frozenset(["ae-orchestrated", "icl-baseline"])
+
+
+def _validate_optional_test_fields(ticket: dict, ticket_id: str) -> None:
+    """Validate optional test_command / test_pythonpath / test_timeout_seconds fields."""
+    if "test_command" in ticket:
+        val = ticket["test_command"]
+        if not isinstance(val, str) or not val:
+            raise ValueError(
+                f"Ticket '{ticket_id}' test_command must be a non-empty string."
+            )
+        if _SHELL_METACHAR_RE.search(val):
+            raise ValueError(
+                f"Ticket '{ticket_id}' test_command contains a shell metacharacter "
+                f"which is not allowed."
+            )
+        if _BRACKET_RE.search(val):
+            raise ValueError(
+                f"Ticket '{ticket_id}' test_command contains '[' or ']' which are "
+                f"not supported in v1 (parametrize selectors not supported; use "
+                f"file-level pytest paths only, e.g. "
+                f"'evals/auto/tests/test_apply.py -x -q')."
+            )
+
+    if "test_pythonpath" in ticket:
+        val = ticket["test_pythonpath"]
+        if not isinstance(val, str):
+            raise ValueError(
+                f"Ticket '{ticket_id}' test_pythonpath must be a string."
+            )
+        if val.startswith("/"):
+            raise ValueError(
+                f"Ticket '{ticket_id}' test_pythonpath must not be an absolute path."
+            )
+
+    if "test_timeout_seconds" in ticket:
+        val = ticket["test_timeout_seconds"]
+        if not isinstance(val, int):
+            raise ValueError(
+                f"Ticket '{ticket_id}' test_timeout_seconds must be an integer."
+            )
+        if not (5 <= val <= 120):
+            raise ValueError(
+                f"Ticket '{ticket_id}' test_timeout_seconds must be in range [5, 120]."
+            )
 
 
 def validate_corpus_manifest(data: dict) -> None:
@@ -68,6 +118,7 @@ def validate_ticket(data: dict, ticket_id: str) -> None:
             f"Ticket '{ticket_id}' has unknown ticket_class '{cls}'. "
             f"Valid values: {sorted(VALID_TICKET_CLASSES)}"
         )
+    _validate_optional_test_fields(data, ticket_id)
 
 
 def validate_ae_spec(data: dict) -> None:
