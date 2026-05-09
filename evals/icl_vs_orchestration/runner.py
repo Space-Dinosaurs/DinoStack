@@ -87,10 +87,13 @@ def run_eval(config: RunConfig) -> dict:
         tickets = tickets[: config.max_tickets]
 
     # Preflight: validate test_command fields before spending any LLM budget.
-    # workspace_root=config.corpus_dir is the baseline workspace for --collect-only;
-    # each ticket's test files are validated against the corpus directory before any
-    # per-condition workspace is constructed.
-    preflight_test_commands(tickets, config.corpus_dir, _LOG)
+    # workspace_root must be the agentic-engineering repo root so that
+    # repo-relative test paths (e.g. "evals/auto/tests/test_apply.py") resolve
+    # correctly under pytest.  runner.py lives at
+    # evals/icl_vs_orchestration/runner.py, so three .parent levels reach the
+    # repo root reliably regardless of where the caller invokes the script.
+    _repo_root = Path(__file__).parent.parent.parent
+    preflight_test_commands(tickets, _repo_root, _LOG)
 
     # Load conditions
     from .conditions.ae_orchestrated.single_shot import make_ae_condition
@@ -414,14 +417,15 @@ def _run_tickets(
             # Inject real pytest outcome when the ticket supplies a test_command.
             # Lazy import keeps test_executor off the cold path for tickets
             # without test_command.
-            test_cmd = ticket.get("test_command")
+            _ticket_yaml = ticket.get("ticket_yaml") or {}
+            test_cmd = _ticket_yaml.get("test_command")
             if test_cmd:
                 from .test_executor import run_tests
                 result["test_execution"] = run_tests(
                     test_command=test_cmd,
                     workspace=workspace,
-                    pythonpath=ticket.get("test_pythonpath", "."),
-                    timeout_seconds=ticket.get("test_timeout_seconds", 30),
+                    pythonpath=_ticket_yaml.get("test_pythonpath", "."),
+                    timeout_seconds=_ticket_yaml.get("test_timeout_seconds", 30),
                 )
 
             # Write-order: ticket result first, then cost tally

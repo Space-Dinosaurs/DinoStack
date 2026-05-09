@@ -138,12 +138,19 @@ def preflight_test_commands(
     Tickets without test_command (or test_command: null) are silently skipped.
     """
     for ticket in tickets:
-        test_command = ticket.get("test_command")
+        ticket_yaml = ticket.get("ticket_yaml") or {}
+        test_command = ticket_yaml.get("test_command")
         if not test_command:
             continue
 
         ticket_id = ticket.get("ticket_id", "<unknown>")
-        args = ["pytest", "--collect-only", "-q"] + shlex.split(test_command)
+        # Strip leading "pytest" token if present to avoid "pytest pytest ..."
+        # duplication when test_command is a full invocation like
+        # "pytest evals/auto/tests/test_apply.py -x -q".
+        parts = shlex.split(test_command)
+        if parts and parts[0] == "pytest":
+            parts = parts[1:]
+        args = ["pytest", "--collect-only", "-q"] + parts
         proc = subprocess.run(
             args,
             cwd=workspace_root,
