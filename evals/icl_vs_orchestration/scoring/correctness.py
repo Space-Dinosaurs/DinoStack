@@ -56,6 +56,24 @@ def score(result: dict, ticket: dict) -> dict:
     and check for test-pass signals. Falls back to AC-keyword scan on
     result.final_text when no test output is extractable.
     """
+    # --- First-path: real test-execution result from harness ---
+    test_exec = result.get("test_execution")
+    if test_exec is not None:
+        outcome = test_exec.get("outcome")
+        score_val = 1.0 if outcome == "pass" else 0.0
+        return {
+            "score": score_val,
+            "diagnostic": {
+                "method": "test-pass-real",
+                "outcome": outcome,
+                "returncode": test_exec.get("returncode"),
+                "stdout_tail": test_exec.get("stdout_tail", "")[-200:],
+                "duration_seconds": test_exec.get("duration_seconds"),
+            },
+            "scorer_version": SCORER_VERSION,
+            "status": "scored",
+        }
+
     final_text = result.get("final_text", "")
     artifacts = result.get("artifacts", {})
     diff = artifacts.get("diff", result.get("diff") or "")
