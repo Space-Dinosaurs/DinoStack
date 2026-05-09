@@ -583,14 +583,17 @@ class TestCorrectnessMethodLabel:
     """[Path-C] _build_report computes correctness_method correctly from per-ticket methods."""
 
     def _make_score_with_method(self, method: str) -> dict:
+        # Match production cid_score shape: dimensions.correctness.diagnostic.method
         return {
             "primary": 0.8,
             "status": "ok",
-            "correctness": {
-                "score": 1.0,
-                "diagnostic": {"method": method},
-                "scorer_version": "v1",
-                "status": "scored",
+            "dimensions": {
+                "correctness": {
+                    "score": 1.0,
+                    "diagnostic": {"method": method},
+                    "scorer_version": "v1",
+                    "status": "scored",
+                },
             },
         }
 

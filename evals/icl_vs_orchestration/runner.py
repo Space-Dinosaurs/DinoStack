@@ -222,7 +222,8 @@ def _build_report(
     for ticket_id, cid_scores in ticket_scores.items():
         for cid_score in cid_scores.values():
             if isinstance(cid_score, dict):
-                correctness = cid_score.get("correctness", {})
+                # Score result shape: cid_score["dimensions"]["correctness"]["diagnostic"]["method"]
+                correctness = cid_score.get("dimensions", {}).get("correctness", {})
                 method = (
                     correctness.get("diagnostic", {}).get("method")
                     if isinstance(correctness, dict)
