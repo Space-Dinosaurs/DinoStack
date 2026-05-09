@@ -11,3 +11,4 @@ expected_files:
   - evals/auto/loop.py
   - evals/auto/tests/test_apply.py
 expects_regression_test: true
+test_command: null

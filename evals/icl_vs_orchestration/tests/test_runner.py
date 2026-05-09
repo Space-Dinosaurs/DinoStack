@@ -407,3 +407,259 @@ class TestFirstCellBudgetExceededDoesNotAbortReport:
             "abort.flag must NOT be written when BudgetExceeded fires on first cell "
             f"with zero prior dropped cells; file exists at {abort_flag}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Path-C: test_execution injection when ticket has test_command
+# ---------------------------------------------------------------------------
+
+class TestTestExecutionInjection:
+    """[Path-C] test_execution is injected into result when ticket has test_command."""
+
+    def test_test_execution_injected_when_ticket_has_test_command(self, tmp_path):
+        """_run_tickets injects result['test_execution'] for tickets with test_command.
+
+        Uses mocked condition.run and mocked run_tests to stay fast and deterministic.
+        Verifies that the runner calls run_tests and stores the result under
+        result['test_execution'].
+        """
+        from unittest.mock import patch
+        from evals.icl_vs_orchestration.cost_gate import CostGate
+        from evals.icl_vs_orchestration.runner import RunConfig, _run_tickets
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        results_dir = run_dir / "ticket_results"
+        results_dir.mkdir()
+
+        fake_test_exec = {
+            "outcome": "pass",
+            "returncode": 0,
+            "stdout_tail": "1 passed",
+            "duration_seconds": 0.1,
+            "error": None,
+        }
+
+        cond = MagicMock()
+        cond.condition_id = "ae-orchestrated"
+        cond.prepare = MagicMock()
+        cond.run = MagicMock(return_value=_make_completed_result("t1", "ae-orchestrated"))
+
+        tickets = [
+            {
+                "ticket_id": "t1",
+                "ticket_yaml": {
+                    "ticket_id": "t1",
+                    "ticket_class": "trivial",
+                    "description": "test with test_command",
+                    "test_command": "pytest tests/ -q",
+                },
+            }
+        ]
+
+        cost_gate = CostGate(
+            run_dir=run_dir,
+            max_usd_global=300.0,
+            max_tokens_global=30_000_000,
+        )
+        registry = MagicMock()
+        registry.score_result.return_value = {"primary": 0.5, "status": "ok"}
+        registry.assert_symmetric_dimset = MagicMock()
+
+        config = RunConfig(
+            corpus_dir=tmp_path,
+            ae_spec_path=Path("stub.yaml"),
+            icl_spec_path=Path("stub.yaml"),
+            run_id="test-inject",
+            run_dir=run_dir,
+        )
+
+        # The lazy import inside _run_tickets does
+        # ``from .test_executor import run_tests``.
+        # Patch at the source module so all importers see the mock.
+        with patch(
+            "evals.icl_vs_orchestration.test_executor.run_tests",
+            return_value=fake_test_exec,
+        ):
+            ticket_scores, _, aborted, _ = _run_tickets(
+                tickets=tickets,
+                conditions=[cond],
+                registry=registry,
+                cost_gate=cost_gate,
+                run_dir=run_dir,
+                config=config,
+                results_dir=results_dir,
+            )
+
+        # Verify run_tests was called (either via the lazy import or direct patch)
+        # The result file on disk must contain test_execution
+        result_file = results_dir / "t1__ae-orchestrated.json"
+        assert result_file.exists(), "result file must be written"
+        import json
+        result_on_disk = json.loads(result_file.read_text())
+        assert "test_execution" in result_on_disk, (
+            "result['test_execution'] must be injected when ticket has test_command; "
+            f"keys found: {list(result_on_disk.keys())}"
+        )
+        assert result_on_disk["test_execution"]["outcome"] == "pass"
+
+    def test_test_execution_NOT_injected_when_ticket_has_no_test_command(self, tmp_path):
+        """_run_tickets must NOT inject result['test_execution'] when ticket lacks test_command.
+
+        Negative case for the `if test_cmd:` guard at runner.py: a ticket without
+        test_command should produce a result file with no test_execution key.
+        """
+        from unittest.mock import patch
+        from evals.icl_vs_orchestration.cost_gate import CostGate
+        from evals.icl_vs_orchestration.runner import RunConfig, _run_tickets
+
+        run_dir = tmp_path / "run-no-cmd"
+        run_dir.mkdir()
+        results_dir = run_dir / "ticket_results"
+        results_dir.mkdir()
+
+        cond = MagicMock()
+        cond.condition_id = "ae-orchestrated"
+        cond.prepare = MagicMock()
+        cond.run = MagicMock(return_value=_make_completed_result("t-nocmd", "ae-orchestrated"))
+
+        tickets = [
+            {
+                "ticket_id": "t-nocmd",
+                "ticket_yaml": {
+                    "ticket_id": "t-nocmd",
+                    "ticket_class": "trivial",
+                    "description": "ticket with no test_command",
+                },
+            }
+        ]
+
+        cost_gate = CostGate(
+            run_dir=run_dir,
+            max_usd_global=300.0,
+            max_tokens_global=30_000_000,
+        )
+        registry = MagicMock()
+        registry.score_result.return_value = {"primary": 0.5, "status": "ok"}
+        registry.assert_symmetric_dimset = MagicMock()
+
+        config = RunConfig(
+            corpus_dir=tmp_path,
+            ae_spec_path=Path("stub.yaml"),
+            icl_spec_path=Path("stub.yaml"),
+            run_id="test-no-inject",
+            run_dir=run_dir,
+        )
+
+        with patch(
+            "evals.icl_vs_orchestration.test_executor.run_tests",
+        ) as mock_run_tests:
+            _run_tickets(
+                tickets=tickets,
+                conditions=[cond],
+                registry=registry,
+                cost_gate=cost_gate,
+                run_dir=run_dir,
+                config=config,
+                results_dir=results_dir,
+            )
+            mock_run_tests.assert_not_called()
+
+        result_file = results_dir / "t-nocmd__ae-orchestrated.json"
+        assert result_file.exists(), "result file must be written"
+        import json
+        result_on_disk = json.loads(result_file.read_text())
+        assert "test_execution" not in result_on_disk, (
+            "result must NOT contain test_execution key when ticket has no test_command; "
+            f"keys found: {list(result_on_disk.keys())}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Path-C: correctness_method label in report
+# ---------------------------------------------------------------------------
+
+class TestCorrectnessMethodLabel:
+    """[Path-C] _build_report computes correctness_method correctly from per-ticket methods."""
+
+    def _make_score_with_method(self, method: str) -> dict:
+        return {
+            "primary": 0.8,
+            "status": "ok",
+            "correctness": {
+                "score": 1.0,
+                "diagnostic": {"method": method},
+                "scorer_version": "v1",
+                "status": "scored",
+            },
+        }
+
+    def _call_build_report(self, ticket_scores: dict, tmp_path: Path) -> dict:
+        from unittest.mock import patch, MagicMock
+        from evals.icl_vs_orchestration.runner import RunConfig, _build_report
+
+        config = RunConfig(
+            corpus_dir=tmp_path,
+            ae_spec_path=Path("stub.yaml"),
+            icl_spec_path=Path("stub.yaml"),
+            run_id="test-method-label",
+        )
+        manifest = {"corpus_name": "test", "ticket_classes": [], "tickets": []}
+
+        tally = {
+            "global_usd": 0.0,
+            "global_tokens": 0,
+            "cells": {},
+            "aborted": False,
+            "skeptic_input_cost_normalization": None,
+        }
+
+        with patch(
+            "evals.icl_vs_orchestration.scoring.output_coherence.TAXONOMY_VERSION",
+            "v1",
+        ), patch(
+            "evals.icl_vs_orchestration.report.build_methodology",
+            return_value={},
+        ):
+            return _build_report(
+                config=config,
+                manifest=manifest,
+                ticket_scores=ticket_scores,
+                tally=tally,
+                cells_dropped=[],
+                aborted=False,
+                abort_reason=None,
+                smoke_gate_result=None,
+            )
+
+    def test_correctness_method_label_test_execution(self, tmp_path):
+        """All tickets use 'test-pass-real' -> correctness_method='test-execution'."""
+        ticket_scores = {
+            "t1": {"ae-orchestrated": self._make_score_with_method("test-pass-real")},
+            "t2": {"ae-orchestrated": self._make_score_with_method("test-pass-real")},
+        }
+        report = self._call_build_report(ticket_scores, tmp_path)
+        assert report["correctness_method"] == "test-execution", (
+            f"expected 'test-execution', got {report['correctness_method']!r}"
+        )
+
+    def test_correctness_method_label_ac_keyword(self, tmp_path):
+        """All tickets use 'ac-keyword' -> correctness_method='ac-keyword'."""
+        ticket_scores = {
+            "t1": {"ae-orchestrated": self._make_score_with_method("ac-keyword")},
+        }
+        report = self._call_build_report(ticket_scores, tmp_path)
+        assert report["correctness_method"] == "ac-keyword", (
+            f"expected 'ac-keyword', got {report['correctness_method']!r}"
+        )
+
+    def test_correctness_method_label_mixed(self, tmp_path):
+        """Mixed methods -> correctness_method='mixed'."""
+        ticket_scores = {
+            "t1": {"ae-orchestrated": self._make_score_with_method("test-pass-real")},
+            "t2": {"ae-orchestrated": self._make_score_with_method("ac-keyword")},
+        }
+        report = self._call_build_report(ticket_scores, tmp_path)
+        assert report["correctness_method"] == "mixed", (
+            f"expected 'mixed', got {report['correctness_method']!r}"
+        )
