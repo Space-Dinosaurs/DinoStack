@@ -503,6 +503,77 @@ class TestTestExecutionInjection:
         )
         assert result_on_disk["test_execution"]["outcome"] == "pass"
 
+    def test_test_execution_NOT_injected_when_ticket_has_no_test_command(self, tmp_path):
+        """_run_tickets must NOT inject result['test_execution'] when ticket lacks test_command.
+
+        Negative case for the `if test_cmd:` guard at runner.py: a ticket without
+        test_command should produce a result file with no test_execution key.
+        """
+        from unittest.mock import patch
+        from evals.icl_vs_orchestration.cost_gate import CostGate
+        from evals.icl_vs_orchestration.runner import RunConfig, _run_tickets
+
+        run_dir = tmp_path / "run-no-cmd"
+        run_dir.mkdir()
+        results_dir = run_dir / "ticket_results"
+        results_dir.mkdir()
+
+        cond = MagicMock()
+        cond.condition_id = "ae-orchestrated"
+        cond.prepare = MagicMock()
+        cond.run = MagicMock(return_value=_make_completed_result("t-nocmd", "ae-orchestrated"))
+
+        tickets = [
+            {
+                "ticket_id": "t-nocmd",
+                "ticket_yaml": {
+                    "ticket_id": "t-nocmd",
+                    "ticket_class": "trivial",
+                    "description": "ticket with no test_command",
+                },
+            }
+        ]
+
+        cost_gate = CostGate(
+            run_dir=run_dir,
+            max_usd_global=300.0,
+            max_tokens_global=30_000_000,
+        )
+        registry = MagicMock()
+        registry.score_result.return_value = {"primary": 0.5, "status": "ok"}
+        registry.assert_symmetric_dimset = MagicMock()
+
+        config = RunConfig(
+            corpus_dir=tmp_path,
+            ae_spec_path=Path("stub.yaml"),
+            icl_spec_path=Path("stub.yaml"),
+            run_id="test-no-inject",
+            run_dir=run_dir,
+        )
+
+        with patch(
+            "evals.icl_vs_orchestration.test_executor.run_tests",
+        ) as mock_run_tests:
+            _run_tickets(
+                tickets=tickets,
+                conditions=[cond],
+                registry=registry,
+                cost_gate=cost_gate,
+                run_dir=run_dir,
+                config=config,
+                results_dir=results_dir,
+            )
+            mock_run_tests.assert_not_called()
+
+        result_file = results_dir / "t-nocmd__ae-orchestrated.json"
+        assert result_file.exists(), "result file must be written"
+        import json
+        result_on_disk = json.loads(result_file.read_text())
+        assert "test_execution" not in result_on_disk, (
+            "result must NOT contain test_execution key when ticket has no test_command; "
+            f"keys found: {list(result_on_disk.keys())}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Path-C: correctness_method label in report
