@@ -15,3 +15,4 @@ expected_files:
   - evals/auto/components.yaml
   - evals/auto/tests/test_apply.py
 expects_regression_test: true
+test_command: "pytest evals/auto/tests/test_apply.py -x -q"
