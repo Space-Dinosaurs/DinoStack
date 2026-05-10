@@ -26,7 +26,18 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - `docs/overview/` - high-level summaries and onboarding docs
 
 ## Conventions
-- Conductor never creates worktrees for itself - it edits directly on its current branch. Worktrees are exclusively for subagents, created at `.agentic/worktrees/<branch-name>` and branching from the conductor's current branch. Subagent branches merge back to the conductor's branch; the conductor's branch then PRs to `main`.
+- **Workflow for all implementation work (non-Trivial risk):**
+	1. `git fetch origin` to ensure latest `main`.
+	2. Spawn subagent Workers using `isolation: "worktree"` with worktrees branched from `origin/main`. Worktree path: `.agentic/worktrees/<branch-name>`.
+	3. Worker implements, runs quality gates (lint, typecheck, tests), commits.
+	4. Push branch to origin: `git push -u origin <branch-name>`.
+	5. Open PR against `main` via `gh pr create`.
+	6. Once CI/CD checks pass, auto-merge: `gh pr merge --squash --delete-branch`.
+	7. Clean up: `git worktree remove --force <path>`, `git branch -D <branch-name>`, `git worktree prune`.
+	8. Update local main: `git checkout main && git pull --ff-only origin main`.
+	- Steps 6-8 are automatic - never pause for merge approval when CI is green.
+	- Failed CI is a hard stop - investigate before proceeding.
+- **Conductor never creates worktrees for itself.** The conductor edits directly on `main`. Worktrees are exclusively for subagent Workers. For Trivial-risk changes the conductor edits directly on `main` with no worktree.
 - When isolation:worktree Workers are used across multiple sequential spawns in the same task, the worktree is cleaned up between them and subsequent Workers fall back to the main tree. Tell follow-up Workers this explicitly.
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
 - The pre-commit hook does not currently auto-stage `.claude/skills/agentic-engineering/METHODOLOGY.md` or `.codex/agents/*.toml`. After any `content/` edit, either stage these regenerated artifacts manually or extend the `git add` list in `hooks/pre-commit`.
