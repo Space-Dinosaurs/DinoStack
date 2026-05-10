@@ -111,6 +111,7 @@ class ICLBaseline:
                     timeout_seconds=timeout_seconds,
                     agent_name=None,
                     mode="command",
+                    model=self._model,
                 )
                 status = run_record.get("status", "ok")
                 final_text = run_record.get("final_text", "")

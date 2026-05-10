@@ -133,6 +133,7 @@ def invoke_run(
     agent_name: str | None = None,
     mode: str = "agent",
     home: Path | None = None,
+    model: str | None = None,
 ) -> dict:
     """Run the Claude CLI once with `prompt` at `worktree` cwd; return a run record.
 
@@ -145,6 +146,10 @@ def invoke_run(
 
     If `home` is provided, the subprocess inherits the current environment
     except HOME is overridden to `home` (Tier 2 HOME redirect).
+
+    If `model` is provided, --model is passed through to the Claude CLI and
+    ANTHROPIC_BASE_URL is set when the model id starts with a litellm prefix
+    (e.g. claude-kimi-, claude-qwen-, claude-owl-, claude-deepseek).
     """
     if mode == "command":
         outer_prompt = prompt
@@ -175,15 +180,41 @@ def invoke_run(
         "--max-turns", max_turns,
     ]
 
+    # Route through litellm when model id uses a non-Anthropic prefix.
+    _litellm_prefixes = ("claude-kimi-", "claude-qwen-", "claude-owl-", "claude-deepseek")
+    _use_litellm = model is not None and any(model.startswith(p) for p in _litellm_prefixes)
+
+    if model is not None:
+        cmd.extend(["--model", model])
+
     env = None
-    if home is not None:
+    if home is not None or _use_litellm:
         env = os.environ.copy()
-        env["HOME"] = str(home)
-        # Prepend $HOME/bin so per-fixture stubs (e.g. a `gh` stub placed
-        # by a seed hook) shadow any matching binary on the developer's
-        # real PATH. This is the Tier 2 proxy boundary for CLI tools the
-        # command body shells out to.
-        env["PATH"] = f"{home}/bin:" + env.get("PATH", "")
+        if home is not None:
+            env["HOME"] = str(home)
+            # Prepend $HOME/bin so per-fixture stubs (e.g. a `gh` stub placed
+            # by a seed hook) shadow any matching binary on the developer's
+            # real PATH. This is the Tier 2 proxy boundary for CLI tools the
+            # command body shells out to.
+            env["PATH"] = f"{home}/bin:" + env.get("PATH", "")
+        if _use_litellm:
+            env["ANTHROPIC_BASE_URL"] = "http://localhost:4000"
+            # Preflight: verify the litellm proxy is reachable before invoking.
+            import urllib.request as _ur
+            try:
+                _ur.urlopen("http://localhost:4000/v1/models", timeout=5)
+            except Exception as _e:
+                parsed = {
+                    "status": "proxy-unreachable",
+                    "stderr_tail": f"litellm proxy preflight failed: {_e}",
+                    "final_text": "",
+                    "tool_calls": [],
+                    "tokens": {},
+                    "latency_ms": 0,
+                }
+                if mode == "command":
+                    parsed["filesystem"] = _snapshot_filesystem(worktree)
+                return parsed
 
     t0 = time.monotonic()
     status = "ok"

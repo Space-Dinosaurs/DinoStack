@@ -1,0 +1,16 @@
+# ICL-baseline condition spec - Kimi variant.
+# Same as icl-baseline.yaml but routes through litellm for Kimi.
+#
+# Requires at invocation time:
+#   ANTHROPIC_BASE_URL=http://localhost:4000
+#   (ANTHROPIC_AUTH_TOKEN must already be set in env)
+spec_version: v1
+file_selection_rule: all
+context_budget_tokens: 200000
+prompt_template_path: stub
+model: claude-kimi-k2.6
+max_turns: 1
+allowed_tools:
+  - Read
+  - Grep
+  - Glob

@@ -1,0 +1,17 @@
+# AE-orchestrated condition spec - Kimi variant.
+# Same as ae-orchestrated.yaml but routes through litellm for Kimi.
+#
+# Requires at invocation time:
+#   ANTHROPIC_BASE_URL=http://localhost:4000
+#   (ANTHROPIC_AUTH_TOKEN must already be set in env)
+spec_version: v1
+content_sha: "35b34631147fff05fe264f69dc5aa01a08faaa08"
+implement_ticket_path: content/commands/implement-ticket.md
+agent_paths:
+  architect: content/agents/architect.md
+  engineer: content/agents/engineer.md
+  skeptic: content/agents/skeptic.md
+  qa_engineer: content/agents/qa-engineer.md
+execution_mode: single-shot
+invocation_mode: replay
+model: claude-kimi-k2.6
