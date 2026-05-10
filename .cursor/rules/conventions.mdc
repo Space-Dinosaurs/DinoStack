@@ -67,10 +67,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 
 **Conductor does not create worktrees for itself.** The conductor edits directly on its current branch. Worktrees are exclusively for subagents.
 
-**Base branch resolution** - resolve in this order before any work begins:
-1. Use `develop` if it exists.
-2. Fall back to `development` if it exists.
-3. Otherwise create `develop` from `main` (fall back to `master` if `main` does not exist).
+**Base branch resolution** - always use `main` (fall back to `master` if `main` does not exist). Never use `develop` or `development`.
 
 **Conductor preflight** - run this checklist ONCE at session start. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene. Cache the resolved base branch in-context for the session; do not re-run the full preflight before every subagent spawn. Re-run only if the user explicitly switches branches or after 30+ minutes of idle time.
 1. What branch is the working tree on? (`git branch --show-current`)
