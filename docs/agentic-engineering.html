@@ -824,7 +824,7 @@
 <!-- ═══ Side Navigation ═══ -->
 <nav class="side-nav">
   <div class="side-nav-brand">AE</div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: May 09, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: May 10, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -1129,6 +1129,7 @@
             <li><strong>Convergence failure</strong> - one re-raise of a Critical finding after a claimed fix triggers immediate escalation (does not consume remaining iteration budget). Signals a design-level conflict requiring human arbitration.</li>
             <li><strong>Explicit escalation contract</strong> - the loop exits with a structured stall report (<code>cap_reached</code>, <code>convergence_failure</code>, or <code>blocked</code>) listing open findings and recommended actions.</li>
             <li><strong>Durable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> at every phase transition (atomic write). Long-running loops survive rate limits and session exits: on the next <code>/implement-ticket</code> invocation the conductor detects the interrupted state, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. Schema includes <code>brief_path</code>, <code>plan_path</code>, and <code>promotion_tier</code> fields that record the planning artifact tier for the active task (used for mid-flight promotion and auto-promotion at the 3rd resume). No work is lost.</li>
+            <li><strong>Learning extraction</strong> - at Phase 6 clean exit (Skeptic sign-off), the <code>learning-extractor</code> agent reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code> (append-only, dedup, cap 5/run). Each entry has ID <code>LRN-YYYYMMDD-XXX</code>, severity, domain tag, pattern description, fix guidance, and source reference. These entries feed into <code>wrap-ticket</code> at Phase 11b for richer MEMORY.md/decisions.md appends. Soft-fail only; never blocks the loop.</li>
             <li><strong>Task coordination surface</strong> - multi-unit orchestration plans use <code>.agentic/tasks.jsonl</code> as a durable task coordination surface; the conductor tracks task status, dependencies, and loop state across the plan lifecycle. Applies to plans with 2+ tasks; single-unit spawns use in-context state only.</li>
           </ul>
         </div>

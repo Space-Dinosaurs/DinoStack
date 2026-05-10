@@ -921,9 +921,26 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, gitignored under the `.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
-- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Calibration emit + meta-Skeptic sampling" below before exiting the loop.** Exit loop cleanly. Proceed to Phase 6b.
+- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
 - If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human (see Escalation section below). Phase 6b does NOT run.
 - If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+
+**Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
+
+**Spawn:** `learning-extractor` (Tier 1, foreground, blocking, 30-second timeout).
+
+**Spawn brief inputs:**
+- `ticket_id`: the resolved ticket id.
+- `findings_log`: the final resolved `findings_log` from `.agentic/loop-state.json` (all entries with `status: closed` or `status: addressed`).
+- `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
+
+**Failure semantics:**
+- `learning-extractor` failure NEVER blocks the calibration emit, meta-Skeptic sampling, or Phase 6b. Soft-fail with a warning line printed to the operator.
+- If `learning-extractor` returns within 30s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user.
+- If `learning-extractor` exceeds the 30s timeout: conductor warns the operator (`"Learning extraction: learning-extractor exceeded 30s timeout; proceeding without learnings."`) and proceeds.
+- If `learning-extractor` returns with `skipped_reason` populated (zero-substance, etc.): conductor prints the `operator_summary` and proceeds without warning.
+
+The conductor stores the `learning_ids[]` from the return JSON for Phase 11b.
 
 **Calibration emit + meta-Skeptic sampling (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor performs the following before declaring the unit complete:
 
@@ -1359,6 +1376,7 @@ Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update
 - `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
 - `pr_url`: the PR URL captured at Phase 9.
 - `conversation_summary`: a brief recap of the conductor's session covering this ticket.
+- `learnings_extracted`: the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit (or `[]` if learning extraction was skipped/soft-failed).
 
 **Failure semantics:**
 

@@ -14,9 +14,10 @@ Purpose: Per-ticket learnings-capture agent. Spawned by /implement-ticket Phase 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Required inputs: ticket_id, ticket_title, ticket_description,
             architect_plan_path, brief_path, findings_log, qa_md_diff, merged_diff,
-            pr_url, conversation_summary. Returns a JSON object with fields:
-            memory_md_appends[], decisions_md_appends[], context_md_recent_focus_addition,
-            operator_summary, writer_actions[], skipped_reason, size_advisory.
+            pr_url, conversation_summary, learnings_extracted. Returns a JSON object
+            with fields: memory_md_appends[], decisions_md_appends[],
+            context_md_recent_focus_addition, operator_summary, writer_actions[],
+            skipped_reason, size_advisory.
 
 Upstream deps: None (no external libraries; only Read/Glob/Grep/Edit/Write tools).
 
@@ -74,6 +75,7 @@ Your spawn prompt provides the following inputs (all required unless noted):
 8. **`merged_diff`** - the full merged diff of the ticket's changes (`git diff origin/$BASE_BRANCH..HEAD`).
 9. **`pr_url`** - the PR URL.
 10. **`conversation_summary`** - a brief recap of the conductor's session covering this ticket. Optional but recommended.
+11. **`learnings_extracted`** - the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit. May be empty if learning extraction was skipped or soft-failed. When non-empty, the corresponding entries in `.agentic/learnings.md` are higher-signal inputs for fact extraction.
 
 ## Workflow
 
@@ -115,10 +117,15 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 - Read `merged_diff` (passed as input).
 - If `architect_plan_path` is a real path, Read it.
 - If `brief_path` is a real path, Read it.
+- If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
 
 ### 3. Extract candidate facts
 
-Walk the inputs and extract candidate facts. Apply this heuristic:
+Walk the inputs and extract candidate facts. **Priority order:**
+1. **Structured learnings** (from `.agentic/learnings.md` entries matched by `learnings_extracted`) are the highest-signal input. Each learning entry already contains a validated Pattern and Fix. Translate these into MEMORY.md/decisions.md entries where appropriate. Not every learning needs its own MEMORY.md line; consolidate related learnings into a single durable fact.
+2. **Remaining inputs** (`findings_log`, `merged_diff`, architect plan, brief, `qa_md_diff`, `conversation_summary`) are supplementary. Apply the heuristic below to these.
+
+Apply this heuristic:
 
 - **Stable** = a decision, gotcha, command, configuration choice, or pattern that will affect future tickets in this project. Examples: "Tailwind preflight removes button cursor; restored via globals.css", "auth tokens use HS256, not RS256, by project decision", "do not run `pnpm install` per-package - use root only".
 - **Noise** = one-off implementation detail specific to this ticket. Examples: "added a button to /settings page", "fixed off-by-one in pagination loop", "renamed variable X to Y".
