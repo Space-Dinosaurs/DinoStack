@@ -927,7 +927,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 **Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
 
-**Spawn:** `learning-extractor` (Tier 1, foreground, blocking, 30-second timeout).
+**Spawn:** `learning-extractor` (Tier 1, background, fire-and-forget).
 
 **Spawn brief inputs:**
 - `ticket_id`: the resolved ticket id.
@@ -935,12 +935,10 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 - `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
 
 **Failure semantics:**
-- `learning-extractor` failure NEVER blocks the calibration emit, meta-Skeptic sampling, or Phase 6b. Soft-fail with a warning line printed to the operator.
-- If `learning-extractor` returns within 30s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user.
-- If `learning-extractor` exceeds the 30s timeout: conductor warns the operator (`"Learning extraction: learning-extractor exceeded 30s timeout; proceeding without learnings."`) and proceeds.
-- If `learning-extractor` returns with `skipped_reason` populated (zero-substance, etc.): conductor prints the `operator_summary` and proceeds without warning.
-
-The conductor stores the `learning_ids[]` from the return JSON for Phase 11b.
+- `learning-extractor` failure NEVER blocks the calibration emit, meta-Skeptic sampling, or Phase 6b. Soft-fail silently.
+- The conductor does NOT wait for `learning-extractor` to return. It is fire-and-forget.
+- On return (asynchronous): if `learning-extractor` returns with a valid JSON shape, the conductor stores the `learning_ids[]` for Phase 11b and prints `operator_summary` to the user at the next turn boundary. If `skipped_reason` is populated (zero-substance, etc.), the conductor notes it silently.
+- If `learning-extractor` does not return before Phase 11b, `wrap-ticket` reads whatever entries exist in `.agentic/learnings.md` (may be partial or empty). No warning needed.
 
 **Calibration emit + meta-Skeptic sampling (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor performs the following before declaring the unit complete:
 
