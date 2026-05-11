@@ -1,0 +1,54 @@
+# Dockerfile.swebench
+#
+# Purpose: Minimal Python+pytest sandbox image for SWE-bench-style Tier 3 eval
+#          runs. Provides a non-root user, no network access at run time, and
+#          a fixed dependency set for reproducible scoring.
+#
+# Security model:
+#   - All dependencies are installed at BUILD time (network available).
+#   - NO pip install at RUN time: the container runs with --network none and
+#     --read-only rootfs; per-task requirements.txt from /workspace/repo is
+#     NEVER installed during scoring to prevent dependency injection attacks.
+#   - Score phase pytest is invoked with --noconftest --rootdir=/scoring/tests
+#     --confcutdir=/scoring so agent-planted conftest.py / pytest.ini in
+#     /workspace/repo cannot execute during scoring. See entrypoint.sh.
+#
+# Base image pinned by digest to prevent silent upstream tag moves from
+# changing the evaluation environment between runs.
+# Digest: python:3.11-slim (multi-arch, verified 2026-05-11)
+FROM python@sha256:a5b427ace4900267d93db34138e512325c6fa6af84ad5e4ed5f3b36258cc4142
+
+# Metadata
+LABEL org.opencontainers.image.title="ae-eval-swebench" \
+      org.opencontainers.image.description="AE eval harness Tier 3 sandbox for SWE-bench fix+score phases" \
+      org.opencontainers.image.source="evals/runner/Dockerfile.swebench"
+
+# Install pytest and a minimal set of test utilities at BUILD time.
+# Network is available here (build time). Network is disabled at run time via
+# `docker run --network none`. No per-task packages are installed at run time;
+# if a task requires additional packages, extend this RUN layer and rebuild.
+RUN pip install --no-cache-dir pytest==8.3.5
+
+# Create a non-root user for running eval commands.
+RUN groupadd --gid 1001 evaluser && \
+    useradd --uid 1001 --gid evaluser --shell /bin/bash --create-home evaluser
+
+# Mount points (populated at docker run time, not at build time):
+#   /workspace/repo   - fix-phase rw mount (or ro during scoring phase)
+#   /scoring/tests    - held-out test tree, ro, scoring phase only
+#   /scoring          - CWD for score phase (prevents pytest rootdir at /workspace)
+# Create the directories so Docker does not create them as root.
+RUN mkdir -p /workspace/repo /scoring/tests && \
+    chown evaluser:evaluser /workspace /workspace/repo /scoring /scoring/tests
+
+# Copy the entrypoint script.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch to non-root user.
+USER evaluser
+
+# Default working directory; docker run -w overrides this per phase.
+WORKDIR /workspace/repo
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
