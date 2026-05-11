@@ -1,0 +1,46 @@
+# Dockerfile.swebench
+#
+# Purpose: Minimal Python+pytest sandbox image for SWE-bench-style Tier 3 eval
+#          runs. Provides a non-root user, no network access at build OR run
+#          time, and a fixed dependency set for reproducible scoring.
+#
+# Base image pinned by digest to prevent silent upstream tag moves from
+# changing the evaluation environment between runs.
+# Digest: python:3.11-slim (multi-arch, verified 2026-05-11)
+FROM python@sha256:a5b427ace4900267d93db34138e512325c6fa6af84ad5e4ed5f3b36258cc4142
+
+# Metadata
+LABEL org.opencontainers.image.title="ae-eval-swebench" \
+      org.opencontainers.image.description="AE eval harness Tier 3 sandbox for SWE-bench fix+score phases" \
+      org.opencontainers.image.source="evals/runner/Dockerfile.swebench"
+
+# Install pytest and a minimal set of test utilities.
+# Network is available here (build time). Network is disabled at run time via
+# `docker run --network none` in isolator.py.
+# No pip upgrade here - keeps the layer slim.
+# Packages that individual tasks require are installed via the entrypoint or
+# a per-task requirements.txt mounted at /workspace/repo/requirements.txt.
+RUN pip install --no-cache-dir pytest==8.3.5
+
+# Create a non-root user for running eval commands.
+RUN groupadd --gid 1001 evaluser && \
+    useradd --uid 1001 --gid evaluser --shell /bin/bash --create-home evaluser
+
+# Mount points (populated at docker run time, not at build time):
+#   /workspace/repo   - fix-phase rw mount (or ro during scoring phase)
+#   /scoring/tests    - held-out test tree, ro, scoring phase only
+# Create the directories so Docker does not create them as root.
+RUN mkdir -p /workspace/repo /scoring/tests && \
+    chown evaluser:evaluser /workspace /workspace/repo /scoring /scoring/tests
+
+# Copy the entrypoint script.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch to non-root user.
+USER evaluser
+
+# Working directory defaults to the seeded repo.
+WORKDIR /workspace/repo
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
