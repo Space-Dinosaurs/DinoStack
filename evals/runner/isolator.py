@@ -26,12 +26,19 @@ Purpose: Provide component-tier isolation for eval runs. Tier 1 = git worktree
            Fix phase:  rw mount at /workspace/repo  (seeded fix-phase repo)
                        held-out tests NOT mounted
            Score phase: separate docker run invocation; mounts
-                         /workspace/repo ro  (fix-phase output)
+                         /workspace/repo ro  (fix-phase output, read-only)
                          /scoring/tests  ro  (held-out tests)
-         Both docker run invocations use --network none (no internet access)
-         and --memory 1g --cpus 1.0 resource caps. The docker build step
-         requires network (for pip install) but the eval containers themselves
-         are always network-isolated at run time.
+                       pytest CWD is /scoring (NOT /workspace/repo) with
+                       --noconftest --rootdir=/scoring/tests
+                       --confcutdir=/scoring to prevent conftest.py or
+                       pytest.ini planted by the agent from executing.
+                       NO pip install during score phase - agent cannot
+                       add dependencies that take effect during scoring.
+         Both docker run invocations use --network none, --memory 1g,
+         --cpus 1.0, --cap-drop=ALL, --security-opt=no-new-privileges,
+         --pids-limit=256, --read-only, and --tmpfs /tmp:size=64m,noexec,nosuid.
+         The docker build step requires network (for pip install) but the
+         eval containers themselves are always network-isolated at run time.
 
          NOTE on Tier 3 macOS Docker Desktop divergence:
            On Linux, --network none disables all network namespaces. On
@@ -42,6 +49,21 @@ Purpose: Provide component-tier isolation for eval runs. Tier 1 = git worktree
            --network none reliably prevents in-container DNS resolution and
            outbound TCP on both platforms. No workaround is required.
 
+         NOTE on Tier 3 container timeout handling:
+           `timeout_seconds` is the REAL in-container wall-clock limit.
+           The entrypoint wraps commands with `timeout <N>` so the process
+           is killed inside the container. The outer subprocess.run timeout
+           is set to timeout_seconds + 30 s as a host-side safety guard.
+           On host-side subprocess.TimeoutExpired (fallback), the container
+           is force-removed via `docker rm -f <cidfile-id>` in a try/finally
+           so no container leaks on the Docker daemon.
+
+         NOTE on image digest pinning:
+           After each `docker build`, the local image digest is resolved via
+           `docker inspect --format={{.Id}}` and stored. run_fix_phase and
+           run_score_phase reference the digest (not the mutable tag) so
+           parallel-branch tag overwrites cannot silently swap the image.
+
 Public API: make_isolator(tier: int, **kwargs) -> Isolator,
             Tier1Worktree (context manager yielding a worktree Path),
             Tier2HomeRedirect (context manager yielding (worktree, fake_home)),
@@ -49,20 +71,24 @@ Public API: make_isolator(tier: int, **kwargs) -> Isolator,
             IsolatorBase abstract contract.
 
 Upstream deps: stdlib subprocess, pathlib, tempfile, shutil, uuid, os, sys,
-               json, typing. Tier 3 requires `docker` CLI on PATH.
+               json, typing. Tier 3 requires `docker` CLI on PATH; absence
+               raises FileNotFoundError (OSError subclass) when any docker
+               subprocess.run call is made - callers should guard with a
+               _docker_available() check before constructing Tier3Docker.
 
 Downstream consumers: evals.runner.cli, evals.runner.invoker.
 
 Failure modes: raises RuntimeError if git worktree creation fails (Tier 1/2).
                raises RuntimeError if docker build/run fails (Tier 3).
+               raises FileNotFoundError if `docker` CLI is not found on PATH
+               (Tier 3 only); no network needed if image is pre-built.
                Cleanup best-effort; stale dirs under evals/.worktrees/ and the
                per-run fake-HOME temp dir are logged with a warning if
                removal fails. Auth-symlink creation failures are logged but
                do not raise - the eval still runs, may fall back to
                ANTHROPIC_API_KEY env if propagated. Tier 3 containers always
-               run with --rm so leaked containers are a host-docker concern
-               only on abnormal termination; try/finally in __exit__ sends
-               `docker rm -f` as a safety net.
+               run with --rm; on host-side TimeoutExpired the cidfile-tracked
+               container is force-removed via docker rm -f in a try/finally.
 
 Performance: worktree add/remove is O(repo size); fake-HOME creation is
              O(1) plus a handful of small file writes plus 1-3 symlinks.
@@ -280,6 +306,33 @@ class Tier2HomeRedirect(IsolatorBase):
 # Tier 3: Docker container isolation
 # ---------------------------------------------------------------------------
 
+
+def _force_remove_cidfile_container(cidfile: Path) -> None:
+    """Read the container ID from `cidfile` and force-remove the container.
+
+    Called in the except/finally path when a host-side subprocess.TimeoutExpired
+    fires. The cidfile is written by `docker run --cidfile` before the container
+    starts executing, so it should be present. Best-effort: logs on failure,
+    never raises.
+    """
+    try:
+        cid = cidfile.read_text().strip()
+    except OSError:
+        _log.warning("Tier 3: cidfile %s unreadable; cannot force-remove container", cidfile)
+        return
+    if not cid:
+        return
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", cid],
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+        _log.info("Tier 3: force-removed container %s after timeout", cid)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _log.warning("Tier 3: docker rm -f %s failed: %s", cid, e)
+
 # Pinned base image digest (python:3.11-slim, verified 2026-05-11).
 # Pin by digest so a silent upstream tag move cannot change the base image
 # between runs and break reproducibility. Update when intentionally upgrading.
@@ -306,9 +359,15 @@ class Tier3Context(NamedTuple):
     # during the fix phase; mounted ro at /scoring/tests during score phase.
     held_out_dir: Path
 
-    # Image tag that was built (or already existed); pass to run_fix_phase /
-    # run_score_phase helpers.
+    # Image tag that was built (or already existed); retained for display /
+    # compatibility only. run_fix_phase and run_score_phase use image_digest
+    # for all docker run calls to avoid mutable-tag races.
     image_tag: str
+
+    # Content-addressed digest resolved after build (or inspect of pre-built
+    # image). Format: "sha256:<hex>". Used in all docker run calls so a
+    # parallel-branch tag overwrite cannot silently swap the image.
+    image_digest: str
 
 
 class Tier3Docker(IsolatorBase):
@@ -360,9 +419,10 @@ class Tier3Docker(IsolatorBase):
     # ------------------------------------------------------------------
 
     def __enter__(self) -> Tier3Context:
-        # 1. Optionally build the image.
+        # 1. Optionally build the image, then resolve the content digest.
         if self.build_image:
             self._build_image()
+        image_digest = self._resolve_image_digest()
 
         # 2. Prepare fix-phase dir (rw copy of the fixture repo).
         fix_phase_dir = Path(tempfile.mkdtemp(prefix="t3-fix-"))
@@ -386,6 +446,7 @@ class Tier3Docker(IsolatorBase):
             fix_phase_dir=fix_phase_dir,
             held_out_dir=held_out_dir,
             image_tag=_DOCKER_IMAGE_TAG,
+            image_digest=image_digest,
         )
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -457,6 +518,30 @@ class Tier3Docker(IsolatorBase):
             )
         _log.info("Tier 3: image built as %s", _DOCKER_IMAGE_TAG)
 
+    @staticmethod
+    def _resolve_image_digest() -> str:
+        """Resolve the local image to its content digest (sha256:<hex>).
+
+        Uses `docker inspect` so the returned reference is content-addressed
+        and immune to mutable-tag races where a parallel branch overwrites
+        the local ae-eval-swebench:latest tag between build and run.
+
+        Raises RuntimeError if the image is not found locally.
+        """
+        result = subprocess.run(
+            ["docker", "inspect", "--format={{.Id}}", _DOCKER_IMAGE_TAG],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise RuntimeError(
+                f"docker inspect failed for {_DOCKER_IMAGE_TAG}: "
+                f"{result.stderr.strip() or 'image not found locally'}"
+            )
+        digest = result.stdout.strip()
+        _log.info("Tier 3: image digest resolved: %s", digest)
+        return digest
+
     # ------------------------------------------------------------------
     # Run helpers (called by the eval driver, not by __enter__)
     # ------------------------------------------------------------------
@@ -470,31 +555,59 @@ class Tier3Docker(IsolatorBase):
     ) -> subprocess.CompletedProcess[str]:
         """Run a command inside the container (fix phase).
 
-        Mounts fix_phase_dir rw at /workspace/repo. held_out_dir is NOT
-        mounted. Network is disabled. Resource-capped to 1 g RAM / 1.0 CPU.
+        Security contract:
+          - /workspace/repo mounted rw; /scoring/tests NOT mounted.
+          - --network none: no outbound network.
+          - --cap-drop=ALL --security-opt=no-new-privileges: minimal capabilities.
+          - --read-only rootfs; /tmp writable via tmpfs (64m, noexec, nosuid).
+          - --pids-limit=256: fork-bomb mitigation.
+          - Container referenced by content digest, not mutable tag.
+
+        Timeout: `timeout_seconds` is enforced inside the container by the
+        entrypoint's `timeout <N>` wrapper. The outer subprocess.run timeout
+        (timeout_seconds + 30) is a host-side safety guard. On
+        subprocess.TimeoutExpired the container is force-removed via
+        `docker rm -f` before re-raising.
 
         Returns the CompletedProcess; callers check returncode.
         """
+        cidfile = Path(tempfile.mktemp(prefix="t3-cid-", suffix=".cid"))
         docker_cmd = [
             "docker", "run",
             "--rm",
+            "--cidfile", str(cidfile),
             "--network", "none",
             "--memory", "1g",
             "--cpus", "1.0",
-            "--stop-timeout", str(timeout_seconds),
+            "--pids-limit", "256",
+            "--cap-drop=ALL",
+            "--security-opt", "no-new-privileges",
+            "--read-only",
+            "--tmpfs", "/tmp:size=64m,noexec,nosuid",
+            "--tmpfs", "/home/evaluser:size=32m,noexec,nosuid",
+            "-e", f"EVAL_TIMEOUT_SECONDS={timeout_seconds}",
             "-v", f"{ctx.fix_phase_dir}:/workspace/repo:rw",
             "-w", "/workspace/repo",
         ]
         if env:
             for k, v in env.items():
                 docker_cmd += ["-e", f"{k}={v}"]
-        docker_cmd += [ctx.image_tag] + command
-        return subprocess.run(
-            docker_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds + 10,  # outer guard slightly wider
-        )
+        docker_cmd += [ctx.image_digest] + command
+        try:
+            return subprocess.run(
+                docker_cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds + 30,  # host-side guard; in-container timeout is authoritative
+            )
+        except subprocess.TimeoutExpired:
+            _force_remove_cidfile_container(cidfile)
+            raise
+        finally:
+            try:
+                cidfile.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     @staticmethod
     def run_score_phase(
@@ -505,32 +618,62 @@ class Tier3Docker(IsolatorBase):
     ) -> subprocess.CompletedProcess[str]:
         """Run a scoring command inside the container (score phase).
 
-        Mounts fix_phase_dir ro at /workspace/repo and held_out_dir ro at
-        /scoring/tests. Network is disabled. Resource-capped to 1 g RAM / 1.0 CPU.
+        Security contract:
+          - /workspace/repo mounted ro: agent-controlled fix output is read-only.
+          - /scoring/tests mounted ro: held-out test tree.
+          - Working directory is /scoring (NOT /workspace/repo) so pytest
+            cannot discover conftest.py / pytest.ini / pyproject.toml planted
+            by the agent in /workspace/repo.
+          - pytest is invoked via the entrypoint with --noconftest
+            --rootdir=/scoring/tests --confcutdir=/scoring so no conftest
+            outside /scoring is loaded.
+          - No pip install: the agent cannot add dependencies that affect scoring.
+          - --network none, --cap-drop=ALL, --security-opt=no-new-privileges,
+            --read-only, --tmpfs /tmp:size=64m,noexec,nosuid, --pids-limit=256.
+          - Container referenced by content digest, not mutable tag.
+
+        Timeout: see run_fix_phase docstring (same contract).
 
         Returns the CompletedProcess; callers check returncode.
         """
+        cidfile = Path(tempfile.mktemp(prefix="t3-cid-", suffix=".cid"))
         docker_cmd = [
             "docker", "run",
             "--rm",
+            "--cidfile", str(cidfile),
             "--network", "none",
             "--memory", "1g",
             "--cpus", "1.0",
-            "--stop-timeout", str(timeout_seconds),
+            "--pids-limit", "256",
+            "--cap-drop=ALL",
+            "--security-opt", "no-new-privileges",
+            "--read-only",
+            "--tmpfs", "/tmp:size=64m,noexec,nosuid",
+            "--tmpfs", "/home/evaluser:size=32m,noexec,nosuid",
+            "-e", f"EVAL_TIMEOUT_SECONDS={timeout_seconds}",
             "-v", f"{ctx.fix_phase_dir}:/workspace/repo:ro",
             "-v", f"{ctx.held_out_dir}:/scoring/tests:ro",
-            "-w", "/workspace/repo",
+            "-w", "/scoring",
         ]
         if env:
             for k, v in env.items():
                 docker_cmd += ["-e", f"{k}={v}"]
-        docker_cmd += [ctx.image_tag] + command
-        return subprocess.run(
-            docker_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds + 10,
-        )
+        docker_cmd += [ctx.image_digest] + command
+        try:
+            return subprocess.run(
+                docker_cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds + 30,  # host-side guard; in-container timeout is authoritative
+            )
+        except subprocess.TimeoutExpired:
+            _force_remove_cidfile_container(cidfile)
+            raise
+        finally:
+            try:
+                cidfile.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def make_isolator(tier: int, **kwargs: Any) -> IsolatorBase:
