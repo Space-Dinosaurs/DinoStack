@@ -174,6 +174,34 @@ def validate_corpus(corpus_path: Path, tasks_root: Path) -> list[str]:
         if not problem_md.is_file():
             violations.append(f"{prefix}: missing problem.md at '{problem_md}'")
 
+        # Check test_patch.diff exists, is non-empty, and looks like a real diff.
+        # Staged by seed_corpus.py from the HuggingFace SWE-bench_Lite dataset.
+        test_patch = task_dir / "test_patch.diff"
+        if not test_patch.is_file():
+            violations.append(
+                f"{prefix}: missing test_patch.diff at '{test_patch}'. "
+                "Run: python evals/skill-comparison/seed_corpus.py"
+            )
+        elif test_patch.stat().st_size == 0:
+            violations.append(
+                f"{prefix}: test_patch.diff at '{test_patch}' is empty. "
+                "Re-run: python evals/skill-comparison/seed_corpus.py --force"
+            )
+        else:
+            # MINOR-1: detect truncated patches whose first line is not the
+            # standard unified diff header. A patch that is non-empty but does
+            # not start with 'diff --git' is likely truncated or malformed.
+            try:
+                first_line = test_patch.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+                if not first_line.startswith("diff --git"):
+                    violations.append(
+                        f"{prefix}: test_patch.diff at '{test_patch}' does not "
+                        f"start with 'diff --git' (first line: {first_line[:80]!r}). "
+                        "Patch may be truncated; re-run seed_corpus.py --force."
+                    )
+            except (OSError, IndexError):
+                pass  # empty-file case already caught above
+
         # Check held_out_tests directory exists.
         hot_dir = task_dir / "held_out_tests"
         if not hot_dir.is_dir():

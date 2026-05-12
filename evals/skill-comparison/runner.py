@@ -39,6 +39,7 @@ Upstream deps: stdlib pathlib, time, csv, json, dataclasses, sys, logging,
                evals.skill-comparison.ae_rules_payload (build_payload).
                evals.skill-comparison.config_discovery (discover_configs).
                evals.skill-comparison.scoring (score_cell).
+               evals.skill-comparison.seeding (seed_fix_phase, SeedError).
                evals.icl_vs_orchestration.cost_gate (CostGate, BudgetExceeded).
 
 Downstream consumers: CLI / scripts; evals/skill-comparison/tests/test_runner.py.
@@ -72,6 +73,9 @@ except ImportError as exc:  # pragma: no cover
 
 # Module-level import so tests can patch `runner.score_cell` cleanly.
 from scoring import ScoringResult, score_cell  # noqa: E402
+
+# Module-level import so tests can patch `runner.seed_fix_phase` cleanly.
+from seeding import SeedError, seed_fix_phase  # noqa: E402
 
 _LOG = logging.getLogger(__name__)
 
@@ -449,6 +453,7 @@ def run_matrix(
                 # commit. The held-out dir is populated from task_meta.
                 tier3_ctx = None
                 _tier3_instance = None
+                _non_tier3_fix_dir: Optional[Path] = None
 
                 if use_tier3:
                     assert _Tier3Docker is not None  # guarded above
@@ -468,20 +473,128 @@ def run_matrix(
                     tier3_ctx = _tier3_instance.__enter__()
 
                 try:
-                    # Run the fix phase.
+                    # Determine the fix-phase directory.
+                    # Tier3 provides an isolated tmpdir; otherwise fall back
+                    # to a per-cell tempdir in tier3_mode='off' (non-dry-run).
                     fix_worktree: Optional[Path] = (
                         tier3_ctx.fix_phase_dir if tier3_ctx is not None else None
                     )
-                    try:
-                        result = _run_cell(
-                            task_slug=task_slug,
-                            task_meta=task_meta,
-                            condition=condition,
-                            replicate=rep,
-                            ae_payload=ae_payload,
-                            dry_run=dry_run,
-                            worktree=fix_worktree,
+
+                    # Seeding: clone repo at base_commit and apply test_patch.
+                    # Skipped in dry_run mode (canned transcript path).
+                    _seed_status: Optional[str] = None  # None = ok / "seed_error"
+                    if not dry_run:
+                        # When not using Tier3, create a tempdir for the fix phase.
+                        if fix_worktree is None:
+                            _non_tier3_fix_dir = Path(tempfile.mkdtemp(
+                                prefix=f"skill-cmp-{task_slug}-"
+                            ))
+                            fix_worktree = _non_tier3_fix_dir
+
+                        _tasks_root = Path(__file__).parent / "tasks"
+                        try:
+                            seed_fix_phase(
+                                task_slug=task_slug,
+                                task_meta=task_meta,
+                                fix_dir=fix_worktree,
+                                tasks_root=_tasks_root,
+                            )
+                        except SeedError as seed_exc:
+                            _LOG.error(
+                                "Seed failed for %s rep %d (step=%s): %s",
+                                cell_id, rep, seed_exc.step, seed_exc,
+                            )
+                            _seed_status = "seed_error"
+                        except (FileNotFoundError, ValueError) as seed_exc:
+                            _LOG.error(
+                                "Seed pre-check failed for %s rep %d: %s",
+                                cell_id, rep, seed_exc,
+                            )
+                            _seed_status = "seed_error"
+
+                    # If seeding failed, record seed_error row and skip engineer.
+                    if _seed_status == "seed_error":
+                        _append_tsv_row(
+                            results_tsv,
+                            {
+                                "task_slug": task_slug,
+                                "condition": condition,
+                                "replicate": rep,
+                                "status": "seed_error",
+                                "pass_fail": "0",
+                                # MAJOR-2: use empty string for score_primary on error
+                                # rows so the aggregator excludes them from median
+                                # computation. 0.0 would silently inflate failure rates.
+                                "score_primary": "",
+                                "lines_touched": 0,
+                                "files_touched": 0,
+                                "scope_creep_flag": "0",
+                                "held_out_failures": "[]",
+                                "cost_usd": 0.0,
+                                "tokens_input": 0,
+                                "tokens_output": 0,
+                                "latency_ms": 0,
+                                "invocation_mode": "seed_error",
+                                "diagnostics_json": "{}",
+                            },
                         )
+                        report.rows_written += 1
+                        # Cleanup non-Tier3 tmpdir if we created one.
+                        if _non_tier3_fix_dir is not None:
+                            shutil.rmtree(_non_tier3_fix_dir, ignore_errors=True)
+                            _non_tier3_fix_dir = None
+                        continue
+
+                    # Run the fix phase.
+                    # Production (tier3_ctx is not None): route through
+                    # Tier3Docker.run_fix_phase so the isolator orchestrates
+                    # the Claude CLI invocation. This ensures the isolator's
+                    # fix-phase directory is the canonical cwd for the agent.
+                    # MAJOR-3 regression: previously invoke_run was called
+                    # directly here, bypassing run_fix_phase entirely.
+                    try:
+                        if tier3_ctx is not None:
+                            # Fix-phase CLI runs on host (Anthropic API network requirement).
+                            # Score-phase enforces container isolation - see run_score_phase.
+                            # Build prompt and invoke via the isolator.
+                            _fix_prompt = _build_fix_prompt(task_slug, task_meta)
+                            _agent_name: Optional[str] = _AGENT_CONDITIONS.get(condition)
+                            _system_prompt: Optional[str] = (
+                                ae_payload if condition == "ae-rules-injected" else None
+                            )
+                            cp = _Tier3Docker.run_fix_phase(
+                                ctx=tier3_ctx,
+                                prompt=_fix_prompt,
+                                timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
+                                agent_name=_agent_name,
+                                system_prompt=_system_prompt,
+                            )
+                            # run_fix_phase (prompt path) encodes the invoker
+                            # dict as JSON in cp.stdout.
+                            try:
+                                result = json.loads(cp.stdout)
+                            except (json.JSONDecodeError, TypeError):
+                                result = {
+                                    "final_text": cp.stdout or "",
+                                    "status": "ok" if cp.returncode == 0 else f"cli_exit_{cp.returncode}",
+                                    "cost_usd": 0.0,
+                                    "usage": {},
+                                    "latency_ms": 0,
+                                    "invocation_mode": "tier3",
+                                    "tool_calls": [],
+                                    "turns_used": 0,
+                                    "_parse_warnings": ["run_fix_phase stdout was not valid JSON"],
+                                }
+                        else:
+                            result = _run_cell(
+                                task_slug=task_slug,
+                                task_meta=task_meta,
+                                condition=condition,
+                                replicate=rep,
+                                ae_payload=ae_payload,
+                                dry_run=dry_run,
+                                worktree=fix_worktree,
+                            )
                     except Exception as exc:
                         _LOG.error(
                             "Cell %s rep %d raised unexpectedly: %s",
@@ -507,13 +620,20 @@ def run_matrix(
                     invocation_mode = result.get("invocation_mode", "")
 
                     # Score the cell.
-                    # dry_run: use fresh tmpdirs; production: use Tier3 dirs or Path(".").
+                    # dry_run: use fresh tmpdirs; production: use Tier3 dirs
+                    # or the seeded fix_worktree (tier3_mode='off' path).
                     if dry_run:
                         fix_dir = Path(tempfile.mkdtemp())
                         held_dir = Path(tempfile.mkdtemp())
                     elif tier3_ctx is not None:
                         fix_dir = tier3_ctx.fix_phase_dir
                         held_dir = tier3_ctx.held_out_dir
+                    elif fix_worktree is not None:
+                        # tier3_mode='off' production: use the seeded worktree.
+                        # The test_patch was applied to fix_worktree, so the
+                        # held-out tests live there alongside the source.
+                        fix_dir = fix_worktree
+                        held_dir = fix_worktree
                     else:
                         fix_dir = Path(".")
                         held_dir = Path(".")
@@ -557,6 +677,10 @@ def run_matrix(
                     if _tier3_instance is not None:
                         _tier3_instance.__exit__(None, None, None)
                         tier3_ctx = None
+                    # Cleanup non-Tier3 seeded tmpdir (if we created one).
+                    if _non_tier3_fix_dir is not None:
+                        shutil.rmtree(_non_tier3_fix_dir, ignore_errors=True)
+                        _non_tier3_fix_dir = None
 
                 # Record cost.
                 tokens_input = int(usage.get("input_tokens", usage.get("input", 0)))
