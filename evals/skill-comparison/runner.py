@@ -541,11 +541,18 @@ def run_matrix(
                     task_held_out = task_meta.get("_held_out_dir_path")
                     if task_held_out and Path(task_held_out).exists():
                         held_out_path = Path(task_held_out)
+                    # held_out_from_fix_dir=True: test_patch is applied to the
+                    # fix-phase dir during seeding, so /scoring/tests must
+                    # mount the same dir as /workspace/repo. When a task also
+                    # provides a held_out_path (pre-seeded corpus files),
+                    # held_out_from_fix_dir takes precedence so the
+                    # post-seeding test files are used for scoring.
                     _tier3_instance = _Tier3Docker(
                         fixture_repo_dir=None,  # base repo seeded externally
                         held_out_dir=held_out_path,
                         build_image=False,  # image already built once by ensure_image() above
                         timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
+                        held_out_from_fix_dir=True,
                     )
                     tier3_ctx = _tier3_instance.__enter__()
 
