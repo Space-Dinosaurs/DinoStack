@@ -52,6 +52,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -230,7 +231,7 @@ def _run_pytest_local(
     Returns (returncode, combined_stdout).
     """
     cmd = [
-        "python", "-m", "pytest",
+        sys.executable, "-m", "pytest",
         str(held_out_dir),
         "--noconftest",
         f"--rootdir={held_out_dir}",
@@ -273,8 +274,13 @@ def _run_pytest_tier3(
     """
     from evals.runner.isolator import Tier3Docker  # local import to avoid hard dep
 
+    # Use the container-resident interpreter, NOT sys.executable.
+    # sys.executable is the host Python path (e.g. /Users/.../.pyenv/shims/python3.11)
+    # which does not exist inside the Docker image. The python:3.11-slim base image
+    # guarantees "python3" on PATH; "python" also exists as a symlink in that image,
+    # but "python3" is preferred for explicitness.
     cmd = [
-        "python", "-m", "pytest",
+        "python3", "-m", "pytest",
         "/scoring/tests",
         "--noconftest",
         "--rootdir=/scoring/tests",

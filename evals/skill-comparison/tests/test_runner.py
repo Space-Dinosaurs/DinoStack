@@ -808,3 +808,73 @@ class TestResumeSemantics:
         assert report.rows_written == 1, (
             f"Only 1 new cell should have been written (engineer-direct), got {report.rows_written}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Bug-2 regression: score_cell raise -> status="score_error", not "ok"
+# ---------------------------------------------------------------------------
+
+
+class TestScoreCellRaiseProducesScoreErrorStatus:
+    """Regression test for Bug-2: when score_cell raises, the TSV row must
+    record status='score_error', not the engineer run_status ('ok').
+
+    Previously the except branch only populated `scored` with a sentinel
+    ScoringResult but left run_status unchanged, so every scoring failure
+    appeared as status='ok' in the TSV - indistinguishable from a clean run.
+    """
+
+    def test_score_cell_exception_sets_score_error_status(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """When score_cell raises, the appended TSV row has status='score_error'."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", side_effect=RuntimeError("pytest binary not found")):
+            report = run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        assert report.rows_written == 1, "Row must still be written even when scoring fails"
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 1
+        assert rows[0]["status"] == "score_error", (
+            f"Expected status='score_error' when score_cell raises; "
+            f"got status={rows[0]['status']!r}. "
+            "Misleading 'ok' status was the pre-fix behaviour."
+        )
+
+    def test_score_cell_ok_run_keeps_original_status(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """When score_cell succeeds, run_status from the engineer phase is preserved."""
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=canned_score):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 1
+        # dry-run _run_cell returns status="ok"; that must be preserved when scoring succeeds.
+        assert rows[0]["status"] == "ok", (
+            f"Expected status='ok' when both engineer and scoring succeed; "
+            f"got {rows[0]['status']!r}"
+        )
