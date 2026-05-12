@@ -341,3 +341,54 @@ class TestScoreCell:
         assert result.files_touched == 0
         assert result.scope_creep_flag is False
         assert result.diff_text == ""
+
+
+# ---------------------------------------------------------------------------
+# Bug-1 regression: score_cell must use sys.executable, not "python"
+# ---------------------------------------------------------------------------
+
+
+class TestScoreCellUsesSystemExecutable:
+    """Regression test for Bug-1: hardcoded 'python' fails on macOS.
+
+    scoring.py previously called subprocess.run(['python', '-m', 'pytest', ...]).
+    On macOS and modern Python installs only 'python3' exists, causing ENOENT.
+    Fix: replace with sys.executable so the caller always uses the same
+    interpreter the runner is running under.
+    """
+
+    def test_score_cell_cmd_uses_sys_executable(self, tmp_path: Path):
+        """subprocess.run must be called with sys.executable as cmd[0]."""
+        fix_dir = tmp_path / "fix"
+        fix_dir.mkdir()
+        held_dir = tmp_path / "held"
+        held_dir.mkdir()
+
+        captured_cmds: list[list] = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            mock = MagicMock()
+            mock.returncode = 0
+            mock.stdout = "1 passed"
+            mock.stderr = ""
+            return mock
+
+        with patch("scoring.subprocess.run", side_effect=fake_run):
+            score_cell(
+                task_slug="django-11039",
+                transcript=_PASSING_TRANSCRIPT,
+                task_meta=_TASK_META_SINGLE_FILE,
+                fix_phase_dir=fix_dir,
+                held_out_dir=held_dir,
+                pytest_timeout=30,
+            )
+
+        assert captured_cmds, "subprocess.run must have been called"
+        cmd = captured_cmds[0]
+        assert cmd[0] == sys.executable, (
+            f"cmd[0] must be sys.executable ({sys.executable!r}); got {cmd[0]!r}. "
+            "Hardcoded 'python' fails on macOS / envs without a 'python' symlink."
+        )
+        assert cmd[1] == "-m"
+        assert cmd[2] == "pytest"

@@ -52,6 +52,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -230,7 +231,7 @@ def _run_pytest_local(
     Returns (returncode, combined_stdout).
     """
     cmd = [
-        "python", "-m", "pytest",
+        sys.executable, "-m", "pytest",
         str(held_out_dir),
         "--noconftest",
         f"--rootdir={held_out_dir}",
@@ -274,7 +275,7 @@ def _run_pytest_tier3(
     from evals.runner.isolator import Tier3Docker  # local import to avoid hard dep
 
     cmd = [
-        "python", "-m", "pytest",
+        sys.executable, "-m", "pytest",
         "/scoring/tests",
         "--noconftest",
         "--rootdir=/scoring/tests",
