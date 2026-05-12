@@ -210,7 +210,7 @@ has exactly these 16 columns, in order:
 | `task_slug` | string | Task identifier from `corpus.yaml` (e.g. `django__django-12345`). |
 | `condition` | string | One of the 8 condition names (e.g. `baseline`, `ae-rules-injected`). |
 | `replicate` | int | 1-indexed replicate number within the (task, condition) cell. |
-| `status` | string | Outcome of the run: `pass`, `fail`, `error`, `timeout`, or `budget_exceeded`. |
+| `status` | string | Outcome of the run: `pass`, `fail`, `error`, `timeout`, `budget_exceeded`, or `score_error`. `score_error` means the scoring step (held-out pytest) raised an exception; the engineer-phase result is recorded in `diagnostics_json`. |
 | `pass_fail` | string | Simplified binary result: `pass` or `fail`. Derived from held-out test results. |
 | `score_primary` | float | 1.0 if all held-out tests pass, else 0.0. Primary metric for aggregate comparisons. |
 | `lines_touched` | int | Lines changed in the agent-produced diff. Diff-hygiene diagnostic. |

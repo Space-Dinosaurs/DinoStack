@@ -274,8 +274,13 @@ def _run_pytest_tier3(
     """
     from evals.runner.isolator import Tier3Docker  # local import to avoid hard dep
 
+    # Use the container-resident interpreter, NOT sys.executable.
+    # sys.executable is the host Python path (e.g. /Users/.../.pyenv/shims/python3.11)
+    # which does not exist inside the Docker image. The python:3.11-slim base image
+    # guarantees "python3" on PATH; "python" also exists as a symlink in that image,
+    # but "python3" is preferred for explicitness.
     cmd = [
-        sys.executable, "-m", "pytest",
+        "python3", "-m", "pytest",
         "/scoring/tests",
         "--noconftest",
         "--rootdir=/scoring/tests",
