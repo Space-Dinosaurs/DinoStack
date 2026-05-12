@@ -225,16 +225,38 @@ def _run_pytest_local(
     held_out_dir: Path,
     fix_phase_dir: Path,
     timeout: int,
+    fail_to_pass: list[str] | None = None,
 ) -> tuple[int, str]:
-    """Run pytest on held_out_dir tests against fix_phase_dir worktree.
+    """Run pytest against fix_phase_dir worktree.
+
+    When fail_to_pass is provided (and non-empty), the specific test node-ids
+    are passed directly to pytest so only the target tests are collected and
+    run. This is the correct behaviour: held_out_tests is a list of *file*
+    paths used for extraction, but pytest needs node-ids like
+    ``tests/test_foo.py::ClassName::test_name`` to select the right tests.
+    Passing a bare file path when the file does not exist under fix_phase_dir
+    causes pytest to collect 0 tests (the smoke v4 regression).
+
+    Falls back to str(held_out_dir) with a warning when fail_to_pass is empty.
 
     Returns (returncode, combined_stdout).
     """
+    if fail_to_pass:
+        test_targets = list(fail_to_pass)
+    else:
+        import warnings
+        warnings.warn(
+            "fail_to_pass is empty; falling back to held_out_dir for pytest "
+            "collection. This may collect 0 tests if the path does not exist "
+            "under fix_phase_dir.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        test_targets = [str(held_out_dir)]
+
     cmd = [
         sys.executable, "-m", "pytest",
-        str(held_out_dir),
-        "--noconftest",
-        f"--rootdir={held_out_dir}",
+        *test_targets,
         "--tb=short",
         "-q",
         "--timeout", str(timeout),
@@ -327,6 +349,10 @@ def score_cell(
         ScoringResult with all fields populated.
     """
     known_affected = task_meta.get("known_affected_files", [])
+    # fail_to_pass node-ids are used to select the exact tests to run.
+    # Using the file-level held_out_tests path causes pytest to collect 0 tests
+    # when the file does not exist under fix_phase_dir (the smoke v4 regression).
+    fail_to_pass: list[str] = task_meta.get("fail_to_pass", [])
 
     # 1. Extract diff from transcript.
     diff_text = extract_diff_from_transcript(transcript)
@@ -338,7 +364,9 @@ def score_cell(
     if tier3_ctx is not None:
         returncode, pytest_out = _run_pytest_tier3(tier3_ctx, pytest_timeout)
     else:
-        returncode, pytest_out = _run_pytest_local(held_out_dir, fix_phase_dir, pytest_timeout)
+        returncode, pytest_out = _run_pytest_local(
+            held_out_dir, fix_phase_dir, pytest_timeout, fail_to_pass=fail_to_pass
+        )
 
     pass_fail = returncode == 0
     failures = [] if pass_fail else _parse_pytest_failures(pytest_out)
