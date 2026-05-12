@@ -164,11 +164,7 @@ echo "Global skill install (optional)..."
 
 mkdir -p "$SKILL_DST"
 
-# Copy SKILL.md so it survives branch switches
-cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
-echo "  + SKILL.md copied to ~/.kimi/skills/agentic-engineering/"
-
-# Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/
+# Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/"
 link_abs() {
   local src="$1"
   local dst="$2"
@@ -189,6 +185,9 @@ link_abs() {
     echo "  + $(basename "$dst")"
   fi
 }
+
+# Symlink SKILL.md (same treatment as content dirs)
+link_abs "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
 
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"
@@ -229,6 +228,35 @@ else
   # Case 5: neither exists - clean install
   ln -s "$REPO_DIR/content/sections" "$_sections_dst"
   echo "  + sections"
+fi
+
+# ---------------------------------------------------------------------------
+# Configure Kimi CLI hooks
+# ---------------------------------------------------------------------------
+
+KIMI_CONFIG="$HOME/.kimi/config.toml"
+HOOK_SCRIPT="$REPO_DIR/.kimi/hooks/session-start.sh"
+
+if [[ -f "$KIMI_CONFIG" ]]; then
+  echo ""
+  echo "Configuring Kimi CLI hooks..."
+
+  # Check if the SessionStart hook already exists
+  if grep -q "session-start.sh" "$KIMI_CONFIG" 2>/dev/null; then
+    echo "  = SessionStart hook already configured"
+  else
+    cat >> "$KIMI_CONFIG" <<HOOKEOF
+
+[[hooks]]
+event = "SessionStart"
+command = "bash $HOOK_SCRIPT"
+matcher = ""
+timeout = 5
+HOOKEOF
+    echo "  + Added SessionStart hook to ~/.kimi/config.toml"
+  fi
+else
+  echo "  ! ~/.kimi/config.toml not found - skipping hook config"
 fi
 
 # ---------------------------------------------------------------------------

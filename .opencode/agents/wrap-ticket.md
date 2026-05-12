@@ -5,6 +5,7 @@ permission:
   edit: allow
   bash: allow
 ---
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 <!--
 Purpose: Per-ticket learnings-capture agent. Spawned by /implement-ticket Phase 11b
          on every PR opened (Trivial path skipped). Appends durable learnings to
