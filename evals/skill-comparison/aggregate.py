@@ -79,11 +79,19 @@ def _safe_stdev(values: list[float]) -> Optional[float]:
     return statistics.stdev(values)
 
 
-def _non_none(scores: list[Optional[float]]) -> list[float]:
-    """Filter out None/NaN entries from a score list."""
+def _non_none(scores: list) -> list[float]:
+    """Filter out None, NaN, and empty-string entries from a score list.
+
+    Empty strings are produced by runner.py for seed_error and score_error
+    rows (MAJOR-2 fix: these rows use score_primary="" so they are excluded
+    from aggregation and do not inflate apparent failure rates).
+    """
     result: list[float] = []
     for s in scores:
         if s is None:
+            continue
+        # Treat empty string as missing (seed_error / score_error rows).
+        if isinstance(s, str) and s.strip() == "":
             continue
         try:
             if not math.isnan(float(s)):

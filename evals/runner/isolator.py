@@ -549,28 +549,99 @@ class Tier3Docker(IsolatorBase):
     @staticmethod
     def run_fix_phase(
         ctx: Tier3Context,
-        command: list[str],
+        command: list[str] | None = None,
         timeout_seconds: int = 300,
         env: dict[str, str] | None = None,
+        prompt: str | None = None,
+        agent_name: str | None = None,
+        system_prompt: str | None = None,
+        model: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        """Run a command inside the container (fix phase).
+        """Run the engineer fix phase, either via Claude CLI (prompt mode) or
+        an arbitrary command (command mode).
 
-        Security contract:
+        When `prompt` is provided the method invokes the Claude CLI on the
+        HOST (not inside the container) with cwd=ctx.fix_phase_dir so that
+        the agent's file writes land in the host-side directory that is
+        later mounted at /workspace/repo:rw inside the score-phase container.
+        The container is NOT started for the claude CLI invocation because the
+        CLI requires outbound network to reach the Anthropic API; an
+        in-container invocation under --network none would break auth.
+
+        When `command` is provided (and `prompt` is None) the command is
+        executed INSIDE the container with the standard fix-phase isolation:
           - /workspace/repo mounted rw; /scoring/tests NOT mounted.
           - --network none: no outbound network.
-          - --cap-drop=ALL --security-opt=no-new-privileges: minimal capabilities.
+          - --cap-drop=ALL --security-opt=no-new-privileges.
           - --read-only rootfs; /tmp writable via tmpfs (64m, noexec, nosuid).
           - --pids-limit=256: fork-bomb mitigation.
           - Container referenced by content digest, not mutable tag.
 
-        Timeout: `timeout_seconds` is enforced inside the container by the
-        entrypoint's `timeout <N>` wrapper. The outer subprocess.run timeout
-        (timeout_seconds + 30) is a host-side safety guard. On
-        subprocess.TimeoutExpired the container is force-removed via
-        `docker rm -f` before re-raising.
+        Exactly one of `prompt` or `command` must be supplied.
 
-        Returns the CompletedProcess; callers check returncode.
+        Args:
+            ctx: Tier3Context from __enter__.
+            command: command to run INSIDE the container (command path).
+            timeout_seconds: wall-clock limit.
+            env: additional env vars for the claude CLI subprocess (prompt path)
+                 or injected into the docker run command (command path).
+            prompt: engineer prompt for the Claude CLI. When set, the CLI is
+                    invoked on the HOST at cwd=ctx.fix_phase_dir.
+            agent_name: optional named-agent spawned via two-level Task wrapper
+                        (prompt path only). None = conductor runs directly.
+            system_prompt: optional system prompt appended via
+                           --append-system-prompt (prompt path only; used for
+                           ae-rules-injected condition).
+            model: optional --model flag for the Claude CLI (prompt path only).
+
+        Returns a CompletedProcess. For the prompt path, returncode is 0 when
+        the invoker returns status='ok' and 1 otherwise; stdout contains the
+        invoker result dict as JSON. For the command path, returncode is the
+        docker run exit code.
+
+        Raises ValueError if neither or both of prompt/command are provided.
         """
+        if prompt is None and command is None:
+            raise ValueError(
+                "Tier3Docker.run_fix_phase: exactly one of 'prompt' or 'command' must be provided"
+            )
+        if prompt is not None and command is not None:
+            raise ValueError(
+                "Tier3Docker.run_fix_phase: 'prompt' and 'command' are mutually exclusive"
+            )
+
+        if prompt is not None:
+            # Claude CLI requires network (Anthropic API) so the fix-phase CLI
+            # invocation runs on the host at cwd=fix_phase_dir. Filesystem isolation
+            # is provided by routing all engineer edits through fix_phase_dir; held-out
+            # tests are not present in fix_phase_dir. See risk-register item #6 and
+            # architect-plan "Implementation deviation" note.
+            # Prompt path: run the Claude CLI on the HOST so it can reach the
+            # Anthropic API.  The agent's file writes go into ctx.fix_phase_dir,
+            # which is the host-side copy of the repo mounted at /workspace/repo:rw
+            # for the score phase.
+            import json as _json
+            from evals.runner.invoker import invoke_run as _invoke_run  # local to avoid circular
+            result = _invoke_run(
+                prompt=prompt,
+                worktree=ctx.fix_phase_dir,
+                timeout_seconds=timeout_seconds,
+                agent_name=agent_name,
+                mode="agent",
+                system_prompt=system_prompt,
+                model=model,
+            )
+            returncode = 0 if result.get("status") == "ok" else 1
+            stdout_json = _json.dumps(result, default=str)
+            return subprocess.CompletedProcess(
+                args=[],
+                returncode=returncode,
+                stdout=stdout_json,
+                stderr=result.get("stderr_tail", ""),
+            )
+
+        # Command path: run an arbitrary command INSIDE the container.
+        assert command is not None  # guaranteed by the checks above
         cidfile = Path(tempfile.mktemp(prefix="t3-cid-", suffix=".cid"))
         docker_cmd = [
             "docker", "run",
