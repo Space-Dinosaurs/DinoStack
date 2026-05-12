@@ -13,16 +13,18 @@
 #     --confcutdir=/scoring so agent-planted conftest.py / pytest.ini in
 #     /workspace/repo cannot execute during scoring. See entrypoint.sh.
 #
-# Base image pinned by digest to prevent silent upstream tag moves from
-# changing the evaluation environment between runs.
-# Digest: python:3.11-slim (multi-arch, verified 2026-05-11)
-FROM python@sha256:a5b427ace4900267d93db34138e512325c6fa6af84ad5e4ed5f3b36258cc4142
+# Base image: python:3.9-slim.
+# Python 3.9 is required for compatibility with legacy SWE-bench-lite tasks
+# (e.g. requests-3362) that use pre-Python-3.10 patterns such as
+# collections.MutableMapping (removed in Python 3.10).
+# If newer tasks require a different Python version, add per-task image routing.
+FROM python:3.9-slim
 
 # Metadata
 LABEL org.opencontainers.image.title="ae-eval-swebench" \
       org.opencontainers.image.description="AE eval harness Tier 3 sandbox for SWE-bench fix+score phases" \
       org.opencontainers.image.source="evals/runner/Dockerfile.swebench" \
-      org.opencontainers.image.version="1.2.0"
+      org.opencontainers.image.version="1.3.0"
 
 # Install pytest and a minimal set of test utilities at BUILD time.
 # Network is available here (build time). Network is disabled at run time via
