@@ -4,7 +4,8 @@ Purpose: Probe for the Claude CLI, shell out to it with the eval-standard
 
 Public API: probe_claude_cli() -> str,
             invoke_run(prompt, worktree, timeout_seconds,
-                       agent_name=None, mode="agent", home=None) -> dict,
+                       agent_name=None, mode="agent", home=None,
+                       model=None, system_prompt=None) -> dict,
             build_two_level_prompt(agent_name: str, brief: str) -> str.
 
             mode="command" skips the two-level Task wrapper, uses a
@@ -134,6 +135,7 @@ def invoke_run(
     mode: str = "agent",
     home: Path | None = None,
     model: str | None = None,
+    system_prompt: str | None = None,
 ) -> dict:
     """Run the Claude CLI once with `prompt` at `worktree` cwd; return a run record.
 
@@ -150,6 +152,15 @@ def invoke_run(
     If `model` is provided, --model is passed through to the Claude CLI and
     ANTHROPIC_BASE_URL is set when the model id starts with a litellm prefix
     (e.g. claude-kimi-, claude-qwen-, claude-owl-, claude-deepseek).
+
+    If `system_prompt` is provided, it is appended to the default system
+    prompt via --append-system-prompt. This is how the ae-rules-injected
+    condition injects the AE methodology payload so the model runs with the
+    full protocol context on top of the standard Claude Code system prompt.
+    Flag verified present via `claude --help` (2026-05-12): --append-system-prompt
+    appends to the default; --system-prompt replaces it entirely. We use
+    --append-system-prompt to preserve the default context and add the rules.
+    subprocess argv handling means no shell escaping is needed.
     """
     if mode == "command":
         outer_prompt = prompt
@@ -186,6 +197,13 @@ def invoke_run(
 
     if model is not None:
         cmd.extend(["--model", model])
+
+    if system_prompt is not None:
+        # Inject AE rules (or any system context) via --append-system-prompt.
+        # This appends to (not replaces) the default Claude Code system prompt,
+        # preserving the baseline context while adding the AE methodology rules.
+        # Flag verified in `claude --help` (2026-05-12).
+        cmd.extend(["--append-system-prompt", system_prompt])
 
     env = None
     if home is not None or _use_litellm:

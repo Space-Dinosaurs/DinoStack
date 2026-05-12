@@ -1,0 +1,356 @@
+"""
+Purpose: Run held-out pytest in isolation and compute pass/fail plus diff-hygiene
+         diagnostics for one (task, condition, replicate) cell. Reads the engineer's
+         transcript to extract the patch diff; computes lines_touched, files_touched,
+         and scope_creep_flag against the task's known_affected_files set.
+
+Public API:
+    score_cell(
+        task_slug: str,
+        transcript: str,
+        task_meta: dict,
+        fix_phase_dir: Path,
+        held_out_dir: Path,
+        tier3_ctx: "Tier3Context | None" = None,
+        pytest_timeout: int = 120,
+    ) -> ScoringResult
+
+    ScoringResult (dataclass):
+        pass_fail: bool          # True iff all held-out tests pass
+        score_primary: float     # 1.0 on pass, 0.0 on fail
+        lines_touched: int       # total diff lines (additions + deletions)
+        files_touched: int       # number of files changed in the diff
+        scope_creep_flag: bool   # True if any touched file is outside known_affected_files
+        held_out_failures: list[str]  # failing test IDs (empty on pass)
+        pytest_returncode: int   # raw pytest exit code
+        diff_text: str           # raw diff extracted from transcript
+        diagnostics: dict        # bag of supplementary data
+
+    extract_diff_from_transcript(transcript: str) -> str
+        Extract the git diff from an engineer's transcript. Returns "" if none found.
+
+    compute_diff_hygiene(diff_text: str, known_affected_files: list[str]) -> dict
+        Parse a unified diff; return lines_touched, files_touched, scope_creep_flag.
+
+Upstream deps: stdlib subprocess, pathlib, re, dataclasses, typing, tempfile, shutil.
+               evals.runner.isolator.Tier3Docker (optional; used for in-container
+               pytest when tier3_ctx is provided).
+
+Downstream consumers: evals/skill-comparison/runner.py.
+
+Failure modes: pytest invocation failure is captured into pytest_returncode and
+               held_out_failures; it does not raise. Diff extraction failure
+               (no diff in transcript) sets diff_text="" and lines_touched=0,
+               files_touched=0, scope_creep_flag=False. Known-affected-files
+               mismatch (scope_creep_flag) is a diagnostic, not an error.
+
+Performance: pytest run is the dominant cost (~<120s per brief constraint).
+             Diff parsing is O(diff lines); negligible.
+"""
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ScoringResult:
+    """Result of scoring one (task, condition, replicate) cell."""
+
+    pass_fail: bool
+    score_primary: float          # 1.0 = pass, 0.0 = fail
+    lines_touched: int
+    files_touched: int
+    scope_creep_flag: bool
+    held_out_failures: list[str] = field(default_factory=list)
+    pytest_returncode: int = -1
+    diff_text: str = ""
+    diagnostics: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Diff extraction
+# ---------------------------------------------------------------------------
+
+# Patterns that delimit a git diff block in a transcript.
+# We look for a "diff --git" header or a triple-backtick "```diff" fenced block.
+_DIFF_FENCE_RE = re.compile(
+    r"```diff\s*\n(.*?)```",
+    re.DOTALL,
+)
+_GIT_DIFF_RE = re.compile(
+    r"(diff --git .+?)(?=\ndiff --git |\Z)",
+    re.DOTALL,
+)
+
+
+def extract_diff_from_transcript(transcript: str) -> str:
+    """Extract the git diff from an engineer's transcript.
+
+    Tries, in order:
+    1. Triple-backtick ```diff ... ``` fenced block.
+    2. Raw `diff --git` blocks.
+
+    Returns the first match found, or "" if no diff is present.
+    """
+    if not transcript:
+        return ""
+
+    # 1. Fenced block.
+    fenced = _DIFF_FENCE_RE.search(transcript)
+    if fenced:
+        return fenced.group(1).rstrip()
+
+    # 2. Raw diff blocks.
+    raw_diffs = _GIT_DIFF_RE.findall(transcript)
+    if raw_diffs:
+        return "\n".join(raw_diffs).rstrip()
+
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Diff hygiene
+# ---------------------------------------------------------------------------
+
+_DIFF_FILE_HEADER_RE = re.compile(r"^diff --git a/(.+) b/(.+)$")
+_UNIFIED_HUNK_LINE_RE = re.compile(r"^[+\-](?![+\-])")  # +/- but not +++ or ---
+
+
+def compute_diff_hygiene(
+    diff_text: str,
+    known_affected_files: list[str],
+) -> dict:
+    """Parse a unified diff and return diff-hygiene diagnostics.
+
+    Args:
+        diff_text: raw unified diff text (may be empty).
+        known_affected_files: list of repo-relative file paths the correct
+                              patch is expected to touch (from corpus.yaml).
+
+    Returns dict with:
+        lines_touched: int   - count of + and - lines (not counting +++ / ---)
+        files_touched: int   - number of distinct files in the diff
+        scope_creep_flag: bool - True if any changed file is outside known_affected_files
+        touched_files: list[str] - the actual list of changed file paths
+        outside_files: list[str] - files touched but not in known_affected_files
+    """
+    if not diff_text:
+        return {
+            "lines_touched": 0,
+            "files_touched": 0,
+            "scope_creep_flag": False,
+            "touched_files": [],
+            "outside_files": [],
+        }
+
+    touched_files: list[str] = []
+    lines_touched: int = 0
+
+    for line in diff_text.splitlines():
+        m = _DIFF_FILE_HEADER_RE.match(line)
+        if m:
+            # b/ path is the post-patch filename.
+            touched_files.append(m.group(2))
+            continue
+        if _UNIFIED_HUNK_LINE_RE.match(line):
+            lines_touched += 1
+
+    # Deduplicate (a file may appear in multiple hunks of a real diff, but
+    # the header re fires once per file so this is a belt-and-braces guard).
+    seen: set[str] = set()
+    unique_files: list[str] = []
+    for f in touched_files:
+        if f not in seen:
+            seen.add(f)
+            unique_files.append(f)
+
+    known_set = set(known_affected_files)
+    outside_files = [f for f in unique_files if f not in known_set]
+    scope_creep_flag = len(outside_files) > 0
+
+    return {
+        "lines_touched": lines_touched,
+        "files_touched": len(unique_files),
+        "scope_creep_flag": scope_creep_flag,
+        "touched_files": unique_files,
+        "outside_files": outside_files,
+    }
+
+
+# ---------------------------------------------------------------------------
+# pytest result parsing
+# ---------------------------------------------------------------------------
+
+_PYTEST_FAILED_RE = re.compile(r"^FAILED (.+?)(?:\s+-\s+.+)?$", re.MULTILINE)
+_PYTEST_SHORT_SUMMARY_RE = re.compile(
+    r"=+ short test summary info =+(.*?)(?:=+ \d+ .+? =+|\Z)",
+    re.DOTALL,
+)
+
+
+def _parse_pytest_failures(stdout: str) -> list[str]:
+    """Extract failing test IDs from pytest stdout.
+
+    Looks for the short test summary section which lists each FAILED line.
+    Falls back to scanning all FAILED lines in the output.
+    """
+    failures: list[str] = []
+
+    # Prefer the summary section.
+    summary_m = _PYTEST_SHORT_SUMMARY_RE.search(stdout)
+    search_text = summary_m.group(1) if summary_m else stdout
+    for m in _PYTEST_FAILED_RE.finditer(search_text):
+        failures.append(m.group(1).strip())
+
+    return failures
+
+
+# ---------------------------------------------------------------------------
+# In-process pytest runner (no Docker)
+# ---------------------------------------------------------------------------
+
+def _run_pytest_local(
+    held_out_dir: Path,
+    fix_phase_dir: Path,
+    timeout: int,
+) -> tuple[int, str]:
+    """Run pytest on held_out_dir tests against fix_phase_dir worktree.
+
+    Returns (returncode, combined_stdout).
+    """
+    cmd = [
+        "python", "-m", "pytest",
+        str(held_out_dir),
+        "--noconftest",
+        f"--rootdir={held_out_dir}",
+        "--tb=short",
+        "-q",
+        "--timeout", str(timeout),
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(fix_phase_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout + 10,
+        )
+        return result.returncode, result.stdout + result.stderr
+    except subprocess.TimeoutExpired as e:
+        out = (
+            (e.stdout.decode("utf-8", errors="replace") if e.stdout else "")
+            + (e.stderr.decode("utf-8", errors="replace") if e.stderr else "")
+        )
+        return 1, out + "\npytest timed out"
+
+
+# ---------------------------------------------------------------------------
+# In-container pytest runner (Tier 3)
+# ---------------------------------------------------------------------------
+
+def _run_pytest_tier3(
+    tier3_ctx: object,  # Tier3Context (avoid hard import cycle)
+    timeout: int,
+) -> tuple[int, str]:
+    """Run pytest inside the Tier 3 container's score phase.
+
+    Delegates to Tier3Docker.run_score_phase. The held-out tests are already
+    mounted at /scoring/tests inside the container (per the Tier3Context
+    mount layout).
+
+    Returns (returncode, combined_stdout).
+    """
+    from evals.runner.isolator import Tier3Docker  # local import to avoid hard dep
+
+    cmd = [
+        "python", "-m", "pytest",
+        "/scoring/tests",
+        "--noconftest",
+        "--rootdir=/scoring/tests",
+        "--confcutdir=/scoring",
+        "--tb=short",
+        "-q",
+        f"--timeout={timeout}",
+    ]
+    result = Tier3Docker.run_score_phase(tier3_ctx, cmd, timeout_seconds=timeout)
+    return result.returncode, result.stdout + result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def score_cell(
+    task_slug: str,
+    transcript: str,
+    task_meta: dict,
+    fix_phase_dir: Path,
+    held_out_dir: Path,
+    tier3_ctx: Optional[object] = None,
+    pytest_timeout: int = 120,
+) -> ScoringResult:
+    """Score one (task, condition, replicate) cell.
+
+    Args:
+        task_slug: corpus key (e.g. "django-11039").
+        transcript: raw text output from the engineer's run (may be empty).
+        task_meta: dict from corpus.yaml tasks[task_slug]; must have
+                   "known_affected_files" list and optionally
+                   "estimated_test_seconds" (used as a sanity cap).
+        fix_phase_dir: host-side directory containing the engineer's
+                       modified repo state.
+        held_out_dir: host-side directory with the held-out test files.
+        tier3_ctx: Tier3Context instance if running inside Docker, else None.
+                   When provided, pytest is run via Tier3Docker.run_score_phase
+                   (in-container); when None, pytest runs on the host.
+        pytest_timeout: per-cell pytest wall-clock budget in seconds (<= 120
+                        per the Brief constraint).
+
+    Returns:
+        ScoringResult with all fields populated.
+    """
+    known_affected = task_meta.get("known_affected_files", [])
+
+    # 1. Extract diff from transcript.
+    diff_text = extract_diff_from_transcript(transcript)
+
+    # 2. Compute diff hygiene.
+    hygiene = compute_diff_hygiene(diff_text, known_affected)
+
+    # 3. Run held-out pytest.
+    if tier3_ctx is not None:
+        returncode, pytest_out = _run_pytest_tier3(tier3_ctx, pytest_timeout)
+    else:
+        returncode, pytest_out = _run_pytest_local(held_out_dir, fix_phase_dir, pytest_timeout)
+
+    pass_fail = returncode == 0
+    failures = [] if pass_fail else _parse_pytest_failures(pytest_out)
+
+    return ScoringResult(
+        pass_fail=pass_fail,
+        score_primary=1.0 if pass_fail else 0.0,
+        lines_touched=hygiene["lines_touched"],
+        files_touched=hygiene["files_touched"],
+        scope_creep_flag=hygiene["scope_creep_flag"],
+        held_out_failures=failures,
+        pytest_returncode=returncode,
+        diff_text=diff_text,
+        diagnostics={
+            "task_slug": task_slug,
+            "touched_files": hygiene["touched_files"],
+            "outside_files": hygiene["outside_files"],
+            "known_affected_files": known_affected,
+            "pytest_output_tail": pytest_out[-1000:] if pytest_out else "",
+        },
+    )
