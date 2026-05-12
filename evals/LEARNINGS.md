@@ -480,3 +480,40 @@ contributors should set `AGENTIC_QUIET=1` explicitly to keep fixture
 state clean. Verifying that every harness invocation actually pipes
 stdout is the eval harness contributor's responsibility (per the Gap 3
 plan; AC #19).
+
+## Skill-comparison eval build (2026-05-12)
+
+### No fabricated data in corpus files
+
+Task corpus files must reference real SHAs from the canonical
+`princeton-nlp/SWE-bench_Lite` source. Fabricated commit hashes, synthetic
+failing tests, or invented repository states produce meaningless scores and
+invalidate comparisons with external leaderboard results. Every task slug and
+SHA must be verifiable against the upstream source before the corpus is frozen.
+Once frozen, the corpus is immutable for the life of that eval generation.
+
+### Mock at the right boundary
+
+When writing tests for runner or scoring code, mock at `subprocess.run` or the
+actual integration boundary (e.g. the `invoker.run_session` call that shells
+out to Claude CLI), NOT at a wrapper function the runner itself owns. Mocking
+the wrapper hides kwarg mismatches - a wrapper that accepts `**kwargs` silently
+swallows unknown arguments, so a test that mocks it will pass even when the
+real CLI invocation would fail with an unknown-flag error. This was the root
+cause of the round-2 `ae-rules-injected` integration bug: `run_session` was
+mocked at the high-level wrapper, `--system-prompt` was never validated, and
+the bug only surfaced against the real subprocess. Rule: the mock boundary is
+the last Python call before a subprocess or network call exits the process.
+
+### Tier 3 isolation must be wired, not just built
+
+Building `isolator.py` with a `tier_3_docker` function is necessary but not
+sufficient. The runner must actually instantiate the isolator at the correct
+tier and pass the container handle through the scoring pipeline. In round 1,
+`isolator.py` existed and was unit-tested, but `runner.py` still defaulted to
+`tier_2` for all conditions - Tier 3 was "available" but never called. The
+fix: `runner.py` instantiates `isolator.tier_3_docker()` by default (gated on
+`--no-tier3` flag), passes the container object to `scoring.run_held_out_tests`,
+and the scorer uses it for subprocess execution. Building the component and
+wiring it into the execution path are two separate acceptance criteria; both
+must be verified before declaring the unit done.
