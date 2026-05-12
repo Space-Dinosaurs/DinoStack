@@ -1,0 +1,338 @@
+# Skill-Comparison Eval Task Corpus
+#
+# Selection criteria
+# ------------------
+# Source: SWE-bench-lite (https://www.swebench.com/lite.html).
+# Data fetched via HuggingFace Datasets REST API on 2026-05-12.
+# See freeze_metadata below.
+#
+# Difficulty distribution (as required by docs/planning/p2-skill-comparison-evals/brief.md):
+#   - 60% single-file-with-failing-test (7-8 tasks):
+#       The bug is localised to one file and the repo ships at least one
+#       pre-existing failing test that the fix must make pass.
+#   - 30% multi-file (3-4 tasks):
+#       The fix touches 2+ files; held-out test exercises the integration.
+#   - 10% design-y (1-2 tasks):
+#       The change requires a small API or structural decision beyond a
+#       mechanical patch; held-out test validates the observable behaviour.
+#
+# Hard selection filters applied to every task:
+#   - License: OSI-permissive (MIT / Apache-2 / BSD). Repos under GPL excluded.
+#   - No GPU dependency (no CUDA, torch-GPU, or NVIDIA driver calls in the
+#     fix or scoring path).
+#   - No network required at fix time (all imports resolvable from the
+#     pre-installed venv; pip install is allowed at image-build time only).
+#   - Fits in 1 GB container RAM (enforced by Tier 3 Docker --memory 1g).
+#   - Held-out pytest completes in <120 s (per brief constraint; documented
+#     per-task as `estimated_test_seconds`).
+#   - Uses Python 3.8+ only (no Py2-only or mixed-language builds).
+#
+# Pointer pattern
+# ---------------
+# Full repo clones are not committed to git (would be multi-GB). Instead,
+# each task entry records `swebench_instance_id` and `base_commit` (the
+# repo state the fix must be applied to). The runner clones the repo at
+# `repo_url` and checks out `base_commit` during the fix phase. The
+# `held_out_tests` field lists repo-relative paths to test files extracted
+# by applying `test_patch` at `base_commit` so the agent never sees them
+# during the fix phase.
+#
+# Anti-leakage guarantee (enforced by Tier 3 isolator): the held-out tests
+# are NOT mounted inside the fix-phase container; they are mounted read-only
+# at /scoring/tests during the score phase only. See evals/runner/isolator.py
+# Tier3Docker notes.
+#
+# How to reproduce this freeze
+# ----------------------------
+# curl 'https://datasets-server.huggingface.co/rows?dataset=princeton-nlp%2FSWE-bench_Lite&config=default&split=test&offset=0&length=300' \
+#   > swebench_lite_300.json
+# # Then filter rows by instance_id values listed in this file.
+#
+# Note: `fix_commit` is intentionally absent. The test files are extracted
+# by applying `test_patch` (the dataset field) at `base_commit`; this avoids
+# storing fabricated SHAs and removes the need to look up the next commit.
+#
+# Freeze metadata
+# ---------------
+freeze_metadata:
+  freeze_date: "2026-05-12"
+  swebench_dataset: "princeton-nlp/SWE-bench_Lite"
+  dataset_split: "test"
+  # Obtained via HuggingFace Datasets REST API; 300 rows total in test split.
+  dataset_commit_hash: "princeton-nlp/SWE-bench_Lite@main"
+  selected_count: 12
+  selector: "engineer-agent (task-corpus-r2 unit, 2026-05-12)"
+  sha_verification: >
+    Three base_commits verified via GitHub API on 2026-05-12:
+    d5276398046ce4a102776a1e67dcac2884d80dfe (django/django),
+    7f7a36478abe7dd1fa993b115d22606aa0e35e88 (pytest-dev/pytest),
+    36453b95b13079296776d11b09cab2567ea3e703 (psf/requests).
+    All returned HTTP 200 with matching SHA.
+  rationale: >
+    12 tasks chosen to span the 60/30/10 difficulty mix. Repos selected for
+    their prevalence in the Python OSS ecosystem, MIT/Apache-2/BSD licensing,
+    fast test suites, and the property that the bug is well-isolated enough
+    to test per-agent discrimination (investigator helps on multi-file tasks,
+    architect on design-y tasks, debugger on tricky logic bugs).
+  post_hoc_policy: >
+    NO ADDITIONS OR SUBSTITUTIONS after the first baseline cell is run against
+    this list. Corpus changes after first run require a new eval generation
+    with a new TSV path (see brief.md Constraints).
+
+# Task list
+# ---------
+# Each entry is keyed by the slug used as the task directory name.
+# Fields:
+#   swebench_instance_id : exact instance_id from SWE-bench_Lite test split
+#   repo_url             : canonical GitHub URL (HTTPS, public)
+#   base_commit          : 40-hex git SHA of the repo state the fix is applied to
+#                          (the "before" state; checkout this SHA for fix phase)
+#   held_out_tests       : list of repo-relative paths to test files extracted
+#                          by applying test_patch at base_commit
+#   fail_to_pass         : test IDs from the dataset FAIL_TO_PASS field;
+#                          these must transition from fail->pass after the fix
+#   estimated_test_seconds: conservative upper bound for the held-out pytest
+#                          on a 2 vCPU host (must be <120 per brief constraint)
+#   difficulty           : single-file | multi-file | design-y
+#   known_affected_files : files the correct patch touches (used by scorer
+#                          scope_creep_flag diagnostic; not used by the agent)
+#   problem_summary      : one-sentence human description (also in problem.md)
+
+tasks:
+
+  # -----------------------------------------------------------------------
+  # SINGLE-FILE tasks (7 tasks, ~58%)
+  # -----------------------------------------------------------------------
+
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "d5276398046ce4a102776a1e67dcac2884d80dfe"
+    held_out_tests:
+      - "tests/migrations/test_commands.py"
+    fail_to_pass:
+      - "test_sqlmigrate_for_non_transactional_databases (migrations.test_commands.MigrateTests)"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/core/management/commands/sqlmigrate.py"
+    problem_summary: >
+      sqlmigrate wraps output in BEGIN/COMMIT even when the database does not
+      support transactional DDL, which confuses tools that parse the SQL output.
+
+  django-11049:
+    swebench_instance_id: "django__django-11049"
+    repo_url: "https://github.com/django/django"
+    base_commit: "17455e924e243e7a55e8a38f45966d8cbb27c273"
+    held_out_tests:
+      - "tests/model_fields/test_durationfield.py"
+    fail_to_pass:
+      - "test_invalid_string (model_fields.test_durationfield.TestValidation)"
+    estimated_test_seconds: 20
+    difficulty: single-file
+    known_affected_files:
+      - "django/db/models/fields/__init__.py"
+    problem_summary: >
+      DurationField error message shows the wrong expected format example,
+      confusing users who enter a valid-looking but rejected duration string.
+
+  requests-3362:
+    swebench_instance_id: "psf__requests-3362"
+    repo_url: "https://github.com/psf/requests"
+    base_commit: "36453b95b13079296776d11b09cab2567ea3e703"
+    held_out_tests:
+      - "tests/test_requests.py"
+    fail_to_pass:
+      - "tests/test_requests.py::TestRequests::test_response_decode_unicode"
+    estimated_test_seconds: 15
+    difficulty: single-file
+    known_affected_files:
+      - "requests/utils.py"
+    problem_summary: >
+      iter_content(decode_unicode=True) returns bytes instead of str when
+      the response has no declared encoding, causing callers to receive the
+      wrong type.
+
+  pytest-7490:
+    swebench_instance_id: "pytest-dev__pytest-7490"
+    repo_url: "https://github.com/pytest-dev/pytest"
+    base_commit: "7f7a36478abe7dd1fa993b115d22606aa0e35e88"
+    held_out_tests:
+      - "testing/test_skipping.py"
+    fail_to_pass:
+      - "testing/test_skipping.py::TestXFail::test_dynamic_xfail_set_during_runtest_failed"
+      - "testing/test_skipping.py::TestXFail::test_dynamic_xfail_set_during_runtest_passed_strict"
+    estimated_test_seconds: 40
+    difficulty: single-file
+    known_affected_files:
+      - "src/_pytest/skipping.py"
+    problem_summary: >
+      Dynamically adding an xfail marker inside a test no longer causes the
+      failure to be ignored in pytest 6, breaking behaviour that was reliable
+      in pytest 5.
+
+  sympy-16988:
+    swebench_instance_id: "sympy__sympy-16988"
+    repo_url: "https://github.com/sympy/sympy"
+    base_commit: "e727339af6dc22321b00f52d971cda39e4ce89fb"
+    held_out_tests:
+      - "sympy/sets/tests/test_sets.py"
+    fail_to_pass:
+      - "test_imageset"
+      - "test_intersection"
+    estimated_test_seconds: 35
+    difficulty: single-file
+    known_affected_files:
+      - "sympy/sets/sets.py"
+    problem_summary: >
+      Intersection does not remove duplicates, returning EmptySet instead of
+      the correct Piecewise expression when the same set appears more than once.
+
+  astropy-12907:
+    swebench_instance_id: "astropy__astropy-12907"
+    repo_url: "https://github.com/astropy/astropy"
+    base_commit: "d16bfe05a744909de4b27f5875fe0d4ed41ce607"
+    held_out_tests:
+      - "astropy/modeling/tests/test_separable.py"
+    fail_to_pass:
+      - "astropy/modeling/tests/test_separable.py::test_separable[compound_model6-result6]"
+      - "astropy/modeling/tests/test_separable.py::test_separable[compound_model9-result9]"
+    estimated_test_seconds: 25
+    difficulty: single-file
+    known_affected_files:
+      - "astropy/modeling/separable.py"
+    problem_summary: >
+      separability_matrix computes incorrect results for nested CompoundModels;
+      the _cstack helper assigns 1 instead of the right submatrix block.
+
+  pylint-7080:
+    swebench_instance_id: "pylint-dev__pylint-7080"
+    repo_url: "https://github.com/pylint-dev/pylint"
+    base_commit: "3c5eca2ded3dd2b59ebaf23eb289453b5d2930f0"
+    held_out_tests:
+      - "tests/test_self.py"
+    fail_to_pass:
+      - "tests/test_self.py::TestRunTC::test_ignore_path_recursive_current_dir"
+    estimated_test_seconds: 20
+    difficulty: single-file
+    known_affected_files:
+      - "pylint/lint/expand_modules.py"
+    problem_summary: >
+      Running pylint with --recursive=y silently ignores the ignore-paths
+      configuration, linting files that should be excluded.
+
+  # -----------------------------------------------------------------------
+  # MULTI-FILE tasks (4 tasks, ~33%)
+  # -----------------------------------------------------------------------
+
+  matplotlib-18869:
+    swebench_instance_id: "matplotlib__matplotlib-18869"
+    repo_url: "https://github.com/matplotlib/matplotlib"
+    base_commit: "b7d05919865fc0c37a0164cf467d5d5513bd0ede"
+    held_out_tests:
+      - "lib/matplotlib/tests/test_matplotlib.py"
+    fail_to_pass:
+      - "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0-version_tuple0]"
+      - "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0rc2-version_tuple1]"
+      - "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0.dev820+g6768ef8c4c-version_tuple2]"
+      - "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[1.2.3-version_tuple3]"
+    estimated_test_seconds: 40
+    difficulty: multi-file
+    known_affected_files:
+      - "lib/matplotlib/__init__.py"
+    problem_summary: >
+      matplotlib needs an easily comparable version_info tuple at the top
+      level; adding it requires extending __init__.py with a parse helper and
+      the new attribute.
+
+  flask-5063:
+    swebench_instance_id: "pallets__flask-5063"
+    repo_url: "https://github.com/pallets/flask"
+    base_commit: "182ce3dd15dfa3537391c3efaf9c3ff407d134d4"
+    held_out_tests:
+      - "tests/test_cli.py"
+    fail_to_pass:
+      - "tests/test_cli.py::TestRoutes::test_subdomain"
+      - "tests/test_cli.py::TestRoutes::test_host"
+    estimated_test_seconds: 25
+    difficulty: multi-file
+    known_affected_files:
+      - "src/flask/cli.py"
+    problem_summary: >
+      The `flask routes` CLI command does not show subdomain or host
+      information, making it impossible to distinguish routes bound to
+      different virtual hosts from the CLI.
+
+  sphinx-7686:
+    swebench_instance_id: "sphinx-doc__sphinx-7686"
+    repo_url: "https://github.com/sphinx-doc/sphinx"
+    base_commit: "752d3285d250bbaf673cff25e83f03f247502021"
+    held_out_tests:
+      - "tests/roots/test-ext-autosummary/autosummary_dummy_module.py"
+      - "tests/test_ext_autosummary.py"
+    fail_to_pass:
+      - "tests/test_ext_autosummary.py::test_autosummary_generate_content_for_module"
+      - "tests/test_ext_autosummary.py::test_autosummary_generate_content_for_module_skipped"
+    estimated_test_seconds: 60
+    difficulty: multi-file
+    known_affected_files:
+      - "sphinx/ext/autosummary/generate.py"
+    problem_summary: >
+      autosummary includes imported members in the members template variable
+      even when autosummary_imported_members is False, polluting generated
+      API docs with symbols from re-exported modules.
+
+  sklearn-10297:
+    swebench_instance_id: "scikit-learn__scikit-learn-10297"
+    repo_url: "https://github.com/scikit-learn/scikit-learn"
+    base_commit: "b90661d6a46aa3619d3eec94d5281f5888add501"
+    held_out_tests:
+      - "sklearn/linear_model/tests/test_ridge.py"
+    fail_to_pass:
+      - "sklearn/linear_model/tests/test_ridge.py::test_ridge_classifier_cv_store_cv_values"
+    estimated_test_seconds: 55
+    difficulty: multi-file
+    known_affected_files:
+      - "sklearn/linear_model/ridge.py"
+    problem_summary: >
+      RidgeClassifierCV raises an error when store_cv_values=True is passed
+      because the parameter exists in the docstring but is not implemented
+      in the underlying fit logic.
+
+  # -----------------------------------------------------------------------
+  # DESIGN-Y tasks (1 task, ~8%)
+  # -----------------------------------------------------------------------
+
+  django-11019:
+    swebench_instance_id: "django__django-11019"
+    repo_url: "https://github.com/django/django"
+    base_commit: "93e892bb645b16ebaf287beb5fe7f3ffe8d10408"
+    held_out_tests:
+      - "tests/admin_inlines/tests.py"
+      - "tests/admin_widgets/test_autocomplete_widget.py"
+      - "tests/forms_tests/tests/test_media.py"
+    fail_to_pass:
+      - "test_combine_media (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_construction (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_form_media (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_media_inheritance (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_media_inheritance_from_mixin (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_media_inheritance_single_type (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_multi_media (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_merge_css_three_way (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_merge_js_three_way (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_merge_warning (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_merge (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_media_deduplication (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_media_ordering (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_add_js_to_media (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_add_css_to_media (forms_tests.tests.test_media.FormsMediaTestCase)"
+      - "test_empty_media (forms_tests.tests.test_media.FormsMediaTestCase)"
+    estimated_test_seconds: 90
+    difficulty: design-y
+    known_affected_files:
+      - "django/forms/widgets.py"
+    problem_summary: >
+      Merging 3 or more Media objects throws unnecessary MediaOrderConflictWarnings
+      because the merge algorithm does not handle transitive dependency ordering
+      correctly; fixing it requires redesigning the merge strategy.
