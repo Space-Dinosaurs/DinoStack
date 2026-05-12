@@ -42,6 +42,12 @@ Upstream deps: stdlib pathlib, time, csv, json, dataclasses, sys, logging,
                evals.skill-comparison.seeding (seed_fix_phase, SeedError).
                evals.icl_vs_orchestration.cost_gate (CostGate, BudgetExceeded).
 
+Build-once contract: when tier3_mode='auto' and not dry_run, run_matrix calls
+Tier3Docker.ensure_image() ONCE before the cell loop. Per-cell Tier3Docker(...)
+instantiations pass build_image=False. The module-level _IMAGE_DIGEST_CACHE in
+isolator.py ensures the build subprocess is never invoked more than once per
+process, even if build_image=True were passed accidentally.
+
 Downstream consumers: CLI / scripts; evals/skill-comparison/tests/test_runner.py.
 
 Failure modes: BudgetExceeded halts the matrix and writes a partial report
@@ -411,6 +417,11 @@ def run_matrix(
     _Tier3Docker = None
     if use_tier3:
         from evals.runner.isolator import Tier3Docker as _Tier3Docker  # type: ignore[assignment]
+        # Build-once-reuse: build the Docker image ONCE before the cell loop.
+        # This avoids N*24 redundant docker builds (one per cell). Each per-cell
+        # Tier3Docker(...) call will find the cached digest and skip the build.
+        _LOG.info("Tier 3: ensuring image is built (one-time build before cell loop)")
+        _Tier3Docker.ensure_image()
 
     for task_slug, task_meta in tasks.items():
         for condition in active_conditions:
@@ -467,7 +478,7 @@ def run_matrix(
                     _tier3_instance = _Tier3Docker(
                         fixture_repo_dir=None,  # base repo seeded externally
                         held_out_dir=held_out_path,
-                        build_image=True,
+                        build_image=False,  # image already built once by ensure_image() above
                         timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
                     )
                     tier3_ctx = _tier3_instance.__enter__()
