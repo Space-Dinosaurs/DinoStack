@@ -1,11 +1,17 @@
 name: engineer
-tier: 1
+# Tier 2: engineer executes Bash/Write/Edit inside the worktree; needs HOME
+# redirect so its ~/.claude/ writes don't pollute the developer's real HOME.
+# Tier 1 is read-only (Read, Grep, Glob, Task only) and is not appropriate
+# for an agent that modifies files and runs quality gates.
+tier: 2
 content_glob:
   - content/agents/engineer.md
 scoring_module: evals.scoring.engineer_lite
 fixture_dir: evals/fixtures/engineer
 n_runs: 3
 parallelism: serial
+# Higher than read-only peers: engineer runs Bash quality gates (lint,
+# typecheck, tests) inside the worktree which add wall-clock time.
 timeout_seconds: 300
 invoke:
   agent_name: engineer

@@ -236,7 +236,16 @@ def _score_gates(text: str) -> tuple[float, dict]:
 
 
 def _score_criteria(text: str, keywords: list[str]) -> tuple[float, dict]:
-    """Fraction of acceptance_keywords found (case-insensitive) in the response."""
+    """Fraction of acceptance_keywords found (case-insensitive) in the response.
+
+    WARNING - telegraphing risk (see OVERFITTING-RULE.md / LEARNINGS.md
+    §Telegraphing): fixture authors MUST NOT include task_description phrases
+    verbatim in acceptance_keywords. The substring match is intentionally
+    simple; if a keyword echoes the task brief the engineer can score full
+    credit merely by restating the prompt rather than completing the work.
+    Keywords should name observable OUTPUTS (e.g. a function name that must
+    appear in the diff, a status value, a file path) - not instructions.
+    """
     if not keywords:
         return 1.0, {"vacuous": True, "hits": 0, "total": 0, "missing": []}
     lower = text.lower()
