@@ -212,6 +212,25 @@ python evals/skill-comparison/runner.py \
 Validates corpus YAML, condition specs, and isolator connectivity without
 spending tokens.
 
+### Bounded smoke run (single cell, fast validation)
+
+Use `--tasks` and `--max-cells` together to verify the full pipeline with
+minimal cost. This is the recommended pre-flight before a full corpus run:
+
+```bash
+PYTHONPATH=. python3 evals/skill-comparison/runner.py \
+  --tasks-yaml evals/skill-comparison/tasks/corpus.yaml \
+  --results-tsv /tmp/skill-smoke.tsv \
+  --tasks requests-3362 \
+  --conditions baseline \
+  --max-cells 1 \
+  --max-usd 2 --max-tokens 200000 --max-wall-seconds 900
+```
+
+`--tasks requests-3362` restricts the corpus to one task slug. `--max-cells 1`
+stops after the first row is written regardless of remaining iterations. Both
+filters are additive - the more restrictive wins.
+
 ### Sensitivity check (methodology pair only, n=5)
 
 ```bash
@@ -248,6 +267,8 @@ report on breach (exit code 3).
 | `--conditions` | all conditions | Space-separated list of condition names to run (e.g. `baseline ae-rules-injected`). Omit to run all 8. |
 | `--n-replicates` | `3` | Replicate count per (task, condition) cell, except the methodology pair. |
 | `--n-replicates-methodology` | `5` | Replicate count for `baseline` and `ae-rules-injected` cells (the methodology pair noise envelope). |
+| `--tasks` | all tasks | Space-separated list of task slugs to include (matches keys in `corpus.yaml`). Omit to run all tasks. Unknown slugs raise an error before any cell executes. |
+| `--max-cells` | none | Hard stop after writing N rows to the TSV (excluding the header). Useful for single-cell smoke validation. When combined with `--tasks`, whichever limit is reached first wins. |
 | `--tier3` | `auto` | Docker isolation mode. `auto` uses Tier 3 in production; `off` skips Docker (for dry-run / unit tests). |
 | `--force` | off | Re-run cells already present in the TSV (bypass resume skip). |
 | `--dry-run` | off | Validate config and isolator connectivity; skip all Claude calls. |
