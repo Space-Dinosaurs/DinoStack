@@ -1,8 +1,9 @@
 """
 Purpose: Run held-out pytest in isolation and compute pass/fail plus diff-hygiene
-         diagnostics for one (task, condition, replicate) cell. Reads the engineer's
-         transcript to extract the patch diff; computes lines_touched, files_touched,
-         and scope_creep_flag against the task's known_affected_files set.
+         diagnostics for one (task, condition, replicate) cell. Computes the
+         engineer's diff from the working directory (git diff against seed_commit)
+         as the ground-truth source of changes; falls back to transcript parsing
+         only when fix_phase_dir is unavailable (dry-run paths).
 
 Public API:
     score_cell(
@@ -14,6 +15,7 @@ Public API:
         tier3_ctx: "Tier3Context | None" = None,
         pytest_timeout: int = 120,
         fail_to_pass: "list[str] | None" = None,
+        seed_commit: str = "",
     ) -> ScoringResult
 
     ScoringResult (dataclass):
@@ -24,11 +26,16 @@ Public API:
         scope_creep_flag: bool   # True if any touched file is outside known_affected_files
         held_out_failures: list[str]  # failing test IDs (empty on pass)
         pytest_returncode: int   # raw pytest exit code
-        diff_text: str           # raw diff extracted from transcript
+        diff_text: str           # raw diff (from workdir or transcript fallback)
         diagnostics: dict        # bag of supplementary data
+
+    compute_engineer_diff_from_workdir(fix_phase_dir: Path, seed_commit: str) -> str
+        Run `git diff <seed_commit>` in fix_phase_dir to get the engineer's changes
+        relative to the post-seeding state. Returns "" on any git failure.
 
     extract_diff_from_transcript(transcript: str) -> str
         Extract the git diff from an engineer's transcript. Returns "" if none found.
+        Used as a fallback when fix_phase_dir is unavailable (dry-run paths).
 
     compute_diff_hygiene(diff_text: str, known_affected_files: list[str]) -> dict
         Parse a unified diff; return lines_touched, files_touched, scope_creep_flag.
@@ -42,9 +49,10 @@ Downstream consumers: evals/skill-comparison/runner.py.
 
 Failure modes: pytest invocation failure is captured into pytest_returncode and
                held_out_failures; it does not raise. Diff extraction failure
-               (no diff in transcript) sets diff_text="" and lines_touched=0,
-               files_touched=0, scope_creep_flag=False. Known-affected-files
-               mismatch (scope_creep_flag) is a diagnostic, not an error.
+               (workdir unavailable and no diff in transcript) sets diff_text=""
+               and lines_touched=0, files_touched=0, scope_creep_flag=False.
+               Known-affected-files mismatch (scope_creep_flag) is a diagnostic,
+               not an error.
 
 Performance: pytest run is the dominant cost (~<120s per brief constraint).
              Diff parsing is O(diff lines); negligible.
@@ -123,6 +131,71 @@ def extract_diff_from_transcript(transcript: str) -> str:
         return "\n".join(raw_diffs).rstrip()
 
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Workdir-based diff (ground truth)
+# ---------------------------------------------------------------------------
+
+
+def compute_engineer_diff_from_workdir(fix_phase_dir: Path, seed_commit: str) -> str:
+    """Return the engineer's diff relative to seed_commit in fix_phase_dir.
+
+    Runs `git diff <seed_commit>` in fix_phase_dir to capture exactly what the
+    engineer changed after seeding. This is the authoritative diff source for
+    production scoring - it cannot be confused with tool_use payloads or other
+    diff-like text embedded in the CLI transcript.
+
+    Args:
+        fix_phase_dir: host-side directory containing the engineer's working tree.
+        seed_commit: SHA of the post-seeding commit (from seed_fix_phase return value).
+                     When empty, falls back to `git diff HEAD` which compares the
+                     working tree (including unstaged changes) against HEAD.
+
+    Returns:
+        Raw unified diff text, or "" on any git invocation failure.
+    """
+    if not fix_phase_dir or not fix_phase_dir.is_dir():
+        _LOG.debug(
+            "compute_engineer_diff_from_workdir: fix_phase_dir %s unavailable",
+            fix_phase_dir,
+        )
+        return ""
+
+    # When seed_commit is provided, compare the current HEAD (post-engineer commits)
+    # against the seed commit. We use HEAD..seed_commit range to capture all commits
+    # the engineer may have made, plus any unstaged changes.
+    # `git diff <seed_commit>` compares the working tree + index against seed_commit,
+    # which captures both committed and uncommitted engineer changes.
+    base = seed_commit if seed_commit else "HEAD"
+    if not seed_commit:
+        _LOG.debug(
+            "compute_engineer_diff_from_workdir: no seed_commit; using HEAD (unstaged changes only)"
+        )
+        cmd = ["git", "diff", "HEAD"]
+    else:
+        cmd = ["git", "diff", seed_commit]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(fix_phase_dir),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            _LOG.warning(
+                "compute_engineer_diff_from_workdir: git diff %s returned %d: %s",
+                base, result.returncode, result.stderr[:300],
+            )
+            return ""
+        return result.stdout
+    except Exception as exc:
+        _LOG.warning(
+            "compute_engineer_diff_from_workdir: git diff failed: %s", exc
+        )
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +477,7 @@ def score_cell(
     tier3_ctx: Optional[object] = None,
     pytest_timeout: int = 120,
     fail_to_pass: "list[str] | None" = None,
+    seed_commit: str = "",
 ) -> ScoringResult:
     """Score one (task, condition, replicate) cell.
 
@@ -426,14 +500,33 @@ def score_cell(
                       full test tree. When None or empty, all tests under
                       held_out_dir are run. Forwarded to both the local and
                       tier3 pytest runners.
+        seed_commit: git SHA of the post-seeding commit (returned by
+                     seed_fix_phase). When non-empty and fix_phase_dir is a
+                     valid git repo, the engineer diff is computed via
+                     `git diff <seed_commit>` in fix_phase_dir (ground truth).
+                     When empty or unavailable, falls back to transcript
+                     parsing (dry-run path).
 
     Returns:
         ScoringResult with all fields populated.
     """
     known_affected = task_meta.get("known_affected_files", [])
 
-    # 1. Extract diff from transcript.
-    diff_text = extract_diff_from_transcript(transcript)
+    # 1. Compute diff from workdir (ground truth) when available; fall back
+    #    to transcript parsing for dry-run paths where fix_phase_dir is a
+    #    temp dir with no git history.
+    if seed_commit and fix_phase_dir and (fix_phase_dir / ".git").is_dir():
+        diff_text = compute_engineer_diff_from_workdir(fix_phase_dir, seed_commit)
+        _LOG.debug(
+            "score_cell [%s]: using workdir diff (seed_commit=%s, lines=%d)",
+            task_slug, seed_commit[:8], diff_text.count("\n"),
+        )
+    else:
+        diff_text = extract_diff_from_transcript(transcript)
+        _LOG.debug(
+            "score_cell [%s]: using transcript diff fallback (seed_commit=%r)",
+            task_slug, seed_commit or "(empty)",
+        )
 
     # 2. Compute diff hygiene.
     hygiene = compute_diff_hygiene(diff_text, known_affected)
