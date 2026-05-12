@@ -174,6 +174,20 @@ def validate_corpus(corpus_path: Path, tasks_root: Path) -> list[str]:
         if not problem_md.is_file():
             violations.append(f"{prefix}: missing problem.md at '{problem_md}'")
 
+        # Check test_patch.diff exists and is non-empty.
+        # Staged by seed_corpus.py from the HuggingFace SWE-bench_Lite dataset.
+        test_patch = task_dir / "test_patch.diff"
+        if not test_patch.is_file():
+            violations.append(
+                f"{prefix}: missing test_patch.diff at '{test_patch}'. "
+                "Run: python evals/skill-comparison/seed_corpus.py"
+            )
+        elif test_patch.stat().st_size == 0:
+            violations.append(
+                f"{prefix}: test_patch.diff at '{test_patch}' is empty. "
+                "Re-run: python evals/skill-comparison/seed_corpus.py --force"
+            )
+
         # Check held_out_tests directory exists.
         hot_dir = task_dir / "held_out_tests"
         if not hot_dir.is_dir():

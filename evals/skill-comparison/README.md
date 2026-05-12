@@ -107,6 +107,8 @@ evals/skill-comparison/
   README.md                       # this file
   AGENTS.md                       # per-track agent notes
   runner.py                       # 8-condition matrix driver
+  seeding.py                      # fix-phase repo clone + test_patch seeder
+  seed_corpus.py                  # one-time HuggingFace fetcher for test_patch.diff files
   config_discovery.py             # dynamic discovery of condition dirs
   aggregate.py                    # n-condition rollup with deltas-vs-baseline
   scoring.py                      # pass/fail + diff-hygiene diagnostics
@@ -122,10 +124,59 @@ evals/skill-comparison/
     qa-engineer.yaml
   tasks/
     corpus.yaml                   # task selection list + per-task metadata
-    <task_slug>/                  # seeded repo state, held-out tests, problem
+    <task_slug>/
+      problem.md                  # human-readable bug description
+      test_patch.diff             # failing-test patch (staged by seed_corpus.py)
+      held_out_tests/             # held-out test files directory
   results/
     skill-comparison.tsv          # ledger; append-only
 ```
+
+## Seed phase
+
+Before running the eval, each cell's fix-phase working directory must be seeded:
+the upstream repo is cloned at `base_commit` and the `test_patch.diff` is applied
+to introduce the failing held-out tests. The engineer then works in this directory;
+it has access to the failing tests but NOT to the golden fix patch.
+
+### Staging test_patch fixtures (one-time setup)
+
+`test_patch.diff` files are committed to the corpus (at `tasks/<slug>/test_patch.diff`)
+so the eval runs offline. To regenerate or update them:
+
+```bash
+# Fetch all test_patches from HuggingFace and write to tasks/<slug>/test_patch.diff
+python evals/skill-comparison/seed_corpus.py
+
+# Force-overwrite existing patches
+python evals/skill-comparison/seed_corpus.py --force
+```
+
+This requires network access to the HuggingFace Datasets REST API (public, no auth).
+The 12 patches are small (~500-15000 chars each) and are committed to git.
+
+### Per-cell seeding (automatic at run time)
+
+`runner.py` calls `seed_fix_phase()` from `seeding.py` automatically before the
+engineer is invoked for each cell. The seeder:
+
+1. Clones the repo at `base_commit` into a per-cell working directory.
+2. Applies `tasks/<slug>/test_patch.diff` to introduce the failing tests.
+3. Hands the resulting directory to the engineer agent as its working tree.
+
+**Cache:** To avoid redundant clones (e.g. 3 replicates x 3 django tasks = 9
+full django clones), the seeder maintains a cache at:
+
+```
+~/.cache/skill-comparison/seeds/<slug>-<base_commit[:8]>/
+```
+
+First access per (repo, commit) pair does a shallow clone (slow). Subsequent
+cells use `git clone --local` from the cache (~0.5-2 s). The cache is not
+automatically purged; remove manually if you need to free disk space.
+
+If seeding fails (network error, patch rejection), the cell records
+`status=seed_error` in the TSV and the engineer is not invoked.
 
 ## How to run
 
@@ -133,7 +184,9 @@ evals/skill-comparison/
 
 - Docker daemon running (required for Tier 3 isolator; `docker info` must succeed).
 - `evals/runner/` dependencies installed (`pip install -r evals/runner/requirements.txt`).
-- Task corpus committed to git (`tasks/corpus.yaml` and task subdirectories present).
+- Task corpus committed to git (`tasks/corpus.yaml`, task subdirectories, and `test_patch.diff` files present).
+- Run `python evals/skill-comparison/seed_corpus.py` if any `test_patch.diff` is missing.
+- Run `python evals/skill-comparison/tasks/validate_corpus.py` to verify corpus integrity.
 - Run from repo root or `evals/skill-comparison/` directory.
 
 ### Dry-run (smoke test, no real Claude calls)
@@ -248,7 +301,10 @@ Corpus changes after first run require a new eval generation (new TSV path).
 | Per-agent condition specs | `evals/skill-comparison/specs/` |
 | Canary assertion script | `evals/skill-comparison/canary/` |
 | AE-rules payload builder | `evals/skill-comparison/ae_rules_payload.py` |
+| Fix-phase seeder | `evals/skill-comparison/seeding.py` |
+| test_patch fetcher script | `evals/skill-comparison/seed_corpus.py` |
 | Scoring logic | `evals/skill-comparison/scoring.py` |
+| Corpus validator | `evals/skill-comparison/tasks/validate_corpus.py` |
 | Design brief | `docs/planning/p2-skill-comparison-evals/brief.md` |
 | Architect plan | `docs/planning/p2-skill-comparison-evals/architect-plan.md` |
 | Overfitting rule | `evals/OVERFITTING-RULE.md` |
