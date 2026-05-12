@@ -1,0 +1,11 @@
+name: engineer
+tier: 1
+content_glob:
+  - content/agents/engineer.md
+scoring_module: evals.scoring.engineer_lite
+fixture_dir: evals/fixtures/engineer
+n_runs: 3
+parallelism: serial
+timeout_seconds: 300
+invoke:
+  agent_name: engineer
