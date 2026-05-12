@@ -40,6 +40,11 @@ Public API:
     compute_diff_hygiene(diff_text: str, known_affected_files: list[str]) -> dict
         Parse a unified diff; return lines_touched, files_touched, scope_creep_flag.
 
+    _convert_unittest_id_to_pytest(node_id: str) -> str
+        Convert a unittest-style "test_method (module.path.TestClass)" ID to
+        pytest node-id format "module/path.py::TestClass::test_method".
+        Returns the input unchanged if it does not match the unittest pattern.
+
 Upstream deps: stdlib subprocess, pathlib, re, dataclasses, typing, tempfile, shutil,
                logging.
                evals.runner.isolator.Tier3Docker (optional; used for in-container
@@ -296,6 +301,92 @@ def _parse_pytest_failures(stdout: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Unittest-style node-id conversion
+# ---------------------------------------------------------------------------
+
+_UNITTEST_ID_RE = re.compile(r"^(\w[\w.]*)\s+\((\S+)\)$")
+"""Match unittest-style IDs: "test_method (module.path.TestClass)".
+
+Group 1: method name (e.g. "test_foo")
+Group 2: dotted module.TestClass path (e.g. "module.path.TestClass")
+"""
+
+
+def _convert_unittest_id_to_pytest(node_id: str) -> str:
+    """Convert a unittest-style test ID to a pytest node-id.
+
+    unittest format: "test_method (module.path.TestClass)"
+    pytest format:   "module/path.py::TestClass::test_method"
+
+    The module path component (everything before the last dot-segment, which
+    is the class name) is converted from dotted notation to a filesystem path
+    with '.py' appended. Dots inside the class name are not converted.
+
+    Example:
+        "test_foo (myapp.tests.MyTests)" -> "myapp/tests.py::MyTests::test_foo"
+        "test_bar (tests.sub.TheSuite)"  -> "tests/sub.py::TheSuite::test_bar"
+
+    Returns the original string unchanged if it does not match the expected
+    unittest format.
+    """
+    m = _UNITTEST_ID_RE.match(node_id.strip())
+    if not m:
+        return node_id
+
+    method = m.group(1)
+    dotted = m.group(2)  # e.g. "myapp.tests.MyTests"
+
+    parts = dotted.rsplit(".", 1)
+    if len(parts) != 2:
+        # No dot separator - cannot parse; return unchanged.
+        return node_id
+
+    module_path, class_name = parts
+    # Convert dotted module path to filesystem path + .py extension.
+    file_path = module_path.replace(".", "/") + ".py"
+    return f"{file_path}::{class_name}::{method}"
+
+
+def _normalize_fail_to_pass(
+    fail_to_pass: "list[str]",
+    context: str,
+) -> "list[str]":
+    """Normalize a fail_to_pass list, converting unittest-style IDs to pytest format.
+
+    Args:
+        fail_to_pass: raw node-id list from corpus.yaml (may contain unittest IDs).
+        context: log label for warning messages (e.g. "local" or "tier3").
+
+    Returns a new list with all IDs in pytest node-id format.
+    Entries that cannot be parsed log a warning and are dropped (full-tree fallback
+    is the caller's responsibility when the returned list is empty).
+    """
+    result: list[str] = []
+    for nid in fail_to_pass:
+        # Detect unittest-style: contains "(" and ")" but no "::" or ".py"
+        if "(" in nid and ")" in nid and "::" not in nid and ".py" not in nid:
+            converted = _convert_unittest_id_to_pytest(nid)
+            if converted == nid:
+                # Conversion failed (unexpected format).
+                _LOG.warning(
+                    "_normalize_fail_to_pass [%s]: could not convert unittest-style ID %r; "
+                    "dropping it. Full held-out tree will run instead.",
+                    context, nid,
+                )
+                # Signal to caller that we should fall back to full-tree mode.
+                return []
+            _LOG.debug(
+                "_normalize_fail_to_pass [%s]: converted %r -> %r",
+                context, nid, converted,
+            )
+            result.append(converted)
+        else:
+            # Already pytest-style - pass through unchanged.
+            result.append(nid)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # In-process pytest runner (no Docker)
 # ---------------------------------------------------------------------------
 
@@ -320,14 +411,24 @@ def _run_pytest_local(
     Returns (returncode, combined_stdout).
     """
     if fail_to_pass:
-        # Run only the specified test node-ids. Paths may be bare node-ids
-        # (e.g. "tests/test_foo.py::TestFoo::test_bar") or relative paths;
-        # resolve against held_out_dir so pytest can find them.
-        resolved = [
-            str(held_out_dir / nid) if not Path(nid).is_absolute() else nid
-            for nid in fail_to_pass
-        ]
-        test_targets = resolved
+        # Normalize unittest-style IDs to pytest node-id format before resolving.
+        normalized = _normalize_fail_to_pass(fail_to_pass, context="local")
+        if not normalized:
+            # Conversion failed for at least one ID; fall back to full tree.
+            _LOG.warning(
+                "_run_pytest_local: falling back to full held_out_dir due to "
+                "unparseable node-id(s) in fail_to_pass=%r",
+                fail_to_pass,
+            )
+            test_targets = [str(held_out_dir)]
+        else:
+            # Run only the specified test node-ids. Paths may be bare node-ids
+            # (e.g. "tests/test_foo.py::TestFoo::test_bar") or relative paths;
+            # resolve against held_out_dir so pytest can find them.
+            test_targets = [
+                str(held_out_dir / nid) if not Path(nid).is_absolute() else nid
+                for nid in normalized
+            ]
     else:
         test_targets = [str(held_out_dir)]
 
@@ -410,42 +511,63 @@ def _run_pytest_tier3(
     # guarantees "python3" on PATH; "python" also exists as a symlink in that image,
     # but "python3" is preferred for explicitness.
     if fail_to_pass:
-        # Run only the specified test node-ids. The held_out_dir is mounted at
-        # /scoring/tests inside the container, so prepend that path to each
-        # relative node-id (e.g. "test_foo.py::TestFoo::test_bar" ->
-        # "/scoring/tests/test_foo.py::TestFoo::test_bar").
-        # Node-ids that already start with /scoring/tests are passed as-is.
-        _CONTAINER_TESTS_ROOT = "/scoring/tests"
-        test_targets = [
-            nid if nid.startswith(_CONTAINER_TESTS_ROOT)
-            else f"{_CONTAINER_TESTS_ROOT}/{nid}"
-            for nid in fail_to_pass
-        ]
-        # When specific node-ids are given, omit --rootdir and --noconftest:
-        # - --rootdir conflicts with absolute node-id paths when the dir value
-        #   doesn't match the path prefix, causing 0 tests collected.
-        # - --noconftest blocks legitimate conftest.py in /scoring/tests that
-        #   SWE-bench repo tests need for fixtures/collection.
-        # --confcutdir=/scoring is retained: it stops conftest discovery at
-        # /scoring so agent-planted conftest.py at /workspace/repo is never
-        # loaded regardless of CWD.
-        cmd = [
-            "python3", "-m", "pytest",
-            *test_targets,
-            "--confcutdir=/scoring",
-            "-p", "no:cacheprovider",
-            "--tb=short",
-            "-q",
-            f"--timeout={timeout}",
-        ]
+        # Normalize unittest-style IDs to pytest node-id format before resolving.
+        normalized = _normalize_fail_to_pass(fail_to_pass, context="tier3")
+        if not normalized:
+            # Conversion failed for at least one ID; fall back to full tree.
+            _LOG.warning(
+                "_run_pytest_tier3: falling back to full /scoring/tests due to "
+                "unparseable node-id(s) in fail_to_pass=%r",
+                fail_to_pass,
+            )
+            # Fall through to the full-tree path.
+            cmd = [
+                "python3", "-m", "pytest",
+                "/scoring/tests",
+                "--noconftest",
+                "--rootdir=/scoring/tests",
+                "--confcutdir=/scoring",
+                "-p", "no:cacheprovider",
+                "--tb=short",
+                "-q",
+                f"--timeout={timeout}",
+            ]
+        else:
+            # Run only the specified test node-ids. The held_out_dir is mounted at
+            # /scoring/tests inside the container, so prepend that path to each
+            # relative node-id (e.g. "test_foo.py::TestFoo::test_bar" ->
+            # "/scoring/tests/test_foo.py::TestFoo::test_bar").
+            # Node-ids that already start with /scoring/tests are passed as-is.
+            _CONTAINER_TESTS_ROOT = "/scoring/tests"
+            test_targets = [
+                nid if nid.startswith(_CONTAINER_TESTS_ROOT)
+                else f"{_CONTAINER_TESTS_ROOT}/{nid}"
+                for nid in normalized
+            ]
+            # When specific node-ids are given, omit --rootdir and --noconftest:
+            # - --rootdir conflicts with absolute node-id paths when the dir value
+            #   doesn't match the path prefix, causing 0 tests collected.
+            # - --noconftest blocks legitimate conftest.py in /scoring/tests that
+            #   SWE-bench repo tests need for fixtures/collection.
+            # --confcutdir=/scoring is retained: it stops conftest discovery at
+            # /scoring so agent-planted conftest.py at /workspace/repo is never
+            # loaded regardless of CWD.
+            cmd = [
+                "python3", "-m", "pytest",
+                *test_targets,
+                "--confcutdir=/scoring",
+                "-p", "no:cacheprovider",
+                "--tb=short",
+                "-q",
+                f"--timeout={timeout}",
+            ]
     else:
-        test_targets = ["/scoring/tests"]
         # Full-tree case: use the original security-hardened flags.
         # --noconftest is safe here because we are running the full tree and
         # do not depend on conftest.py for targeted collection.
         cmd = [
             "python3", "-m", "pytest",
-            *test_targets,
+            "/scoring/tests",
             "--noconftest",
             "--rootdir=/scoring/tests",
             "--confcutdir=/scoring",

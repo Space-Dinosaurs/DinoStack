@@ -23,6 +23,8 @@ import pytest
 # conftest.py inserts skill-comparison/ into sys.path.
 from scoring import (
     ScoringResult,
+    _convert_unittest_id_to_pytest,
+    _normalize_fail_to_pass,
     _parse_pytest_failures,
     _run_pytest_local,
     _run_pytest_tier3,
@@ -930,4 +932,254 @@ class TestComputeEngineerDiffFromWorkdir:
         assert "unrelated.py" not in result.diff_text, (
             "diff_text must NOT contain unrelated.py (noisy transcript); "
             "workdir diff should have been used instead"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression: unittest-style fail_to_pass IDs converted to pytest node-id format
+# [unittest-style-fix]
+# ---------------------------------------------------------------------------
+
+
+class TestConvertUnittestIdToPytest:
+    """Unit tests for _convert_unittest_id_to_pytest.
+
+    Regression for django-11039 / django-11049 corpus entries whose
+    fail_to_pass IDs use the unittest format "test_method (module.path.TestClass)".
+    Previously, these IDs were passed as-is to pytest which treated them as
+    paths, producing invalid paths and deterministic FAIL scores.
+    """
+
+    def test_simple_three_part_module(self):
+        """test_foo (myapp.tests.MyTests) -> myapp/tests.py::MyTests::test_foo"""
+        result = _convert_unittest_id_to_pytest("test_foo (myapp.tests.MyTests)")
+        assert result == "myapp/tests.py::MyTests::test_foo"
+
+    def test_two_part_module(self):
+        """test_bar (tests.TheSuite) -> tests.py::TheSuite::test_bar"""
+        result = _convert_unittest_id_to_pytest("test_bar (tests.TheSuite)")
+        assert result == "tests.py::TheSuite::test_bar"
+
+    def test_deep_module_path(self):
+        """test_baz (a.b.c.d.MyClass) -> a/b/c/d.py::MyClass::test_baz"""
+        result = _convert_unittest_id_to_pytest("test_baz (a.b.c.d.MyClass)")
+        assert result == "a/b/c/d.py::MyClass::test_baz"
+
+    def test_django_style_id(self):
+        """Realistic django corpus ID format."""
+        result = _convert_unittest_id_to_pytest(
+            "test_migrate_with_deferred_sql (migrations.test_executor.ExecutorTests)"
+        )
+        assert result == "migrations/test_executor.py::ExecutorTests::test_migrate_with_deferred_sql"
+
+    def test_pytest_style_passthrough(self):
+        """pytest-style IDs with '::' are passed through unchanged."""
+        nid = "tests/test_foo.py::TestFoo::test_bar"
+        assert _convert_unittest_id_to_pytest(nid) == nid
+
+    def test_plain_path_passthrough(self):
+        """Bare file paths without parens are passed through unchanged."""
+        nid = "tests/test_foo.py"
+        assert _convert_unittest_id_to_pytest(nid) == nid
+
+    def test_no_dot_in_parens_returns_unchanged(self):
+        """If parens contain no dot, cannot extract class - return unchanged."""
+        nid = "test_foo (MyTests)"
+        # Single segment - rsplit('.', 1) returns one part, not two.
+        assert _convert_unittest_id_to_pytest(nid) == nid
+
+    def test_strips_whitespace(self):
+        """Leading/trailing whitespace on the ID is stripped before matching."""
+        result = _convert_unittest_id_to_pytest("  test_foo (myapp.tests.MyTests)  ")
+        assert result == "myapp/tests.py::MyTests::test_foo"
+
+
+class TestNormalizeFailToPass:
+    """Unit tests for _normalize_fail_to_pass.
+
+    [unittest-style-fix] Regression: ensure the normalizer handles mixed lists
+    correctly, converts unittest IDs, and falls back on unparseable entries.
+    """
+
+    def test_unittest_ids_converted(self):
+        ids = [
+            "test_foo (myapp.tests.MyTests)",
+            "test_bar (myapp.tests.MyTests)",
+        ]
+        result = _normalize_fail_to_pass(ids, context="test")
+        assert result == [
+            "myapp/tests.py::MyTests::test_foo",
+            "myapp/tests.py::MyTests::test_bar",
+        ]
+
+    def test_pytest_ids_unchanged(self):
+        ids = [
+            "tests/test_foo.py::TestFoo::test_bar",
+            "tests/test_baz.py::TestBaz::test_qux",
+        ]
+        result = _normalize_fail_to_pass(ids, context="test")
+        assert result == ids
+
+    def test_mixed_list_converts_unittest_only(self):
+        ids = [
+            "test_foo (myapp.tests.MyTests)",
+            "tests/test_other.py::TestOther::test_x",
+        ]
+        result = _normalize_fail_to_pass(ids, context="test")
+        assert result == [
+            "myapp/tests.py::MyTests::test_foo",
+            "tests/test_other.py::TestOther::test_x",
+        ]
+
+    def test_unparseable_returns_empty_list(self):
+        """An ID that looks unittest-style but cannot be parsed triggers fallback."""
+        # This has parens but no dot inside - _convert_unittest_id_to_pytest returns it unchanged.
+        ids = ["test_foo (NoClassName)"]
+        result = _normalize_fail_to_pass(ids, context="test")
+        assert result == [], (
+            "Unparseable unittest-style ID must return [] to signal full-tree fallback"
+        )
+
+    def test_empty_list_returns_empty(self):
+        assert _normalize_fail_to_pass([], context="test") == []
+
+
+class TestUnittestStyleIdConvertedToLocalCmd:
+    """Regression [unittest-style-fix]: _run_pytest_local converts unittest IDs.
+
+    test_unittest_style_id_converted_to_pytest_node_id (local path).
+    """
+
+    def test_unittest_style_id_converted_to_pytest_node_id(self, tmp_path: Path):
+        """_run_pytest_local must convert 'test_foo (module.TestClass)' to pytest format."""
+        held_dir = tmp_path / "held"
+        held_dir.mkdir()
+        fix_dir = tmp_path / "fix"
+        fix_dir.mkdir()
+
+        unittest_ids = ["test_foo (myapp.tests.MyTests)"]
+        captured_cmds: list[list] = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            mock = MagicMock()
+            mock.returncode = 0
+            mock.stdout = "1 passed"
+            mock.stderr = ""
+            return mock
+
+        with patch("scoring.subprocess.run", side_effect=fake_run):
+            _run_pytest_local(held_dir, fix_dir, timeout=30, fail_to_pass=unittest_ids)
+
+        assert captured_cmds, "subprocess.run must have been called"
+        cmd = captured_cmds[0]
+        # The converted pytest node-id must appear, resolved against held_dir.
+        expected_fragment = "myapp/tests.py::MyTests::test_foo"
+        cmd_str = " ".join(cmd)
+        assert expected_fragment in cmd_str, (
+            f"Converted pytest node-id '{expected_fragment}' must appear in cmd; "
+            f"got: {cmd}"
+        )
+        # The raw unittest-style ID must NOT appear.
+        assert "test_foo (myapp.tests.MyTests)" not in cmd_str, (
+            "Raw unittest-style ID must not appear in cmd after conversion"
+        )
+
+    def test_pytest_style_id_passes_through_unchanged(self, tmp_path: Path):
+        """_run_pytest_local must not alter already-valid pytest node-ids."""
+        held_dir = tmp_path / "held"
+        held_dir.mkdir()
+        fix_dir = tmp_path / "fix"
+        fix_dir.mkdir()
+
+        pytest_ids = ["tests/test_foo.py::TestFoo::test_bar"]
+        captured_cmds: list[list] = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            mock = MagicMock()
+            mock.returncode = 0
+            mock.stdout = "1 passed"
+            mock.stderr = ""
+            return mock
+
+        with patch("scoring.subprocess.run", side_effect=fake_run):
+            _run_pytest_local(held_dir, fix_dir, timeout=30, fail_to_pass=pytest_ids)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        # The pytest-style ID (resolved against held_dir) must appear.
+        expected = str(held_dir / pytest_ids[0])
+        assert expected in cmd, (
+            f"pytest-style ID must pass through unchanged; expected '{expected}' in cmd; "
+            f"got: {cmd}"
+        )
+
+
+class TestUnittestStyleIdConvertedToTier3Cmd:
+    """Regression [unittest-style-fix]: _run_pytest_tier3 converts unittest IDs.
+
+    test_unittest_style_id_converted_to_pytest_node_id (tier3 path).
+    """
+
+    def test_unittest_style_id_converted_to_pytest_node_id(self):
+        """_run_pytest_tier3 must convert 'test_foo (module.TestClass)' to pytest format."""
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        unittest_ids = ["test_foo (myapp.tests.MyTests)"]
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=unittest_ids)
+
+        assert captured_cmds, "Tier3Docker.run_score_phase must have been called"
+        cmd = captured_cmds[0]
+        # Converted ID must appear prefixed with /scoring/tests/.
+        expected = "/scoring/tests/myapp/tests.py::MyTests::test_foo"
+        assert expected in cmd, (
+            f"Converted pytest node-id '{expected}' must appear in tier3 cmd; "
+            f"got: {cmd}"
+        )
+        # Raw unittest-style ID must not appear.
+        cmd_str = " ".join(cmd)
+        assert "test_foo (myapp.tests.MyTests)" not in cmd_str, (
+            "Raw unittest-style ID must not appear in tier3 cmd after conversion"
+        )
+
+    def test_pytest_style_id_passes_through_unchanged(self):
+        """_run_pytest_tier3 must not alter already-valid pytest node-ids."""
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        pytest_ids = ["tests/test_foo.py::TestFoo::test_bar"]
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=pytest_ids)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        expected = f"/scoring/tests/{pytest_ids[0]}"
+        assert expected in cmd, (
+            f"pytest-style ID must appear unchanged (prefixed); "
+            f"expected '{expected}'; got: {cmd}"
         )
