@@ -13,6 +13,7 @@ Public API:
         held_out_dir: Path,
         tier3_ctx: "Tier3Context | None" = None,
         pytest_timeout: int = 120,
+        fail_to_pass: "list[str] | None" = None,
     ) -> ScoringResult
 
     ScoringResult (dataclass):
@@ -225,38 +226,42 @@ def _run_pytest_local(
     held_out_dir: Path,
     fix_phase_dir: Path,
     timeout: int,
-    fail_to_pass: list[str] | None = None,
+    fail_to_pass: "list[str] | None" = None,
 ) -> tuple[int, str]:
-    """Run pytest against fix_phase_dir worktree.
+    """Run pytest on held_out_dir tests against fix_phase_dir worktree.
 
-    When fail_to_pass is provided (and non-empty), the specific test node-ids
-    are passed directly to pytest so only the target tests are collected and
-    run. This is the correct behaviour: held_out_tests is a list of *file*
-    paths used for extraction, but pytest needs node-ids like
-    ``tests/test_foo.py::ClassName::test_name`` to select the right tests.
-    Passing a bare file path when the file does not exist under fix_phase_dir
-    causes pytest to collect 0 tests (the smoke v4 regression).
-
-    Falls back to str(held_out_dir) with a warning when fail_to_pass is empty.
+    Args:
+        held_out_dir: directory containing the held-out test files.
+        fix_phase_dir: directory containing the engineer's modified repo.
+        timeout: pytest wall-clock budget in seconds.
+        fail_to_pass: optional list of specific test node-ids to run.
+            When provided, pytest is invoked with those node-ids instead of
+            the full held_out_dir tree. Relative paths are resolved against
+            held_out_dir. When None or empty, all tests under held_out_dir
+            are run.
 
     Returns (returncode, combined_stdout).
     """
     if fail_to_pass:
-        test_targets = list(fail_to_pass)
+        # Run only the specified test node-ids. Paths may be bare node-ids
+        # (e.g. "tests/test_foo.py::TestFoo::test_bar") or relative paths;
+        # resolve against held_out_dir so pytest can find them.
+        resolved = [
+            str(held_out_dir / nid) if not Path(nid).is_absolute() else nid
+            for nid in fail_to_pass
+        ]
+        test_targets = resolved
     else:
-        import warnings
-        warnings.warn(
-            "fail_to_pass is empty; falling back to held_out_dir for pytest "
-            "collection. This may collect 0 tests if the path does not exist "
-            "under fix_phase_dir.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
         test_targets = [str(held_out_dir)]
 
     cmd = [
         sys.executable, "-m", "pytest",
         *test_targets,
+        # --noconftest and --rootdir prevent conftest.py / pytest.ini planted
+        # by the agent in fix_phase_dir from executing during scoring. These
+        # flags are load-bearing isolation guards - do not remove them.
+        "--noconftest",
+        f"--rootdir={held_out_dir}",
         "--tb=short",
         "-q",
         "--timeout", str(timeout),
@@ -285,12 +290,23 @@ def _run_pytest_local(
 def _run_pytest_tier3(
     tier3_ctx: object,  # Tier3Context (avoid hard import cycle)
     timeout: int,
+    fail_to_pass: "list[str] | None" = None,
 ) -> tuple[int, str]:
     """Run pytest inside the Tier 3 container's score phase.
 
-    Delegates to Tier3Docker.run_score_phase. The held-out tests are already
-    mounted at /scoring/tests inside the container (per the Tier3Context
-    mount layout).
+    Delegates to Tier3Docker.run_score_phase. The held-out tests are mounted
+    at /scoring/tests inside the container (per the Tier3Context mount layout).
+    CWD is /scoring (not /workspace/repo) to prevent conftest.py or pytest.ini
+    planted by the agent in /workspace/repo from executing.
+
+    Args:
+        tier3_ctx: Tier3Context from Tier3Docker.__enter__.
+        timeout: pytest wall-clock budget in seconds.
+        fail_to_pass: optional list of specific test node-ids to run.
+            When provided, pytest is invoked with those node-ids prefixed by
+            /scoring/tests/ (the in-container mount path) instead of the full
+            /scoring/tests tree. When None or empty, all tests under
+            /scoring/tests are run.
 
     Returns (returncode, combined_stdout).
     """
@@ -301,9 +317,24 @@ def _run_pytest_tier3(
     # which does not exist inside the Docker image. The python:3.11-slim base image
     # guarantees "python3" on PATH; "python" also exists as a symlink in that image,
     # but "python3" is preferred for explicitness.
+    if fail_to_pass:
+        # Run only the specified test node-ids. The held_out_dir is mounted at
+        # /scoring/tests inside the container, so prepend that path to each
+        # relative node-id (e.g. "test_foo.py::TestFoo::test_bar" ->
+        # "/scoring/tests/test_foo.py::TestFoo::test_bar").
+        # Node-ids that already start with /scoring/tests are passed as-is.
+        _CONTAINER_TESTS_ROOT = "/scoring/tests"
+        test_targets = [
+            nid if nid.startswith(_CONTAINER_TESTS_ROOT)
+            else f"{_CONTAINER_TESTS_ROOT}/{nid}"
+            for nid in fail_to_pass
+        ]
+    else:
+        test_targets = ["/scoring/tests"]
+
     cmd = [
         "python3", "-m", "pytest",
-        "/scoring/tests",
+        *test_targets,
         "--noconftest",
         "--rootdir=/scoring/tests",
         "--confcutdir=/scoring",
@@ -327,6 +358,7 @@ def score_cell(
     held_out_dir: Path,
     tier3_ctx: Optional[object] = None,
     pytest_timeout: int = 120,
+    fail_to_pass: "list[str] | None" = None,
 ) -> ScoringResult:
     """Score one (task, condition, replicate) cell.
 
@@ -344,15 +376,16 @@ def score_cell(
                    (in-container); when None, pytest runs on the host.
         pytest_timeout: per-cell pytest wall-clock budget in seconds (<= 120
                         per the Brief constraint).
+        fail_to_pass: optional list of specific test node-ids (relative to
+                      held_out_dir / /scoring/tests) to run instead of the
+                      full test tree. When None or empty, all tests under
+                      held_out_dir are run. Forwarded to both the local and
+                      tier3 pytest runners.
 
     Returns:
         ScoringResult with all fields populated.
     """
     known_affected = task_meta.get("known_affected_files", [])
-    # fail_to_pass node-ids are used to select the exact tests to run.
-    # Using the file-level held_out_tests path causes pytest to collect 0 tests
-    # when the file does not exist under fix_phase_dir (the smoke v4 regression).
-    fail_to_pass: list[str] = task_meta.get("fail_to_pass", [])
 
     # 1. Extract diff from transcript.
     diff_text = extract_diff_from_transcript(transcript)
@@ -362,11 +395,9 @@ def score_cell(
 
     # 3. Run held-out pytest.
     if tier3_ctx is not None:
-        returncode, pytest_out = _run_pytest_tier3(tier3_ctx, pytest_timeout)
+        returncode, pytest_out = _run_pytest_tier3(tier3_ctx, pytest_timeout, fail_to_pass=fail_to_pass)
     else:
-        returncode, pytest_out = _run_pytest_local(
-            held_out_dir, fix_phase_dir, pytest_timeout, fail_to_pass=fail_to_pass
-        )
+        returncode, pytest_out = _run_pytest_local(held_out_dir, fix_phase_dir, pytest_timeout, fail_to_pass=fail_to_pass)
 
     pass_fail = returncode == 0
     failures = [] if pass_fail else _parse_pytest_failures(pytest_out)
