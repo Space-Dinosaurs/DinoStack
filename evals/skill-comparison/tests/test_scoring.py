@@ -23,6 +23,7 @@ from scoring import (
     ScoringResult,
     _parse_pytest_failures,
     _run_pytest_local,
+    _run_pytest_tier3,
     compute_diff_hygiene,
     extract_diff_from_transcript,
     score_cell,
@@ -468,3 +469,166 @@ class TestScoreCellUsesSystemExecutable:
         )
         assert cmd[1] == "-m"
         assert cmd[2] == "pytest"
+
+
+# ---------------------------------------------------------------------------
+# Regression: fail_to_pass forwarded to BOTH local and tier3 pytest runners
+# [smoke-bugs-r3]
+# ---------------------------------------------------------------------------
+
+
+class TestFailToPassForwarding:
+    """Regression: fail_to_pass must reach _run_pytest_tier3's pytest cmd.
+
+    Previously, score_cell forwarded fail_to_pass only to _run_pytest_local.
+    The tier3 branch called _run_pytest_tier3 without the argument, causing
+    it to always run the full /scoring/tests tree regardless of the caller's
+    intent. This suite pins the fix.
+    """
+
+    def test_tier3_cmd_includes_node_ids_when_fail_to_pass_given(self):
+        """_run_pytest_tier3 must use provided node-ids, not /scoring/tests."""
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        node_ids = [
+            "tests/test_sqlmigrate.py::TestSqlMigrate::test_forward",
+            "tests/test_sqlmigrate.py::TestSqlMigrate::test_backward",
+        ]
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=node_ids)
+
+        assert captured_cmds, "Tier3Docker.run_score_phase must have been called"
+        cmd = captured_cmds[0]
+        # Each node-id must appear in the cmd, prefixed with /scoring/tests/.
+        for nid in node_ids:
+            expected = f"/scoring/tests/{nid}"
+            assert expected in cmd, (
+                f"Expected '{expected}' in tier3 pytest cmd; cmd was: {cmd}. "
+                "fail_to_pass node-ids must be prefixed with /scoring/tests/ "
+                "to match the in-container mount path."
+            )
+        # The bare /scoring/tests target must NOT appear when node-ids are given.
+        assert "/scoring/tests" not in cmd, (
+            "When fail_to_pass is provided, the full /scoring/tests tree "
+            "must NOT appear in the cmd - only the specific node-ids."
+        )
+
+    def test_tier3_cmd_uses_full_tree_when_fail_to_pass_is_none(self):
+        """_run_pytest_tier3 must fall back to /scoring/tests when fail_to_pass is None."""
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "5 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=None)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        assert "/scoring/tests" in cmd, (
+            "When fail_to_pass is None, cmd must target the full /scoring/tests tree."
+        )
+
+    def test_score_cell_tier3_branch_forwards_fail_to_pass(self, tmp_path: Path):
+        """score_cell must forward fail_to_pass to _run_pytest_tier3.
+
+        Regression test for the bug where score_cell passed fail_to_pass to
+        _run_pytest_local but NOT to _run_pytest_tier3, causing the tier3
+        branch to always run the full /scoring/tests tree.
+        """
+        fix_dir = tmp_path / "fix"
+        fix_dir.mkdir()
+        held_dir = tmp_path / "held"
+        held_dir.mkdir()
+
+        node_ids = ["tests/test_sqlmigrate.py::TestSqlMigrate::test_forward"]
+
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        fake_tier3_ctx = MagicMock()
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            score_cell(
+                task_slug="django-11039",
+                transcript=_PASSING_TRANSCRIPT,
+                task_meta=_TASK_META_SINGLE_FILE,
+                fix_phase_dir=fix_dir,
+                held_out_dir=held_dir,
+                tier3_ctx=fake_tier3_ctx,
+                pytest_timeout=30,
+                fail_to_pass=node_ids,
+            )
+
+        assert captured_cmds, "Tier3Docker.run_score_phase must have been called"
+        cmd = captured_cmds[0]
+        expected = f"/scoring/tests/{node_ids[0]}"
+        assert expected in cmd, (
+            f"score_cell must forward fail_to_pass to _run_pytest_tier3; "
+            f"expected '{expected}' in cmd, got: {cmd}"
+        )
+        # Full tree must not be present when specific node-ids are given.
+        assert "/scoring/tests" not in [t for t in cmd if t == "/scoring/tests"], (
+            "score_cell must not pass the full /scoring/tests target when "
+            "fail_to_pass is provided."
+        )
+
+    def test_local_cmd_includes_node_ids_when_fail_to_pass_given(self, tmp_path: Path):
+        """_run_pytest_local must resolve node-ids against held_out_dir."""
+        held_dir = tmp_path / "held"
+        held_dir.mkdir()
+        fix_dir = tmp_path / "fix"
+        fix_dir.mkdir()
+
+        node_ids = ["test_foo.py::TestFoo::test_bar"]
+
+        captured_cmds: list[list] = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            mock = MagicMock()
+            mock.returncode = 0
+            mock.stdout = "1 passed"
+            mock.stderr = ""
+            return mock
+
+        with patch("scoring.subprocess.run", side_effect=fake_run):
+            _run_pytest_local(held_dir, fix_dir, timeout=30, fail_to_pass=node_ids)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        # Node-id must appear resolved against held_dir.
+        expected = str(held_dir / node_ids[0])
+        assert expected in cmd, (
+            f"_run_pytest_local must resolve node-ids against held_out_dir; "
+            f"expected '{expected}' in cmd, got: {cmd}"
+        )
