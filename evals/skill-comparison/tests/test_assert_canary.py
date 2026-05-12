@@ -208,6 +208,16 @@ class TestParseFrontmatterTools:
         with pytest.raises(ValueError, match="No YAML frontmatter"):
             parse_frontmatter_tools(md)
 
+    def test_parses_bracket_list_form(self, tmp_path: Path):
+        """Inline YAML bracket form tools: [Read, Grep, Glob, Bash] is handled."""
+        md = tmp_path / "agent.md"
+        md.write_text(
+            "---\nname: testagent\ntools: [Read, Grep, Glob, Bash]\n---\n\nBody.",
+            encoding="utf-8",
+        )
+        tools = parse_frontmatter_tools(md)
+        assert tools == ["Read", "Grep", "Glob", "Bash"]
+
 
 # ---------------------------------------------------------------------------
 # Tests: _find_task_spawn (including M4 nested-spawn rejection)

@@ -29,10 +29,10 @@ Upstream deps: stdlib (argparse, json, pathlib, sys, re).
 Downstream consumers: evals/skill-comparison/canary/run_canary.sh,
                       evals/skill-comparison/tests/test_assert_canary.py.
 
-Failure modes: returns (False, [message]) on assertion failure; raises
-               FileNotFoundError if transcript_path does not exist (caller
-               must handle). parse_frontmatter_tools raises FileNotFoundError
-               if the agent .md file is missing.
+Failure modes: returns (False, [message]) on assertion failure; returns
+               (False, [message]) if transcript_path does not exist.
+               parse_frontmatter_tools raises FileNotFoundError if the agent
+               .md file is missing.
 
 Performance: O(transcript lines); dominated by JSON parse. Standard for
              ~100-line transcripts.
@@ -61,8 +61,12 @@ def parse_frontmatter_tools(agent_md_path: Path) -> list[str]:
     the tools list.
 
     The frontmatter block is delimited by ``---`` lines at the top of the
-    file.  The ``tools:`` line is expected to be a comma-separated list on
-    a single line, e.g. ``tools: Read, Grep, Glob, Bash``.
+    file.  The ``tools:`` line is expected to be one of two supported forms:
+
+    - Comma-separated bare list: ``tools: Read, Grep, Glob, Bash``
+    - Inline YAML bracket list: ``tools: [Read, Grep, Glob, Bash]``
+
+    Block-sequence form (multi-line ``- Read``) is NOT supported.
 
     Args:
         agent_md_path: Absolute path to the agent markdown file.
@@ -95,6 +99,9 @@ def parse_frontmatter_tools(agent_md_path: Path) -> list[str]:
         )
 
     raw = tools_match.group(1).strip()
+    # Strip surrounding brackets for inline YAML bracket-list form: [Read, Grep, ...]
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
