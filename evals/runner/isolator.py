@@ -426,14 +426,16 @@ class Tier3Docker(IsolatorBase):
         held_out_dir: Path | None = None,
         build_image: bool = True,
         timeout_seconds: int = 300,
+        image_tag: str = _DOCKER_IMAGE_TAG,
     ) -> None:
         self.fixture_repo_dir = fixture_repo_dir
         self._held_out_dir = held_out_dir
         self.timeout_seconds = timeout_seconds
+        self.image_tag = image_tag
 
         # Build-once-reuse: if the image digest is already cached for this tag,
         # skip the build regardless of the caller-supplied build_image flag.
-        if _DOCKER_IMAGE_TAG in _IMAGE_DIGEST_CACHE:
+        if self.image_tag in _IMAGE_DIGEST_CACHE:
             self.build_image = False
         else:
             self.build_image = build_image
@@ -449,13 +451,13 @@ class Tier3Docker(IsolatorBase):
     def __enter__(self) -> Tier3Context:
         # 1. Optionally build the image, then resolve the content digest.
         #    Cache hit: skip both build and inspect subprocess (reuse cached digest).
-        if _DOCKER_IMAGE_TAG in _IMAGE_DIGEST_CACHE:
-            image_digest = _IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG]
+        if self.image_tag in _IMAGE_DIGEST_CACHE:
+            image_digest = _IMAGE_DIGEST_CACHE[self.image_tag]
         else:
             if self.build_image:
-                self._build_image()
-            image_digest = self._resolve_image_digest()
-            _IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = image_digest
+                self._build_image(self.image_tag)
+            image_digest = self._resolve_image_digest(self.image_tag)
+            _IMAGE_DIGEST_CACHE[self.image_tag] = image_digest
 
         # 2. Prepare fix-phase dir (rw copy of the fixture repo).
         fix_phase_dir = Path(tempfile.mkdtemp(prefix="t3-fix-"))
@@ -478,7 +480,7 @@ class Tier3Docker(IsolatorBase):
         return Tier3Context(
             fix_phase_dir=fix_phase_dir,
             held_out_dir=held_out_dir,
-            image_tag=_DOCKER_IMAGE_TAG,
+            image_tag=self.image_tag,
             image_digest=image_digest,
         )
 
@@ -519,7 +521,7 @@ class Tier3Docker(IsolatorBase):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_image() -> None:
+    def _build_image(image_tag: str = _DOCKER_IMAGE_TAG) -> None:
         """Build the swebench Docker image from Dockerfile.swebench.
 
         Note: `docker build` requires network to pull the base image and run
@@ -528,6 +530,9 @@ class Tier3Docker(IsolatorBase):
         time (fix and score phases) so that the eval container itself has no
         outbound network during the actual eval execution. The build step is a
         one-time setup; run-time isolation is the security boundary that matters.
+
+        Args:
+            image_tag: local image tag to build (default: _DOCKER_IMAGE_TAG).
         """
         if not _DOCKERFILE_PATH.exists():
             raise RuntimeError(
@@ -537,7 +542,7 @@ class Tier3Docker(IsolatorBase):
         result = subprocess.run(
             [
                 "docker", "build",
-                "-t", _DOCKER_IMAGE_TAG,
+                "-t", image_tag,
                 "-f", str(_DOCKERFILE_PATH),
                 str(_DOCKERFILE_PATH.parent),
             ],
@@ -549,26 +554,29 @@ class Tier3Docker(IsolatorBase):
                 f"docker build failed (exit {result.returncode}):\n"
                 f"{result.stderr.strip() or result.stdout.strip()}"
             )
-        _log.info("Tier 3: image built as %s", _DOCKER_IMAGE_TAG)
+        _log.info("Tier 3: image built as %s", image_tag)
 
     @staticmethod
-    def _resolve_image_digest() -> str:
+    def _resolve_image_digest(image_tag: str = _DOCKER_IMAGE_TAG) -> str:
         """Resolve the local image to its content digest (sha256:<hex>).
 
         Uses `docker inspect` so the returned reference is content-addressed
         and immune to mutable-tag races where a parallel branch overwrites
         the local ae-eval-swebench:latest tag between build and run.
 
+        Args:
+            image_tag: local image tag to inspect (default: _DOCKER_IMAGE_TAG).
+
         Raises RuntimeError if the image is not found locally.
         """
         result = subprocess.run(
-            ["docker", "inspect", "--format={{.Id}}", _DOCKER_IMAGE_TAG],
+            ["docker", "inspect", "--format={{.Id}}", image_tag],
             capture_output=True,
             text=True,
         )
         if result.returncode != 0 or not result.stdout.strip():
             raise RuntimeError(
-                f"docker inspect failed for {_DOCKER_IMAGE_TAG}: "
+                f"docker inspect failed for {image_tag}: "
                 f"{result.stderr.strip() or 'image not found locally'}"
             )
         digest = result.stdout.strip()

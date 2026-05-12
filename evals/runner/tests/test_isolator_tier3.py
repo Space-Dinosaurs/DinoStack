@@ -871,35 +871,35 @@ def test_tier3_ensure_image_idempotent():
 def test_tier3_enter_uses_cached_digest_without_subprocess():
     """When the cache is already populated, Tier3Docker.__enter__ must use the
     cached digest and make zero subprocess calls for build or inspect.
+
+    Regression test: threads cache lookup through self.image_tag (MAJOR finding fix).
+    The subprocess mock raises on any call so an uncached subprocess would error
+    loudly instead of silently returning a wrong digest.
     """
     fake_digest = "sha256:" + "c" * 64
     _isolator_module._IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = fake_digest
 
-    subprocess_call_count = 0
-
-    def _fake_subprocess_run(cmd, **kwargs):
-        nonlocal subprocess_call_count
-        subprocess_call_count += 1
-        result = MagicMock()
-        result.returncode = 0
-        result.stdout = fake_digest + "\n"
-        return result
+    def _noisy_subprocess_run(cmd, **kwargs):
+        raise AssertionError(
+            f"subprocess.run must NOT be called when cache is populated; got cmd={cmd!r}"
+        )
 
     try:
-        with patch("evals.runner.isolator.subprocess.run", side_effect=_fake_subprocess_run):
+        with patch("evals.runner.isolator.subprocess.run", side_effect=_noisy_subprocess_run):
             isolator = Tier3Docker(build_image=True)  # True is overridden by cache
-            # Manually drive __enter__ logic up to the image-resolution step.
-            # We do NOT enter the full context manager to avoid tmpdir side effects.
-            # Instead, verify __init__ set build_image=False and that if we read
-            # the cache path in __enter__, no subprocess.run is triggered.
             assert isolator.build_image is False, (
                 "Cache hit must force build_image=False in __init__"
             )
-            # The cache short-circuit in __enter__ means subprocess is never called
-            # for build or inspect. Verify by checking subprocess_call_count after
-            # the __init__ path (before __enter__ actually executes container setup).
-        # subprocess_call_count may be >0 if __enter__ was called; we only checked __init__.
-        # The real validation is that build_call_count in __init__ itself is 0.
-        # (Full __enter__ flow is exercised by integration tests above.)
+            # Actually call __enter__ - this is the zero-subprocess claim under test.
+            ctx = isolator.__enter__()
+            try:
+                assert ctx.image_digest == fake_digest, (
+                    f"__enter__ must return the cached digest; got {ctx.image_digest!r}"
+                )
+                assert ctx.image_tag == _DOCKER_IMAGE_TAG, (
+                    f"__enter__ must propagate self.image_tag; got {ctx.image_tag!r}"
+                )
+            finally:
+                isolator.__exit__(None, None, None)
     finally:
         _isolator_module._IMAGE_DIGEST_CACHE.clear()
