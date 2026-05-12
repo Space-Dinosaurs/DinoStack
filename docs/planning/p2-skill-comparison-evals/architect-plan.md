@@ -60,6 +60,8 @@ SWE-bench tasks need a sandbox to run held-out tests. Tier 2 (worktree + HOME re
 - Volume mount of the worktree (rw) and the held-out test set (ro, separate path so the agent cannot read tests during the fix phase). Mount layout is asserted by the leakage unit test (QA scenario 3).
 - Timeout enforced by `docker run --stop-timeout` plus a wall-clock guard in `isolator.py`.
 
+**Implementation deviation (fix phase):** The original design assumed both the fix and score phases would run inside `--network none` containers. In practice, the Claude CLI requires network access to reach the Anthropic API, so running the fix-phase CLI inside a `--network none` container is not feasible. The actual implementation runs the Claude CLI on the host at `cwd=fix_phase_dir` (via `invoke_run`); filesystem-scoped isolation is provided by routing all engineer edits through `fix_phase_dir` and never staging held-out tests into that directory. The score phase is unaffected and retains full `--network none` container isolation - this is the load-bearing eval integrity guarantee. See risk-register item #6 for the per-phase mitigation description.
+
 The "minimal" framing matters: Python-only, pytest-only, single base image, v1.
 
 Rejected alternative: descope to Tier-2-runnable tasks (e.g. fixture-style code review or planner-output critique). Rejected because the question we are answering is "do these agents help solve real bugs?" - a code-review-only corpus answers a different question and would not be defensible as the headline result.

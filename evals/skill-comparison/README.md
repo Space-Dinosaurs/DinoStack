@@ -100,6 +100,18 @@ The sensitivity check (see "How to run") verifies that the
 baseline-vs-ae-rules-injected delta exceeds the baseline noise envelope on
 >=60% of in-scope tasks before the eval is considered discriminating.
 
+**Fix phase vs score phase isolation.** The two eval phases use different isolation
+mechanisms. Fix phase (Claude CLI invocation): the CLI runs on the host at
+`cwd=fix_phase_dir` because the Claude CLI requires network access to the Anthropic
+API; running it inside a `--network none` container is not feasible. Filesystem
+isolation is provided by never staging held-out tests into `fix_phase_dir` - the
+engineer's working directory only contains the seeded repo state. Score phase (held-out
+pytest invocation): runs inside a `--network none` Docker container with
+`/workspace/repo` mounted read-only and held-out tests mounted read-only at
+`/scoring/tests` (a path the fix phase never saw). The score phase is the load-bearing
+isolation boundary for eval integrity; the fix-phase deviation from full containerization
+is an accepted engineering trade-off required by the CLI's API network dependency.
+
 ## Repository layout
 
 ```

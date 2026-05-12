@@ -611,6 +611,11 @@ class Tier3Docker(IsolatorBase):
             )
 
         if prompt is not None:
+            # Claude CLI requires network (Anthropic API) so the fix-phase CLI
+            # invocation runs on the host at cwd=fix_phase_dir. Filesystem isolation
+            # is provided by routing all engineer edits through fix_phase_dir; held-out
+            # tests are not present in fix_phase_dir. See risk-register item #6 and
+            # architect-plan "Implementation deviation" note.
             # Prompt path: run the Claude CLI on the HOST so it can reach the
             # Anthropic API.  The agent's file writes go into ctx.fix_phase_dir,
             # which is the host-side copy of the repo mounted at /workspace/repo:rw

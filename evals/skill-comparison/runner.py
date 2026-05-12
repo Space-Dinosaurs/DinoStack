@@ -554,6 +554,8 @@ def run_matrix(
                     # directly here, bypassing run_fix_phase entirely.
                     try:
                         if tier3_ctx is not None:
+                            # Fix-phase CLI runs on host (Anthropic API network requirement).
+                            # Score-phase enforces container isolation - see run_score_phase.
                             # Build prompt and invoke via the isolator.
                             _fix_prompt = _build_fix_prompt(task_slug, task_meta)
                             _agent_name: Optional[str] = _AGENT_CONDITIONS.get(condition)
