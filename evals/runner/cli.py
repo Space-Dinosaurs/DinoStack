@@ -93,6 +93,7 @@ def _run_fixture(
     commit: str,
     content_hash: str,
     scoring,
+    max_turns: int | None = None,
 ) -> dict:
     per_run_scores: list[dict] = []
     invocation_modes: list[str] = []
@@ -164,6 +165,7 @@ def _run_fixture(
                     manifest.timeout_seconds,
                     mode="command",
                     home=fake_home,
+                    max_turns=max_turns,
                 )
                 # Scorer needs the worktree root to read AGENTS.md/.gitignore
                 # line-level content. Stuff it into the record before the
@@ -175,7 +177,8 @@ def _run_fixture(
                 pr_mod.stage_fixture_files(fixture, worktree)
                 prompt_text = pr_mod.build_prompt(manifest.name, fixture)
                 run_record = inv_mod.invoke_run(
-                    prompt_text, worktree, manifest.timeout_seconds, agent_name=agent_name
+                    prompt_text, worktree, manifest.timeout_seconds,
+                    agent_name=agent_name, max_turns=max_turns,
                 )
             score = _score_run(scoring, run_record, fixture)
         per_run_scores.append(score)
@@ -246,7 +249,10 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     rows: list[dict] = []
     for fx in fixtures:
-        row = _run_fixture(manifest, fx, n_runs, commit, content_hash, scoring)
+        row = _run_fixture(
+            manifest, fx, n_runs, commit, content_hash, scoring,
+            max_turns=args.max_turns,
+        )
         rows.append(row)
         _log.info(
             "  -> fixture=%s median=%.4f stdev=%.4f n=%d status=%s",
@@ -294,6 +300,17 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("component")
     p_run.add_argument("--fixture", default=None, help="Run only this fixture ID.")
     p_run.add_argument("--n", type=int, default=None, help="Override n_runs.")
+    p_run.add_argument(
+        "--max-turns",
+        type=int,
+        default=None,
+        dest="max_turns",
+        help=(
+            "Override --max-turns passed to the Claude CLI for agent-mode runs "
+            f"(default: {inv_mod._MAX_TURNS_DEFAULT}). Raise for SWE-bench fix "
+            "tasks that need many tool iterations."
+        ),
+    )
     p_run.set_defaults(func=cmd_run)
 
     p_list = sub.add_parser("list-components")

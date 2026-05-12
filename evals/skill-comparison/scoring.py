@@ -33,7 +33,8 @@ Public API:
     compute_diff_hygiene(diff_text: str, known_affected_files: list[str]) -> dict
         Parse a unified diff; return lines_touched, files_touched, scope_creep_flag.
 
-Upstream deps: stdlib subprocess, pathlib, re, dataclasses, typing, tempfile, shutil.
+Upstream deps: stdlib subprocess, pathlib, re, dataclasses, typing, tempfile, shutil,
+               logging.
                evals.runner.isolator.Tier3Docker (optional; used for in-container
                pytest when tier3_ctx is provided).
 
@@ -50,6 +51,7 @@ Performance: pytest run is the dominant cost (~<120s per brief constraint).
 """
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
@@ -58,6 +60,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+_LOG = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +313,21 @@ def _run_pytest_tier3(
             /scoring/tests are run.
 
     Returns (returncode, combined_stdout).
+
+    Isolation contract (score phase):
+        --confcutdir=/scoring prevents pytest from searching above /scoring
+        for conftest.py files, so agent-planted conftest.py at /workspace/repo
+        is never loaded. We do NOT use --noconftest because that blanket-disables
+        ALL conftest.py loading including legitimate conftest.py files in the
+        held-out test tree (/scoring/tests/conftest.py) that SWE-bench tasks
+        require for test collection. Similarly, --rootdir is omitted when
+        specific node-ids are provided because pytest infers the rootdir from
+        the first node-id path, and an explicit --rootdir can cause 0 tests
+        collected when node-id paths don't match the declared rootdir.
+
+        The entrypoint's run-tests command (used by Docker-native test runs in
+        the test suite) retains --noconftest + --rootdir for the full-tree case
+        to preserve backward compatibility with the existing security tests.
     """
     from evals.runner.isolator import Tier3Docker  # local import to avoid hard dep
 
@@ -329,19 +348,45 @@ def _run_pytest_tier3(
             else f"{_CONTAINER_TESTS_ROOT}/{nid}"
             for nid in fail_to_pass
         ]
+        # When specific node-ids are given, omit --rootdir and --noconftest:
+        # - --rootdir conflicts with absolute node-id paths when the dir value
+        #   doesn't match the path prefix, causing 0 tests collected.
+        # - --noconftest blocks legitimate conftest.py in /scoring/tests that
+        #   SWE-bench repo tests need for fixtures/collection.
+        # --confcutdir=/scoring is retained: it stops conftest discovery at
+        # /scoring so agent-planted conftest.py at /workspace/repo is never
+        # loaded regardless of CWD.
+        cmd = [
+            "python3", "-m", "pytest",
+            *test_targets,
+            "--confcutdir=/scoring",
+            "-p", "no:cacheprovider",
+            "--tb=short",
+            "-q",
+            f"--timeout={timeout}",
+        ]
     else:
         test_targets = ["/scoring/tests"]
+        # Full-tree case: use the original security-hardened flags.
+        # --noconftest is safe here because we are running the full tree and
+        # do not depend on conftest.py for targeted collection.
+        cmd = [
+            "python3", "-m", "pytest",
+            *test_targets,
+            "--noconftest",
+            "--rootdir=/scoring/tests",
+            "--confcutdir=/scoring",
+            "-p", "no:cacheprovider",
+            "--tb=short",
+            "-q",
+            f"--timeout={timeout}",
+        ]
 
-    cmd = [
-        "python3", "-m", "pytest",
-        *test_targets,
-        "--noconftest",
-        "--rootdir=/scoring/tests",
-        "--confcutdir=/scoring",
-        "--tb=short",
-        "-q",
-        f"--timeout={timeout}",
-    ]
+    _LOG.info(
+        "_run_pytest_tier3: cmd=%s node_ids=%s",
+        " ".join(cmd),
+        fail_to_pass,
+    )
     result = Tier3Docker.run_score_phase(tier3_ctx, cmd, timeout_seconds=timeout)
     return result.returncode, result.stdout + result.stderr
 
