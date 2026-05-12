@@ -19,6 +19,7 @@ Public API:
         max_wall_seconds: float = 43200.0,
         dry_run: bool = False,
         conditions: list[str] | None = None,
+        tier3_mode: str = "auto",
     ) -> RunReport
 
     RunReport (dataclass):
@@ -30,7 +31,8 @@ Public API:
 
     CONDITION_LABELS (list[str]) - the canonical 8-condition names.
 
-Upstream deps: stdlib pathlib, time, csv, json, dataclasses, sys, logging.
+Upstream deps: stdlib pathlib, time, csv, json, dataclasses, sys, logging,
+               tempfile, shutil.
                pyyaml (project-standard dep).
                evals.runner.invoker (invoke_run, build_two_level_prompt).
                evals.runner.isolator (Tier3Docker, make_isolator).
@@ -55,7 +57,9 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import shutil
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -208,11 +212,17 @@ def _run_cell(
     replicate: int,
     ae_payload: Optional[str],
     dry_run: bool,
+    worktree: Optional[Path] = None,
 ) -> dict:
     """Run one (task, condition, replicate) cell and return a raw result dict.
 
     When dry_run=True, skips the actual CLI invocation and returns a canned
     transcript for testing purposes.
+
+    Args:
+        worktree: the fix-phase directory to run the CLI in. Defaults to
+                  Path(".") for backward compat; in production this is the
+                  Tier3Context.fix_phase_dir seeded with the task's base repo.
 
     Returns a dict with keys matching the invoker's run record plus extra
     fields used for TSV row construction.
@@ -247,16 +257,22 @@ def _run_cell(
         }
 
     agent_name: Optional[str] = _AGENT_CONDITIONS.get(condition)
+    # ae-rules-injected: inject the full AE methodology payload as the system
+    # prompt so the model runs with the complete protocol context. This is the
+    # headline measurement; baseline runs with system_prompt=None.
     system_prompt: Optional[str] = ae_payload if condition == "ae-rules-injected" else None
+
+    effective_worktree = worktree if worktree is not None else Path(".")
 
     # For per-agent conditions, the two-level Task wrapper is built by invoker.
     # For baseline and ae-rules-injected, agent_name is None (conductor runs directly).
     result = invoke_run(
         prompt=prompt,
-        worktree=Path("."),  # worktree is the Tier3 fix_phase_dir; set by caller context
+        worktree=effective_worktree,
         timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,  # give engineer 240s
         agent_name=agent_name,
         mode="agent",
+        system_prompt=system_prompt,
     )
     return result
 
@@ -264,6 +280,28 @@ def _run_cell(
 # ---------------------------------------------------------------------------
 # Core matrix loop
 # ---------------------------------------------------------------------------
+
+
+def _load_completed_cells(results_tsv: Path) -> set[tuple[str, str, int]]:
+    """Read the TSV and return the set of (task_slug, condition, replicate) already done.
+
+    Used for resume semantics: cells already present are skipped unless --force.
+    """
+    if not results_tsv.exists() or results_tsv.stat().st_size == 0:
+        return set()
+    completed: set[tuple[str, str, int]] = set()
+    with results_tsv.open(encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        for row in reader:
+            try:
+                completed.add((
+                    row["task_slug"],
+                    row["condition"],
+                    int(row["replicate"]),
+                ))
+            except (KeyError, ValueError):
+                continue  # malformed row; skip
+    return completed
 
 
 def run_matrix(
@@ -278,15 +316,22 @@ def run_matrix(
     max_wall_seconds: float = 43200.0,
     dry_run: bool = False,
     conditions: Optional[list[str]] = None,
+    tier3_mode: str = "auto",
+    force: bool = False,
 ) -> RunReport:
     """Orchestrate the 8-condition skill-comparison eval matrix.
 
     For each (task, condition, replicate) cell:
-      1. Materialise the condition config (ae-rules payload for ae-rules-injected,
+      1. Skip if already present in TSV (resume semantics; override with force=True).
+      2. Materialise the condition config (ae-rules payload for ae-rules-injected,
          agent name for per-agent conditions, nothing for baseline).
-      2. Spawn the engineer run (via Tier 3 Docker unless dry_run=True).
-      3. Score the result.
-      4. Append one row to the TSV ledger.
+      3. In production (tier3_mode='auto', not dry_run): instantiate Tier3Docker
+         per task to provide isolated fix and score phases.
+      4. Spawn the engineer run (via Tier 3 Docker unless dry_run=True or
+         tier3_mode='off').
+      5. Score the result (in-container via Tier3Docker.run_score_phase when
+         tier3_ctx is provided, else local subprocess).
+      6. Append one row to the TSV ledger.
 
     Budget ceilings (USD, tokens, wall-clock) are checked between cells.
     BudgetExceeded halts with partial=True; the TSV contains results so far.
@@ -306,7 +351,13 @@ def run_matrix(
         max_tokens: global token ceiling (default 75 M).
         max_wall_seconds: global wall-clock ceiling (default 12 h).
         dry_run: if True, skip actual CLI calls and return canned results.
+                 Implies tier3_mode='off'.
         conditions: subset of CONDITION_LABELS to run (None = all 8).
+        tier3_mode: "auto" (default) - instantiate Tier3Docker in production
+                    (i.e. when not dry_run); "off" - skip Tier3, run local
+                    subprocess for both fix and score phases (for dry-run /
+                    unit tests).
+        force: if True, re-run cells already present in the TSV (no resume skip).
 
     Returns:
         RunReport with summary stats.
@@ -323,10 +374,13 @@ def run_matrix(
     tasks = _load_tasks(tasks_yaml)
     active_conditions = conditions if conditions is not None else CONDITION_LABELS
 
+    # Resolve effective tier3 mode. dry_run forces Tier3 off.
+    use_tier3 = (tier3_mode == "auto") and (not dry_run)
+
     # Build ae-rules payload once (reused for every ae-rules-injected cell).
     ae_payload: Optional[str] = None
     if "ae-rules-injected" in active_conditions and not dry_run:
-        from ae_rules_payload import build_payload  # noqa: F401 (local import)
+        from ae_rules_payload import build_payload
         ae_payload = build_payload(content_root)
 
     # Cost / budget gate.
@@ -340,8 +394,19 @@ def run_matrix(
     )
 
     _ensure_tsv_header(results_tsv)
+
+    # Resume: load already-completed cells so we can skip them.
+    completed_cells: set[tuple[str, str, int]] = (
+        set() if force else _load_completed_cells(results_tsv)
+    )
+
     report = RunReport(tsv_path=results_tsv)
     matrix_start = time.monotonic()
+
+    # Conditionally import Tier3Docker for production runs.
+    _Tier3Docker = None
+    if use_tier3:
+        from evals.runner.isolator import Tier3Docker as _Tier3Docker  # type: ignore[assignment]
 
     for task_slug, task_meta in tasks.items():
         for condition in active_conditions:
@@ -352,6 +417,14 @@ def run_matrix(
                 else n_replicates
             )
             for rep in range(1, n + 1):
+                # Resume: skip cells already present in TSV.
+                if (task_slug, condition, rep) in completed_cells:
+                    _LOG.debug(
+                        "Skipping already-completed cell: task=%s condition=%s rep=%d",
+                        task_slug, condition, rep,
+                    )
+                    continue
+
                 # Wall-clock budget check.
                 elapsed = time.monotonic() - matrix_start
                 if elapsed > max_wall_seconds:
@@ -370,76 +443,118 @@ def run_matrix(
                     task_slug, condition, rep, n,
                 )
 
-                # Run the cell.
-                try:
-                    result = _run_cell(
-                        task_slug=task_slug,
-                        task_meta=task_meta,
-                        condition=condition,
-                        replicate=rep,
-                        ae_payload=ae_payload,
-                        dry_run=dry_run,
-                    )
-                except Exception as exc:
-                    _LOG.error(
-                        "Cell %s rep %d raised unexpectedly: %s",
-                        cell_id, rep, exc,
-                    )
-                    result = {
-                        "final_text": "",
-                        "status": f"error:{type(exc).__name__}",
-                        "cost_usd": 0.0,
-                        "usage": {},
-                        "latency_ms": 0,
-                        "invocation_mode": "error",
-                        "tool_calls": [],
-                        "turns_used": 0,
-                        "_parse_warnings": [str(exc)],
-                    }
+                # Per-task Tier3 context (production path).
+                # Instantiated fresh per (task, condition, rep) so each cell
+                # gets an isolated fix-phase dir seeded from the task's base
+                # commit. The held-out dir is populated from task_meta.
+                tier3_ctx = None
+                _tier3_instance = None
 
-                transcript = result.get("final_text", "")
-                run_status = result.get("status", "unknown")
-                cost_usd = float(result.get("cost_usd") or 0.0)
-                usage = result.get("usage") or {}
-                latency_ms = int(result.get("latency_ms") or 0)
-                invocation_mode = result.get("invocation_mode", "")
-
-                # Score the cell (local, no Docker, when dry_run).
-                fix_dir = Path(tempfile.mkdtemp()) if dry_run else Path(".")
-                held_dir = Path(tempfile.mkdtemp()) if dry_run else Path(".")
+                if use_tier3:
+                    assert _Tier3Docker is not None  # guarded above
+                    # held_out_dir: path to the task's held-out test files.
+                    # In production these are committed to the corpus at a
+                    # well-known location; fall back to None (empty tmpdir).
+                    held_out_path: Optional[Path] = None
+                    task_held_out = task_meta.get("_held_out_dir_path")
+                    if task_held_out and Path(task_held_out).exists():
+                        held_out_path = Path(task_held_out)
+                    _tier3_instance = _Tier3Docker(
+                        fixture_repo_dir=None,  # base repo seeded externally
+                        held_out_dir=held_out_path,
+                        build_image=True,
+                        timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
+                    )
+                    tier3_ctx = _tier3_instance.__enter__()
 
                 try:
-                    scored = score_cell(
-                        task_slug=task_slug,
-                        transcript=transcript,
-                        task_meta=task_meta,
-                        fix_phase_dir=fix_dir,
-                        held_out_dir=held_dir,
-                        tier3_ctx=None,  # Docker ctx is managed by caller in production
-                        pytest_timeout=_PYTEST_TIMEOUT_SECONDS,
+                    # Run the fix phase.
+                    fix_worktree: Optional[Path] = (
+                        tier3_ctx.fix_phase_dir if tier3_ctx is not None else None
                     )
-                except Exception as exc:
-                    _LOG.error(
-                        "score_cell raised for %s rep %d: %s",
-                        cell_id, rep, exc,
-                    )
-                    from scoring import ScoringResult as _SR
-                    scored = _SR(
-                        pass_fail=False,
-                        score_primary=0.0,
-                        lines_touched=0,
-                        files_touched=0,
-                        scope_creep_flag=False,
-                        held_out_failures=[],
-                        pytest_returncode=-1,
-                        diff_text="",
-                        diagnostics={"error": str(exc)},
-                    )
-                finally:
+                    try:
+                        result = _run_cell(
+                            task_slug=task_slug,
+                            task_meta=task_meta,
+                            condition=condition,
+                            replicate=rep,
+                            ae_payload=ae_payload,
+                            dry_run=dry_run,
+                            worktree=fix_worktree,
+                        )
+                    except Exception as exc:
+                        _LOG.error(
+                            "Cell %s rep %d raised unexpectedly: %s",
+                            cell_id, rep, exc,
+                        )
+                        result = {
+                            "final_text": "",
+                            "status": f"error:{type(exc).__name__}",
+                            "cost_usd": 0.0,
+                            "usage": {},
+                            "latency_ms": 0,
+                            "invocation_mode": "error",
+                            "tool_calls": [],
+                            "turns_used": 0,
+                            "_parse_warnings": [str(exc)],
+                        }
+
+                    transcript = result.get("final_text", "")
+                    run_status = result.get("status", "unknown")
+                    cost_usd = float(result.get("cost_usd") or 0.0)
+                    usage = result.get("usage") or {}
+                    latency_ms = int(result.get("latency_ms") or 0)
+                    invocation_mode = result.get("invocation_mode", "")
+
+                    # Score the cell.
+                    # dry_run: use fresh tmpdirs; production: use Tier3 dirs or Path(".").
                     if dry_run:
-                        import shutil as _sh
-                        _sh.rmtree(fix_dir, ignore_errors=True)
-                        _sh.rmtree(held_dir, ignore_errors=True)
+                        fix_dir = Path(tempfile.mkdtemp())
+                        held_dir = Path(tempfile.mkdtemp())
+                    elif tier3_ctx is not None:
+                        fix_dir = tier3_ctx.fix_phase_dir
+                        held_dir = tier3_ctx.held_out_dir
+                    else:
+                        fix_dir = Path(".")
+                        held_dir = Path(".")
+
+                    try:
+                        scored = score_cell(
+                            task_slug=task_slug,
+                            transcript=transcript,
+                            task_meta=task_meta,
+                            fix_phase_dir=fix_dir,
+                            held_out_dir=held_dir,
+                            tier3_ctx=tier3_ctx,
+                            pytest_timeout=_PYTEST_TIMEOUT_SECONDS,
+                        )
+                    except Exception as exc:
+                        _LOG.error(
+                            "score_cell raised for %s rep %d: %s",
+                            cell_id, rep, exc,
+                        )
+                        scored = ScoringResult(
+                            pass_fail=False,
+                            score_primary=0.0,
+                            lines_touched=0,
+                            files_touched=0,
+                            scope_creep_flag=False,
+                            held_out_failures=[],
+                            pytest_returncode=-1,
+                            diff_text="",
+                            diagnostics={"error": str(exc)},
+                        )
+                    finally:
+                        if dry_run:
+                            shutil.rmtree(fix_dir, ignore_errors=True)
+                            shutil.rmtree(held_dir, ignore_errors=True)
+
+                finally:
+                    # Always exit the Tier3 context manager so containers and
+                    # tmpdirs are cleaned up even on exception.
+                    if _tier3_instance is not None:
+                        _tier3_instance.__exit__(None, None, None)
+                        tier3_ctx = None
 
                 # Record cost.
                 tokens_input = int(usage.get("input_tokens", usage.get("input", 0)))
@@ -495,12 +610,6 @@ def run_matrix(
     return report
 
 
-# ---------------------------------------------------------------------------
-# Missing import for tempfile (used in dry_run path above)
-# ---------------------------------------------------------------------------
-import tempfile  # noqa: E402 (placed after function definitions for clarity)
-
-
 if __name__ == "__main__":
     import argparse
 
@@ -515,6 +624,21 @@ if __name__ == "__main__":
     parser.add_argument("--max-wall-seconds", type=float, default=43200.0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--conditions", nargs="*", default=None)
+    parser.add_argument(
+        "--tier3",
+        choices=["auto", "off"],
+        default="auto",
+        help=(
+            "Tier 3 Docker isolation mode. 'auto' (default) instantiates "
+            "Tier3Docker in production; 'off' skips Docker (for dry-run / "
+            "unit tests)."
+        ),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run cells already present in the TSV (bypass resume skip).",
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
@@ -530,6 +654,8 @@ if __name__ == "__main__":
         max_wall_seconds=args.max_wall_seconds,
         dry_run=args.dry_run,
         conditions=args.conditions,
+        tier3_mode=args.tier3,
+        force=args.force,
     )
 
     print(json.dumps(

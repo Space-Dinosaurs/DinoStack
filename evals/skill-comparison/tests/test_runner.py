@@ -188,7 +188,7 @@ class TestRunMatrixDryRun:
     def test_tsv_append_mode_preserves_prior_rows(
         self, tmp_path: Path, corpus_yaml: Path
     ):
-        """Running twice in a row appends rows, doesn't overwrite."""
+        """Running twice with force=True appends rows rather than overwriting."""
         results_tsv = tmp_path / "skill-comparison.tsv"
 
         from scoring import ScoringResult
@@ -210,6 +210,8 @@ class TestRunMatrixDryRun:
                 dry_run=True,
                 conditions=["baseline"],
             )
+            # force=True bypasses resume; this tests that the file is opened
+            # in append mode (not truncated / overwritten).
             run_matrix(
                 tasks_yaml=corpus_yaml,
                 results_tsv=results_tsv,
@@ -217,10 +219,11 @@ class TestRunMatrixDryRun:
                 n_replicates_methodology=1,
                 dry_run=True,
                 conditions=["baseline"],
+                force=True,
             )
 
         rows = _read_tsv(results_tsv)
-        assert len(rows) == 2, "Second run should append, not overwrite"
+        assert len(rows) == 2, "Second force run should append, not overwrite"
 
     def test_methodology_pair_uses_higher_n(
         self, tmp_path: Path, corpus_yaml: Path
@@ -388,3 +391,410 @@ class TestWallClockCeiling:
             )
 
         assert report.partial is True
+
+
+# ---------------------------------------------------------------------------
+# CRITICAL-1 regression: ae-rules-injected must forward system_prompt
+# ---------------------------------------------------------------------------
+
+
+class TestAeRulesSystemPrompt:
+    def test_run_cell_passes_system_prompt_for_ae_rules(self):
+        """_run_cell passes system_prompt to invoke_run for ae-rules-injected condition.
+
+        Regression test for CRITICAL-1: previously system_prompt was built but
+        never passed to invoke_run, making ae-rules-injected identical to baseline.
+        """
+        from runner import _run_cell
+
+        canned_result = {
+            "final_text": "Fixed.",
+            "status": "ok",
+            "cost_usd": 0.0,
+            "usage": {},
+            "latency_ms": 0,
+            "invocation_mode": "agent",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+        }
+
+        task_meta = {
+            "problem_summary": "test bug",
+            "repo_url": "https://github.com/example/repo",
+            "base_commit": "abc123",
+        }
+        ae_payload = "## AE methodology rules content here"
+
+        with patch("evals.runner.invoker.invoke_run", return_value=canned_result) as mock_invoke:
+            _run_cell(
+                task_slug="test-task",
+                task_meta=task_meta,
+                condition="ae-rules-injected",
+                replicate=1,
+                ae_payload=ae_payload,
+                dry_run=False,
+            )
+
+        assert mock_invoke.called, "invoke_run should have been called"
+        kwargs = mock_invoke.call_args.kwargs
+        assert kwargs.get("system_prompt") == ae_payload, (
+            f"ae-rules-injected must pass ae_payload as system_prompt; "
+            f"got: {kwargs.get('system_prompt')!r}"
+        )
+
+    def test_run_cell_no_system_prompt_for_baseline(self):
+        """_run_cell passes system_prompt=None to invoke_run for baseline condition."""
+        from runner import _run_cell
+
+        canned_result = {
+            "final_text": "Fixed.",
+            "status": "ok",
+            "cost_usd": 0.0,
+            "usage": {},
+            "latency_ms": 0,
+            "invocation_mode": "agent",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+        }
+
+        task_meta = {
+            "problem_summary": "test bug",
+            "repo_url": "https://github.com/example/repo",
+            "base_commit": "abc123",
+        }
+
+        with patch("evals.runner.invoker.invoke_run", return_value=canned_result) as mock_invoke:
+            _run_cell(
+                task_slug="test-task",
+                task_meta=task_meta,
+                condition="baseline",
+                replicate=1,
+                ae_payload="some payload",  # has a payload but condition is baseline
+                dry_run=False,
+            )
+
+        assert mock_invoke.called
+        kwargs = mock_invoke.call_args.kwargs
+        assert kwargs.get("system_prompt") is None, (
+            f"baseline must NOT pass system_prompt; got: {kwargs.get('system_prompt')!r}"
+        )
+
+    def test_run_cell_no_system_prompt_for_agent_conditions(self):
+        """_run_cell passes system_prompt=None for all named-agent conditions."""
+        from runner import _run_cell, _AGENT_CONDITIONS
+
+        canned_result = {
+            "final_text": "Fixed.",
+            "status": "ok",
+            "cost_usd": 0.0,
+            "usage": {},
+            "latency_ms": 0,
+            "invocation_mode": "agent",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+        }
+
+        task_meta = {
+            "problem_summary": "test bug",
+            "repo_url": "https://github.com/example/repo",
+            "base_commit": "abc123",
+        }
+
+        for condition in _AGENT_CONDITIONS:
+            with patch("evals.runner.invoker.invoke_run", return_value=canned_result) as mock_invoke:
+                _run_cell(
+                    task_slug="test-task",
+                    task_meta=task_meta,
+                    condition=condition,
+                    replicate=1,
+                    ae_payload="some payload",
+                    dry_run=False,
+                )
+            kwargs = mock_invoke.call_args.kwargs
+            assert kwargs.get("system_prompt") is None, (
+                f"condition {condition!r} must NOT pass system_prompt; "
+                f"got: {kwargs.get('system_prompt')!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# CRITICAL-2 regression: Tier3Docker instantiated in production path
+# ---------------------------------------------------------------------------
+
+
+class TestTier3Instantiation:
+    def test_tier3_instantiated_when_auto_mode_not_dry_run(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """Tier3Docker is instantiated when tier3_mode='auto' and dry_run=False.
+
+        Regression test for CRITICAL-2: previously tier3_ctx=None was passed
+        unconditionally, bypassing the Tier 3 Docker isolator entirely.
+        """
+        from scoring import ScoringResult
+        from unittest.mock import MagicMock
+        from evals.runner.isolator import Tier3Context
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        canned_result = {
+            "final_text": "Fixed.",
+            "status": "ok",
+            "cost_usd": 0.0,
+            "usage": {},
+            "latency_ms": 0,
+            "invocation_mode": "agent",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+        }
+
+        # Mock Tier3Docker so docker subprocess is never actually called.
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "held",
+            image_tag="ae-eval-swebench:latest",
+            image_digest="sha256:abc123",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "held").mkdir(parents=True, exist_ok=True)
+
+        mock_tier3 = MagicMock()
+        mock_tier3.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3.__exit__ = MagicMock(return_value=None)
+        mock_tier3_cls = MagicMock(return_value=mock_tier3)
+
+        results_tsv = tmp_path / "results.tsv"
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner._run_cell", return_value=canned_result),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,  # production path
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        assert mock_tier3_cls.called, (
+            "Tier3Docker must be instantiated when tier3_mode='auto' and dry_run=False"
+        )
+        assert mock_tier3.__enter__.called, "Tier3Docker.__enter__ must be called"
+        assert mock_tier3.__exit__.called, "Tier3Docker.__exit__ must be called (cleanup)"
+
+    def test_tier3_skipped_when_dry_run(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """Tier3Docker is NOT instantiated when dry_run=True."""
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        mock_tier3_cls = MagicMock()
+        results_tsv = tmp_path / "results.tsv"
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tier3_mode="auto",  # auto but dry_run overrides to off
+            )
+
+        assert not mock_tier3_cls.called, (
+            "Tier3Docker must NOT be instantiated when dry_run=True"
+        )
+
+    def test_tier3_skipped_when_mode_off(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """Tier3Docker is NOT instantiated when tier3_mode='off'."""
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        mock_tier3_cls = MagicMock()
+        results_tsv = tmp_path / "results.tsv"
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tier3_mode="off",
+            )
+
+        assert not mock_tier3_cls.called, (
+            "Tier3Docker must NOT be instantiated when tier3_mode='off'"
+        )
+
+
+# ---------------------------------------------------------------------------
+# MAJOR-1 regression: resume skips completed cells
+# ---------------------------------------------------------------------------
+
+
+class TestResumeSemantics:
+    def test_resume_skips_completed_cells(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """Re-running with a pre-existing TSV only adds missing cells.
+
+        Regression test for MAJOR-1: previously all cells were re-run on
+        resume, causing duplicate (task_slug, condition, replicate) rows.
+        """
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        # First run: write baseline replicate 1.
+        with patch("runner.score_cell", return_value=canned_score):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        rows_after_first = _read_tsv(results_tsv)
+        assert len(rows_after_first) == 1
+
+        # Second run: same conditions. Resume should skip the already-done cell.
+        with patch("runner.score_cell", return_value=canned_score):
+            report = run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        rows_after_second = _read_tsv(results_tsv)
+        assert len(rows_after_second) == 1, (
+            "Resume must not add duplicate rows for already-completed cells; "
+            f"expected 1 row, got {len(rows_after_second)}"
+        )
+        assert report.rows_written == 0, (
+            f"rows_written should be 0 (all cells skipped), got {report.rows_written}"
+        )
+
+    def test_force_reruns_completed_cells(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """force=True bypasses resume and re-runs completed cells."""
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        # First run.
+        with patch("runner.score_cell", return_value=canned_score):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        # Second run with force=True: should add a second row.
+        with patch("runner.score_cell", return_value=canned_score):
+            report = run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                force=True,
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2, (
+            f"force=True should re-run and append; expected 2 rows, got {len(rows)}"
+        )
+        assert report.rows_written == 1
+
+    def test_resume_adds_missing_cells(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """Resume adds cells not yet present while skipping completed ones."""
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        # First run: only baseline.
+        with patch("runner.score_cell", return_value=canned_score):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        assert len(_read_tsv(results_tsv)) == 1
+
+        # Second run: baseline + engineer-direct.
+        # baseline is already done; engineer-direct is missing.
+        with patch("runner.score_cell", return_value=canned_score):
+            report = run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline", "engineer-direct"],
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2, (
+            f"Resume should add engineer-direct but skip baseline; expected 2, got {len(rows)}"
+        )
+        assert report.rows_written == 1, (
+            f"Only 1 new cell should have been written (engineer-direct), got {report.rows_written}"
+        )
