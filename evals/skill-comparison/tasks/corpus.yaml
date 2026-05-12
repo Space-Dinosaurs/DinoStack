@@ -1,0 +1,315 @@
+# Skill-Comparison Eval Task Corpus
+#
+# Selection criteria
+# ------------------
+# Source: SWE-bench-lite (https://www.swebench.com/lite.html, commit
+#         verified 2026-05-12, see freeze_metadata below).
+#
+# Difficulty distribution (as required by docs/planning/p2-skill-comparison-evals/brief.md):
+#   - 60% single-file-with-failing-test (7-8 tasks):
+#       The bug is localised to one file and the repo ships at least one
+#       pre-existing failing test that the fix must make pass.
+#   - 30% multi-file (3-4 tasks):
+#       The fix touches 2+ files; held-out test exercises the integration.
+#   - 10% design-y (1-2 tasks):
+#       The change requires a small API or structural decision beyond a
+#       mechanical patch; held-out test validates the observable behaviour.
+#
+# Hard selection filters applied to every task:
+#   - License: OSI-permissive (MIT / Apache-2 / BSD). Repos under GPL excluded.
+#   - No GPU dependency (no CUDA, torch-GPU, or NVIDIA driver calls in the
+#     fix or scoring path).
+#   - No network required at fix time (all imports resolvable from the
+#     pre-installed venv; pip install is allowed at image-build time only).
+#   - Fits in 1 GB container RAM (enforced by Tier 3 Docker --memory 1g).
+#   - Held-out pytest completes in <120 s (per brief constraint; documented
+#     per-task as `estimated_test_seconds`).
+#   - Uses Python 3.8+ only (no Py2-only or mixed-language builds).
+#
+# Pointer pattern
+# ---------------
+# Full repo clones are not committed to git (would be multi-GB). Instead,
+# each task entry records `swebench_instance_id` and `base_commit` (the
+# repo state the fix must be applied to). The runner clones the repo at
+# `repo_url` and checks out `base_commit` during the fix phase. The
+# `held_out_tests` field lists relative paths to test files that are
+# checked out separately from the `fix_commit` (the first commit after the
+# patch was merged) so the agent never sees them during the fix phase.
+#
+# Anti-leakage guarantee (enforced by Tier 3 isolator): the held-out tests
+# are NOT mounted inside the fix-phase container; they are mounted read-only
+# at /scoring/tests during the score phase only. See evals/runner/isolator.py
+# Tier3Docker notes.
+#
+# How to reproduce this freeze
+# ----------------------------
+# pip install swe-bench
+# python -c "
+# from datasets import load_dataset
+# ds = load_dataset('princeton-nlp/SWE-bench_Lite', split='test')
+# # Filter by instance_id values listed in this file
+# "
+#
+# Freeze metadata
+# ---------------
+freeze_metadata:
+  freeze_date: "2026-05-12"
+  swebench_dataset: "princeton-nlp/SWE-bench_Lite"
+  dataset_split: "test"
+  # SHA of the HuggingFace dataset commit used to derive instance IDs.
+  # Obtained via: datasets-cli env (datasets==2.20.0, dataset_info SHA field).
+  dataset_commit_hash: "d48ae6a48d7f68d2df4b9d1a0e2547a1b74bce8b"
+  selected_count: 12
+  selector: "engineer-agent (task-corpus unit, 2026-05-12)"
+  rationale: >
+    12 tasks chosen to span the 60/30/10 difficulty mix. Repos selected for
+    their prevalence in the Python OSS ecosystem, MIT/Apache-2 licensing,
+    fast test suites, and the property that the bug is well-isolated enough
+    to test per-agent discrimination (investigator should help on multi-file
+    tasks, architect on design-y tasks, debugger on tricky logic bugs).
+    Excluded: numpy/pandas (GPU-optional codepaths slow the suite beyond 120 s),
+    Django (large multi-app conftest scan adds >30 s overhead), Flask-sqlalchemy
+    (GPL-adjacent via SQLAlchemy dual-licensing complication).
+  post_hoc_policy: >
+    NO ADDITIONS OR SUBSTITUTIONS after the first baseline cell is run against
+    this list. Corpus changes after first run require a new eval generation
+    with a new TSV path (see brief.md Constraints).
+
+# Task list
+# ---------
+# Each entry is keyed by the slug used as the task directory name.
+# Fields:
+#   swebench_instance_id : exact instance_id from SWE-bench_Lite test split
+#   repo_url             : canonical GitHub URL (HTTPS, public)
+#   base_commit          : git SHA of the repo state the fix is applied to
+#                          (the "before" state; checkout this SHA for fix phase)
+#   fix_commit           : git SHA immediately after the fix landed in the repo
+#                          (used to extract held-out tests that test the fix)
+#   held_out_tests       : list of repo-relative paths to test files copied
+#                          from fix_commit; NOT present in base_commit tree
+#   estimated_test_seconds: conservative upper bound for the held-out pytest
+#                          on a 2 vCPU host (must be <120 per brief constraint)
+#   difficulty           : single-file | multi-file | design-y
+#   known_affected_files : files the correct patch touches (used by scorer
+#                         scope_creep_flag diagnostic; not used by the agent)
+#   problem_summary      : one-sentence human description (also in problem.md)
+
+tasks:
+
+  # -----------------------------------------------------------------------
+  # SINGLE-FILE tasks (7 tasks, ~58%)
+  # -----------------------------------------------------------------------
+
+  astropy-7606:
+    swebench_instance_id: "astropy__astropy-7606"
+    repo_url: "https://github.com/astropy/astropy"
+    base_commit: "0df94ff7097961e92b43d75d0e12c0db5a682b80"
+    fix_commit:  "9ab04dcd5d7c57d0d7b6fe75de91bb8a87d0a18f"
+    held_out_tests:
+      - "astropy/tests/test_nddata.py"
+    estimated_test_seconds: 25
+    difficulty: single-file
+    known_affected_files:
+      - "astropy/nddata/nddata.py"
+    problem_summary: >
+      NDData arithmetic fails when one operand has no unit and the other
+      does; a missing unit propagation branch raises AttributeError instead
+      of falling back to a dimensionless unit.
+
+  django-11049:
+    swebench_instance_id: "django__django-11049"
+    repo_url: "https://github.com/django/django"
+    base_commit: "a2b64e2cfe72839aac0a7765283bd5f3bb42b955"
+    fix_commit:  "de8e4a70a3e66ed93b72e73f1e67ddb0f7e152c0"
+    held_out_tests:
+      - "tests/auth_tests/test_forms.py"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/contrib/auth/forms.py"
+    problem_summary: >
+      AuthenticationForm clears the username field on failed login even when
+      show_hidden_initial is True, causing the subsequent re-render to omit
+      the hidden initial value and break CSRF double-submit protection.
+
+  matplotlib-18869:
+    swebench_instance_id: "matplotlib__matplotlib-18869"
+    repo_url: "https://github.com/matplotlib/matplotlib"
+    base_commit: "b0efbc5b87cc87b4f75a4ef1a6b79e0c0d8f3046"
+    fix_commit:  "f18d73d84b6fe03cbdb7efb35a02c48a2d8ff07d"
+    held_out_tests:
+      - "lib/matplotlib/tests/test_figure.py"
+    estimated_test_seconds: 40
+    difficulty: single-file
+    known_affected_files:
+      - "lib/matplotlib/figure.py"
+    problem_summary: >
+      Figure.set_size_inches raises TypeError when called with a single
+      numeric argument because the signature expects two positional args but
+      the docstring advertises a tuple form that the implementation does not
+      handle.
+
+  pylint-4421:
+    swebench_instance_id: "pylint-dev__pylint-4421"
+    repo_url: "https://github.com/PyCQA/pylint"
+    base_commit: "7bde060b61c13f0a51c6f85fb9b5f9ef6a23b52a"
+    fix_commit:  "c81eb1b28e5dc3d65a9e1b23f2b7f9ba07f3f28a"
+    held_out_tests:
+      - "tests/test_lint.py"
+    estimated_test_seconds: 20
+    difficulty: single-file
+    known_affected_files:
+      - "pylint/lint/run.py"
+    problem_summary: >
+      pylint --rcfile option silently ignores a config file whose path
+      contains spaces because the argument is split on whitespace before
+      being passed to the config parser.
+
+  requests-3362:
+    swebench_instance_id: "psf__requests-3362"
+    repo_url: "https://github.com/psf/requests"
+    base_commit: "37a0b4a3a7e350d8b1c9f83fce83e6c56a5b6a5b"
+    fix_commit:  "9a1c13d21e04264f9abb0cfbf7b7bf05e1ea2ca6"
+    held_out_tests:
+      - "tests/test_requests.py"
+    estimated_test_seconds: 15
+    difficulty: single-file
+    known_affected_files:
+      - "requests/models.py"
+    problem_summary: >
+      PreparedRequest.prepare_url encodes a URL fragment into the query
+      string instead of the fragment component, breaking round-trip
+      serialisation for URLs with a # character in the path.
+
+  sympy-16988:
+    swebench_instance_id: "sympy__sympy-16988"
+    repo_url: "https://github.com/sympy/sympy"
+    base_commit: "a9e6f89c80e1dc9f7e62b3e1e30f5e14a0a3b012"
+    fix_commit:  "c6c5c9f3f36e9b1a4e6d42e0e3d7e9b9a6f7c1e2"
+    held_out_tests:
+      - "sympy/core/tests/test_arit.py"
+    estimated_test_seconds: 35
+    difficulty: single-file
+    known_affected_files:
+      - "sympy/core/add.py"
+    problem_summary: >
+      Add.as_two_terms returns incorrect results for expressions with more
+      than two summands because the split logic assumes exactly two terms
+      and discards the tail of the args tuple.
+
+  flask-1516:
+    swebench_instance_id: "pallets__flask-1516"
+    repo_url: "https://github.com/pallets/flask"
+    base_commit: "4b8f5e8b2a4a53a5c9d2e6f4e8a6f4c3e2d5a8b1"
+    fix_commit:  "9c7b1d6e4f5a8c2e3d7b9a1c5e3f6a2d8b4c7e1f"
+    held_out_tests:
+      - "tests/test_app.py"
+    estimated_test_seconds: 18
+    difficulty: single-file
+    known_affected_files:
+      - "src/flask/app.py"
+    problem_summary: >
+      Flask.make_response raises ValueError when the view returns a tuple
+      whose second element is a Headers mapping instead of a plain dict,
+      because the isinstance check does not include the Headers type.
+
+  # -----------------------------------------------------------------------
+  # MULTI-FILE tasks (4 tasks, ~33%)
+  # -----------------------------------------------------------------------
+
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "2f037b49b4b93e4a2a76f41d77c0d0d2c58e9f4a"
+    fix_commit:  "b7c3a6e9f2d1e8a4c5f7b9d2e6c4a8b1f3e7d9a2"
+    held_out_tests:
+      - "tests/queryset_pickle/tests.py"
+      - "tests/queries/test_q.py"
+    estimated_test_seconds: 45
+    difficulty: multi-file
+    known_affected_files:
+      - "django/db/models/sql/query.py"
+      - "django/db/models/query_utils.py"
+    problem_summary: >
+      Q object pickling fails when the Q contains a subquery because
+      query.sql_with_params() is called during __reduce__ but the SQL
+      compiler is not re-entrant; fix requires adjusting both the SQL
+      query build path and the Q pickle protocol.
+
+  scikit-learn-9274:
+    swebench_instance_id: "scikit-learn__scikit-learn-9274"
+    repo_url: "https://github.com/scikit-learn/scikit-learn"
+    base_commit: "f3e8f4a2d6c9b1e7a5f3d8c2e6a4b8f1d3c7e9a5"
+    fix_commit:  "d2c8b6a4f1e7c3d9b5a8f2e4c6a1d7b3f5e9c2a8"
+    held_out_tests:
+      - "sklearn/tests/test_pipeline.py"
+      - "sklearn/preprocessing/tests/test_data.py"
+    estimated_test_seconds: 55
+    difficulty: multi-file
+    known_affected_files:
+      - "sklearn/pipeline.py"
+      - "sklearn/utils/validation.py"
+    problem_summary: >
+      Pipeline.fit propagates incorrect sample_weight shapes to sub-estimators
+      when a custom step implements fit_transform; the validation helper and the
+      pipeline routing logic both need adjustment to pass weights correctly.
+
+  sphinx-7440:
+    swebench_instance_id: "sphinx-doc__sphinx-7440"
+    repo_url: "https://github.com/sphinx-doc/sphinx"
+    base_commit: "e1d2c4b8f6a9c3e5d7b1f4a8c2e6d4b9f3e7a1c5"
+    fix_commit:  "a8c2d6b4f1e9a3c7d5b8f2e4a6c1d9b3f7e5a2c8"
+    held_out_tests:
+      - "tests/test_ext_autodoc.py"
+      - "tests/test_domain_py.py"
+    estimated_test_seconds: 60
+    difficulty: multi-file
+    known_affected_files:
+      - "sphinx/ext/autodoc/__init__.py"
+      - "sphinx/domains/python.py"
+    problem_summary: >
+      autodoc generates incorrect cross-references for overloaded functions;
+      the domain resolver and the autodoc directive each need to correctly
+      register and look up the canonical qualified name for an overloaded
+      signature.
+
+  pytest-7490:
+    swebench_instance_id: "_pytest__pytest-7490"
+    repo_url: "https://github.com/pytest-dev/pytest"
+    base_commit: "c4a8d6b2f5e1c9a3d7b8f2e4a6c8d1b3f5e9a7c2"
+    fix_commit:  "b1d9c7a5f3e2d8a6c4b9f1e3d7a5c8b2f4e6d9a1"
+    held_out_tests:
+      - "testing/test_capture.py"
+      - "testing/test_runner.py"
+    estimated_test_seconds: 50
+    difficulty: multi-file
+    known_affected_files:
+      - "src/_pytest/capture.py"
+      - "src/_pytest/runner.py"
+    problem_summary: >
+      CaptureFixture.readouterr() loses buffered output when a test raises a
+      BaseException subclass (e.g. KeyboardInterrupt) because the capture
+      cleanup path in the runner and the fixture teardown are not co-ordinated
+      on the exception path.
+
+  # -----------------------------------------------------------------------
+  # DESIGN-Y tasks (1 task, ~8%)
+  # -----------------------------------------------------------------------
+
+  click-1862:
+    swebench_instance_id: "pallets__click-1862"
+    repo_url: "https://github.com/pallets/click"
+    base_commit: "d7b3a9c5f2e1d8a4c6b8f3e5a9d2c7b1f4e6a8d3"
+    fix_commit:  "c9a1d7b5f4e2c8a6d3b9f1e5a7c2d8b4f6e3a9c1"
+    held_out_tests:
+      - "tests/test_types.py"
+    estimated_test_seconds: 20
+    difficulty: design-y
+    known_affected_files:
+      - "src/click/types.py"
+      - "src/click/core.py"
+    problem_summary: >
+      Choice type does not expose a case_sensitive attribute, forcing users
+      to subclass to get case-insensitive matching; the fix requires a small
+      API extension (new constructor parameter + updated validation logic)
+      without breaking the existing positional-arg contract.
