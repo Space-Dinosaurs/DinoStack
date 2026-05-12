@@ -35,9 +35,10 @@ export default function agenticEngineeringPiExtension(pi: ExtensionAPI) {
 
     return {
       message: {
-        role: "user",
+        customType: "agentic-engineering-reminder",
         content:
           "Agentic-engineering reminder: run activation preflight from the agentic-engineering skill before engineering work. Classify risk, use the right specialist/delegation pattern, preserve user changes, and verify before claiming completion.",
+        display: true,
       },
     };
   });
