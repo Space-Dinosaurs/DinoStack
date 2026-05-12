@@ -21,13 +21,15 @@ FROM python@sha256:a5b427ace4900267d93db34138e512325c6fa6af84ad5e4ed5f3b36258cc4
 # Metadata
 LABEL org.opencontainers.image.title="ae-eval-swebench" \
       org.opencontainers.image.description="AE eval harness Tier 3 sandbox for SWE-bench fix+score phases" \
-      org.opencontainers.image.source="evals/runner/Dockerfile.swebench"
+      org.opencontainers.image.source="evals/runner/Dockerfile.swebench" \
+      org.opencontainers.image.version="1.1.0"
 
 # Install pytest and a minimal set of test utilities at BUILD time.
 # Network is available here (build time). Network is disabled at run time via
 # `docker run --network none`. No per-task packages are installed at run time;
 # if a task requires additional packages, extend this RUN layer and rebuild.
-RUN pip install --no-cache-dir pytest==8.3.5
+# pytest-timeout: required by scoring.py which passes --timeout=<N> to pytest.
+RUN pip install --no-cache-dir pytest==8.3.5 pytest-timeout==2.4.0
 
 # Create a non-root user for running eval commands.
 RUN groupadd --gid 1001 evaluser && \

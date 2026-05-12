@@ -903,3 +903,31 @@ def test_tier3_enter_uses_cached_digest_without_subprocess():
                 isolator.__exit__(None, None, None)
     finally:
         _isolator_module._IMAGE_DIGEST_CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
+# Bug-1 regression: pytest-timeout must be installed in the Docker image
+# ---------------------------------------------------------------------------
+
+
+def test_dockerfile_includes_pytest_timeout():
+    """Dockerfile.swebench pip install line must include pytest-timeout.
+
+    Regression test for Bug-1: scoring.py passes --timeout=<N> to pytest
+    inside the container, but the original Dockerfile only installed
+    pytest==8.3.5. Every score phase failed with:
+      'unrecognized arguments: --timeout=120'
+    because pytest-timeout was not present.
+
+    This is a static grep test - no Docker needed. It documents the build-time
+    contract and catches regressions where the Dockerfile is edited and the
+    pytest-timeout dependency is accidentally removed.
+    """
+    dockerfile_text = _DOCKERFILE_PATH.read_text(encoding="utf-8")
+    assert "pytest-timeout" in dockerfile_text, (
+        f"Dockerfile.swebench at {_DOCKERFILE_PATH} must include 'pytest-timeout' "
+        "in its pip install RUN layer. "
+        "Bug-1 regression: scoring.py passes --timeout=<N> to pytest inside the "
+        "container; without pytest-timeout installed, every score phase fails with "
+        "'unrecognized arguments: --timeout=120'."
+    )
