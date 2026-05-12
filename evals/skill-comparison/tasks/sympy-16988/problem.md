@@ -1,52 +1,42 @@
 # Task: sympy-16988
 
 **SWE-bench instance ID:** `sympy__sympy-16988`
+**Source:** princeton-nlp/SWE-bench_Lite (test split)
+**Freeze date:** 2026-05-12
 **Difficulty:** single-file
 **Repository:** https://github.com/sympy/sympy
-**Base commit:** `a9e6f89c80e1dc9f7e62b3e1e30f5e14a0a3b012`
+**Base commit:** `e727339af6dc22321b00f52d971cda39e4ce89fb`
 
 ## Problem description
 
-`Add.as_two_terms()` returns incorrect results for symbolic expressions
-with more than two summands.  The method is documented to split an `Add`
-into `(first_term, rest)`, but the implementation indexes directly into
-`self.args` and discards the tail when there are 3+ terms:
+`Intersection` does not remove duplicates, returning `EmptySet` instead of
+the correct `Piecewise` expression when the same set appears more than once.
 
 ```python
-from sympy.abc import x, y, z
-expr = x + y + z
-a, b = expr.as_two_terms()
-assert a + b == expr   # AssertionError for 3+ terms
+from sympy import *
+x = Symbol('x')
+
+>>> Intersection({1}, {1}, {x})
+EmptySet()  # WRONG
+
+>>> Intersection({1}, {x})
+{1}         # correct (Piecewise simplification)
 ```
 
-## Reproduction
+The expected answer for `Intersection({1}, {1}, {x})` is
+`Piecewise(({1}, Eq(x, 1)), (S.EmptySet, True))` or `{1}` depending on
+simplification.
 
-```python
-from sympy.abc import x, y, z
-from sympy import Add
-
-expr = x + y + z
-first, rest = expr.as_two_terms()
-print(first + rest)   # x + y  (wrong; z is dropped)
-```
+The bug is in `sympy/sets/sets.py` in the `Intersection` evaluation logic
+which fails to deduplicate argument sets before computing.
 
 ## Expected behaviour
 
-For an `Add` with n terms, `as_two_terms()` should return
-`(args[0], Add(*args[1:]))` so that `first + rest == expr` always holds.
+`Intersection` should deduplicate its arguments and return the correct
+result regardless of whether the same set is passed multiple times.
 
-## Held-out test reference
+## Held-out test references
 
-`sympy/core/tests/test_arit.py` (from fix commit
-`c6c5c9f3f36e9b1a4e6d42e0e3d7e9b9a6f7c1e2`).
+- `sympy/sets/tests/test_sets.py`
 
-The new test:
-- Checks 2-term, 3-term, and 4-term expressions.
-- Verifies `a + b == original_expr` in each case.
-- Checks that `Mul.as_two_terms` is unaffected (regression guard).
-
-## Constraints for the fix
-
-- Modify only `sympy/core/add.py`.
-- Do not change the public `as_two_terms` signature.
-- All existing `test_arit.py` tests must pass.
+Tests `test_imageset` and `test_intersection` must transition from fail to pass.

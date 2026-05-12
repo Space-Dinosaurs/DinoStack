@@ -1,23 +1,33 @@
 """
 Purpose: Validate corpus.yaml structural integrity and task directory completeness.
          Run at CI time (and before any eval run) to catch missing files, malformed
-         YAML, or task directories that don't match the corpus entry list.
+         YAML, out-of-range SHAs, duplicate instance IDs, or task directories that
+         don't match the corpus entry list.
 
 Public API: main() -> None  (exits non-zero on any failure)
             validate_corpus(corpus_path: Path, tasks_root: Path) -> list[str]
 
-Upstream deps: stdlib pathlib, sys; pyyaml for YAML parsing.
+Upstream deps: stdlib pathlib, re, sys; pyyaml for YAML parsing.
 
-Downstream consumers: CI / pre-run check; called by runner.py before seeding.
+Downstream consumers: CI (corpus-validation.yml); runner.py before seeding.
 
 Failure modes: Prints each violation to stderr; returns non-empty list on failure.
                Exits 1 if any violations found. Exit 0 means corpus is structurally
-               sound (does not verify SHA correctness - that requires network).
+               sound (does not verify SHA reachability - that requires network).
 
 Performance: O(n tasks); <1s for a 15-task corpus.
+
+Validation rules:
+  - base_commit must match ^[0-9a-f]{40}$ (40-char lowercase hex).
+  - swebench_instance_id must be unique across all tasks.
+  - estimated_test_seconds must be < 120 (the >=120 boundary is rejected;
+    120 itself and above are out of budget per the brief constraint).
+  - fix_commit is intentionally absent from the schema; validator rejects it
+    if present to prevent future confusion.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -31,15 +41,21 @@ _REQUIRED_TASK_FIELDS = {
     "swebench_instance_id",
     "repo_url",
     "base_commit",
-    "fix_commit",
     "held_out_tests",
+    "fail_to_pass",
     "estimated_test_seconds",
     "difficulty",
     "known_affected_files",
     "problem_summary",
 }
 
+_FORBIDDEN_TASK_FIELDS = {
+    "fix_commit",  # removed in r2; test files come from test_patch at base_commit
+}
+
 _VALID_DIFFICULTIES = {"single-file", "multi-file", "design-y"}
+
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 _CORPUS_PATH = Path(__file__).parent / "corpus.yaml"
 _TASKS_ROOT = Path(__file__).parent
@@ -77,8 +93,9 @@ def validate_corpus(corpus_path: Path, tasks_root: Path) -> list[str]:
         violations.append("corpus.yaml: 'tasks' block is missing or empty")
         return violations
 
-    # 4. Count difficulty distribution.
+    # 4. Count difficulty distribution; track instance_id uniqueness.
     difficulty_counts: dict[str, int] = {}
+    seen_instance_ids: dict[str, str] = {}  # instance_id -> slug
 
     for slug, entry in tasks.items():
         prefix = f"task '{slug}'"
@@ -91,6 +108,32 @@ def validate_corpus(corpus_path: Path, tasks_root: Path) -> list[str]:
             if field not in entry:
                 violations.append(f"{prefix}: missing required field '{field}'")
 
+        # Reject forbidden fields.
+        for field in _FORBIDDEN_TASK_FIELDS:
+            if field in entry:
+                violations.append(
+                    f"{prefix}: forbidden field '{field}' present; "
+                    f"remove it (test files are extracted from test_patch at base_commit)"
+                )
+
+        # Validate base_commit is a 40-char lowercase hex SHA.
+        bc = entry.get("base_commit", "")
+        if not isinstance(bc, str) or not _SHA_RE.match(bc):
+            violations.append(
+                f"{prefix}: base_commit '{bc}' is not a 40-char lowercase hex SHA"
+            )
+
+        # Validate swebench_instance_id uniqueness.
+        iid = entry.get("swebench_instance_id", "")
+        if iid:
+            if iid in seen_instance_ids:
+                violations.append(
+                    f"{prefix}: swebench_instance_id '{iid}' already used by "
+                    f"task '{seen_instance_ids[iid]}'"
+                )
+            else:
+                seen_instance_ids[iid] = slug
+
         # Validate difficulty.
         diff = entry.get("difficulty")
         if diff not in _VALID_DIFFICULTIES:
@@ -102,16 +145,23 @@ def validate_corpus(corpus_path: Path, tasks_root: Path) -> list[str]:
             difficulty_counts[diff] = difficulty_counts.get(diff, 0) + 1
 
         # Validate estimated_test_seconds < 120.
+        # NOTE: the rejection boundary is >=120 (i.e. 120 itself is out-of-budget).
         est = entry.get("estimated_test_seconds")
         if isinstance(est, (int, float)) and est >= 120:
             violations.append(
-                f"{prefix}: estimated_test_seconds={est} exceeds 120 s budget"
+                f"{prefix}: estimated_test_seconds={est} exceeds 120 s budget "
+                f"(rejection boundary is >=120)"
             )
 
         # Validate held_out_tests is a non-empty list.
         hot = entry.get("held_out_tests")
         if not isinstance(hot, list) or not hot:
             violations.append(f"{prefix}: 'held_out_tests' must be a non-empty list")
+
+        # Validate fail_to_pass is a non-empty list.
+        ftp = entry.get("fail_to_pass")
+        if not isinstance(ftp, list) or not ftp:
+            violations.append(f"{prefix}: 'fail_to_pass' must be a non-empty list")
 
         # Check task directory exists.
         task_dir = tasks_root / slug

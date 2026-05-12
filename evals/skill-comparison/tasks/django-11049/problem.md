@@ -1,53 +1,30 @@
 # Task: django-11049
 
 **SWE-bench instance ID:** `django__django-11049`
+**Source:** princeton-nlp/SWE-bench_Lite (test split)
+**Freeze date:** 2026-05-12
 **Difficulty:** single-file
 **Repository:** https://github.com/django/django
-**Base commit:** `a2b64e2cfe72839aac0a7765283bd5f3bb42b955`
+**Base commit:** `17455e924e243e7a55e8a38f45966d8cbb27c273`
 
 ## Problem description
 
-`AuthenticationForm` clears the `username` field value on a failed login
-even when `show_hidden_initial=True` is set on the field.
+The error message for an invalid `DurationField` input shows the wrong
+expected format example. When a user enters `"14:00"` (which Django
+interprets as 14 minutes, producing `00:14:00`), the error message says
+the expected format is `[DD] [HH:[MM:]]ss[.uuuuuu]`, but the actual
+expected format example in the message is incorrect.
 
-Django forms store the "previous value" in a hidden `<input>` whose name
-is `initial-<field_name>`.  When `AuthenticationForm` invalidates on bad
-credentials, its `__init__` resets the username value to `""`, causing
-the re-rendered form to emit an empty `initial-username` hidden field.
-Downstream JavaScript that reads this field for CSRF double-submit
-protection therefore receives an empty string and breaks the flow.
-
-## Reproduction
-
-```python
-from django.contrib.auth.forms import AuthenticationForm
-
-data = {"username": "alice", "password": "wrong"}
-form = AuthenticationForm(data=data)
-form.is_valid()   # False - bad credentials
-# form.fields["username"].initial should still be "alice"
-# but it is "" after the failed validation
-assert form.fields["username"].initial == "alice"   # AssertionError
-```
+The fix is in `django/db/models/fields/__init__.py` to update the error
+message format string to show the correct expected format.
 
 ## Expected behaviour
 
-The `username` field should retain its submitted value as the initial value
-after a failed login attempt so that the hidden initial widget renders
-correctly.
+The DurationField validation error message should display the correct
+expected format so users understand what input is accepted.
 
-## Held-out test reference
+## Held-out test references
 
-`tests/auth_tests/test_forms.py` (from fix commit
-`de8e4a70a3e66ed93b72e73f1e67ddb0f7e152c0`).
+- `tests/model_fields/test_durationfield.py`
 
-The test class `AuthenticationFormTest` gains a new test method that:
-1. Submits bad credentials.
-2. Asserts `form.fields["username"].initial == submitted_username`.
-3. Asserts the rendered HTML contains the correct hidden initial input.
-
-## Constraints for the fix
-
-- Modify only `django/contrib/auth/forms.py`.
-- Do not change `AuthenticationForm`'s public constructor signature.
-- All existing `test_forms.py` tests must still pass.
+Test `test_invalid_string` must transition from fail to pass.

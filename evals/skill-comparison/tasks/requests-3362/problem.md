@@ -1,51 +1,38 @@
 # Task: requests-3362
 
 **SWE-bench instance ID:** `psf__requests-3362`
+**Source:** princeton-nlp/SWE-bench_Lite (test split)
+**Freeze date:** 2026-05-12
 **Difficulty:** single-file
 **Repository:** https://github.com/psf/requests
-**Base commit:** `37a0b4a3a7e350d8b1c9f83fce83e6c56a5b6a5b`
+**Base commit:** `36453b95b13079296776d11b09cab2567ea3e703`
 
 ## Problem description
 
-`PreparedRequest.prepare_url` mishandles URLs that contain a `#` fragment
-when the URL also has a query string.  The fragment is percent-encoded and
-appended to the query string instead of being kept as the URL fragment
-component, breaking round-trip serialisation:
-
-```
-Input:  http://example.com/path?q=1#section
-Output: http://example.com/path?q=1%23section   (wrong)
-Expected: http://example.com/path?q=1#section
-```
-
-## Reproduction
+`iter_content(decode_unicode=True)` returns `bytes` instead of `str` when
+the response has no declared encoding, even though `decode_unicode=True`
+explicitly requests string output.
 
 ```python
 import requests
-r = requests.Request("GET", "http://example.com/path?q=1#section")
-p = r.prepare()
-assert "#section" in p.url    # AssertionError: fragment was encoded into query
+r = requests.get("https://httpbin.org/json")
+chunk = next(r.iter_content(16 * 1024, decode_unicode=True))
+# chunk is bytes, not str, when Content-Type has no charset
 ```
+
+The fix is in `requests/utils.py` in the `stream_decode_response_unicode`
+helper, which fails to fall back to a default encoding when the response
+charset is absent.
 
 ## Expected behaviour
 
-`PreparedRequest.url` should preserve the fragment component unchanged.
-Fragments are not sent to the server (per RFC 7230) but must survive
-round-trip serialisation so that logging, redirect handling, and user
-inspection see the correct URL.
+`iter_content(decode_unicode=True)` should always return `str` objects when
+`decode_unicode=True`, falling back to a sensible default encoding when the
+response does not declare one.
 
-## Held-out test reference
+## Held-out test references
 
-`tests/test_requests.py` (from fix commit
-`9a1c13d21e04264f9abb0cfbf7b7bf05e1ea2ca6`).
+- `tests/test_requests.py`
 
-The new test verifies that:
-- A URL with a fragment is not percent-encoded.
-- A URL without a fragment is unaffected.
-- A URL with both a query string and a fragment preserves both.
-
-## Constraints for the fix
-
-- Modify only `requests/models.py`.
-- Do not change the public `prepare_url` signature.
-- All existing `test_requests.py` tests must pass.
+Test `TestRequests::test_response_decode_unicode` must transition from fail
+to pass.

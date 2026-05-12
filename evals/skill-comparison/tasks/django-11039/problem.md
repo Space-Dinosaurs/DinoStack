@@ -1,57 +1,33 @@
 # Task: django-11039
 
 **SWE-bench instance ID:** `django__django-11039`
-**Difficulty:** multi-file
+**Source:** princeton-nlp/SWE-bench_Lite (test split)
+**Freeze date:** 2026-05-12
+**Difficulty:** single-file
 **Repository:** https://github.com/django/django
-**Base commit:** `2f037b49b4b93e4a2a76f41d77c0d0d2c58e9f4a`
+**Base commit:** `d5276398046ce4a102776a1e67dcac2884d80dfe`
 
 ## Problem description
 
-Pickling a `Q` object that contains a subquery fails with:
+`sqlmigrate` wraps its output in `BEGIN`/`COMMIT` even when the target
+database does not support transactional DDL (e.g. MySQL with DDL statements
+that cause implicit commits).
 
-```
-AttributeError: 'NoneType' object has no attribute 'compiler'
-```
+This misleads users and tools that parse `sqlmigrate` output, because the
+`BEGIN`/`COMMIT` wrapper implies atomicity that the database cannot provide.
 
-When `Q.__reduce__` is called, it invokes `sql_with_params()` on the
-contained queryset to produce a string representation.  This calls into
-the SQL compiler before the queryset is fully set up in the new process,
-causing a null-pointer-style failure.
-
-The fix requires changes in two places:
-1. `django/db/models/query_utils.py` - fix `Q.__reduce__` to defer SQL
-   compilation rather than calling it eagerly.
-2. `django/db/models/sql/query.py` - ensure `resolve_lookup_value` handles
-   a subquery that arrives from an unpickled Q correctly.
-
-## Reproduction
-
-```python
-import pickle
-from django.db.models import Q, Subquery
-from myapp.models import Author, Book
-
-sq = Subquery(Author.objects.values("id")[:1])
-q = Q(author_id__in=sq)
-data = pickle.dumps(q)
-q2 = pickle.loads(data)   # AttributeError
-```
+The fix is in `django/core/management/commands/sqlmigrate.py` to check
+whether the database connection supports transactional DDL before emitting
+the `BEGIN`/`COMMIT` wrapper.
 
 ## Expected behaviour
 
-`pickle.loads(pickle.dumps(Q(...subquery...)))` should round-trip
-correctly and produce a `Q` object that generates the same SQL.
+When the database does not support transactional DDL, `sqlmigrate` output
+should not include `BEGIN`/`COMMIT` wrapper statements.
 
 ## Held-out test references
 
-- `tests/queryset_pickle/tests.py` (pickle round-trip test)
-- `tests/queries/test_q.py` (Q object SQL generation after unpickle)
+- `tests/migrations/test_commands.py`
 
-Both from fix commit `b7c3a6e9f2d1e8a4c5f7b9d2e6c4a8b1f3e7d9a2`.
-
-## Constraints for the fix
-
-- Modify `django/db/models/query_utils.py` and
-  `django/db/models/sql/query.py` only.
-- Do not change the public Q or Subquery API.
-- All existing tests in both test files must pass.
+Test `test_sqlmigrate_for_non_transactional_databases` must transition from
+fail to pass.
