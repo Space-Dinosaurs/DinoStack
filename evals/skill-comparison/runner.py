@@ -376,11 +376,14 @@ def run_matrix(
                       include. If None or empty, all tasks run. An unrecognised
                       slug raises ValueError before any cell is executed.
         max_cells: hard stop after writing this many rows to the TSV (excluding
-                   the header). Already-completed cells (resume-skipped) count
-                   toward the ceiling. If None, no ceiling. When both
-                   tasks_filter and max_cells are supplied, whichever limit is
-                   reached first wins. When max_cells is reached, report.partial
-                   is set to True (mirrors the wall-clock ceiling behavior).
+                   the header). Only rows written in this invocation count
+                   toward the ceiling - resume-skipped pre-existing rows do NOT
+                   count. This means ``--max-cells 5`` will write up to 5 new
+                   rows regardless of how many already exist in the TSV. If
+                   None, no ceiling. When both tasks_filter and max_cells are
+                   supplied, whichever limit is reached first wins. When
+                   max_cells is reached, report.partial is set to True (mirrors
+                   the wall-clock ceiling behavior).
 
     Returns:
         RunReport with summary stats.

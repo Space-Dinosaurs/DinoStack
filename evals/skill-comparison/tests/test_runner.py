@@ -1267,6 +1267,28 @@ class TestTasksFilter:
             f"Both tasks should run when tasks_filter=None; got {len(rows)}"
         )
 
+    def test_empty_list_tasks_filter_runs_all(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """When tasks_filter=[] (empty list), all tasks run (same as None)."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=_canned_score()):
+            run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tasks_filter=[],
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2, (
+            f"Both tasks should run when tasks_filter=[]; got {len(rows)}"
+        )
+
     def test_unknown_slug_raises_before_any_cell(
         self, tmp_path: Path, two_task_corpus_yaml: Path
     ):
