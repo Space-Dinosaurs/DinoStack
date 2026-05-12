@@ -56,7 +56,13 @@ _ALLOWED_TOOLS = "Read,Grep,Glob,Task"
 # HOME redirect is what contains the blast radius; the tool list is
 # permissive on purpose.
 _COMMAND_ALLOWED_TOOLS = "Read,Grep,Glob,Task,Write,Edit,Bash"
-_MAX_TURNS = "6"
+# SWE-bench fix tasks need many turns: read files, edit, run tests, iterate.
+# Raised from 6 to 40 (smoke v5 regression: engineer hit max_turns at 6 and
+# exited despite $0.75 spend with no fix applied).
+# The _MAX_TURNS_DEFAULT is the process-level default; invoke_run accepts an
+# optional max_turns kwarg so the runner CLI can override via --max-turns.
+_MAX_TURNS_DEFAULT = 40
+_MAX_TURNS = str(_MAX_TURNS_DEFAULT)
 # Command-mode runs can take many turns (scaffolding /init-project writes
 # ~15 files, runs subprocess calls, and curates content). Give it more
 # headroom than the Tier 1 subagent cap.
@@ -136,6 +142,7 @@ def invoke_run(
     home: Path | None = None,
     model: str | None = None,
     system_prompt: str | None = None,
+    max_turns: int | None = None,
 ) -> dict:
     """Run the Claude CLI once with `prompt` at `worktree` cwd; return a run record.
 
@@ -161,12 +168,16 @@ def invoke_run(
     appends to the default; --system-prompt replaces it entirely. We use
     --append-system-prompt to preserve the default context and add the rules.
     subprocess argv handling means no shell escaping is needed.
+
+    If `max_turns` is provided, it overrides the module-level default for
+    agent mode (_MAX_TURNS_DEFAULT=40) or command mode (_COMMAND_MAX_TURNS=60).
+    Useful for SWE-bench fix tasks that need more tool iterations.
     """
     if mode == "command":
         outer_prompt = prompt
         allowed_tools = _COMMAND_ALLOWED_TOOLS
         permission_mode = "acceptEdits"
-        max_turns = _COMMAND_MAX_TURNS
+        effective_max_turns = str(max_turns) if max_turns is not None else _COMMAND_MAX_TURNS
         expect_subagent = False
     else:
         if agent_name:
@@ -175,7 +186,7 @@ def invoke_run(
             outer_prompt = prompt
         allowed_tools = _ALLOWED_TOOLS
         permission_mode = "default"
-        max_turns = _MAX_TURNS
+        effective_max_turns = str(max_turns) if max_turns is not None else _MAX_TURNS
         expect_subagent = bool(agent_name)
 
     # The Claude CLI accepts the prompt as the argument to -p; subprocess.run
@@ -188,7 +199,7 @@ def invoke_run(
         "--verbose",
         "--allowed-tools", allowed_tools,
         "--permission-mode", permission_mode,
-        "--max-turns", max_turns,
+        "--max-turns", effective_max_turns,
     ]
 
     # Route through litellm when model id uses a non-Anthropic prefix.

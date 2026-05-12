@@ -632,3 +632,147 @@ class TestFailToPassForwarding:
             f"_run_pytest_local must resolve node-ids against held_out_dir; "
             f"expected '{expected}' in cmd, got: {cmd}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: pytest 0-tests-collected fix [smoke-v5-pytest-collection]
+# --noconftest and --rootdir must NOT appear in the cmd when node-ids are given.
+# These flags prevent pytest from loading conftest.py needed by SWE-bench tests
+# and from finding tests when rootdir does not match the node-id path prefix.
+# ---------------------------------------------------------------------------
+
+
+class TestPytestCollectionFlags:
+    """Regression: _run_pytest_tier3 must not use --noconftest or --rootdir
+    when specific node-ids are provided (smoke v5 0-tests-collected fix).
+
+    --noconftest blanket-disables all conftest.py including legitimate ones
+    in /scoring/tests needed by SWE-bench tests for fixture collection.
+    --rootdir conflicts with absolute node-id paths causing 0 tests collected.
+    --confcutdir=/scoring is retained (prevents agent conftest at /workspace/repo).
+    """
+
+    def test_no_noconftest_flag_when_node_ids_given(self):
+        """`--noconftest` must NOT appear in the cmd when fail_to_pass is given."""
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        node_ids = ["tests/test_requests.py::TestRequests::test_response_decode_unicode"]
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=node_ids)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        assert "--noconftest" not in cmd, (
+            "pytest cmd MUST NOT include --noconftest when fail_to_pass is given. "
+            "--noconftest blocks legitimate conftest.py in /scoring/tests that "
+            "SWE-bench tests require for collection. "
+            f"Got cmd: {cmd}"
+        )
+
+    def test_no_rootdir_flag_when_node_ids_given(self):
+        """`--rootdir` must NOT appear in the cmd when fail_to_pass is given."""
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        node_ids = ["tests/test_requests.py::TestRequests::test_response_decode_unicode"]
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=node_ids)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        rootdir_flags = [arg for arg in cmd if arg.startswith("--rootdir")]
+        assert not rootdir_flags, (
+            "pytest cmd MUST NOT include --rootdir when fail_to_pass is given. "
+            "--rootdir conflicts with absolute node-id paths and causes "
+            "0 tests collected when rootdir != node-id path prefix. "
+            f"Got cmd: {cmd}"
+        )
+
+    def test_confcutdir_retained_when_node_ids_given(self):
+        """`--confcutdir=/scoring` must appear in the cmd when fail_to_pass is given.
+
+        This is the isolation guard that prevents agent-planted conftest.py at
+        /workspace/repo from loading. It must be retained even when --noconftest
+        and --rootdir are dropped.
+        """
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        node_ids = ["tests/test_requests.py::TestRequests::test_response_decode_unicode"]
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=node_ids)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        assert "--confcutdir=/scoring" in cmd, (
+            "pytest cmd MUST include --confcutdir=/scoring when fail_to_pass is "
+            "given. This prevents agent-planted conftest.py at /workspace/repo "
+            "from loading during scoring. "
+            f"Got cmd: {cmd}"
+        )
+
+    def test_node_ids_in_cmd_when_fail_to_pass_given(self):
+        """All fail_to_pass node-ids must appear in the cmd prefixed with /scoring/tests/."""
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "2 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        node_ids = [
+            "tests/test_requests.py::TestRequests::test_response_decode_unicode",
+            "tests/test_requests.py::TestRequests::test_redirect",
+        ]
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=node_ids)
+
+        assert captured_cmds
+        cmd = captured_cmds[0]
+        for nid in node_ids:
+            expected = f"/scoring/tests/{nid}"
+            assert expected in cmd, (
+                f"Node-id '{nid}' must appear as '{expected}' in the pytest cmd. "
+                f"Got cmd: {cmd}"
+            )
