@@ -41,6 +41,14 @@ Performance: First call for a repo/commit pair does a shallow clone (slow,
     ~10-60 s depending on repo size and network). Subsequent calls hit the
     cache: a local git clone --local is fast (~0.5-2 s). Cache path:
     ~/.cache/skill-comparison/seeds/<slug>-<base_commit[:8]>/
+
+    Cache GC note: the cache directory accumulates one entry per
+    (task_slug, base_commit[:8]) pair and never auto-expires. For a
+    12-task corpus this is ~12 entries totalling ~500 MB (shallow clones).
+    No automatic garbage-collection is implemented; this is acceptable for
+    the current small corpus. If the cache grows stale (base_commit changes
+    or a new corpus generation is created) remove entries manually:
+        rm -rf ~/.cache/skill-comparison/seeds/
 """
 from __future__ import annotations
 
@@ -103,8 +111,34 @@ def _cache_key(task_slug: str, base_commit: str) -> str:
 
 
 def _is_cache_valid(cache_path: Path) -> bool:
-    """Return True if cache_path looks like a valid cloned git repo."""
-    return (cache_path / ".git").is_dir()
+    """Return True if cache_path is a valid, non-corrupt cloned git repo.
+
+    An interrupted git clone may leave a .git directory behind while the
+    repo is unusable (HEAD not pointing to a commit, refs incomplete, etc.).
+    We probe with `git rev-parse --verify HEAD`: if that fails, the cache
+    entry is corrupt. We remove the corrupt directory so the next call does
+    a fresh clone.
+    """
+    if not (cache_path / ".git").is_dir():
+        return False
+    # Probe: verify HEAD is resolvable. An interrupted clone creates .git
+    # but leaves HEAD unresolvable, causing all subsequent git operations to fail.
+    result = subprocess.run(
+        ["git", "-C", str(cache_path), "rev-parse", "--verify", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        _LOG.warning(
+            "Cache at %s has .git but HEAD is unresolvable (returncode=%d). "
+            "Treating as corrupt and removing.",
+            cache_path,
+            result.returncode,
+        )
+        shutil.rmtree(cache_path, ignore_errors=True)
+        return False
+    return True
 
 
 def seed_fix_phase(

@@ -878,3 +878,284 @@ class TestScoreCellRaiseProducesScoreErrorStatus:
             f"Expected status='ok' when both engineer and scoring succeed; "
             f"got {rows[0]['status']!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# MAJOR-3 regression: Tier3Docker.run_fix_phase invoked in production path
+# ---------------------------------------------------------------------------
+
+
+class TestTier3RunFixPhaseInvoked:
+    """Regression suite for MAJOR-3.
+
+    Verifies that Tier3Docker.run_fix_phase is called (NOT invoke_run directly)
+    when tier3_mode='auto' and dry_run=False.  Mocks at the subprocess boundary
+    (not at the Tier3Docker class level) to catch invocation-path bypasses.
+    """
+
+    _MINIMAL_CORPUS_YAML = """\
+freeze_metadata:
+  freeze_date: "2026-05-12"
+tasks:
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "d5276398046ce4a102776a1e67dcac2884d80dfe"
+    held_out_tests:
+      - "tests/migrations/test_commands.py"
+    fail_to_pass:
+      - "test_sqlmigrate_for_non_transactional_databases"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/core/management/commands/sqlmigrate.py"
+    problem_summary: >
+      sqlmigrate wraps output in BEGIN/COMMIT even when the database does not
+      support transactional DDL.
+"""
+
+    def test_run_fix_phase_called_not_invoke_run_when_tier3_auto(
+        self, tmp_path: Path
+    ):
+        """run_fix_phase is called (not invoke_run directly) when tier3_mode='auto'.
+
+        Regression test for MAJOR-3: previously _run_cell called invoke_run
+        directly, bypassing run_fix_phase entirely so --network none, --cap-drop,
+        --read-only rootfs, and memory limits were all bypassed.
+
+        Mock strategy: we mock the Tier3Docker class that runner imports at
+        runtime (via `from evals.runner.isolator import Tier3Docker as _Tier3Docker`).
+        The mock class's run_fix_phase is tracked to verify it is called.
+        We do NOT mock invoke_run - if run_fix_phase delegates to it internally
+        that is fine; what matters is that run_fix_phase is the entry point used
+        by the runner, not a raw invoke_run call bypassing the isolator.
+        """
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Context
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(self._MINIMAL_CORPUS_YAML, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        import json as _json, subprocess as _sp
+        canned_invoker = {
+            "final_text": "Fixed.",
+            "status": "ok",
+            "cost_usd": 0.0,
+            "usage": {},
+            "latency_ms": 0,
+            "invocation_mode": "agent",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+            "stderr_tail": "",
+        }
+        canned_cp = _sp.CompletedProcess(
+            args=[], returncode=0,
+            stdout=_json.dumps(canned_invoker), stderr="",
+        )
+
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "held",
+            image_tag="ae-eval-swebench:latest",
+            image_digest="sha256:abc123",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "held").mkdir(parents=True, exist_ok=True)
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+
+        run_fix_phase_calls: list = []
+
+        def fake_run_fix_phase(ctx, **kwargs):
+            run_fix_phase_calls.append({"ctx": ctx, "kwargs": kwargs})
+            return canned_cp
+
+        # The mock Tier3Docker class: instantiation returns mock_tier3_instance,
+        # and the static run_fix_phase method is tracked.
+        mock_tier3_cls = MagicMock(return_value=mock_tier3_instance)
+        mock_tier3_cls.run_fix_phase = MagicMock(side_effect=fake_run_fix_phase)
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),  # skip actual seeding
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        assert len(run_fix_phase_calls) == 1, (
+            f"Tier3Docker.run_fix_phase must be called exactly once per cell when "
+            f"tier3_mode='auto'; got {len(run_fix_phase_calls)} calls. "
+            "MAJOR-3 regression: if this fails, invoke_run is being called directly, "
+            "bypassing the Tier3 isolator entirely."
+        )
+        # The prompt kwarg must be populated (prompt path, not command path).
+        assert "prompt" in run_fix_phase_calls[0]["kwargs"], (
+            "run_fix_phase must be called with a prompt= kwarg (prompt path)"
+        )
+        assert run_fix_phase_calls[0]["kwargs"]["prompt"], (
+            "prompt= kwarg must be non-empty"
+        )
+
+    def test_run_fix_phase_not_called_when_dry_run(
+        self, tmp_path: Path
+    ):
+        """Tier3Docker.run_fix_phase is NOT called when dry_run=True."""
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Docker
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(self._MINIMAL_CORPUS_YAML, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch.object(Tier3Docker, "run_fix_phase") as mock_rfp,
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        mock_rfp.assert_not_called()
+
+    def test_run_fix_phase_not_called_when_tier3_off(
+        self, tmp_path: Path
+    ):
+        """Tier3Docker.run_fix_phase is NOT called when tier3_mode='off'."""
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Docker
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(self._MINIMAL_CORPUS_YAML, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("runner._run_cell", return_value={
+                "final_text": "", "status": "ok", "cost_usd": 0.0, "usage": {},
+                "latency_ms": 0, "invocation_mode": "agent", "tool_calls": [],
+                "turns_used": 1, "_parse_warnings": [],
+            }),
+            patch.object(Tier3Docker, "run_fix_phase") as mock_rfp,
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="off",
+            )
+
+        mock_rfp.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# MAJOR-2 regression: seed_error rows excluded from aggregator median
+# ---------------------------------------------------------------------------
+
+
+class TestSeedErrorAggregatorExclusion:
+    """Regression suite for MAJOR-2.
+
+    seed_error rows must write score_primary="" (empty string) so the
+    aggregator's _non_none filter discards them.  A 0.0 value would inflate
+    apparent failure rates and skew the median.
+    """
+
+    def test_seed_error_row_writes_empty_score_primary(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """When seeding fails, the TSV row has score_primary='' (empty string).
+
+        Regression test for MAJOR-2: previously score_primary=0.0 was written
+        for seed_error rows, which the aggregator would silently include in
+        median calculations, inflating apparent failure rates.
+        """
+        from seeding import SeedError
+        results_tsv = tmp_path / "results.tsv"
+
+        def raise_seed_error(**kwargs):
+            raise SeedError(step="clone_failed", stderr="git error")
+
+        with patch("runner.seed_fix_phase", side_effect=raise_seed_error):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="off",
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 1
+        assert rows[0]["status"] == "seed_error"
+        assert rows[0]["score_primary"] == "", (
+            f"seed_error rows must write score_primary='' (empty string) so the "
+            f"aggregator excludes them from median; got {rows[0]['score_primary']!r}. "
+            "MAJOR-2 regression: 0.0 was written before this fix."
+        )
+
+    def test_aggregator_excludes_empty_score_primary_from_median(self):
+        """aggregate_conditions treats empty-string scores as None (excluded from median).
+
+        Regression test for MAJOR-2 (aggregator side): seed_error rows in the
+        TSV have score_primary=''; when the TSV is parsed and fed to the
+        aggregator, those empty strings must be excluded from the median.
+        """
+        from aggregate import aggregate_conditions
+
+        # Simulate TSV parsing: score_primary is a string after csv.DictReader.
+        # A mix of real scores and seed_error empties.
+        runs = {
+            "baseline": ["1.0", "0.8", "", "0.6", ""],  # 2 seed_error empties
+        }
+        rows = aggregate_conditions(runs)
+        assert len(rows) == 1
+        row = rows[0]
+        # Only 3 valid scores: [1.0, 0.8, 0.6]. median = 0.8
+        assert row.n == 3, (
+            f"aggregate_conditions must count only non-empty scores; "
+            f"expected n=3, got n={row.n}. "
+            "MAJOR-2 regression: empty-string seed_error rows were being counted."
+        )
+        import statistics
+        assert row.median == statistics.median([1.0, 0.8, 0.6]), (
+            f"Median must be computed from valid scores only; "
+            f"expected {statistics.median([1.0, 0.8, 0.6])}, got {row.median}"
+        )

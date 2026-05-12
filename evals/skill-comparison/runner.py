@@ -522,7 +522,10 @@ def run_matrix(
                                 "replicate": rep,
                                 "status": "seed_error",
                                 "pass_fail": "0",
-                                "score_primary": 0.0,
+                                # MAJOR-2: use empty string for score_primary on error
+                                # rows so the aggregator excludes them from median
+                                # computation. 0.0 would silently inflate failure rates.
+                                "score_primary": "",
                                 "lines_touched": 0,
                                 "files_touched": 0,
                                 "scope_creep_flag": "0",
@@ -543,16 +546,53 @@ def run_matrix(
                         continue
 
                     # Run the fix phase.
+                    # Production (tier3_ctx is not None): route through
+                    # Tier3Docker.run_fix_phase so the isolator orchestrates
+                    # the Claude CLI invocation. This ensures the isolator's
+                    # fix-phase directory is the canonical cwd for the agent.
+                    # MAJOR-3 regression: previously invoke_run was called
+                    # directly here, bypassing run_fix_phase entirely.
                     try:
-                        result = _run_cell(
-                            task_slug=task_slug,
-                            task_meta=task_meta,
-                            condition=condition,
-                            replicate=rep,
-                            ae_payload=ae_payload,
-                            dry_run=dry_run,
-                            worktree=fix_worktree,
-                        )
+                        if tier3_ctx is not None:
+                            # Build prompt and invoke via the isolator.
+                            _fix_prompt = _build_fix_prompt(task_slug, task_meta)
+                            _agent_name: Optional[str] = _AGENT_CONDITIONS.get(condition)
+                            _system_prompt: Optional[str] = (
+                                ae_payload if condition == "ae-rules-injected" else None
+                            )
+                            cp = _Tier3Docker.run_fix_phase(
+                                ctx=tier3_ctx,
+                                prompt=_fix_prompt,
+                                timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
+                                agent_name=_agent_name,
+                                system_prompt=_system_prompt,
+                            )
+                            # run_fix_phase (prompt path) encodes the invoker
+                            # dict as JSON in cp.stdout.
+                            try:
+                                result = json.loads(cp.stdout)
+                            except (json.JSONDecodeError, TypeError):
+                                result = {
+                                    "final_text": cp.stdout or "",
+                                    "status": "ok" if cp.returncode == 0 else f"cli_exit_{cp.returncode}",
+                                    "cost_usd": 0.0,
+                                    "usage": {},
+                                    "latency_ms": 0,
+                                    "invocation_mode": "tier3",
+                                    "tool_calls": [],
+                                    "turns_used": 0,
+                                    "_parse_warnings": ["run_fix_phase stdout was not valid JSON"],
+                                }
+                        else:
+                            result = _run_cell(
+                                task_slug=task_slug,
+                                task_meta=task_meta,
+                                condition=condition,
+                                replicate=rep,
+                                ae_payload=ae_payload,
+                                dry_run=dry_run,
+                                worktree=fix_worktree,
+                            )
                     except Exception as exc:
                         _LOG.error(
                             "Cell %s rep %d raised unexpectedly: %s",

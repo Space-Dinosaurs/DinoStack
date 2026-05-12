@@ -554,6 +554,193 @@ tasks:
 
 
 # ---------------------------------------------------------------------------
+# MAJOR-1 regression: cache corruption detection
+# ---------------------------------------------------------------------------
+
+
+class TestCacheCorruptionDetection:
+    """Regression suite for MAJOR-1.
+
+    An interrupted git clone creates a .git directory but leaves HEAD
+    unresolvable. _is_cache_valid must detect this and remove the corrupt
+    directory so the next call does a fresh clone.
+
+    Mock strategy: we pre-create a cache_path/.git/ directory (simulating an
+    interrupted clone), and patch subprocess.run so that the git rev-parse
+    call returns non-zero (simulating a corrupt HEAD). We then call
+    _is_cache_valid and assert it returns False AND that the corrupt directory
+    was removed.
+
+    We do NOT mock at the _is_cache_valid function level - that would hide the
+    regression path entirely.
+    """
+
+    def test_corrupt_cache_detected_and_removed(self, tmp_path: Path):
+        """_is_cache_valid returns False AND removes the dir when HEAD is unresolvable.
+
+        Regression test for MAJOR-1: previously _is_cache_valid only checked
+        for the existence of .git, not whether the repo was actually usable.
+        An interrupted clone would create .git but leave HEAD unresolvable,
+        causing all subsequent cells to fail with seed_error.
+        """
+        from seeding import _is_cache_valid
+
+        # Simulate an interrupted clone: .git exists but HEAD is unresolvable.
+        cache_path = tmp_path / "corrupt-cache"
+        (cache_path / ".git").mkdir(parents=True)
+
+        def fake_run(cmd, **kwargs):
+            # Simulate git rev-parse --verify HEAD failing (corrupt repo).
+            if "rev-parse" in cmd:
+                result = MagicMock()
+                result.returncode = 128
+                result.stdout = ""
+                result.stderr = "fatal: not a git repository"
+                return result
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "deadbeef" * 5
+            result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            is_valid = _is_cache_valid(cache_path)
+
+        assert is_valid is False, (
+            "_is_cache_valid must return False for a corrupt cache (git rev-parse fails). "
+            "MAJOR-1 regression: previously True was returned for any dir with .git present."
+        )
+        assert not cache_path.exists(), (
+            "_is_cache_valid must remove the corrupt cache directory so the next "
+            "call triggers a fresh clone. The dir should be gone."
+        )
+
+    def test_valid_cache_not_removed(self, tmp_path: Path):
+        """_is_cache_valid returns True and does NOT remove a valid repo."""
+        from seeding import _is_cache_valid
+
+        cache_path = tmp_path / "valid-cache"
+        (cache_path / ".git").mkdir(parents=True)
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "d5276398046ce4a102776a1e67dcac2884d80dfe\n"
+            result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            is_valid = _is_cache_valid(cache_path)
+
+        assert is_valid is True, "_is_cache_valid must return True for a valid repo"
+        assert cache_path.exists(), "Valid cache directory must NOT be removed"
+
+    def test_missing_git_dir_returns_false(self, tmp_path: Path):
+        """_is_cache_valid returns False (without subprocess call) when .git is absent."""
+        from seeding import _is_cache_valid
+
+        cache_path = tmp_path / "no-git"
+        cache_path.mkdir()  # dir exists but no .git
+
+        with patch("subprocess.run") as mock_run:
+            is_valid = _is_cache_valid(cache_path)
+
+        assert is_valid is False
+        mock_run.assert_not_called(), (
+            "subprocess.run must NOT be called when .git is absent"
+        )
+
+
+# ---------------------------------------------------------------------------
+# MINOR-1 regression: validate_corpus checks first line of test_patch.diff
+# ---------------------------------------------------------------------------
+
+
+class TestValidateCorpusPatchFirstLine:
+    """Regression suite for MINOR-1.
+
+    validate_corpus.py must report a violation when test_patch.diff exists and
+    is non-empty but its first line does not start with 'diff --git'.
+    """
+
+    _MINIMAL_CORPUS_YAML = """\
+freeze_metadata:
+  freeze_date: "2026-05-12"
+  swebench_dataset: "princeton-nlp/SWE-bench_Lite"
+  dataset_split: "test"
+  dataset_commit_hash: "abc"
+  selected_count: 1
+tasks:
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "d5276398046ce4a102776a1e67dcac2884d80dfe"
+    held_out_tests:
+      - "tests/migrations/test_commands.py"
+    fail_to_pass:
+      - "test_sqlmigrate"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/core/management/commands/sqlmigrate.py"
+    problem_summary: sqlmigrate wraps output in BEGIN/COMMIT.
+"""
+
+    def _write_task_dir(self, tasks_root: Path, patch_content: str) -> None:
+        task_dir = tasks_root / "django-11039"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "problem.md").write_text("problem", encoding="utf-8")
+        (task_dir / "held_out_tests").mkdir(exist_ok=True)
+        (task_dir / "test_patch.diff").write_text(patch_content, encoding="utf-8")
+
+    def test_truncated_patch_reported_as_violation(self, tmp_path: Path):
+        """validate_corpus reports a violation when patch first line is not 'diff --git'.
+
+        Regression test for MINOR-1: previously only size=0 was checked; a
+        truncated non-empty patch would pass validation silently.
+        """
+        import sys
+        sys.path.insert(0, str(tmp_path.parent))
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(self._MINIMAL_CORPUS_YAML, encoding="utf-8")
+        tasks_root = tmp_path
+
+        # Truncated patch: non-empty but first line is not 'diff --git'.
+        self._write_task_dir(tasks_root, "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n")
+
+        from tasks.validate_corpus import validate_corpus
+        violations = validate_corpus(corpus_yaml, tasks_root)
+
+        diff_git_violations = [v for v in violations if "diff --git" in v]
+        assert diff_git_violations, (
+            "validate_corpus must report a violation when test_patch.diff first "
+            "line does not start with 'diff --git'. MINOR-1 regression: truncated "
+            "patches were silently accepted."
+        )
+
+    def test_valid_patch_no_first_line_violation(self, tmp_path: Path):
+        """No violation when test_patch.diff starts with 'diff --git'."""
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(self._MINIMAL_CORPUS_YAML, encoding="utf-8")
+        tasks_root = tmp_path
+
+        self._write_task_dir(
+            tasks_root,
+            "diff --git a/foo.py b/foo.py\n--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n",
+        )
+
+        from tasks.validate_corpus import validate_corpus
+        violations = validate_corpus(corpus_yaml, tasks_root)
+
+        diff_git_violations = [v for v in violations if "diff --git" in v and "does not start" in v]
+        assert not diff_git_violations, (
+            f"No 'diff --git' first-line violation expected for a valid patch; "
+            f"got: {diff_git_violations}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Live network test (opt-in)
 # ---------------------------------------------------------------------------
 
