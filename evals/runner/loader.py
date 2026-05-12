@@ -1097,6 +1097,45 @@ def _validate_dependency_auditor_fixture(data: dict, path: Path) -> None:
         )
 
 
+# ---- engineer ----
+def _validate_engineer_fixture(data: dict, path: Path) -> None:
+    required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(
+            f"engineer fixture at {path} missing keys: {sorted(missing)}"
+        )
+    inputs = data.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise ValueError(f"engineer fixture at {path}: inputs must be a mapping")
+    if not inputs.get("task_description"):
+        raise ValueError(
+            f"engineer fixture at {path}: inputs.task_description is required "
+            "(the task brief the engineer receives)"
+        )
+    ak = inputs.get("acceptance_keywords")
+    if ak is not None and not isinstance(ak, list):
+        raise ValueError(
+            f"engineer fixture at {path}: inputs.acceptance_keywords must be a list"
+        )
+    fp = inputs.get("forbidden_patterns")
+    if fp is not None and not isinstance(fp, list):
+        raise ValueError(
+            f"engineer fixture at {path}: inputs.forbidden_patterns must be a list"
+        )
+    expected = data.get("expected_outputs") or {}
+    if not isinstance(expected, dict):
+        raise ValueError(
+            f"engineer fixture at {path}: expected_outputs must be a mapping"
+        )
+    for key in ("must_mention", "must_not_mention"):
+        val = expected.get(key)
+        if val is not None and not isinstance(val, list):
+            raise ValueError(
+                f"engineer fixture at {path}: expected_outputs.{key} must be a list"
+            )
+
+
 # ---- representation-audit ----
 def _validate_representation_audit_fixture(data: dict, path: Path) -> None:
     required = {"id", "component", "protocol_sha", "inputs", "expected_outputs"}
@@ -1169,6 +1208,7 @@ _FIXTURE_VALIDATORS = {
     "adr-drift-detector": _validate_adr_drift_detector_fixture,
     "dependency-auditor": _validate_dependency_auditor_fixture,
     "representation-audit": _validate_representation_audit_fixture,
+    "engineer": _validate_engineer_fixture,
 
 }
 
