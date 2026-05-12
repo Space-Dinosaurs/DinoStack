@@ -1183,3 +1183,68 @@ class TestUnittestStyleIdConvertedToTier3Cmd:
             f"pytest-style ID must appear unchanged (prefixed); "
             f"expected '{expected}'; got: {cmd}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: PYTHONPATH=/workspace/repo injected into score-phase container
+# [score-phase-pythonpath]
+# ---------------------------------------------------------------------------
+
+
+class TestRunPytestTier3SetsPythonpath:
+    """Regression: _run_pytest_tier3 must pass PYTHONPATH=/workspace/repo to
+    run_score_phase so that the repo package under test is importable inside
+    the container without pip install (network is disabled during scoring).
+
+    Without this, SWE-bench tasks whose conftest.py or test files do
+    `from <repo_package> import ...` raise ImportError at collection time.
+    """
+
+    def _make_fake_run_score_phase(self, captured_kwargs: list) -> object:
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_kwargs.append(dict(kwargs))
+            return fake_result
+
+        return fake_run_score_phase
+
+    def test_pythonpath_workspace_repo_in_env(self):
+        """run_score_phase must receive env={"PYTHONPATH": "/workspace/repo"}."""
+        fake_ctx = MagicMock()
+        captured: list[dict] = []
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = self._make_fake_run_score_phase(captured)
+            _run_pytest_tier3(fake_ctx, timeout=30)
+
+        assert captured, "Tier3Docker.run_score_phase must have been called"
+        env = captured[0].get("env")
+        assert isinstance(env, dict), (
+            f"_run_pytest_tier3 must pass env dict to run_score_phase; got {env!r}"
+        )
+        assert env.get("PYTHONPATH") == "/workspace/repo", (
+            f"PYTHONPATH must be '/workspace/repo'; got {env.get('PYTHONPATH')!r}. "
+            "Without this, `from <repo_package> import ...` in test conftest raises "
+            "ImportError when --network none prevents pip install."
+        )
+
+    def test_pythonpath_set_with_explicit_fail_to_pass(self):
+        """PYTHONPATH env must be injected regardless of whether fail_to_pass is given."""
+        fake_ctx = MagicMock()
+        captured: list[dict] = []
+
+        node_ids = ["tests/test_foo.py::TestFoo::test_bar"]
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = self._make_fake_run_score_phase(captured)
+            _run_pytest_tier3(fake_ctx, timeout=30, fail_to_pass=node_ids)
+
+        assert captured, "Tier3Docker.run_score_phase must have been called"
+        env = captured[0].get("env")
+        assert isinstance(env, dict) and env.get("PYTHONPATH") == "/workspace/repo", (
+            f"PYTHONPATH must be '/workspace/repo' even when fail_to_pass is set; "
+            f"got env={env!r}"
+        )
