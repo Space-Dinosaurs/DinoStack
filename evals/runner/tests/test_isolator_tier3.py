@@ -1032,3 +1032,132 @@ def test_held_out_from_fix_dir_takes_precedence_over_held_out_dir(tmp_path):
                 isolator.__exit__(None, None, None)
     finally:
         _isolator_module._IMAGE_DIGEST_CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
+# Regression test: force_rebuild=True in ensure_image() runs docker rmi
+# before docker build so Docker layer cache is discarded, not just in-process
+# cache. Prevents stale image reuse when Dockerfile.swebench changes.
+# Bug: --rebuild-image only evicted _IMAGE_DIGEST_CACHE; `docker build` still
+# reused cached layers from the old locally-tagged image.
+# Fix: ensure_image(force_rebuild=True) runs `docker rmi -f <tag>` first.
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_image_force_rebuild_runs_rmi():
+    """ensure_image(force_rebuild=True) invokes `docker rmi -f <image_tag>`
+    before `docker build`, discarding Docker's layer cache for the tagged image.
+
+    Regression test for the --rebuild-image bug: the old code only evicted
+    _IMAGE_DIGEST_CACHE (in-process) but did not remove the locally-tagged
+    Docker image. `docker build` would then reuse cached layers and produce
+    an image that appeared fresh but still used stale layers from the old
+    Dockerfile. force_rebuild=True now calls `docker rmi -f` first.
+    """
+    build_call_count = 0
+    rmi_call_count = 0
+    rmi_calls: list[list[str]] = []
+    inspect_call_count = 0
+    fake_digest = "sha256:" + "9" * 64
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        nonlocal build_call_count, rmi_call_count, inspect_call_count
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = ""
+        result.stderr = ""
+        if len(cmd) >= 2 and cmd[1] == "rmi":
+            rmi_call_count += 1
+            rmi_calls.append(list(cmd))
+        elif "build" in cmd:
+            build_call_count += 1
+            result.stdout = "Successfully built"
+        elif "inspect" in cmd:
+            inspect_call_count += 1
+            result.stdout = fake_digest + "\n"
+        return result
+
+    # Seed the cache as if ensure_image() had previously been called.
+    _isolator_module._IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = "sha256:" + "0" * 64
+
+    try:
+        with patch("evals.runner.isolator.subprocess.run", side_effect=_fake_subprocess_run):
+            digest = Tier3Docker.ensure_image(force_rebuild=True)
+    finally:
+        _isolator_module._IMAGE_DIGEST_CACHE.clear()
+
+    # docker rmi must have been called with -f and the image tag.
+    assert rmi_call_count == 1, (
+        f"Expected docker rmi to be called exactly once; got {rmi_call_count}. "
+        "force_rebuild=True must remove the old image before building."
+    )
+    assert "-f" in rmi_calls[0], (
+        f"docker rmi call must include -f (force); got: {rmi_calls[0]!r}"
+    )
+    assert _DOCKER_IMAGE_TAG in rmi_calls[0], (
+        f"docker rmi must target the image tag {_DOCKER_IMAGE_TAG!r}; "
+        f"got: {rmi_calls[0]!r}"
+    )
+
+    # docker build must still have been called (force_rebuild doesn't skip build).
+    assert build_call_count == 1, (
+        f"Expected docker build to be called exactly once; got {build_call_count}."
+    )
+
+    # The fresh digest must be returned (not the old stale one).
+    assert digest == fake_digest, (
+        f"ensure_image(force_rebuild=True) must return the freshly resolved digest; "
+        f"got {digest!r}"
+    )
+
+    # Cache must now hold the fresh digest, not the old one.
+    assert _isolator_module._IMAGE_DIGEST_CACHE.get(_DOCKER_IMAGE_TAG) is None, (
+        "Cache must have been cleared by the finally block in this test "
+        "(confirming force_rebuild evicted the stale entry)"
+    )
+
+
+def test_ensure_image_force_rebuild_rmi_errors_are_swallowed():
+    """ensure_image(force_rebuild=True) does not raise when docker rmi fails
+    (e.g. image does not exist yet on the first build).
+
+    The rmi step is best-effort: errors must be swallowed so that
+    `--rebuild-image` on a fresh machine (no prior image) does not abort.
+    """
+    rmi_returncode = 1  # simulate "No such image"
+    build_call_count = 0
+    fake_digest = "sha256:" + "a" * 64
+
+    def _fake_subprocess_run(cmd, **kwargs):
+        nonlocal rmi_returncode, build_call_count
+        result = MagicMock()
+        result.stdout = ""
+        result.stderr = ""
+        if len(cmd) >= 2 and cmd[1] == "rmi":
+            result.returncode = rmi_returncode  # rmi fails
+        elif "build" in cmd:
+            build_call_count += 1
+            result.returncode = 0
+            result.stdout = "Successfully built"
+        elif "inspect" in cmd:
+            result.returncode = 0
+            result.stdout = fake_digest + "\n"
+        else:
+            result.returncode = 0
+        return result
+
+    _isolator_module._IMAGE_DIGEST_CACHE.clear()
+
+    try:
+        with patch("evals.runner.isolator.subprocess.run", side_effect=_fake_subprocess_run):
+            # Must not raise even though docker rmi returned non-zero.
+            digest = Tier3Docker.ensure_image(force_rebuild=True)
+    finally:
+        _isolator_module._IMAGE_DIGEST_CACHE.clear()
+
+    assert digest == fake_digest, (
+        f"Expected fresh digest after force_rebuild despite rmi failure; got {digest!r}"
+    )
+    assert build_call_count == 1, (
+        f"docker build must still run after a failed rmi; got {build_call_count} builds."
+    )
