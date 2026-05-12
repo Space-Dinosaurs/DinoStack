@@ -518,6 +518,7 @@ def run_matrix(
                         fix_dir = Path(".")
                         held_dir = Path(".")
 
+                    _score_error: Optional[str] = None
                     try:
                         scored = score_cell(
                             task_slug=task_slug,
@@ -533,6 +534,7 @@ def run_matrix(
                             "score_cell raised for %s rep %d: %s",
                             cell_id, rep, exc,
                         )
+                        _score_error = str(exc)
                         scored = ScoringResult(
                             pass_fail=False,
                             score_primary=0.0,
@@ -586,11 +588,15 @@ def run_matrix(
                     return report
 
                 # Append TSV row.
+                # If score_cell itself raised, override run_status to "score_error"
+                # so that callers can distinguish a clean run with a scoring failure
+                # from a successful run ("ok") or an engineer-phase failure.
+                effective_status = "score_error" if _score_error is not None else run_status
                 row = {
                     "task_slug": task_slug,
                     "condition": condition,
                     "replicate": rep,
-                    "status": run_status,
+                    "status": effective_status,
                     "pass_fail": "1" if scored.pass_fail else "0",
                     "score_primary": scored.score_primary,
                     "lines_touched": scored.lines_touched,

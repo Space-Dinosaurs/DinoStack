@@ -22,6 +22,7 @@ import pytest
 from scoring import (
     ScoringResult,
     _parse_pytest_failures,
+    _run_pytest_local,
     compute_diff_hygiene,
     extract_diff_from_transcript,
     score_cell,
@@ -341,3 +342,129 @@ class TestScoreCell:
         assert result.files_touched == 0
         assert result.scope_creep_flag is False
         assert result.diff_text == ""
+
+
+# ---------------------------------------------------------------------------
+# Bug-1 regression: interpreter selection differs between local and Tier 3
+# ---------------------------------------------------------------------------
+
+
+class TestRunPytestLocalUsesSystemExecutable:
+    """Regression: _run_pytest_local must use sys.executable, not a bare name.
+
+    Bare 'python' fails on macOS / envs where only 'python3' exists.
+    sys.executable guarantees the caller uses the same interpreter the
+    host process is running under.
+    """
+
+    def test_cmd_uses_sys_executable(self, tmp_path: Path):
+        held_dir = tmp_path / "held"
+        held_dir.mkdir()
+        fix_dir = tmp_path / "fix"
+        fix_dir.mkdir()
+
+        captured_cmds: list[list] = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            mock = MagicMock()
+            mock.returncode = 0
+            mock.stdout = "1 passed"
+            mock.stderr = ""
+            return mock
+
+        with patch("scoring.subprocess.run", side_effect=fake_run):
+            _run_pytest_local(held_dir, fix_dir, timeout=30)
+
+        assert captured_cmds, "subprocess.run must have been called"
+        cmd = captured_cmds[0]
+        assert cmd[0] == sys.executable, (
+            f"_run_pytest_local cmd[0] must be sys.executable ({sys.executable!r}); "
+            f"got {cmd[0]!r}. Host interpreter is required for local invocation."
+        )
+        assert cmd[1] == "-m"
+        assert cmd[2] == "pytest"
+
+
+class TestRunPytestTier3UsesContainerInterpreter:
+    """Regression: _run_pytest_tier3 must NOT use sys.executable.
+
+    sys.executable is a host path that does not exist inside the Docker
+    container. The python:3.11-slim base image guarantees 'python3' on PATH;
+    the cmd must use 'python3' (container-resident) instead.
+    """
+
+    def test_cmd_uses_python3_not_sys_executable(self):
+        from unittest.mock import MagicMock
+
+        fake_ctx = MagicMock()
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = "1 passed"
+        fake_result.stderr = ""
+
+        captured_cmds: list[list] = []
+
+        def fake_run_score_phase(ctx, cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return fake_result
+
+        with patch("evals.runner.isolator.Tier3Docker") as MockDocker:
+            MockDocker.run_score_phase.side_effect = fake_run_score_phase
+            # Import after patching so the local import inside _run_pytest_tier3
+            # picks up the mock.
+            from scoring import _run_pytest_tier3
+            _run_pytest_tier3(fake_ctx, timeout=30)
+
+        assert captured_cmds, "Tier3Docker.run_score_phase must have been called"
+        cmd = captured_cmds[0]
+        assert cmd[0] == "python3", (
+            f"_run_pytest_tier3 cmd[0] must be 'python3'; got {cmd[0]!r}. "
+            "sys.executable is a host path and does not exist inside the container."
+        )
+        assert cmd[0] != sys.executable, (
+            "cmd[0] must NOT be sys.executable - that path is host-only and "
+            "causes ENOENT inside Docker."
+        )
+        assert cmd[1] == "-m"
+        assert cmd[2] == "pytest"
+
+
+class TestScoreCellUsesSystemExecutable:
+    """Regression: score_cell (local path) must use sys.executable via _run_pytest_local."""
+
+    def test_score_cell_cmd_uses_sys_executable(self, tmp_path: Path):
+        """subprocess.run must be called with sys.executable as cmd[0] on local path."""
+        fix_dir = tmp_path / "fix"
+        fix_dir.mkdir()
+        held_dir = tmp_path / "held"
+        held_dir.mkdir()
+
+        captured_cmds: list[list] = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            mock = MagicMock()
+            mock.returncode = 0
+            mock.stdout = "1 passed"
+            mock.stderr = ""
+            return mock
+
+        with patch("scoring.subprocess.run", side_effect=fake_run):
+            score_cell(
+                task_slug="django-11039",
+                transcript=_PASSING_TRANSCRIPT,
+                task_meta=_TASK_META_SINGLE_FILE,
+                fix_phase_dir=fix_dir,
+                held_out_dir=held_dir,
+                pytest_timeout=30,
+            )
+
+        assert captured_cmds, "subprocess.run must have been called"
+        cmd = captured_cmds[0]
+        assert cmd[0] == sys.executable, (
+            f"cmd[0] must be sys.executable ({sys.executable!r}); got {cmd[0]!r}. "
+            "Hardcoded 'python' fails on macOS / envs without a 'python' symlink."
+        )
+        assert cmd[1] == "-m"
+        assert cmd[2] == "pytest"
