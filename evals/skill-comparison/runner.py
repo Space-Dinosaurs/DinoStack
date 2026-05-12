@@ -20,6 +20,8 @@ Public API:
         dry_run: bool = False,
         conditions: list[str] | None = None,
         tier3_mode: str = "auto",
+        tasks_filter: list[str] | None = None,
+        max_cells: int | None = None,
     ) -> RunReport
 
     RunReport (dataclass):
@@ -328,6 +330,8 @@ def run_matrix(
     conditions: Optional[list[str]] = None,
     tier3_mode: str = "auto",
     force: bool = False,
+    tasks_filter: Optional[list[str]] = None,
+    max_cells: Optional[int] = None,
 ) -> RunReport:
     """Orchestrate the 8-condition skill-comparison eval matrix.
 
@@ -368,6 +372,18 @@ def run_matrix(
                     subprocess for both fix and score phases (for dry-run /
                     unit tests).
         force: if True, re-run cells already present in the TSV (no resume skip).
+        tasks_filter: optional list of task slugs (keys from corpus.yaml) to
+                      include. If None or empty, all tasks run. An unrecognised
+                      slug raises ValueError before any cell is executed.
+        max_cells: hard stop after writing this many rows to the TSV (excluding
+                   the header). Only rows written in this invocation count
+                   toward the ceiling - resume-skipped pre-existing rows do NOT
+                   count. This means ``--max-cells 5`` will write up to 5 new
+                   rows regardless of how many already exist in the TSV. If
+                   None, no ceiling. When both tasks_filter and max_cells are
+                   supplied, whichever limit is reached first wins. When
+                   max_cells is reached, report.partial is set to True (mirrors
+                   the wall-clock ceiling behavior).
 
     Returns:
         RunReport with summary stats.
@@ -382,6 +398,17 @@ def run_matrix(
         content_root = _REPO_ROOT / "content"
 
     tasks = _load_tasks(tasks_yaml)
+
+    # Apply tasks_filter: if provided and non-empty, restrict to named slugs.
+    if tasks_filter:
+        unknown = [s for s in tasks_filter if s not in tasks]
+        if unknown:
+            raise ValueError(
+                f"Unknown task slug(s) in --tasks filter: {unknown}. "
+                f"Valid slugs: {sorted(tasks.keys())}"
+            )
+        tasks = {slug: tasks[slug] for slug in tasks_filter}
+
     active_conditions = conditions if conditions is not None else CONDITION_LABELS
 
     # Resolve effective tier3 mode. dry_run forces Tier3 off.
@@ -412,6 +439,12 @@ def run_matrix(
 
     report = RunReport(tsv_path=results_tsv)
     matrix_start = time.monotonic()
+
+    # max_cells: total rows written in this run (across resume + new).
+    # We count rows written in this invocation only (report.rows_written is the
+    # counter); completed_cells are already in the file and do not count toward
+    # the ceiling for this run.
+    _cells_this_run = 0
 
     # Conditionally import Tier3Docker for production runs.
     _Tier3Docker = None
@@ -550,10 +583,19 @@ def run_matrix(
                             },
                         )
                         report.rows_written += 1
+                        _cells_this_run += 1
                         # Cleanup non-Tier3 tmpdir if we created one.
                         if _non_tier3_fix_dir is not None:
                             shutil.rmtree(_non_tier3_fix_dir, ignore_errors=True)
                             _non_tier3_fix_dir = None
+                        if max_cells is not None and _cells_this_run >= max_cells:
+                            _LOG.info(
+                                "max_cells ceiling reached (%d). "
+                                "Halting matrix with partial results.",
+                                max_cells,
+                            )
+                            report.partial = True
+                            return report
                         continue
 
                     # Run the fix phase.
@@ -747,6 +789,15 @@ def run_matrix(
                 }
                 _append_tsv_row(results_tsv, row)
                 report.rows_written += 1
+                _cells_this_run += 1
+                if max_cells is not None and _cells_this_run >= max_cells:
+                    _LOG.info(
+                        "max_cells ceiling reached (%d). "
+                        "Halting matrix with partial results.",
+                        max_cells,
+                    )
+                    report.partial = True
+                    return report
 
     return report
 
@@ -780,6 +831,29 @@ if __name__ == "__main__":
         action="store_true",
         help="Re-run cells already present in the TSV (bypass resume skip).",
     )
+    parser.add_argument(
+        "--tasks",
+        nargs="*",
+        default=None,
+        dest="tasks_filter",
+        metavar="SLUG",
+        help=(
+            "Space-separated list of task slugs to include (matches keys in "
+            "corpus.yaml). If omitted or empty, all tasks run. Unknown slugs "
+            "raise an error before any cell executes."
+        ),
+    )
+    parser.add_argument(
+        "--max-cells",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Hard stop after writing N rows to the TSV (excluding the header). "
+            "Useful for 'just one cell' smoke validation. When both --tasks and "
+            "--max-cells are passed, whichever limit is reached first wins."
+        ),
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
@@ -797,6 +871,8 @@ if __name__ == "__main__":
         conditions=args.conditions,
         tier3_mode=args.tier3,
         force=args.force,
+        tasks_filter=args.tasks_filter if args.tasks_filter else None,
+        max_cells=args.max_cells,
     )
 
     print(json.dumps(
