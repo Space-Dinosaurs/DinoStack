@@ -12,8 +12,11 @@ Public API:
         fix_dir: Path,
         tasks_root: Path,
         cache_dir: Path | None = None,
-    ) -> None
+    ) -> dict
         Clones repo at base_commit into fix_dir and applies test_patch.diff.
+        Returns {"seed_commit": "<sha>"} where seed_commit is the git SHA of
+        the post-seeding commit (after test_patch is applied and committed).
+        Callers use seed_commit as the base for computing engineer diffs.
         Raises SeedError on any failure (clone, checkout, or patch failure).
 
     SeedError(RuntimeError):
@@ -147,7 +150,7 @@ def seed_fix_phase(
     fix_dir: Path,
     tasks_root: Path,
     cache_dir: Path | None = None,
-) -> None:
+) -> dict:
     """Clone repo at base_commit into fix_dir and apply test_patch.
 
     Steps:
@@ -156,6 +159,8 @@ def seed_fix_phase(
          If cache hit: use git clone --local from the cache copy.
       3. Copy/clone into fix_dir (always a fresh copy so each cell is isolated).
       4. Apply tasks_root/<slug>/test_patch.diff with git apply.
+      5. Stage and commit the patched state as "seed: test_patch applied".
+         Record the resulting commit SHA for use as the engineer-diff base.
 
     Args:
         task_slug: slug key (e.g. "requests-3362").
@@ -165,6 +170,11 @@ def seed_fix_phase(
         tasks_root: directory containing per-task subdirectories (for locating
                     test_patch.diff).
         cache_dir: override for the cache root; defaults to DEFAULT_CACHE_DIR.
+
+    Returns:
+        dict with key "seed_commit": the git SHA of the post-seeding commit.
+        Callers pass this SHA to scoring so that engineer diffs are computed
+        relative to the post-seeding state, not the upstream base_commit.
 
     Raises:
         SeedError: on clone, checkout, or patch failure.
@@ -284,4 +294,50 @@ def seed_fix_phase(
         shutil.rmtree(fix_dir, ignore_errors=True)
         raise
 
-    _LOG.info("seed_fix_phase complete: %s -> %s", task_slug, fix_dir)
+    # -----------------------------------------------------------------------
+    # Step 4: commit the patched state so scoring can diff against it.
+    # The engineer's changes are then visible via `git diff <seed_commit>`.
+    # Using a dedicated seed identity keeps "git log" clean regardless of the
+    # host's git user config.
+    # -----------------------------------------------------------------------
+    _LOG.info("Committing seed state for %s", task_slug)
+    try:
+        _run(
+            ["git", "add", "-A"],
+            cwd=fix_dir,
+            label=task_slug,
+            step="patch_failed",
+            timeout=30,
+        )
+        _run(
+            [
+                "git",
+                "-c", "user.email=seed@local",
+                "-c", "user.name=seed",
+                "commit",
+                "-m", "seed: test_patch applied",
+            ],
+            cwd=fix_dir,
+            label=task_slug,
+            step="patch_failed",
+            timeout=30,
+        )
+    except SeedError:
+        shutil.rmtree(fix_dir, ignore_errors=True)
+        raise
+
+    # Capture the SHA of the seed commit.
+    rev_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(fix_dir),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    seed_commit = rev_result.stdout.strip()
+    if not seed_commit:
+        _LOG.warning("seed_fix_phase: could not resolve HEAD SHA for %s", task_slug)
+        seed_commit = ""
+
+    _LOG.info("seed_fix_phase complete: %s -> %s (seed_commit=%s)", task_slug, fix_dir, seed_commit[:8])
+    return {"seed_commit": seed_commit}

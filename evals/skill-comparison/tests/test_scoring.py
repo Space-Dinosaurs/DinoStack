@@ -6,8 +6,10 @@ Coverage:
 - compute_diff_hygiene: lines_touched, files_touched, scope_creep_flag across
   fixture diffs including edge cases (empty diff, diff within known files,
   diff outside known files, mixed).
+- compute_engineer_diff_from_workdir: absent dir, real git repo diff.
 - _parse_pytest_failures: summary section extraction, fallback scanning.
-- score_cell: pass (returncode=0), fail (returncode=1), empty transcript.
+- score_cell: pass (returncode=0), fail (returncode=1), empty transcript,
+  workdir diff path (seed_commit provided).
   Uses a mock subprocess so no real pytest is invoked.
 """
 from __future__ import annotations
@@ -25,6 +27,7 @@ from scoring import (
     _run_pytest_local,
     _run_pytest_tier3,
     compute_diff_hygiene,
+    compute_engineer_diff_from_workdir,
     extract_diff_from_transcript,
     score_cell,
 )
@@ -776,3 +779,155 @@ class TestPytestCollectionFlags:
                 f"Node-id '{nid}' must appear as '{expected}' in the pytest cmd. "
                 f"Got cmd: {cmd}"
             )
+
+
+# ---------------------------------------------------------------------------
+# smoke-v6 regression: compute_engineer_diff_from_workdir
+# ---------------------------------------------------------------------------
+
+
+class TestComputeEngineerDiffFromWorkdir:
+    """Regression tests for smoke-v6 diff-source fix.
+
+    Previously score_cell called extract_diff_from_transcript which picked up
+    tool_use payloads (test_patch content, diff fragments in stream-json) as the
+    engineer's patch, producing garbage lines_touched values (e.g. 4115 lines)
+    and misleading scope_creep flags even when the engineer made NO changes.
+
+    The fix: use `git diff <seed_commit>` in fix_phase_dir for ground-truth diffs.
+    """
+
+    def test_returns_empty_when_dir_absent(self, tmp_path: Path):
+        """Returns '' when fix_phase_dir does not exist."""
+        from scoring import compute_engineer_diff_from_workdir
+        result = compute_engineer_diff_from_workdir(tmp_path / "nonexistent", "abc123")
+        assert result == "", (
+            "compute_engineer_diff_from_workdir must return '' when dir is absent"
+        )
+
+    def test_returns_diff_from_git_diff_in_temp_repo(self, tmp_path: Path):
+        """Returns the actual diff between seed_commit and current HEAD in a real git repo.
+
+        This test creates a real minimal git repo, makes two commits, and verifies
+        that compute_engineer_diff_from_workdir returns the diff of the second commit.
+        """
+        from scoring import compute_engineer_diff_from_workdir
+        import subprocess as _sp
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        def git(*args, **kwargs):
+            return _sp.run(
+                ["git"] + list(args),
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+                check=True,
+                **kwargs,
+            )
+
+        # Init a minimal git repo.
+        git("init")
+        git("config", "user.email", "test@test.local")
+        git("config", "user.name", "test")
+
+        # Seed commit: create base file.
+        (repo / "base.py").write_text("x = 1\n")
+        git("add", "-A")
+        git("commit", "-m", "seed: initial")
+        seed_commit_result = _sp.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+        )
+        seed_commit = seed_commit_result.stdout.strip()
+        assert seed_commit, "Must have a valid seed commit SHA"
+
+        # Engineer commit: modify the file.
+        (repo / "base.py").write_text("x = 2\n")
+        git("add", "-A")
+        git("commit", "-m", "fix: change x to 2")
+
+        # compute_engineer_diff_from_workdir should return the change from seed.
+        diff = compute_engineer_diff_from_workdir(repo, seed_commit)
+
+        assert diff, "Diff must be non-empty when engineer changed a file"
+        assert "base.py" in diff, f"base.py must appear in diff; got: {diff[:200]}"
+        assert "+x = 2" in diff, f"Engineer change (+x = 2) must be in diff; got: {diff[:200]}"
+        assert "-x = 1" in diff, f"Seed baseline (-x = 1) must be in diff; got: {diff[:200]}"
+
+    def test_score_cell_uses_workdir_diff_when_seed_commit_provided(self, tmp_path: Path):
+        """score_cell uses git diff <seed_commit> when seed_commit is non-empty and .git exists.
+
+        Regression for smoke-v6: previously score_cell always called
+        extract_diff_from_transcript regardless of whether a workdir was available,
+        causing garbage diff data from stream-json tool_use payloads.
+
+        This test mocks compute_engineer_diff_from_workdir directly to isolate
+        the routing logic without triggering subprocess recursion from the pytest
+        runner path.
+        """
+        import subprocess as _sp
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()  # make it look like a git repo for the routing check
+
+        task_meta = {
+            "known_affected_files": ["fix.py"],
+            "fail_to_pass": [],
+        }
+
+        # The workdir diff we want score_cell to use.
+        workdir_diff = (
+            "diff --git a/fix.py b/fix.py\n"
+            "--- a/fix.py\n"
+            "+++ b/fix.py\n"
+            "@@ -1 +1 @@\n"
+            "-old = True\n"
+            "+old = False\n"
+        )
+
+        # Transcript contains a noisy diff-like fragment (simulates stream-json
+        # tool_use payload) that must NOT be used as the engineer diff.
+        noisy_transcript = (
+            "diff --git a/unrelated.py b/unrelated.py\n"
+            "--- a/unrelated.py\n"
+            "+++ b/unrelated.py\n"
+            "@@ -1 +1 @@\n"
+            "-garbage\n"
+            "+noise\n"
+        )
+
+        seed_sha = "abc123def456abc123def456abc123def456abc1"
+
+        # Mock compute_engineer_diff_from_workdir to return the clean workdir diff,
+        # and mock the pytest subprocess to avoid real test execution.
+        with (
+            patch("scoring.compute_engineer_diff_from_workdir", return_value=workdir_diff),
+            patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")),
+        ):
+            result = score_cell(
+                task_slug="test-slug",
+                transcript=noisy_transcript,
+                task_meta=task_meta,
+                fix_phase_dir=repo,
+                held_out_dir=repo,
+                tier3_ctx=None,
+                pytest_timeout=10,
+                fail_to_pass=[],
+                seed_commit=seed_sha,
+            )
+
+        # The diff must come from the workdir (fix.py changed), not the transcript
+        # (unrelated.py garbage).
+        assert "fix.py" in result.diff_text, (
+            f"diff_text must contain fix.py (workdir diff), not transcript noise; "
+            f"diff_text was: {result.diff_text[:400]}"
+        )
+        assert "unrelated.py" not in result.diff_text, (
+            "diff_text must NOT contain unrelated.py (noisy transcript); "
+            "workdir diff should have been used instead"
+        )
