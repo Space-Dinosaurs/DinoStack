@@ -6,6 +6,18 @@ Purpose: Provide component-tier isolation for eval runs. Tier 1 = git worktree
          for code-executing components (Worker, Debugger, QA-engineer,
          SWE-bench-style fix tasks).
 
+         NOTE on Tier 3 build-once-reuse contract:
+           Tier3Docker.ensure_image(image_tag, dockerfile, context_dir) builds
+           the image ONCE and caches the resolved digest in a module-level dict
+           keyed by image_tag. Subsequent Tier3Docker.__init__ calls with the
+           same image_tag check the cache first: if a digest is already cached,
+           build_image is forced to False automatically, skipping the build.
+           Callers in run_matrix should call ensure_image ONCE before the cell
+           loop and pass build_image=False to each per-cell Tier3Docker(...)
+           instantiation. The module-level cache (_IMAGE_DIGEST_CACHE) is
+           process-scoped and intentionally not thread-safe (the eval runner is
+           single-threaded).
+
          NOTE on Tier 2 auth preservation: Tier 2 redirects $HOME to a fresh
          tmpdir to keep the developer's real ~/.claude/ uncontaminated. The
          Claude CLI, however, resolves auth relative to $HOME (macOS keychain
@@ -68,6 +80,8 @@ Public API: make_isolator(tier: int, **kwargs) -> Isolator,
             Tier1Worktree (context manager yielding a worktree Path),
             Tier2HomeRedirect (context manager yielding (worktree, fake_home)),
             Tier3Docker (context manager yielding a Tier3Context namedtuple),
+            Tier3Docker.ensure_image(image_tag, dockerfile, context_dir) -> str
+              (class method; build-once, returns cached digest on repeat calls),
             IsolatorBase abstract contract.
 
 Upstream deps: stdlib subprocess, pathlib, tempfile, shutil, uuid, os, sys,
@@ -113,6 +127,14 @@ _log = get_logger("evals.isolator")
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _WORKTREE_BASE = _REPO_ROOT / "evals" / ".worktrees"
+
+# ---------------------------------------------------------------------------
+# Tier 3 image digest cache (build-once-reuse contract)
+# ---------------------------------------------------------------------------
+# Maps image_tag -> resolved sha256 digest string.
+# Populated by Tier3Docker.ensure_image() and checked in Tier3Docker.__init__.
+# Process-scoped; not thread-safe (eval runner is single-threaded).
+_IMAGE_DIGEST_CACHE: dict[str, str] = {}
 
 
 class IsolatorBase(ABC):
@@ -407,8 +429,14 @@ class Tier3Docker(IsolatorBase):
     ) -> None:
         self.fixture_repo_dir = fixture_repo_dir
         self._held_out_dir = held_out_dir
-        self.build_image = build_image
         self.timeout_seconds = timeout_seconds
+
+        # Build-once-reuse: if the image digest is already cached for this tag,
+        # skip the build regardless of the caller-supplied build_image flag.
+        if _DOCKER_IMAGE_TAG in _IMAGE_DIGEST_CACHE:
+            self.build_image = False
+        else:
+            self.build_image = build_image
 
         self._fix_phase_dir: Path | None = None
         self._owned_held_out_dir: Path | None = None  # only set if we created it
@@ -420,9 +448,14 @@ class Tier3Docker(IsolatorBase):
 
     def __enter__(self) -> Tier3Context:
         # 1. Optionally build the image, then resolve the content digest.
-        if self.build_image:
-            self._build_image()
-        image_digest = self._resolve_image_digest()
+        #    Cache hit: skip both build and inspect subprocess (reuse cached digest).
+        if _DOCKER_IMAGE_TAG in _IMAGE_DIGEST_CACHE:
+            image_digest = _IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG]
+        else:
+            if self.build_image:
+                self._build_image()
+            image_digest = self._resolve_image_digest()
+            _IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = image_digest
 
         # 2. Prepare fix-phase dir (rw copy of the fixture repo).
         fix_phase_dir = Path(tempfile.mkdtemp(prefix="t3-fix-"))
@@ -540,6 +573,77 @@ class Tier3Docker(IsolatorBase):
             )
         digest = result.stdout.strip()
         _log.info("Tier 3: image digest resolved: %s", digest)
+        return digest
+
+    @classmethod
+    def ensure_image(
+        cls,
+        image_tag: str = _DOCKER_IMAGE_TAG,
+        dockerfile: Path = _DOCKERFILE_PATH,
+        context_dir: Path | None = None,
+    ) -> str:
+        """Build the Docker image ONCE and cache the resolved digest.
+
+        Callers in run_matrix should call this ONCE before the cell loop when
+        tier3_mode='auto'. Subsequent Tier3Docker instantiations with the same
+        image_tag will skip the build automatically (cache hit).
+
+        Args:
+            image_tag: local image tag to build/inspect (default: _DOCKER_IMAGE_TAG).
+            dockerfile: path to the Dockerfile (default: _DOCKERFILE_PATH).
+            context_dir: Docker build context directory. Defaults to the
+                         directory containing `dockerfile`.
+
+        Returns:
+            The resolved sha256 image digest string (also stored in the cache).
+
+        Raises:
+            RuntimeError if docker build or docker inspect fails.
+            FileNotFoundError if the Dockerfile is absent.
+        """
+        if image_tag in _IMAGE_DIGEST_CACHE:
+            _log.info("Tier 3: image %s already cached (digest %s)", image_tag, _IMAGE_DIGEST_CACHE[image_tag])
+            return _IMAGE_DIGEST_CACHE[image_tag]
+
+        if not dockerfile.exists():
+            raise RuntimeError(
+                f"Dockerfile not found at {dockerfile}. Cannot build Tier 3 image."
+            )
+
+        effective_context = context_dir if context_dir is not None else dockerfile.parent
+
+        _log.info("Tier 3: building image %s from %s (this will happen once)", image_tag, dockerfile)
+        result = subprocess.run(
+            [
+                "docker", "build",
+                "-t", image_tag,
+                "-f", str(dockerfile),
+                str(effective_context),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"docker build failed (exit {result.returncode}):\n"
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+        _log.info("Tier 3: image built as %s", image_tag)
+
+        # Resolve and cache the content-addressed digest.
+        inspect = subprocess.run(
+            ["docker", "inspect", "--format={{.Id}}", image_tag],
+            capture_output=True,
+            text=True,
+        )
+        if inspect.returncode != 0 or not inspect.stdout.strip():
+            raise RuntimeError(
+                f"docker inspect failed for {image_tag}: "
+                f"{inspect.stderr.strip() or 'image not found locally'}"
+            )
+        digest = inspect.stdout.strip()
+        _IMAGE_DIGEST_CACHE[image_tag] = digest
+        _log.info("Tier 3: image digest cached: %s -> %s", image_tag, digest)
         return digest
 
     # ------------------------------------------------------------------
