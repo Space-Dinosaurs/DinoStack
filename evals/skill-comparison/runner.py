@@ -560,6 +560,7 @@ def run_matrix(
                     # Seeding: clone repo at base_commit and apply test_patch.
                     # Skipped in dry_run mode (canned transcript path).
                     _seed_status: Optional[str] = None  # None = ok / "seed_error"
+                    _seed_commit: str = ""  # SHA of post-seeding commit; used for engineer diff
                     if not dry_run:
                         # When not using Tier3, create a tempdir for the fix phase.
                         if fix_worktree is None:
@@ -570,12 +571,13 @@ def run_matrix(
 
                         _tasks_root = Path(__file__).parent / "tasks"
                         try:
-                            seed_fix_phase(
+                            _seed_result = seed_fix_phase(
                                 task_slug=task_slug,
                                 task_meta=task_meta,
                                 fix_dir=fix_worktree,
                                 tasks_root=_tasks_root,
                             )
+                            _seed_commit = _seed_result.get("seed_commit", "")
                         except SeedError as seed_exc:
                             _LOG.error(
                                 "Seed failed for %s rep %d (step=%s): %s",
@@ -763,6 +765,7 @@ def run_matrix(
                         held_dir = Path(".")
 
                     _score_error: Optional[str] = None
+                    _fail_to_pass = task_meta.get("fail_to_pass") or []
                     try:
                         scored = score_cell(
                             task_slug=task_slug,
@@ -772,6 +775,8 @@ def run_matrix(
                             held_out_dir=held_dir,
                             tier3_ctx=tier3_ctx,
                             pytest_timeout=_PYTEST_TIMEOUT_SECONDS,
+                            fail_to_pass=_fail_to_pass,
+                            seed_commit=_seed_commit,
                         )
                     except Exception as exc:
                         _LOG.error(

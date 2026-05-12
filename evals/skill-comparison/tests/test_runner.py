@@ -2019,3 +2019,121 @@ class TestTranscriptFileNonEmpty:
             "final_text fallback must be used."
         )
         assert "Fixed the bug." in content
+
+
+# ---------------------------------------------------------------------------
+# smoke-v6 regression: fail_to_pass forwarded from task_meta to score_cell
+# ---------------------------------------------------------------------------
+
+
+class TestFailToPassForwarded:
+    """Regression test for smoke-v6 bug: runner.run_matrix was not passing
+    fail_to_pass from task_meta to score_cell, so _run_pytest_tier3 received
+    fail_to_pass=None and collected 0 tests from the /scoring/tests directory.
+
+    This test mocks score_cell at the boundary and inspects the captured kwargs
+    to verify fail_to_pass is forwarded correctly.
+    """
+
+    def test_run_matrix_forwards_fail_to_pass_to_score_cell(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """run_matrix must pass task_meta['fail_to_pass'] to score_cell.
+
+        Regression for smoke-v6: previously score_cell was called without the
+        fail_to_pass kwarg, so pytest ran against the entire /scoring/tests tree
+        and collected 0 tests (the tree had no tests at that path).
+        """
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        captured_kwargs: list[dict] = []
+
+        def capturing_score_cell(**kwargs):
+            captured_kwargs.append(kwargs)
+            return canned_score
+
+        with patch("runner.score_cell", side_effect=capturing_score_cell):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        assert captured_kwargs, "score_cell must have been called"
+        for call_kwargs in captured_kwargs:
+            assert "fail_to_pass" in call_kwargs, (
+                "score_cell must receive fail_to_pass kwarg; "
+                "smoke-v6 showed it was missing, causing 0 tests collected."
+            )
+            # The corpus_yaml fixture has exactly one fail_to_pass entry.
+            ftp = call_kwargs["fail_to_pass"]
+            assert isinstance(ftp, list), (
+                f"fail_to_pass must be a list, got {type(ftp)}"
+            )
+            assert len(ftp) == 1, (
+                f"Expected 1 fail_to_pass entry (from fixture corpus), got {len(ftp)}: {ftp}"
+            )
+
+    def test_run_matrix_forwards_empty_fail_to_pass_when_absent(
+        self, tmp_path: Path
+    ):
+        """When task_meta has no fail_to_pass key, score_cell receives an empty list."""
+        from scoring import ScoringResult
+
+        # Corpus with no fail_to_pass field.
+        corpus_no_ftp = """\
+freeze_metadata:
+  freeze_date: "2026-05-12"
+tasks:
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "d5276398046ce4a102776a1e67dcac2884d80dfe"
+    held_out_tests:
+      - "tests/migrations/test_commands.py"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/core/management/commands/sqlmigrate.py"
+    problem_summary: test task with no fail_to_pass
+"""
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(corpus_no_ftp, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        captured_kwargs: list[dict] = []
+
+        def capturing_score_cell(**kwargs):
+            captured_kwargs.append(kwargs)
+            return canned_score
+
+        with patch("runner.score_cell", side_effect=capturing_score_cell):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        assert captured_kwargs, "score_cell must have been called"
+        for call_kwargs in captured_kwargs:
+            ftp = call_kwargs.get("fail_to_pass")
+            assert ftp == [] or ftp is None or ftp == [], (
+                f"fail_to_pass must be [] when absent from task_meta, got {ftp!r}"
+            )

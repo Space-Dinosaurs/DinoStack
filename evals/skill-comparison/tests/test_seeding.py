@@ -256,6 +256,123 @@ class TestSeedFixPhase:
                 tasks_root=tasks_root,
             )
 
+    def test_returns_seed_commit_sha(self, tmp_path: Path):
+        """seed_fix_phase returns a dict with non-empty 'seed_commit' SHA.
+
+        Regression for smoke-v6 diff-source bug: seed_fix_phase now commits the
+        post-seeding state so scoring can run `git diff <seed_commit>` to get
+        the engineer's changes without parsing the (unreliable) transcript.
+        """
+        tasks_root = tmp_path / "tasks"
+        _write_patch(tasks_root / _TASK_SLUG)
+
+        cache_dir = tmp_path / "cache"
+        key = f"{_TASK_SLUG}-{_TASK_META['base_commit'][:8]}"
+        (cache_dir / key / ".git").mkdir(parents=True, exist_ok=True)
+
+        fix_dir = tmp_path / "fix"
+
+        _FAKE_SHA = "abc123def456abc123def456abc123def456abc1"
+
+        def fake_run(cmd, **kwargs):
+            # rev-parse HEAD returns the fake SHA.
+            if "rev-parse" in cmd:
+                result = _make_subprocess_result(returncode=0, stdout=_FAKE_SHA + "\n")
+                return result
+            return _make_subprocess_result(returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            result = seed_fix_phase(
+                task_slug=_TASK_SLUG,
+                task_meta=_TASK_META,
+                fix_dir=fix_dir,
+                tasks_root=tasks_root,
+                cache_dir=cache_dir,
+            )
+
+        assert isinstance(result, dict), (
+            f"seed_fix_phase must return a dict, got {type(result)}"
+        )
+        assert "seed_commit" in result, (
+            "Return dict must have 'seed_commit' key for engineer diff base"
+        )
+        assert result["seed_commit"] == _FAKE_SHA, (
+            f"seed_commit must equal the HEAD SHA; got {result['seed_commit']!r}"
+        )
+
+    def test_seed_commit_in_returned_dict_after_git_add_commit(self, tmp_path: Path):
+        """seed_fix_phase issues git add -A and git commit after applying the patch.
+
+        Verifies the commit step is present by checking that 'commit' appears in
+        the sequence of git subcommands issued after 'apply'.
+        """
+        tasks_root = tmp_path / "tasks"
+        _write_patch(tasks_root / _TASK_SLUG)
+
+        cache_dir = tmp_path / "cache"
+        key = f"{_TASK_SLUG}-{_TASK_META['base_commit'][:8]}"
+        (cache_dir / key / ".git").mkdir(parents=True, exist_ok=True)
+
+        fix_dir = tmp_path / "fix"
+
+        issued_cmds: list[list[str]] = []
+
+        def recording_run(cmd, **kwargs):
+            issued_cmds.append(list(cmd))
+            if "rev-parse" in cmd:
+                return _make_subprocess_result(returncode=0, stdout="deadbeef" * 5 + "\n")
+            return _make_subprocess_result(returncode=0)
+
+        with patch("subprocess.run", side_effect=recording_run):
+            seed_fix_phase(
+                task_slug=_TASK_SLUG,
+                task_meta=_TASK_META,
+                fix_dir=fix_dir,
+                tasks_root=tasks_root,
+                cache_dir=cache_dir,
+            )
+
+        # Extract git subcommands: handle both `git <subcmd>` and `git -c k=v <subcmd>`.
+        # `-c key=value` option tokens don't start with "-" but ARE option arguments.
+        # Strategy: skip tokens that start with "-" OR are values for "-c" (contain "=").
+        def _git_subcmd(cmd: list) -> str:
+            """Return the git subcommand from a git invocation list.
+
+            Handles: git <subcmd>, git -c k=v <subcmd>, git --flag <subcmd>.
+            The subcommand is the first token after 'git' that is not a flag
+            and not a -c value (which contains '=').
+            """
+            if not cmd or cmd[0] != "git":
+                return ""
+            skip_next = False
+            for token in cmd[1:]:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if token == "-c":
+                    skip_next = True
+                    continue
+                if token.startswith("-"):
+                    continue
+                # A -c value looks like "user.email=seed@local" - contains "=".
+                # But valid subcommands never contain "=".
+                if "=" in token:
+                    continue
+                return token
+            return ""
+
+        git_subcmds = [_git_subcmd(c) for c in issued_cmds if c and c[0] == "git"]
+        assert "apply" in git_subcmds, "git apply must be called"
+        apply_idx = git_subcmds.index("apply")
+        post_apply = git_subcmds[apply_idx + 1:]
+        assert "add" in post_apply, (
+            "git add must be issued after git apply to stage the patch"
+        )
+        assert "commit" in post_apply, (
+            "git commit must be issued after git apply to record the seed state; "
+            "this commit SHA is needed for engineer diff computation in scoring"
+        )
+
 
 # ---------------------------------------------------------------------------
 # seed_corpus tests
@@ -447,6 +564,7 @@ tasks:
 
         def fake_seed(task_slug, task_meta, fix_dir, tasks_root, cache_dir=None):
             seed_calls.append({"task_slug": task_slug, "fix_dir": fix_dir})
+            return {"seed_commit": "fake-sha-for-test"}
 
         with (
             patch("runner.score_cell", return_value=canned_score),
