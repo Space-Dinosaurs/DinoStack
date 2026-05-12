@@ -698,7 +698,12 @@ def run_matrix(
                             "_parse_warnings": [str(exc)],
                         }
 
-                    transcript = result.get("final_text", "")
+                    # Use cli_stdout for transcript: it is the verbatim CLI
+                    # pipe capture and is always populated when the CLI ran.
+                    # final_text is parsed from stream-json events and may be
+                    # empty when the run produced only tool-use events with no
+                    # assistant text blocks (the smoke v4 regression case).
+                    transcript = result.get("cli_stdout") or result.get("final_text", "")
                     run_status = result.get("status", "unknown")
                     cost_usd = float(result.get("cost_usd") or 0.0)
                     usage = result.get("usage") or {}

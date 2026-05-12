@@ -261,6 +261,11 @@ def invoke_run(
     parsed["latency_ms"] = latency_ms
     parsed["status"] = status
     parsed["stderr_tail"] = stderr[-500:] if stderr else ""
+    # Expose the raw CLI stdout so callers can write a verbatim transcript.
+    # final_text is derived from parsed stream-json events and may be empty
+    # if the stream had no assistant text (e.g. all tool-use); cli_stdout is
+    # the unprocessed pipe capture and is always the ground-truth transcript.
+    parsed["cli_stdout"] = stdout
 
     if mode == "command":
         parsed["filesystem"] = _snapshot_filesystem(worktree)

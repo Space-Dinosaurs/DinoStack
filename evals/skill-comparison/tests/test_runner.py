@@ -1886,3 +1886,136 @@ class TestTranscriptPersistence:
         assert "X" * 500 in captured.err, (
             "The last 500 chars of the transcript must appear in stderr output."
         )
+
+
+# ---------------------------------------------------------------------------
+# smoke-bugs-r2 regression: transcript file must be non-empty (Bug 1)
+# ---------------------------------------------------------------------------
+
+
+class TestTranscriptFileNonEmpty:
+    """Regression for smoke-bugs-r2 Bug 1: transcript file was 0 bytes.
+
+    Previously runner.py wrote `final_text` to the transcript file.
+    `final_text` is parsed from stream-json events and may be empty when
+    the run produced only tool-use events (no assistant text blocks).
+    `cli_stdout` is the raw pipe capture and is always populated when the
+    CLI ran; the fix uses cli_stdout for transcript persistence.
+    """
+
+    def test_transcript_file_non_empty_when_cli_produces_output(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """Transcript file must contain cli_stdout content, not just final_text."""
+        from scoring import ScoringResult
+
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=False, score_primary=0.0,
+            lines_touched=0, files_touched=0, scope_creep_flag=False,
+        )
+
+        # Simulate: cli_stdout is populated (raw pipe output), final_text is empty
+        # (stream-json had tool-use events only, no assistant text).
+        # This is the smoke v4 regression case: 693 output tokens but empty final_text.
+        cli_stdout_content = (
+            '{"type":"system","subtype":"init"}\n'
+            '{"type":"assistant","message":{"role":"assistant","content":'
+            '[{"type":"tool_use","id":"tu_1","name":"Read","input":{}}]}}\n'
+            '{"type":"result","subtype":"success","total_cost_usd":0.01}\n'
+        )
+        canned_result = {
+            "final_text": "",  # empty - the bug condition
+            "cli_stdout": cli_stdout_content,  # populated - the fix
+            "status": "ok",
+            "cost_usd": 0.01,
+            "usage": {"input_tokens": 100, "output_tokens": 693},
+            "latency_ms": 500,
+            "invocation_mode": "dry-run-mock",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+        }
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner._run_cell", return_value=canned_result),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="off",
+            )
+
+        # The transcript directory is <results_tsv_dir>/transcripts/
+        transcript_dir = results_tsv.parent / "transcripts"
+        log_files = list(transcript_dir.glob("*.log"))
+        assert log_files, "At least one transcript .log file must be written"
+        transcript_path = log_files[0]
+        content = transcript_path.read_text(encoding="utf-8")
+        assert len(content) > 0, (
+            f"Transcript file {transcript_path} is 0 bytes. "
+            "runner.py must write cli_stdout to the transcript file, not final_text. "
+            "final_text may be empty when the CLI run produced only tool-use events."
+        )
+        # Verify the raw cli_stdout content is present, not just stderr.
+        assert '{"type":"system"' in content, (
+            "cli_stdout stream-json content must appear in the transcript file. "
+            f"Got: {content[:200]!r}"
+        )
+
+    def test_transcript_falls_back_to_final_text_when_cli_stdout_absent(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """When cli_stdout is absent from result, fall back to final_text gracefully."""
+        from scoring import ScoringResult
+
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=False, score_primary=0.0,
+            lines_touched=0, files_touched=0, scope_creep_flag=False,
+        )
+
+        # Old-format result dict (no cli_stdout key) - backward compat test.
+        canned_result = {
+            "final_text": "Fixed the bug.\n```diff\n---\n```",
+            # no cli_stdout key
+            "status": "ok",
+            "cost_usd": 0.0,
+            "usage": {"input_tokens": 50, "output_tokens": 20},
+            "latency_ms": 100,
+            "invocation_mode": "dry-run-mock",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+        }
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner._run_cell", return_value=canned_result),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="off",
+            )
+
+        transcript_dir = results_tsv.parent / "transcripts"
+        log_files = list(transcript_dir.glob("*.log"))
+        assert log_files, "Transcript .log file must be written"
+        content = log_files[0].read_text(encoding="utf-8")
+        assert len(content) > 0, (
+            "Transcript file must be non-empty even when cli_stdout key is absent; "
+            "final_text fallback must be used."
+        )
+        assert "Fixed the bug." in content
