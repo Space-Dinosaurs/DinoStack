@@ -22,6 +22,11 @@ Failure modes: raises FileNotFoundError if content_root does not exist or
                comment inserted in the payload so missing files surface
                at review time rather than silently dropping content.
 
+               Note: references/ scope is *.md ONLY (not *.yml). The Brief
+               scopes the AE-rules payload to *.md files across all groups.
+               The .yml reference examples (spawn-presets-example.yml,
+               tier-map-example.yml) are excluded to stay within Brief scope.
+
 Performance: O(total file bytes); dominated by I/O. Typically < 600 KB;
              runs once per matrix cell setup, not per-run.
 """
@@ -64,8 +69,12 @@ def content_glob(content_root: Path) -> list[Path]:
 
     # 1. SKILL.md - single file, must exist.
     skill_md = root / "SKILL.md"
-    if skill_md.exists():
-        ordered.append(skill_md)
+    if not skill_md.exists():
+        raise FileNotFoundError(
+            f"SKILL.md not found in content_root: {root}. "
+            f"The AE-rules payload requires SKILL.md as its entry point."
+        )
+    ordered.append(skill_md)
 
     # 2. sections/*.md
     ordered.extend(_sorted_glob("sections/*.md"))
@@ -73,11 +82,9 @@ def content_glob(content_root: Path) -> list[Path]:
     # 3. rules/*.md
     ordered.extend(_sorted_glob("rules/*.md"))
 
-    # 4. references/*.md and references/*.yml
-    # Include .yml files (spawn-presets-example.yml, tier-map-example.yml)
-    # because they are part of the references corpus a conductor uses.
+    # 4. references/*.md (*.md only - Brief scopes payload to *.md files).
+    # .yml reference examples are excluded to stay within Brief scope.
     ordered.extend(_sorted_glob("references/*.md"))
-    ordered.extend(_sorted_glob("references/*.yml"))
 
     # 5. commands/*.md
     ordered.extend(_sorted_glob("commands/*.md"))

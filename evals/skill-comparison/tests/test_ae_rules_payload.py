@@ -1,11 +1,15 @@
 """
 Purpose: Unit tests for evals.skill-comparison.ae_rules_payload.build_payload and
-         content_glob to verify glob order, byte-equivalence, and separator
-         correctness.
+         content_glob to verify glob order, byte-equivalence, separator
+         correctness, and scope constraints (*.md only, no *.yml in M3 fix).
+         Also includes drift-detection test (M1 fix) verifying that the
+         frontmatter tool list in .claude/agents/skeptic.md is consistent
+         with the tools expected by the canary asserter.
 
 Public API: pytest test module; no public symbols.
 
-Upstream deps: evals.skill_comparison.ae_rules_payload, stdlib pathlib, tempfile.
+Upstream deps: evals.skill_comparison.ae_rules_payload,
+               canary.assert_canary (parse_frontmatter_tools), stdlib pathlib, tempfile.
 
 Downstream consumers: pytest runner.
 
@@ -22,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from ae_rules_payload import build_payload, content_glob
+from assert_canary import parse_frontmatter_tools
 
 
 # ---------------------------------------------------------------------------
@@ -179,21 +184,23 @@ def test_build_payload_missing_root_raises():
 
 
 # ---------------------------------------------------------------------------
-# Test 6: SKILL.md missing from tree - no crash, SKILL.md absent from glob
+# Test 6: SKILL.md missing from tree - raises FileNotFoundError (m3 fix)
 # ---------------------------------------------------------------------------
 
-def test_content_glob_skill_md_absent():
-    """content_glob handles missing SKILL.md gracefully (omits it, no crash)."""
+def test_content_glob_skill_md_absent_raises():
+    """content_glob raises FileNotFoundError when SKILL.md is absent (m3 fix).
+
+    The manifest documents that SKILL.md is required and raises
+    FileNotFoundError when missing. Prior behavior silently omitted it,
+    which contradicted the manifest. The code now matches the manifest.
+    """
     with tempfile.TemporaryDirectory() as tmp_str:
         tmp = Path(tmp_str)
         # Create sections but no SKILL.md.
         _write(tmp, "sections/01-sec.md", "section content")
 
-        paths = content_glob(tmp)
-        names = [p.name for p in paths]
-
-        assert "SKILL.md" not in names
-        assert "01-sec.md" in names
+        with pytest.raises(FileNotFoundError, match="SKILL.md"):
+            content_glob(tmp)
 
 
 # ---------------------------------------------------------------------------
@@ -215,3 +222,72 @@ def test_build_payload_separator_contains_rel_path():
             assert expected in payload, (
                 f"Separator for {rel_path!r} not found in payload"
             )
+
+
+# ---------------------------------------------------------------------------
+# Test 8: references/*.yml files are excluded from glob (M3 fix)
+# ---------------------------------------------------------------------------
+
+def test_content_glob_excludes_yml_files():
+    """[M3] content_glob must not include *.yml files from references/.
+
+    The Brief scopes the AE-rules payload to *.md files only. The old
+    implementation included references/*.yml (spawn-presets-example.yml,
+    tier-map-example.yml), drifting outside Brief scope.
+    """
+    with tempfile.TemporaryDirectory() as tmp_str:
+        tmp = Path(tmp_str)
+        # Create a minimal tree with a .yml file in references/.
+        _write(tmp, "SKILL.md", "# SKILL\n")
+        _write(tmp, "references/some-protocol.md", "# Protocol\n")
+        _write(tmp, "references/spawn-presets-example.yml", "presets: {}\n")
+        _write(tmp, "references/tier-map-example.yml", "tiers: {}\n")
+
+        paths = content_glob(tmp)
+        names = [p.name for p in paths]
+
+        assert "spawn-presets-example.yml" not in names, (
+            "references/*.yml must NOT be included - Brief scopes payload to *.md only"
+        )
+        assert "tier-map-example.yml" not in names, (
+            "references/*.yml must NOT be included - Brief scopes payload to *.md only"
+        )
+        assert "some-protocol.md" in names, (
+            "references/*.md must still be included"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 9: Frontmatter drift detection (M1 fix)
+# ---------------------------------------------------------------------------
+
+def test_skeptic_frontmatter_tool_list_is_consistent():
+    """[M1 drift-detection] The skeptic.md frontmatter tool list must match
+    the canary's expected tools (Read, Grep, Glob, Bash) with no hardcoded
+    duplicates. This test fails when the frontmatter drifts, surfacing the
+    divergence before any matrix run is attempted.
+
+    Frontmatter is the single source of truth. The canary asserter derives
+    its expected_tools from frontmatter at assert time (no hardcoded list).
+    This test verifies that the frontmatter is consistent with the canonical
+    set and that no hardcoded duplication has been reintroduced.
+    """
+    skeptic_md = Path(__file__).parent.parent.parent.parent / ".claude" / "agents" / "skeptic.md"
+    if not skeptic_md.exists():
+        pytest.skip("skeptic.md not found - running outside repo")
+
+    tools = parse_frontmatter_tools(skeptic_md)
+    tool_set = set(tools)
+
+    # The canonical expected set for the skeptic canary.
+    canonical = {"Read", "Grep", "Glob", "Bash"}
+
+    assert canonical.issubset(tool_set), (
+        f"Skeptic frontmatter tools ({tool_set}) are missing canonical tools "
+        f"({canonical - tool_set}). Either update the frontmatter or update "
+        f"this test if the tool list has legitimately changed."
+    )
+    assert "Task" not in tool_set, (
+        "Skeptic frontmatter incorrectly lists 'Task' as a tool. "
+        "Actual tools are Read, Grep, Glob, Bash. (Brief typo fix: m1)"
+    )

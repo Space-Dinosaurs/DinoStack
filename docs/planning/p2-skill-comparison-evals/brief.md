@@ -53,7 +53,7 @@ qa_criteria:
   qa_skip: null
   scenarios:
     - id: 1
-      description: Canary stream-json inspection - direct two-level Task spawn of `skeptic` produces a transcript whose inner Task tool_use has subagent_type "skeptic" and whose inner system prompt includes the agent's frontmatter-declared tool list (Read/Grep/Glob/Task).
+      description: Canary stream-json inspection - direct two-level Task spawn of `skeptic` produces a transcript whose inner Task tool_use has subagent_type "skeptic" and whose inner system prompt includes the agent's frontmatter-declared tool list (Read/Grep/Glob/Bash).
       method: runtime-required
       evidence: stream-json transcript saved under evals/skill-comparison/canary/; assertion script (in unit 4 diff) parses the transcript and exits 0 on match, non-zero on mismatch.
     - id: 2
