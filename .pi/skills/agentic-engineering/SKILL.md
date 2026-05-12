@@ -8,11 +8,11 @@ structured multi-agent workflow. It covers risk classification, adversarial revi
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
 files on every session and the reference docs on the triggers described in agent-methodology.md.
 
-**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in `rules/agent-methodology.md` for the full rule, anti-patterns, and stop-frequency thresholds.
+**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in `METHODOLOGY.md` for the full rule, anti-patterns, and stop-frequency thresholds.
 
 ## Rules (read these files)
 
-- **rules/agent-methodology.md** - delegation model, risk classification, task decomposition, and
+- **METHODOLOGY.md** - delegation model, risk classification, task decomposition, and
   worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read/Glob/Grep

@@ -36,7 +36,7 @@ bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
 {
   cat "$SKILL_DST/SKILL.frontmatter.yaml"
   echo
-  perl -0pe 's/\A<!--.*?-->\n\n?//s' "$CONTENT/SKILL.md"
+  perl -0pe 's/\A<!--.*?-->\n\n?//s; s#rules/agent-methodology\.md#METHODOLOGY.md#g' "$CONTENT/SKILL.md"
   cat <<'PI_NOTES'
 
 ## Pi coding agent usage

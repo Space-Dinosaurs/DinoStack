@@ -47,7 +47,14 @@ write_config() {
   python3 - "$AE_CONFIG_PATH" "$mode" "$profile" <<'PY'
 import json, sys, datetime
 path, mode, profile = sys.argv[1], sys.argv[2], sys.argv[3]
-data = {"mode": mode, "profile": profile, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+data["mode"] = mode
+data["profile"] = profile
+data["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
