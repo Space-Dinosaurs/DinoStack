@@ -1159,3 +1159,277 @@ class TestSeedErrorAggregatorExclusion:
             f"Median must be computed from valid scores only; "
             f"expected {statistics.median([1.0, 0.8, 0.6])}, got {row.median}"
         )
+
+
+# ---------------------------------------------------------------------------
+# --tasks / tasks_filter and --max-cells tests
+# ---------------------------------------------------------------------------
+
+# Corpus with two tasks so we can verify slug-based filtering.
+_TWO_TASK_CORPUS_YAML = """\
+freeze_metadata:
+  freeze_date: "2026-05-12"
+tasks:
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "d5276398046ce4a102776a1e67dcac2884d80dfe"
+    held_out_tests:
+      - "tests/migrations/test_commands.py"
+    fail_to_pass:
+      - "test_sqlmigrate_for_non_transactional_databases"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/core/management/commands/sqlmigrate.py"
+    problem_summary: Bug in sqlmigrate.
+  requests-3362:
+    swebench_instance_id: "psf__requests-3362"
+    repo_url: "https://github.com/psf/requests"
+    base_commit: "abc000"
+    held_out_tests:
+      - "tests/test_utils.py"
+    fail_to_pass:
+      - "test_something"
+    estimated_test_seconds: 10
+    difficulty: single-file
+    known_affected_files:
+      - "requests/utils.py"
+    problem_summary: Bug in requests utils.
+"""
+
+
+@pytest.fixture
+def two_task_corpus_yaml(tmp_path: Path) -> Path:
+    """Write a two-task corpus YAML to tmp_path."""
+    p = tmp_path / "corpus.yaml"
+    p.write_text(_TWO_TASK_CORPUS_YAML, encoding="utf-8")
+    return p
+
+
+def _canned_score():
+    from scoring import ScoringResult
+    return ScoringResult(
+        pass_fail=True,
+        score_primary=1.0,
+        lines_touched=1,
+        files_touched=1,
+        scope_creep_flag=False,
+    )
+
+
+class TestTasksFilter:
+    """Tests for the tasks_filter parameter (--tasks CLI flag)."""
+
+    def test_single_slug_filter_runs_only_that_task(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """When tasks_filter=['requests-3362'], only that task's cells appear in TSV."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=_canned_score()):
+            report = run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tasks_filter=["requests-3362"],
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 1, (
+            f"Only 1 row expected (requests-3362 x baseline x n=1); got {len(rows)}"
+        )
+        assert rows[0]["task_slug"] == "requests-3362"
+        assert report.rows_written == 1
+
+    def test_empty_tasks_filter_runs_all(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """When tasks_filter=[] (empty list), all tasks run (same as None)."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=_canned_score()):
+            report = run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tasks_filter=None,  # same as absent
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2, (
+            f"Both tasks should run when tasks_filter=None; got {len(rows)}"
+        )
+
+    def test_unknown_slug_raises_before_any_cell(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """An unknown task slug raises ValueError before any cell executes."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=_canned_score()):
+            with pytest.raises(ValueError, match="Unknown task slug"):
+                run_matrix(
+                    tasks_yaml=two_task_corpus_yaml,
+                    results_tsv=results_tsv,
+                    n_replicates=1,
+                    n_replicates_methodology=1,
+                    dry_run=True,
+                    conditions=["baseline"],
+                    tasks_filter=["does-not-exist"],
+                )
+
+        # No rows should have been written.
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 0, "No rows must be written when slug validation fails"
+
+    def test_multiple_slugs_filter(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """tasks_filter with multiple valid slugs runs exactly those tasks."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=_canned_score()):
+            report = run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tasks_filter=["django-11039", "requests-3362"],
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2
+        slugs_seen = {r["task_slug"] for r in rows}
+        assert slugs_seen == {"django-11039", "requests-3362"}
+
+
+class TestMaxCells:
+    """Tests for the max_cells parameter (--max-cells CLI flag)."""
+
+    def test_max_cells_1_stops_after_one_row(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """max_cells=1 stops after writing one row and sets partial=True."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=_canned_score()):
+            report = run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=2,
+                n_replicates_methodology=2,
+                dry_run=True,
+                conditions=["baseline"],
+                max_cells=1,
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 1, (
+            f"max_cells=1 must stop after exactly 1 row; got {len(rows)}"
+        )
+        assert report.partial is True, "partial must be True when max_cells is reached"
+        assert report.rows_written == 1
+
+    def test_max_cells_resume_respects_ceiling(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """Second invocation with max_cells=1 stops after writing 1 new row
+        even when prior rows exist in the TSV."""
+        results_tsv = tmp_path / "results.tsv"
+
+        # First run: write 1 row (django-11039 baseline rep1).
+        with patch("runner.score_cell", return_value=_canned_score()):
+            run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tasks_filter=["django-11039"],
+            )
+
+        assert len(_read_tsv(results_tsv)) == 1
+
+        # Second run: force=True so the first row is not counted as
+        # completed; max_cells=1 means only 1 more row should be written.
+        with patch("runner.score_cell", return_value=_canned_score()):
+            report = run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline", "engineer-direct"],
+                tasks_filter=["django-11039"],
+                max_cells=1,
+                force=True,
+            )
+
+        # The TSV now has the original row plus 1 new row.
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2, (
+            f"Expected 2 total rows (1 prior + 1 new from max_cells=1); got {len(rows)}"
+        )
+        assert report.rows_written == 1
+        assert report.partial is True
+
+    def test_max_cells_none_runs_all(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """max_cells=None (default) does not truncate the run."""
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=_canned_score()):
+            report = run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                max_cells=None,
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2, "Both tasks should run when max_cells=None"
+        assert report.partial is False
+
+    def test_tasks_filter_and_max_cells_additive(
+        self, tmp_path: Path, two_task_corpus_yaml: Path
+    ):
+        """tasks_filter limits the task set; max_cells limits total rows written.
+        The more restrictive wins per cell iteration."""
+        results_tsv = tmp_path / "results.tsv"
+
+        # tasks_filter=['requests-3362'] with n=3 replicates and 2 conditions
+        # would produce 6 rows. max_cells=2 cuts to 2.
+        with patch("runner.score_cell", return_value=_canned_score()):
+            report = run_matrix(
+                tasks_yaml=two_task_corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=3,
+                n_replicates_methodology=3,
+                dry_run=True,
+                conditions=["baseline", "engineer-direct"],
+                tasks_filter=["requests-3362"],
+                max_cells=2,
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 2, (
+            f"tasks_filter + max_cells=2 should yield exactly 2 rows; got {len(rows)}"
+        )
+        # All rows must be from the filtered task.
+        for row in rows:
+            assert row["task_slug"] == "requests-3362"
+        assert report.partial is True
