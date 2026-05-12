@@ -53,7 +53,7 @@ qa_criteria:
   qa_skip: null
   scenarios:
     - id: 1
-      description: Canary stream-json inspection - direct two-level Task spawn of `skeptic` produces a transcript whose inner Task tool_use has subagent_type "skeptic" and whose inner system prompt includes the agent's frontmatter-declared tool list (Read/Grep/Glob/Task).
+      description: "direct two-level Task spawn of `skeptic` produces a transcript in which the agent is registered in the outer session's `init.agents` list (proving the CLI parsed the frontmatter), AND a direct outer-conductor `Agent`/`Task` tool_use with `subagent_type='skeptic'` exists (no nested spawns). The frontmatter-declared tool list (Read/Grep/Glob/Bash) is the single source of truth at assert time."
       method: runtime-required
       evidence: stream-json transcript saved under evals/skill-comparison/canary/; assertion script (in unit 4 diff) parses the transcript and exits 0 on match, non-zero on mismatch.
     - id: 2
