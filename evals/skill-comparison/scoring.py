@@ -582,7 +582,16 @@ def _run_pytest_tier3(
         " ".join(cmd),
         fail_to_pass,
     )
-    result = Tier3Docker.run_score_phase(tier3_ctx, cmd, timeout_seconds=timeout)
+    # Inject PYTHONPATH=/workspace/repo so the repo under test is importable
+    # inside the score-phase container without pip install (network is disabled).
+    # This resolves ImportError when conftest.py or test modules do
+    # `from <repo_package> import ...` (e.g. `from requests.packages import ...`).
+    result = Tier3Docker.run_score_phase(
+        tier3_ctx,
+        cmd,
+        timeout_seconds=timeout,
+        env={"PYTHONPATH": "/workspace/repo"},
+    )
     return result.returncode, result.stdout + result.stderr
 
 
