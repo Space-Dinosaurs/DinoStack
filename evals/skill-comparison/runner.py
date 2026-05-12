@@ -22,6 +22,7 @@ Public API:
         tier3_mode: str = "auto",
         tasks_filter: list[str] | None = None,
         max_cells: int | None = None,
+        rebuild_image: bool = False,
     ) -> RunReport
 
     RunReport (dataclass):
@@ -49,6 +50,14 @@ Tier3Docker.ensure_image() ONCE before the cell loop. Per-cell Tier3Docker(...)
 instantiations pass build_image=False. The module-level _IMAGE_DIGEST_CACHE in
 isolator.py ensures the build subprocess is never invoked more than once per
 process, even if build_image=True were passed accidentally.
+When rebuild_image=True, the cache entry for the image tag is evicted before
+ensure_image() is called, forcing a fresh docker build on the next invocation.
+
+Transcript persistence: every cell persists the engineer CLI stdout+stderr to
+<results_tsv_dir>/transcripts/<task_slug>__<condition>__rep<N>.log.  On
+cli_exit_* status, the transcript path is logged in diagnostics_json and the
+last 500 chars are printed to stderr for quick post-mortem without opening the
+file.
 
 Downstream consumers: CLI / scripts; evals/skill-comparison/tests/test_runner.py.
 
@@ -332,6 +341,7 @@ def run_matrix(
     force: bool = False,
     tasks_filter: Optional[list[str]] = None,
     max_cells: Optional[int] = None,
+    rebuild_image: bool = False,
 ) -> RunReport:
     """Orchestrate the 8-condition skill-comparison eval matrix.
 
@@ -384,6 +394,11 @@ def run_matrix(
                    supplied, whichever limit is reached first wins. When
                    max_cells is reached, report.partial is set to True (mirrors
                    the wall-clock ceiling behavior).
+        rebuild_image: if True, evict the cached image digest from
+                       _IMAGE_DIGEST_CACHE before calling ensure_image(), forcing
+                       a fresh docker build. Useful when Dockerfile.swebench has
+                       changed and the locally-tagged image is stale. Has no
+                       effect when tier3_mode='off' or dry_run=True.
 
     Returns:
         RunReport with summary stats.
@@ -396,6 +411,11 @@ def run_matrix(
         )
     if content_root is None:
         content_root = _REPO_ROOT / "content"
+
+    # Transcript directory: <results_tsv_dir>/transcripts/
+    # Each cell writes its engineer CLI output here for post-mortem.
+    _transcript_dir = results_tsv.parent / "transcripts"
+    _transcript_dir.mkdir(parents=True, exist_ok=True)
 
     tasks = _load_tasks(tasks_yaml)
 
@@ -449,7 +469,20 @@ def run_matrix(
     # Conditionally import Tier3Docker for production runs.
     _Tier3Docker = None
     if use_tier3:
-        from evals.runner.isolator import Tier3Docker as _Tier3Docker  # type: ignore[assignment]
+        from evals.runner.isolator import (  # type: ignore[assignment]
+            Tier3Docker as _Tier3Docker,
+            _DOCKER_IMAGE_TAG as _T3_IMAGE_TAG,
+            _IMAGE_DIGEST_CACHE as _T3_DIGEST_CACHE,
+        )
+        # rebuild_image=True: evict the cached digest so ensure_image()
+        # forces a fresh docker build. This is explicit operator control -
+        # no surprise rebuilds on normal runs.
+        if rebuild_image and _T3_IMAGE_TAG in _T3_DIGEST_CACHE:
+            _LOG.info(
+                "Tier 3: --rebuild-image requested; evicting cached digest for %s",
+                _T3_IMAGE_TAG,
+            )
+            del _T3_DIGEST_CACHE[_T3_IMAGE_TAG]
         # Build-once-reuse: build the Docker image ONCE before the cell loop.
         # This avoids N*24 redundant docker builds (one per cell). Each per-cell
         # Tier3Docker(...) call will find the cached digest and skip the build.
@@ -672,6 +705,39 @@ def run_matrix(
                     latency_ms = int(result.get("latency_ms") or 0)
                     invocation_mode = result.get("invocation_mode", "")
 
+                    # Persist engineer transcript for post-mortem.
+                    _transcript_slug = f"{task_slug}__{condition}__rep{rep}"
+                    _transcript_path = _transcript_dir / f"{_transcript_slug}.log"
+                    try:
+                        _stderr_tail = result.get("stderr_tail", "") or ""
+                        # Guard: transcript and stderr_tail must be strings.
+                        _transcript_content = transcript if isinstance(transcript, str) else str(transcript)
+                        if _stderr_tail and isinstance(_stderr_tail, str):
+                            _transcript_content = (
+                                _transcript_content
+                                + "\n\n--- stderr ---\n"
+                                + _stderr_tail
+                            )
+                        _transcript_path.write_text(
+                            _transcript_content, encoding="utf-8"
+                        )
+                    except OSError as _t_exc:
+                        _LOG.warning(
+                            "Failed to persist transcript for %s rep %d: %s",
+                            cell_id, rep, _t_exc,
+                        )
+                        _transcript_path = None  # type: ignore[assignment]
+
+                    # On CLI exit failures, print last 500 chars to stderr for
+                    # quick post-mortem without opening the file.
+                    if run_status.startswith("cli_exit_") and transcript:
+                        _tail = transcript[-500:]
+                        print(
+                            f"[cli_exit] {cell_id} rep {rep}: last 500 chars of transcript:\n"
+                            f"{_tail}",
+                            file=sys.stderr,
+                        )
+
                     # Score the cell.
                     # dry_run: use fresh tmpdirs; production: use Tier3 dirs
                     # or the seeded fix_worktree (tier3_mode='off' path).
@@ -769,6 +835,15 @@ def run_matrix(
                 # so that callers can distinguish a clean run with a scoring failure
                 # from a successful run ("ok") or an engineer-phase failure.
                 effective_status = "score_error" if _score_error is not None else run_status
+
+                # Merge transcript path into diagnostics so operators can locate
+                # the log file from the TSV row alone.
+                _diagnostics = dict(scored.diagnostics)
+                if _transcript_path is not None:
+                    _diagnostics["transcript_path"] = str(_transcript_path)
+                if effective_status.startswith("cli_exit_") and _transcript_path is not None:
+                    _diagnostics["cli_exit_transcript"] = str(_transcript_path)
+
                 row = {
                     "task_slug": task_slug,
                     "condition": condition,
@@ -785,7 +860,7 @@ def run_matrix(
                     "tokens_output": tokens_output,
                     "latency_ms": latency_ms,
                     "invocation_mode": invocation_mode,
-                    "diagnostics_json": json.dumps(scored.diagnostics),
+                    "diagnostics_json": json.dumps(_diagnostics),
                 }
                 _append_tsv_row(results_tsv, row)
                 report.rows_written += 1
@@ -854,6 +929,17 @@ if __name__ == "__main__":
             "--max-cells are passed, whichever limit is reached first wins."
         ),
     )
+    parser.add_argument(
+        "--rebuild-image",
+        action="store_true",
+        default=False,
+        help=(
+            "Force a fresh Docker image build by evicting the cached digest "
+            "before calling ensure_image(). Use when Dockerfile.swebench has "
+            "changed and the locally-tagged ae-eval-swebench:latest image is "
+            "stale. Has no effect when --tier3=off or --dry-run."
+        ),
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
@@ -873,6 +959,7 @@ if __name__ == "__main__":
         force=args.force,
         tasks_filter=args.tasks_filter if args.tasks_filter else None,
         max_cells=args.max_cells,
+        rebuild_image=args.rebuild_image,
     )
 
     print(json.dumps(

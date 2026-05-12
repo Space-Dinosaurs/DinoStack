@@ -1455,3 +1455,434 @@ class TestMaxCells:
         for row in rows:
             assert row["task_slug"] == "requests-3362"
         assert report.partial is True
+
+
+# ---------------------------------------------------------------------------
+# Bug-1 regression: --rebuild-image invalidates the image digest cache
+# ---------------------------------------------------------------------------
+
+
+class TestRebuildImage:
+    """Regression suite for Bug-1 (--rebuild-image flag).
+
+    Verifies that rebuild_image=True evicts the cached digest from
+    _IMAGE_DIGEST_CACHE before ensure_image() is called, forcing a fresh
+    docker build on the next invocation.
+    """
+
+    def test_rebuild_image_evicts_cache_entry(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """rebuild_image=True removes the cached digest before ensure_image().
+
+        Regression test for Bug-1: previously the cache was never invalidated,
+        so a stale ae-eval-swebench:latest image (missing pytest-timeout) would
+        be reused silently even after Dockerfile.swebench changed.
+        """
+        from evals.runner.isolator import _IMAGE_DIGEST_CACHE, _DOCKER_IMAGE_TAG
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        # Pre-populate the cache with a fake digest to simulate a stale image.
+        _IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = "sha256:stale_digest_before_rebuild"
+
+        ensure_image_calls: list[dict] = []
+
+        # Capture whether the cache was empty at ensure_image() call time.
+        original_ensure_image = None
+
+        def fake_ensure_image(image_tag=_DOCKER_IMAGE_TAG, **kwargs):
+            ensure_image_calls.append({
+                "image_tag": image_tag,
+                "cache_had_entry": image_tag in _IMAGE_DIGEST_CACHE,
+            })
+            # Simulate ensure_image caching the new digest.
+            _IMAGE_DIGEST_CACHE[image_tag] = "sha256:fresh_digest_after_rebuild"
+            return "sha256:fresh_digest_after_rebuild"
+
+        mock_tier3_ctx_enter = MagicMock()
+        from evals.runner.isolator import Tier3Context
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "held",
+            image_tag=_DOCKER_IMAGE_TAG,
+            image_digest="sha256:fresh_digest_after_rebuild",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "held").mkdir(parents=True, exist_ok=True)
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+        mock_tier3_cls = MagicMock(return_value=mock_tier3_instance)
+        mock_tier3_cls.ensure_image = MagicMock(side_effect=fake_ensure_image)
+        mock_tier3_cls.run_fix_phase = MagicMock(return_value=MagicMock(
+            returncode=0,
+            stdout='{"final_text":"ok","status":"ok","cost_usd":0.0,"usage":{},'
+                   '"latency_ms":0,"invocation_mode":"agent","tool_calls":[],'
+                   '"turns_used":1,"_parse_warnings":[]}',
+            stderr="",
+        ))
+
+        results_tsv = tmp_path / "results.tsv"
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+                rebuild_image=True,
+            )
+
+        assert len(ensure_image_calls) == 1, (
+            "ensure_image must be called exactly once in production path"
+        )
+        assert not ensure_image_calls[0]["cache_had_entry"], (
+            "rebuild_image=True must evict the cache entry BEFORE ensure_image() "
+            "is called. Cache still had the stale entry when ensure_image() ran - "
+            "Bug-1 regression: stale image would be reused without rebuilding."
+        )
+        # Restore cache to clean state.
+        _IMAGE_DIGEST_CACHE.pop(_DOCKER_IMAGE_TAG, None)
+
+    def test_rebuild_image_false_preserves_cache(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """rebuild_image=False (default) does NOT evict the cache entry."""
+        from evals.runner.isolator import _IMAGE_DIGEST_CACHE, _DOCKER_IMAGE_TAG
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        # Pre-populate the cache.
+        _IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = "sha256:existing_digest"
+
+        ensure_image_calls: list[dict] = []
+
+        def fake_ensure_image(image_tag=_DOCKER_IMAGE_TAG, **kwargs):
+            ensure_image_calls.append({
+                "image_tag": image_tag,
+                "cache_had_entry": image_tag in _IMAGE_DIGEST_CACHE,
+            })
+            return _IMAGE_DIGEST_CACHE.get(image_tag, "sha256:existing_digest")
+
+        from evals.runner.isolator import Tier3Context
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "held",
+            image_tag=_DOCKER_IMAGE_TAG,
+            image_digest="sha256:existing_digest",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "held").mkdir(parents=True, exist_ok=True)
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+        mock_tier3_cls = MagicMock(return_value=mock_tier3_instance)
+        mock_tier3_cls.ensure_image = MagicMock(side_effect=fake_ensure_image)
+        mock_tier3_cls.run_fix_phase = MagicMock(return_value=MagicMock(
+            returncode=0,
+            stdout='{"final_text":"ok","status":"ok","cost_usd":0.0,"usage":{},'
+                   '"latency_ms":0,"invocation_mode":"agent","tool_calls":[],'
+                   '"turns_used":1,"_parse_warnings":[]}',
+            stderr="",
+        ))
+
+        results_tsv = tmp_path / "results.tsv"
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+                rebuild_image=False,  # default - do not evict
+            )
+
+        assert len(ensure_image_calls) == 1
+        assert ensure_image_calls[0]["cache_had_entry"], (
+            "rebuild_image=False must NOT evict the cache; the cached entry "
+            "should still be present when ensure_image() is called."
+        )
+        # Restore cache.
+        _IMAGE_DIGEST_CACHE.pop(_DOCKER_IMAGE_TAG, None)
+
+    def test_rebuild_image_no_effect_when_dry_run(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """rebuild_image=True is a no-op when dry_run=True (no Tier3 used)."""
+        from evals.runner.isolator import _IMAGE_DIGEST_CACHE, _DOCKER_IMAGE_TAG
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        _IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = "sha256:should_not_be_evicted"
+
+        mock_tier3_cls = MagicMock()
+        results_tsv = tmp_path / "results.tsv"
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tier3_mode="auto",
+                rebuild_image=True,  # ignored because dry_run=True
+            )
+
+        # Cache entry must not have been evicted (use_tier3 is False for dry_run).
+        assert _IMAGE_DIGEST_CACHE.get(_DOCKER_IMAGE_TAG) == "sha256:should_not_be_evicted", (
+            "rebuild_image=True must have no effect when dry_run=True "
+            "(Tier3 is not used in dry-run mode)."
+        )
+        assert not mock_tier3_cls.called, "Tier3Docker must not be instantiated in dry-run"
+        # Restore.
+        _IMAGE_DIGEST_CACHE.pop(_DOCKER_IMAGE_TAG, None)
+
+
+# ---------------------------------------------------------------------------
+# Bug-2 regression: engineer transcripts persisted on every cell
+# ---------------------------------------------------------------------------
+
+
+class TestTranscriptPersistence:
+    """Regression suite for Bug-2 (engineer transcript persistence).
+
+    Verifies that the engineer CLI stdout+stderr is persisted to
+    <results_tsv_dir>/transcripts/<task_slug>__<condition>__rep<N>.log on
+    every cell, and that cli_exit_* status rows include the transcript path
+    in diagnostics_json.
+    """
+
+    def test_transcript_file_created_for_dry_run_cell(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """A transcript file is created for each cell even in dry-run mode."""
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        with patch("runner.score_cell", return_value=canned_score):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+            )
+
+        transcript_dir = tmp_path / "transcripts"
+        assert transcript_dir.exists(), "transcripts/ directory must be created"
+        transcript_file = transcript_dir / "django-11039__baseline__rep1.log"
+        assert transcript_file.exists(), (
+            f"Transcript file must be created at {transcript_file}; "
+            "Bug-2 regression: transcript was not persisted."
+        )
+
+    def test_transcript_path_in_diagnostics_on_cli_exit(
+        self, tmp_path: Path, corpus_yaml: Path
+    ):
+        """On cli_exit_1, diagnostics_json includes cli_exit_transcript path.
+
+        Regression test for Bug-2: the transcript path was not recorded in
+        diagnostics_json, making post-mortem impossible without knowing the
+        file naming convention.
+        """
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Context
+
+        canned_score = ScoringResult(
+            pass_fail=False, score_primary=0.0,
+            lines_touched=0, files_touched=0, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        # Produce a cli_exit_1 result from run_fix_phase.
+        import json as _json
+        import subprocess as _sp
+
+        canned_invoker_fail = {
+            "final_text": "Error: some CLI failure output",
+            "status": "cli_exit_1",
+            "cost_usd": 0.0,
+            "usage": {"input_tokens": 26, "output_tokens": 0},
+            "latency_ms": 100,
+            "invocation_mode": "tier3",
+            "tool_calls": [],
+            "turns_used": 0,
+            "_parse_warnings": [],
+            "stderr_tail": "fatal: not a git repository",
+        }
+        canned_cp = _sp.CompletedProcess(
+            args=[], returncode=1,
+            stdout=_json.dumps(canned_invoker_fail), stderr="",
+        )
+
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "held",
+            image_tag="ae-eval-swebench:latest",
+            image_digest="sha256:abc123",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "held").mkdir(parents=True, exist_ok=True)
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+        mock_tier3_cls = MagicMock(return_value=mock_tier3_instance)
+        mock_tier3_cls.ensure_image = MagicMock(return_value="sha256:abc123")
+        mock_tier3_cls.run_fix_phase = MagicMock(return_value=canned_cp)
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 1
+        assert rows[0]["status"] == "cli_exit_1", (
+            f"Expected status='cli_exit_1', got {rows[0]['status']!r}"
+        )
+
+        diagnostics = _json.loads(rows[0]["diagnostics_json"])
+        assert "cli_exit_transcript" in diagnostics, (
+            "diagnostics_json must include 'cli_exit_transcript' key on cli_exit_* rows. "
+            "Bug-2 regression: transcript path was not recorded in diagnostics."
+        )
+        assert "transcript_path" in diagnostics, (
+            "diagnostics_json must include 'transcript_path' for every cell."
+        )
+
+        # The transcript file must actually exist.
+        transcript_path = Path(diagnostics["cli_exit_transcript"])
+        assert transcript_path.exists(), (
+            f"Transcript file {transcript_path} must exist after cli_exit_1. "
+            "Bug-2 regression: transcript was not written to disk."
+        )
+        content = transcript_path.read_text(encoding="utf-8")
+        assert "Error: some CLI failure output" in content, (
+            "Transcript file must contain the engineer's stdout output."
+        )
+        assert "fatal: not a git repository" in content, (
+            "Transcript file must contain the stderr_tail."
+        )
+
+    def test_transcript_stderr_tail_printed_to_stderr_on_cli_exit(
+        self, tmp_path: Path, corpus_yaml: Path, capsys
+    ):
+        """On cli_exit_*, the last 500 chars of transcript are printed to stderr."""
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Context
+
+        canned_score = ScoringResult(
+            pass_fail=False, score_primary=0.0,
+            lines_touched=0, files_touched=0, scope_creep_flag=False,
+        )
+        results_tsv = tmp_path / "results.tsv"
+
+        import json as _json, subprocess as _sp
+
+        long_output = "X" * 600
+        canned_invoker_fail = {
+            "final_text": long_output,
+            "status": "cli_exit_1",
+            "cost_usd": 0.0,
+            "usage": {},
+            "latency_ms": 0,
+            "invocation_mode": "tier3",
+            "tool_calls": [],
+            "turns_used": 0,
+            "_parse_warnings": [],
+        }
+        canned_cp = _sp.CompletedProcess(
+            args=[], returncode=1,
+            stdout=_json.dumps(canned_invoker_fail), stderr="",
+        )
+
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "held",
+            image_tag="ae-eval-swebench:latest",
+            image_digest="sha256:abc123",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "held").mkdir(parents=True, exist_ok=True)
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+        mock_tier3_cls = MagicMock(return_value=mock_tier3_instance)
+        mock_tier3_cls.ensure_image = MagicMock(return_value="sha256:abc123")
+        mock_tier3_cls.run_fix_phase = MagicMock(return_value=canned_cp)
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        captured = capsys.readouterr()
+        assert "[cli_exit]" in captured.err, (
+            "On cli_exit_1, last 500 chars must be printed to stderr for "
+            "quick post-mortem. Bug-2 regression: nothing was printed."
+        )
+        # The tail (last 500 chars of a 600-char string) should appear.
+        assert "X" * 500 in captured.err, (
+            "The last 500 chars of the transcript must appear in stderr output."
+        )
