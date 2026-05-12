@@ -53,3 +53,10 @@ evals/baselines/*.progress.tmp
 # ICL-vs-orchestration eval: per-run result JSON files are generated artifacts.
 # Committed results (if any) are explicitly added with git add -f.
 evals/icl_vs_orchestration/results/
+
+# Pi coding agent generated/project-local state (not adapter-owned)
+.pi/taskplane.json
+.pi/agents/supervisor.md
+.pi/gsd/
+.pi/git/
+.pi/npm/
