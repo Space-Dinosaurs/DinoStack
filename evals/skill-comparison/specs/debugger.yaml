@@ -1,0 +1,21 @@
+# Condition: debugger-direct
+#
+# Measurement: baseline vs bare two-level Task spawn of the debugger agent.
+# n=3 replicates minimum.
+#
+# No AE rules payload is injected. The debugger agent is invoked directly via
+# invoker.run_session(mode="agent", agent_name="debugger") so that the agent's
+# own frontmatter is preserved intact. Expected strength: single-file tasks
+# requiring root cause analysis and targeted fixes.
+
+condition: debugger-direct
+agent_name: debugger
+description: >
+  Debugger-direct condition. Bare two-level Task spawn of the debugger agent
+  against the task corpus. No AE rules payload; no stub skill. The delta vs
+  baseline measures the debugger agent's isolated contribution.
+
+n_replicates: 3
+pair_with: baseline
+
+content_glob: []
