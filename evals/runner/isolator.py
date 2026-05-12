@@ -407,7 +407,14 @@ class Tier3Docker(IsolatorBase):
       held_out_dir:     optional host path for the held-out test tree. If None,
                         a separate empty tmpdir is created (the dir still exists
                         but nothing is in it - the mount still does not appear
-                        inside the fix-phase container).
+                        inside the fix-phase container). Ignored when
+                        held_out_from_fix_dir=True.
+      held_out_from_fix_dir: if True, set held_out_dir = fix_phase_dir at
+                        __enter__ time. Use for SWE-bench tasks where
+                        seed_fix_phase applies test_patch into the fix dir,
+                        so /scoring/tests should mount the same path as
+                        /workspace/repo. Mutually exclusive with held_out_dir
+                        (held_out_from_fix_dir takes precedence).
       build_image:      if True (default), build the Docker image from
                         Dockerfile.swebench before entering. Set to False when
                         the image is known to be pre-built (e.g. in test
@@ -427,9 +434,11 @@ class Tier3Docker(IsolatorBase):
         build_image: bool = True,
         timeout_seconds: int = 300,
         image_tag: str = _DOCKER_IMAGE_TAG,
+        held_out_from_fix_dir: bool = False,
     ) -> None:
         self.fixture_repo_dir = fixture_repo_dir
         self._held_out_dir = held_out_dir
+        self._held_out_from_fix_dir = held_out_from_fix_dir
         self.timeout_seconds = timeout_seconds
         self.image_tag = image_tag
 
@@ -471,7 +480,12 @@ class Tier3Docker(IsolatorBase):
         self._fix_phase_dir = fix_phase_dir
 
         # 3. Prepare held-out dir.
-        if self._held_out_dir is not None:
+        # held_out_from_fix_dir=True: SWE-bench design where test_patch is applied
+        # to the fix-phase dir during seeding. Both /workspace/repo and
+        # /scoring/tests mount the same source path (two ro bind-mounts, same dir).
+        if self._held_out_from_fix_dir:
+            held_out_dir = fix_phase_dir
+        elif self._held_out_dir is not None:
             held_out_dir = self._held_out_dir
         else:
             held_out_dir = Path(tempfile.mkdtemp(prefix="t3-held-"))

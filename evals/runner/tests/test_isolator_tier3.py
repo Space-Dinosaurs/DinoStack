@@ -931,3 +931,104 @@ def test_dockerfile_includes_pytest_timeout():
         "container; without pytest-timeout installed, every score phase fails with "
         "'unrecognized arguments: --timeout=120'."
     )
+
+
+# ---------------------------------------------------------------------------
+# held_out_from_fix_dir regression tests (held-out-mount fix)
+# ---------------------------------------------------------------------------
+
+
+def test_held_out_from_fix_dir_sets_held_out_equal_to_fix_phase():
+    """When held_out_from_fix_dir=True, Tier3Context.held_out_dir == fix_phase_dir.
+
+    Regression test for the held-out-mount bug: if no held_out_dir is passed,
+    __enter__ used to create an empty tmpdir for /scoring/tests. pytest inside
+    the score container found no tests and exited with 'file or directory not
+    found'. With held_out_from_fix_dir=True the held-out dir is the same
+    object as the fix-phase dir, where seed_fix_phase places the test files.
+    """
+    fake_digest = "sha256:" + "d" * 64
+    _isolator_module._IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = fake_digest
+
+    def _noisy_subprocess_run(cmd, **kwargs):
+        raise AssertionError(
+            f"subprocess.run must NOT be called when cache is populated; got cmd={cmd!r}"
+        )
+
+    try:
+        with patch("evals.runner.isolator.subprocess.run", side_effect=_noisy_subprocess_run):
+            isolator = Tier3Docker(held_out_from_fix_dir=True, build_image=False)
+            ctx = isolator.__enter__()
+            try:
+                assert ctx.held_out_dir == ctx.fix_phase_dir, (
+                    f"held_out_from_fix_dir=True must set held_out_dir == fix_phase_dir; "
+                    f"got held_out_dir={ctx.held_out_dir!r}, fix_phase_dir={ctx.fix_phase_dir!r}"
+                )
+            finally:
+                isolator.__exit__(None, None, None)
+    finally:
+        _isolator_module._IMAGE_DIGEST_CACHE.clear()
+
+
+def test_held_out_from_fix_dir_no_empty_tmpdir_created():
+    """When held_out_from_fix_dir=True, no separate owned tmpdir is created for
+    held-out. _owned_held_out_dir must remain None so __exit__ does not attempt
+    to delete the fix-phase dir a second time.
+    """
+    fake_digest = "sha256:" + "e" * 64
+    _isolator_module._IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = fake_digest
+
+    def _noisy_subprocess_run(cmd, **kwargs):
+        raise AssertionError(f"subprocess.run called unexpectedly: {cmd!r}")
+
+    try:
+        with patch("evals.runner.isolator.subprocess.run", side_effect=_noisy_subprocess_run):
+            isolator = Tier3Docker(held_out_from_fix_dir=True, build_image=False)
+            ctx = isolator.__enter__()
+            try:
+                assert isolator._owned_held_out_dir is None, (
+                    "_owned_held_out_dir must be None when held_out_from_fix_dir=True "
+                    "(fix-phase dir must not be double-deleted on __exit__)"
+                )
+            finally:
+                isolator.__exit__(None, None, None)
+    finally:
+        _isolator_module._IMAGE_DIGEST_CACHE.clear()
+
+
+def test_held_out_from_fix_dir_takes_precedence_over_held_out_dir(tmp_path):
+    """When both held_out_from_fix_dir=True and held_out_dir=<path> are passed,
+    held_out_from_fix_dir takes precedence and the result equals fix_phase_dir.
+    """
+    import shutil as _shutil
+
+    fake_digest = "sha256:" + "f" * 64
+    _isolator_module._IMAGE_DIGEST_CACHE[_DOCKER_IMAGE_TAG] = fake_digest
+
+    explicit_held = tmp_path / "explicit-held"
+    explicit_held.mkdir()
+
+    def _noisy_subprocess_run(cmd, **kwargs):
+        raise AssertionError(f"subprocess.run called unexpectedly: {cmd!r}")
+
+    try:
+        with patch("evals.runner.isolator.subprocess.run", side_effect=_noisy_subprocess_run):
+            isolator = Tier3Docker(
+                held_out_dir=explicit_held,
+                held_out_from_fix_dir=True,
+                build_image=False,
+            )
+            ctx = isolator.__enter__()
+            try:
+                assert ctx.held_out_dir == ctx.fix_phase_dir, (
+                    "held_out_from_fix_dir=True must override held_out_dir; "
+                    f"expected fix_phase_dir={ctx.fix_phase_dir!r}, "
+                    f"got held_out_dir={ctx.held_out_dir!r}"
+                )
+                assert ctx.held_out_dir != explicit_held, (
+                    "explicit held_out_dir must be ignored when held_out_from_fix_dir=True"
+                )
+            finally:
+                isolator.__exit__(None, None, None)
+    finally:
+        _isolator_module._IMAGE_DIGEST_CACHE.clear()
