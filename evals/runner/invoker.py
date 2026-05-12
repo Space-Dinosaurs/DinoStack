@@ -153,11 +153,14 @@ def invoke_run(
     ANTHROPIC_BASE_URL is set when the model id starts with a litellm prefix
     (e.g. claude-kimi-, claude-qwen-, claude-owl-, claude-deepseek).
 
-    If `system_prompt` is provided, it is passed to the Claude CLI via
-    --system-prompt. This is how the ae-rules-injected condition injects the
-    AE methodology payload so the model runs with the full protocol context.
-    The Claude CLI --system-prompt flag takes the system prompt text as its
-    argument; subprocess argv handling means no shell escaping is needed.
+    If `system_prompt` is provided, it is appended to the default system
+    prompt via --append-system-prompt. This is how the ae-rules-injected
+    condition injects the AE methodology payload so the model runs with the
+    full protocol context on top of the standard Claude Code system prompt.
+    Flag verified present via `claude --help` (2026-05-12): --append-system-prompt
+    appends to the default; --system-prompt replaces it entirely. We use
+    --append-system-prompt to preserve the default context and add the rules.
+    subprocess argv handling means no shell escaping is needed.
     """
     if mode == "command":
         outer_prompt = prompt
@@ -196,10 +199,11 @@ def invoke_run(
         cmd.extend(["--model", model])
 
     if system_prompt is not None:
-        # Inject AE rules (or any system context) via the Claude CLI flag.
-        # Used by the ae-rules-injected condition to ensure the model runs
-        # with the full AE methodology protocol in its system context.
-        cmd.extend(["--system-prompt", system_prompt])
+        # Inject AE rules (or any system context) via --append-system-prompt.
+        # This appends to (not replaces) the default Claude Code system prompt,
+        # preserving the baseline context while adding the AE methodology rules.
+        # Flag verified in `claude --help` (2026-05-12).
+        cmd.extend(["--append-system-prompt", system_prompt])
 
     env = None
     if home is not None or _use_litellm:

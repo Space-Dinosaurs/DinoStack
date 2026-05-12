@@ -394,39 +394,51 @@ class TestWallClockCeiling:
 
 
 # ---------------------------------------------------------------------------
-# CRITICAL-1 regression: ae-rules-injected must forward system_prompt
+# CRITICAL-1 regression: ae-rules-injected must reach subprocess CLI cmd
 # ---------------------------------------------------------------------------
 
 
-class TestAeRulesSystemPrompt:
-    def test_run_cell_passes_system_prompt_for_ae_rules(self):
-        """_run_cell passes system_prompt to invoke_run for ae-rules-injected condition.
+def _make_completed_process(stdout: str = "", returncode: int = 0) -> MagicMock:
+    """Return a fake CompletedProcess for subprocess.run mocks."""
+    cp = MagicMock()
+    cp.returncode = returncode
+    cp.stdout = stdout
+    cp.stderr = ""
+    return cp
 
-        Regression test for CRITICAL-1: previously system_prompt was built but
-        never passed to invoke_run, making ae-rules-injected identical to baseline.
+
+class TestAeRulesSystemPrompt:
+    """End-to-end regression suite for CRITICAL-1.
+
+    These tests mock subprocess.run (the actual CLI invocation boundary) rather
+    than invoke_run. This proves the --append-system-prompt flag reaches the
+    subprocess cmd list - a wholesale invoke_run mock would hide any kwarg
+    mismatch between runner._run_cell and invoker.invoke_run.
+    """
+
+    def test_ae_rules_injected_appends_system_prompt_flag_to_cmd(self, tmp_path: Path):
+        """ae-rules-injected condition causes --append-system-prompt to appear in CLI cmd.
+
+        Regression test for CRITICAL-1: verifies end-to-end that the ae_payload
+        reaches the subprocess invocation, not just that invoke_run is called with
+        the right kwarg.
         """
         from runner import _run_cell
 
-        canned_result = {
-            "final_text": "Fixed.",
-            "status": "ok",
-            "cost_usd": 0.0,
-            "usage": {},
-            "latency_ms": 0,
-            "invocation_mode": "agent",
-            "tool_calls": [],
-            "turns_used": 1,
-            "_parse_warnings": [],
-        }
-
+        ae_payload = "## AE methodology rules content here"
         task_meta = {
             "problem_summary": "test bug",
             "repo_url": "https://github.com/example/repo",
             "base_commit": "abc123",
         }
-        ae_payload = "## AE methodology rules content here"
 
-        with patch("evals.runner.invoker.invoke_run", return_value=canned_result) as mock_invoke:
+        captured_cmds: list[list[str]] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return _make_completed_process(stdout="")
+
+        with patch("subprocess.run", side_effect=fake_subprocess_run):
             _run_cell(
                 task_slug="test-task",
                 task_meta=task_meta,
@@ -436,67 +448,57 @@ class TestAeRulesSystemPrompt:
                 dry_run=False,
             )
 
-        assert mock_invoke.called, "invoke_run should have been called"
-        kwargs = mock_invoke.call_args.kwargs
-        assert kwargs.get("system_prompt") == ae_payload, (
-            f"ae-rules-injected must pass ae_payload as system_prompt; "
-            f"got: {kwargs.get('system_prompt')!r}"
+        assert captured_cmds, "subprocess.run must have been called"
+        # The CLI invocation is the last captured cmd (probe_claude_cli may fire
+        # too, but we care that at least one cmd contains the flag).
+        invoke_cmd = captured_cmds[-1]
+        assert "--append-system-prompt" in invoke_cmd, (
+            f"--append-system-prompt must appear in CLI cmd; cmd was: {invoke_cmd}"
+        )
+        flag_idx = invoke_cmd.index("--append-system-prompt")
+        assert invoke_cmd[flag_idx + 1] == ae_payload, (
+            f"--append-system-prompt value must be ae_payload; "
+            f"got: {invoke_cmd[flag_idx + 1]!r}"
         )
 
-    def test_run_cell_no_system_prompt_for_baseline(self):
-        """_run_cell passes system_prompt=None to invoke_run for baseline condition."""
+    def test_baseline_has_no_append_system_prompt_flag(self, tmp_path: Path):
+        """baseline condition must NOT pass --append-system-prompt to the CLI."""
         from runner import _run_cell
 
-        canned_result = {
-            "final_text": "Fixed.",
-            "status": "ok",
-            "cost_usd": 0.0,
-            "usage": {},
-            "latency_ms": 0,
-            "invocation_mode": "agent",
-            "tool_calls": [],
-            "turns_used": 1,
-            "_parse_warnings": [],
-        }
-
+        ae_payload = "some payload"
         task_meta = {
             "problem_summary": "test bug",
             "repo_url": "https://github.com/example/repo",
             "base_commit": "abc123",
         }
 
-        with patch("evals.runner.invoker.invoke_run", return_value=canned_result) as mock_invoke:
+        captured_cmds: list[list[str]] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return _make_completed_process(stdout="")
+
+        with patch("subprocess.run", side_effect=fake_subprocess_run):
             _run_cell(
                 task_slug="test-task",
                 task_meta=task_meta,
                 condition="baseline",
                 replicate=1,
-                ae_payload="some payload",  # has a payload but condition is baseline
+                ae_payload=ae_payload,
                 dry_run=False,
             )
 
-        assert mock_invoke.called
-        kwargs = mock_invoke.call_args.kwargs
-        assert kwargs.get("system_prompt") is None, (
-            f"baseline must NOT pass system_prompt; got: {kwargs.get('system_prompt')!r}"
+        assert captured_cmds, "subprocess.run must have been called"
+        invoke_cmd = captured_cmds[-1]
+        assert "--append-system-prompt" not in invoke_cmd, (
+            f"baseline must NOT include --append-system-prompt; cmd was: {invoke_cmd}"
         )
 
-    def test_run_cell_no_system_prompt_for_agent_conditions(self):
-        """_run_cell passes system_prompt=None for all named-agent conditions."""
+    def test_agent_direct_conditions_have_no_append_system_prompt_flag(self, tmp_path: Path):
+        """All named-agent conditions (xxx-direct) must NOT pass --append-system-prompt."""
         from runner import _run_cell, _AGENT_CONDITIONS
 
-        canned_result = {
-            "final_text": "Fixed.",
-            "status": "ok",
-            "cost_usd": 0.0,
-            "usage": {},
-            "latency_ms": 0,
-            "invocation_mode": "agent",
-            "tool_calls": [],
-            "turns_used": 1,
-            "_parse_warnings": [],
-        }
-
+        ae_payload = "some payload"
         task_meta = {
             "problem_summary": "test bug",
             "repo_url": "https://github.com/example/repo",
@@ -504,19 +506,27 @@ class TestAeRulesSystemPrompt:
         }
 
         for condition in _AGENT_CONDITIONS:
-            with patch("evals.runner.invoker.invoke_run", return_value=canned_result) as mock_invoke:
+            captured_cmds: list[list[str]] = []
+
+            def fake_subprocess_run(cmd, **kwargs):
+                captured_cmds.append(list(cmd))
+                return _make_completed_process(stdout="")
+
+            with patch("subprocess.run", side_effect=fake_subprocess_run):
                 _run_cell(
                     task_slug="test-task",
                     task_meta=task_meta,
                     condition=condition,
                     replicate=1,
-                    ae_payload="some payload",
+                    ae_payload=ae_payload,
                     dry_run=False,
                 )
-            kwargs = mock_invoke.call_args.kwargs
-            assert kwargs.get("system_prompt") is None, (
-                f"condition {condition!r} must NOT pass system_prompt; "
-                f"got: {kwargs.get('system_prompt')!r}"
+
+            assert captured_cmds, f"subprocess.run must have been called for {condition}"
+            invoke_cmd = captured_cmds[-1]
+            assert "--append-system-prompt" not in invoke_cmd, (
+                f"condition {condition!r} must NOT include --append-system-prompt; "
+                f"cmd was: {invoke_cmd}"
             )
 
 
