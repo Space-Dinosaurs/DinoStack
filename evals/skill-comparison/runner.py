@@ -50,8 +50,11 @@ Tier3Docker.ensure_image() ONCE before the cell loop. Per-cell Tier3Docker(...)
 instantiations pass build_image=False. The module-level _IMAGE_DIGEST_CACHE in
 isolator.py ensures the build subprocess is never invoked more than once per
 process, even if build_image=True were passed accidentally.
-When rebuild_image=True, the cache entry for the image tag is evicted before
-ensure_image() is called, forcing a fresh docker build on the next invocation.
+When rebuild_image=True, ensure_image(force_rebuild=True) is called, which runs
+`docker rmi -f` before `docker build` to discard Docker's layer cache and force
+a fully clean rebuild. This is necessary when Dockerfile.swebench has changed
+but the locally-tagged image is stale - evicting only the in-process digest
+cache was insufficient because `docker build` would still reuse cached layers.
 
 Transcript persistence: every cell persists the engineer CLI stdout+stderr to
 <results_tsv_dir>/transcripts/<task_slug>__<condition>__rep<N>.log.  On
@@ -471,23 +474,21 @@ def run_matrix(
     if use_tier3:
         from evals.runner.isolator import (  # type: ignore[assignment]
             Tier3Docker as _Tier3Docker,
-            _DOCKER_IMAGE_TAG as _T3_IMAGE_TAG,
-            _IMAGE_DIGEST_CACHE as _T3_DIGEST_CACHE,
         )
-        # rebuild_image=True: evict the cached digest so ensure_image()
-        # forces a fresh docker build. This is explicit operator control -
-        # no surprise rebuilds on normal runs.
-        if rebuild_image and _T3_IMAGE_TAG in _T3_DIGEST_CACHE:
-            _LOG.info(
-                "Tier 3: --rebuild-image requested; evicting cached digest for %s",
-                _T3_IMAGE_TAG,
-            )
-            del _T3_DIGEST_CACHE[_T3_IMAGE_TAG]
         # Build-once-reuse: build the Docker image ONCE before the cell loop.
         # This avoids N*24 redundant docker builds (one per cell). Each per-cell
         # Tier3Docker(...) call will find the cached digest and skip the build.
+        #
+        # rebuild_image=True: pass force_rebuild=True to ensure_image() so it
+        # runs `docker rmi -f` before `docker build`. This discards Docker's
+        # layer cache for the locally-tagged image (not just the in-process
+        # digest cache), which is necessary when Dockerfile.swebench has changed
+        # and the tag still points to a stale image built from the old file.
+        # Evicting only _IMAGE_DIGEST_CACHE (the old approach) was insufficient
+        # because `docker build` would still reuse cached layers and produce an
+        # image that appeared fresh but was not.
         _LOG.info("Tier 3: ensuring image is built (one-time build before cell loop)")
-        _Tier3Docker.ensure_image()
+        _Tier3Docker.ensure_image(force_rebuild=rebuild_image)
 
     for task_slug, task_meta in tasks.items():
         for condition in active_conditions:

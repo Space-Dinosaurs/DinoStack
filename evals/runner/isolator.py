@@ -80,8 +80,11 @@ Public API: make_isolator(tier: int, **kwargs) -> Isolator,
             Tier1Worktree (context manager yielding a worktree Path),
             Tier2HomeRedirect (context manager yielding (worktree, fake_home)),
             Tier3Docker (context manager yielding a Tier3Context namedtuple),
-            Tier3Docker.ensure_image(image_tag, dockerfile, context_dir) -> str
-              (class method; build-once, returns cached digest on repeat calls),
+            Tier3Docker.ensure_image(image_tag, dockerfile, context_dir,
+                                      force_rebuild=False) -> str
+              (class method; build-once, returns cached digest on repeat calls;
+               force_rebuild=True runs docker rmi before docker build so cached
+               layers from a stale image are discarded),
             IsolatorBase abstract contract.
 
 Upstream deps: stdlib subprocess, pathlib, tempfile, shutil, uuid, os, sys,
@@ -603,6 +606,7 @@ class Tier3Docker(IsolatorBase):
         image_tag: str = _DOCKER_IMAGE_TAG,
         dockerfile: Path = _DOCKERFILE_PATH,
         context_dir: Path | None = None,
+        force_rebuild: bool = False,
     ) -> str:
         """Build the Docker image ONCE and cache the resolved digest.
 
@@ -615,6 +619,16 @@ class Tier3Docker(IsolatorBase):
             dockerfile: path to the Dockerfile (default: _DOCKERFILE_PATH).
             context_dir: Docker build context directory. Defaults to the
                          directory containing `dockerfile`.
+            force_rebuild: if True, remove the existing locally-tagged image
+                           with `docker rmi -f` before running `docker build`.
+                           This forces Docker to start from a clean slate rather
+                           than reusing cached layers, which is necessary when
+                           FROM or pip install in the Dockerfile have changed but
+                           the local tag still points to a stale image. Errors
+                           from `docker rmi` are swallowed (the image may not
+                           exist yet on the first build). The in-process
+                           _IMAGE_DIGEST_CACHE entry for `image_tag` is also
+                           evicted so the fresh digest is stored after the build.
 
         Returns:
             The resolved sha256 image digest string (also stored in the cache).
@@ -623,7 +637,7 @@ class Tier3Docker(IsolatorBase):
             RuntimeError if docker build or docker inspect fails.
             FileNotFoundError if the Dockerfile is absent.
         """
-        if image_tag in _IMAGE_DIGEST_CACHE:
+        if image_tag in _IMAGE_DIGEST_CACHE and not force_rebuild:
             _log.info("Tier 3: image %s already cached (digest %s)", image_tag, _IMAGE_DIGEST_CACHE[image_tag])
             return _IMAGE_DIGEST_CACHE[image_tag]
 
@@ -633,6 +647,20 @@ class Tier3Docker(IsolatorBase):
             )
 
         effective_context = context_dir if context_dir is not None else dockerfile.parent
+
+        if force_rebuild:
+            # Evict stale in-process cache entry so the fresh digest is stored below.
+            _IMAGE_DIGEST_CACHE.pop(image_tag, None)
+            _log.info(
+                "Tier 3: force_rebuild=True; removing existing image %s before build "
+                "(docker rmi errors are ignored if image is absent)",
+                image_tag,
+            )
+            subprocess.run(
+                ["docker", "rmi", "-f", image_tag],
+                capture_output=True,
+                check=False,  # image may not exist; errors swallowed intentionally
+            )
 
         _log.info("Tier 3: building image %s from %s (this will happen once)", image_tag, dockerfile)
         result = subprocess.run(
