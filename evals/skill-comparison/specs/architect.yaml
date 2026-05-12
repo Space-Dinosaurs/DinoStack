@@ -1,0 +1,20 @@
+# Condition: architect-direct
+#
+# Measurement: baseline vs bare two-level Task spawn of the architect agent.
+# n=3 replicates minimum.
+#
+# No AE rules payload is injected. The architect agent is invoked directly via
+# invoker.run_session(mode="agent", agent_name="architect") so that the agent's
+# own frontmatter is preserved intact. Expected strength: design-y tasks.
+
+condition: architect-direct
+agent_name: architect
+description: >
+  Architect-direct condition. Bare two-level Task spawn of the architect agent
+  against the task corpus. No AE rules payload; no stub skill. The delta vs
+  baseline measures the architect agent's isolated contribution.
+
+n_replicates: 3
+pair_with: baseline
+
+content_glob: []
