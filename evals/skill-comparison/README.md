@@ -39,18 +39,17 @@ measurement fairness" below.
 ## Production-layer disclosure
 
 The `ae-rules-injected` condition is NOT bit-identical to production
-`/agentic-engineering` activation. Explicit per-layer disclosure:
+`/agentic-engineering` activation. Explicit per-layer disclosure (reproduced
+verbatim from the Brief's "Measurement equivalence" section):
 
-| Layer | Exercised? |
-|---|---|
-| Rules-text injection into the outer conductor's system prompt (concatenated SKILL.md + sections + rules + references + commands) | YES |
-| Named-agent invocation via two-level Task spawn, frontmatter intact (per the canary) | YES |
-| Activation preflight (`~/.claude/agentic-engineering.json` mode/profile/preset resolution; AGENTS.md marker scan) | NO |
-| MEMORY.md auto-injection at session start | NO |
-| First-activation sentinel file (`.agentic/.activated`) and one-time notice | NO |
-| Stop hook writes to `.agentic/context.md` between turns | NO |
-| Per-command preflight re-checks at top of each slash-command body | NO |
-| `.agentic/` runtime state files (events.jsonl, tasks.jsonl, loop-state.json) and any behavior conditioned on their presence | NO |
+- **Exercised:** Rules-text injection into the outer conductor's system prompt (concatenated SKILL.md + sections + rules + references + commands).
+- **Exercised:** Named-agent invocation via two-level Task spawn, frontmatter intact (per the canary).
+- **NOT exercised:** Activation preflight (`~/.claude/agentic-engineering.json` mode/profile/preset resolution; AGENTS.md marker scan).
+- **NOT exercised:** MEMORY.md auto-injection at session start.
+- **NOT exercised:** First-activation sentinel file (`.agentic/.activated`) and one-time notice.
+- **NOT exercised:** Stop hook writes to `.agentic/context.md` between turns.
+- **NOT exercised:** Per-command preflight re-checks at top of each slash-command body.
+- **NOT exercised:** `.agentic/` runtime state files (events.jsonl, tasks.jsonl, loop-state.json) and any behavior conditioned on their presence.
 
 The score delta between `baseline` and `ae-rules-injected` captures the effect
 of the rules payload only; it does not capture preflight, memory injection, or
@@ -58,7 +57,32 @@ Stop hook behavior. The cost difference is part of what is measured, not a
 confounder - `ae_rules_payload.py` builds a ~143k-token system prompt (~571 KB
 raw), which is reported alongside the score.
 
-## Baseline confound and measurement fairness
+## Measurement caveats
+
+**The `baseline` vs `ae-rules-injected` comparison measures MORE than just the
+rules payload.** `baseline` runs raw Claude Code with no AE content injected.
+`ae-rules-injected` runs Claude Code with the full AE methodology text in its
+system prompt. These two conditions differ in more than just the presence of
+the rules text: the AE rules explicitly instruct the conductor to spawn
+subagents via two-level Task, apply risk classification thresholds, run Skeptic
+loops, and follow delegation protocols. This changes the runtime behavior of
+the session - the number of agent spawns, the token usage pattern, the
+wall-clock time, and the output discipline all shift. A delta between `baseline`
+and `ae-rules-injected` is therefore the **combined effect** of: (a) the rules
+payload itself as inert text, and (b) the runtime behavior the rules induce in
+the conductor. These two components cannot be separated by this eval design.
+
+The per-agent conditions (`engineer-direct`, `architect-direct`, etc.) partially
+decompose this confound. Each `-direct` condition spawns a single named agent
+via bare two-level Task with no additional system prompt, so the comparison
+`<agent>-direct` vs `baseline` isolates the agent's specific prompting from the
+orchestration layer. However, the `-direct` conditions do not sum to the
+`ae-rules-injected` condition: production AE applies orchestration logic on top
+of individual agent invocations, and that orchestration effect is measured only
+in aggregate by the methodology pair. Readers should interpret per-agent deltas
+as "does this agent's prompt produce better raw output?" and the methodology
+delta as "does the full rules payload - including its behavioral side effects -
+produce better end-to-end outcomes?"
 
 **The `baseline` condition is not methodology-free.** Any Claude Code session
 inherits the global `~/.claude/CLAUDE.md` if one is present on the runner
@@ -72,14 +96,9 @@ time, the runner must document the state of `~/.claude/CLAUDE.md` (or its
 absence) in the run header, and baseline-vs-baseline replicates (n=5 on the
 methodology pair) establish the noise floor the delta must exceed.
 
-The sensitivity check (see "Running the eval") verifies that the
+The sensitivity check (see "How to run") verifies that the
 baseline-vs-ae-rules-injected delta exceeds the baseline noise envelope on
 >=60% of in-scope tasks before the eval is considered discriminating.
-
-The per-agent conditions (`<agent>-direct`) do not inject a system prompt;
-they spawn the named agent directly via two-level Task. The comparison for
-those conditions is `<agent>-direct` vs `baseline` where neither injects any
-additional system prompt, so the confound does not apply.
 
 ## Repository layout
 
@@ -120,7 +139,9 @@ evals/skill-comparison/
 ### Dry-run (smoke test, no real Claude calls)
 
 ```bash
-python evals/skill-comparison/runner.py --dry-run
+python evals/skill-comparison/runner.py \
+  --tasks-yaml evals/skill-comparison/tasks/corpus.yaml \
+  --dry-run
 ```
 
 Validates corpus YAML, condition specs, and isolator connectivity without
@@ -130,9 +151,9 @@ spending tokens.
 
 ```bash
 python evals/skill-comparison/runner.py \
+  --tasks-yaml evals/skill-comparison/tasks/corpus.yaml \
   --conditions baseline ae-rules-injected \
-  --n 5 \
-  --sensitivity-check
+  --n-replicates-methodology 5
 ```
 
 Runs baseline twice (n=5 each) to establish the noise envelope, then runs
@@ -143,9 +164,9 @@ the envelope on >=60% of tasks. **Run this before the full corpus.**
 
 ```bash
 python evals/skill-comparison/runner.py \
-  --conditions all \
-  --n 3 \
-  --methodology-n 5
+  --tasks-yaml evals/skill-comparison/tasks/corpus.yaml \
+  --n-replicates 3 \
+  --n-replicates-methodology 5
 ```
 
 Runs all 8 conditions across the full task corpus. The methodology pair
@@ -157,15 +178,18 @@ report on breach (exit code 3).
 
 | Flag | Default | Description |
 |---|---|---|
-| `--conditions` | `all` | Comma- or space-separated list of conditions to run, or `all`. |
-| `--n` | `3` | Minimum replicate count per cell (except methodology pair). |
-| `--methodology-n` | `5` | Replicate count for `baseline` and `ae-rules-injected`. |
-| `--tier3` | enabled | Use Tier 3 Docker isolator. Pass `--no-tier3` to fall back to Tier 2 (code-review-only tasks only). |
-| `--force` | off | Re-run cells even if results already exist in the TSV. |
-| `--dry-run` | off | Validate config and connectivity; skip Claude calls. |
-| `--sensitivity-check` | off | Run baseline-noise-envelope measurement before the main run. |
-| `--tasks` | `corpus.yaml` | Path to task corpus YAML (default: `tasks/corpus.yaml`). |
-| `--output` | `results/skill-comparison.tsv` | Path to output TSV. |
+| `--tasks-yaml` | (required) | Path to task corpus YAML (e.g. `tasks/corpus.yaml`). |
+| `--results-tsv` | auto-derived | Path to output TSV ledger. Defaults to `results/skill-comparison.tsv`. |
+| `--conditions` | all conditions | Space-separated list of condition names to run (e.g. `baseline ae-rules-injected`). Omit to run all 8. |
+| `--n-replicates` | `3` | Replicate count per (task, condition) cell, except the methodology pair. |
+| `--n-replicates-methodology` | `5` | Replicate count for `baseline` and `ae-rules-injected` cells (the methodology pair noise envelope). |
+| `--tier3` | `auto` | Docker isolation mode. `auto` uses Tier 3 in production; `off` skips Docker (for dry-run / unit tests). |
+| `--force` | off | Re-run cells already present in the TSV (bypass resume skip). |
+| `--dry-run` | off | Validate config and isolator connectivity; skip all Claude calls. |
+| `--content-root` | auto-derived | Path to `content/` directory for AE-rules payload builder. |
+| `--max-usd` | `250.0` | Hard cost ceiling in USD; runner halts and emits partial report on breach (exit 3). |
+| `--max-tokens` | `75000000` | Hard token ceiling; same halt-and-partial-report behavior. |
+| `--max-wall-seconds` | `43200.0` | Hard wall-clock ceiling (12 hours); same halt behavior. |
 
 ### Aggregating results
 
@@ -178,27 +202,27 @@ per condition, and the baseline noise envelope column.
 
 ## TSV schema (`results/skill-comparison.tsv`)
 
+Columns are defined by `_TSV_HEADER` in `runner.py`. The append-only ledger
+has exactly these 16 columns, in order:
+
 | Column | Type | Description |
 |---|---|---|
-| `run_id` | string | UUID per run. |
 | `task_slug` | string | Task identifier from `corpus.yaml` (e.g. `django__django-12345`). |
-| `condition` | string | One of the 8 condition names. |
+| `condition` | string | One of the 8 condition names (e.g. `baseline`, `ae-rules-injected`). |
 | `replicate` | int | 1-indexed replicate number within the (task, condition) cell. |
-| `status` | string | `pass`, `fail`, `error`, `timeout`, `budget_exceeded`. |
-| `score_primary` | float | 1.0 if all held-out tests pass, else 0.0. |
-| `held_out_failures` | string | Comma-separated list of failing test IDs (empty on pass). |
-| `lines_touched` | int | Lines changed in the diff. |
-| `files_touched` | int | Files changed in the diff. |
-| `scope_creep_flag` | bool | True if files touched fall outside the task's known surface. |
-| `time_to_solution_sec` | float | Wall-clock seconds from start to scoring. |
-| `tool_calls` | int | Total tool calls in the session. |
-| `subagent_spawns` | int | Number of sub-agent Task spawns. |
-| `tokens_input` | int | Input tokens consumed. |
-| `tokens_output` | int | Output tokens consumed. |
-| `cost_usd` | float | Estimated cost in USD (best-effort; may be 0 if not reported). |
-| `run_ts` | string | ISO8601 UTC timestamp of the run start. |
-| `runner_sha` | string | Git SHA of the repo at run time. |
-| `condition_spec_hash` | string | SHA256 of the condition's YAML spec (for invalidation). |
+| `status` | string | Outcome of the run: `pass`, `fail`, `error`, `timeout`, or `budget_exceeded`. |
+| `pass_fail` | string | Simplified binary result: `pass` or `fail`. Derived from held-out test results. |
+| `score_primary` | float | 1.0 if all held-out tests pass, else 0.0. Primary metric for aggregate comparisons. |
+| `lines_touched` | int | Lines changed in the agent-produced diff. Diff-hygiene diagnostic. |
+| `files_touched` | int | Number of files changed in the diff. Diff-hygiene diagnostic. |
+| `scope_creep_flag` | bool | True if any file touched falls outside the task's known surface area. |
+| `held_out_failures` | string | Comma-separated list of failing held-out test IDs; empty string on full pass. |
+| `cost_usd` | float | Estimated cost in USD for this run (best-effort; may be 0.0 if not reported by the CLI). |
+| `tokens_input` | int | Input tokens consumed by the session. |
+| `tokens_output` | int | Output tokens generated by the session. |
+| `latency_ms` | int | Wall-clock milliseconds from session start to scoring completion. |
+| `invocation_mode` | string | How the condition was invoked: `conductor`, `agent-direct`, or `dry-run`. |
+| `diagnostics_json` | string | JSON blob of additional per-run diagnostics (scorer details, error traces, etc.). |
 
 ## Corpus
 
