@@ -2137,3 +2137,128 @@ tasks:
             assert ftp == [] or ftp is None or ftp == [], (
                 f"fail_to_pass must be [] when absent from task_meta, got {ftp!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# held-out-mount regression: held_out_from_fix_dir=True passed in production
+# ---------------------------------------------------------------------------
+
+
+class TestHeldOutFromFixDir:
+    """Regression test for the held-out-mount bug.
+
+    When no held_out_dir is passed to Tier3Docker, __enter__ used to create an
+    empty tmpdir for /scoring/tests. pytest inside the score container found no
+    tests and exited with 'file or directory not found'.
+
+    Fix: runner passes held_out_from_fix_dir=True so Tier3Docker sets
+    held_out_dir = fix_phase_dir at __enter__ time, where seed_fix_phase has
+    placed the test files.
+    """
+
+    _MINIMAL_CORPUS_YAML = """\
+freeze_metadata:
+  freeze_date: "2026-05-12"
+tasks:
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "d5276398046ce4a102776a1e67dcac2884d80dfe"
+    held_out_tests:
+      - "tests/migrations/test_commands.py"
+    fail_to_pass:
+      - "test_sqlmigrate_for_non_transactional_databases"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/core/management/commands/sqlmigrate.py"
+    problem_summary: >
+      sqlmigrate wraps output in BEGIN/COMMIT even when the database does not
+      support transactional DDL.
+"""
+
+    def test_runner_passes_held_out_from_fix_dir_true_in_production(
+        self, tmp_path: Path
+    ):
+        """run_matrix passes held_out_from_fix_dir=True when tier3_mode='auto'.
+
+        Regression test for held-out-mount bug: previously Tier3Docker was
+        instantiated without held_out_from_fix_dir, so __enter__ created an
+        empty tmpdir for /scoring/tests - pytest found no tests and exited with
+        'file or directory not found'. This test captures the kwargs passed to
+        Tier3Docker.__init__ and asserts held_out_from_fix_dir=True is present.
+        """
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Context
+        import json as _json, subprocess as _sp
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(self._MINIMAL_CORPUS_YAML, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        canned_invoker = {
+            "final_text": "Fixed.",
+            "status": "ok",
+            "cost_usd": 0.0,
+            "usage": {},
+            "latency_ms": 0,
+            "invocation_mode": "agent",
+            "tool_calls": [],
+            "turns_used": 1,
+            "_parse_warnings": [],
+            "stderr_tail": "",
+        }
+        canned_cp = _sp.CompletedProcess(
+            args=[], returncode=0,
+            stdout=_json.dumps(canned_invoker), stderr="",
+        )
+
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "fix",  # same dir, as held_out_from_fix_dir would set
+            image_tag="ae-eval-swebench:latest",
+            image_digest="sha256:abc123",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+
+        captured_init_kwargs: list[dict] = []
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+
+        def capturing_tier3_cls(*args, **kwargs):
+            captured_init_kwargs.append(kwargs)
+            return mock_tier3_instance
+
+        mock_tier3_cls = MagicMock(side_effect=capturing_tier3_cls)
+        mock_tier3_cls.ensure_image = MagicMock(return_value="sha256:abc123")
+        mock_tier3_cls.run_fix_phase = MagicMock(return_value=canned_cp)
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        assert captured_init_kwargs, "Tier3Docker must have been instantiated"
+        for kwargs in captured_init_kwargs:
+            assert kwargs.get("held_out_from_fix_dir") is True, (
+                f"Tier3Docker must be instantiated with held_out_from_fix_dir=True; "
+                f"got kwargs={kwargs!r}. "
+                "held-out-mount regression: without this flag, __enter__ creates an "
+                "empty tmpdir for /scoring/tests and pytest finds no test files."
+            )
