@@ -89,6 +89,9 @@ def _extract_gates_from_text(text: str) -> dict:
         (r"typecheck[:\s]+fail", "typecheck", False),
         (r"test[s]?[:\s]+pass", "tests", True),
         (r"test[s]?[:\s]+fail", "tests", False),
+        # Path-qualified test signals (e.g. "tests/test_apply.py pass")
+        (r"tests/[^\s]+\s+pass", "tests", True),
+        (r"tests/[^\s]+\s+fail", "tests", False),
         (r"✓\s*lint", "lint", True),
         (r"✗\s*lint", "lint", False),
     ]

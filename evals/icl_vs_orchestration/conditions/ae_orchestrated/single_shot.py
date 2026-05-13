@@ -292,21 +292,43 @@ def make_ae_condition(ae_spec_path: Path) -> AEOrchestratedSingleShot:
 def _extract_diff(text: str) -> str | None:
     """Heuristically extract a unified diff from text output."""
     import re
-    # Look for a diff block (```diff ... ``` or raw unified diff header)
-    code_block = re.search(r"```diff\n(.*?)```", text, re.DOTALL)
-    if code_block:
-        return code_block.group(1).strip()
-    # Look for unified diff header
-    raw = re.search(r"((?:--- .+\n\+\+\+ .+\n(?:@@ .+@@.*\n)?(?:[-+ ].+\n?)*)+)", text)
-    if raw:
-        return raw.group(1).strip()
+
+    # Find all ```diff blocks and concatenate them
+    code_blocks = re.findall(r"```diff\n(.*?)```", text, re.DOTALL)
+    if code_blocks:
+        return "\n\n".join(block.strip() for block in code_blocks)
+
+    # Fallback: find all raw unified diff file sections.
+    # Each section starts with --- and +++ on consecutive lines.
+    sections = []
+    for m in re.finditer(r"--- [^\n]+\n\+\+\+ [^\n]+", text):
+        start = m.start()
+        rest = text[start + 1:]
+        next_m = re.search(r"\n--- [^\n]+\n\+\+\+ [^\n]+", rest)
+        if next_m:
+            end = start + 1 + next_m.start()
+        else:
+            end = len(text)
+        sections.append(text[start:end].strip())
+
+    if sections:
+        return "\n\n".join(sections)
+
     return None
 
 
 def _infer_files_touched(diff: str | None) -> list[str]:
-    """Extract file paths from a unified diff."""
+    """Extract file paths from a unified diff or git diff --stat output."""
     if not diff:
         return []
     import re
-    files = re.findall(r"^\+\+\+ b/(.+)$", diff, re.MULTILINE)
+
+    files = []
+    # Standard unified diff: +++ b/<path>
+    files.extend(re.findall(r"^\+\+\+ b/(.+)$", diff, re.MULTILINE))
+
+    # git diff --stat format: "  path/to/file | 10 +++"
+    stat_files = re.findall(r"^\s+(\S.*?)\s*\|", diff, re.MULTILINE)
+    files.extend(f.strip() for f in stat_files)
+
     return list(dict.fromkeys(files))  # deduplicate, preserve order
