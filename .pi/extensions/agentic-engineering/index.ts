@@ -27,6 +27,18 @@ function sessionIdFromContext(ctx: any): string | null {
   }
 }
 
+function transcriptFromContext(ctx: any): any[] {
+  try {
+    const entries = ctx?.sessionManager?.getEntries?.();
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .filter((entry) => entry?.type === "message" && entry?.message)
+      .map((entry) => entry.message);
+  } catch {
+    return [];
+  }
+}
+
 export default function agenticEngineeringPiExtension(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => {
     const prompt = String(event.prompt ?? "").toLowerCase();
@@ -49,7 +61,7 @@ export default function agenticEngineeringPiExtension(pi: ExtensionAPI) {
     const payload = {
       cwd,
       session_id: sessionIdFromContext(ctx),
-      transcript: [],
+      transcript: transcriptFromContext(ctx),
     };
 
     spawnSync(process.execPath, [stopContextScript], {

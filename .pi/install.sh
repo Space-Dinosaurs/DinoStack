@@ -90,7 +90,7 @@ fi
 write_config "$mode" "$profile"
 echo "  + activation config written to $AE_CONFIG_PATH (mode=$mode, profile=$profile)"
 
-PI_HOME="$HOME/.pi/agent"
+PI_HOME="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 SKILL_SRC="$REPO_DIR/.pi/skills/agentic-engineering"
 SKILL_DST="$PI_HOME/skills/agentic-engineering"
 PROMPT_SRC="$REPO_DIR/.pi/prompts"

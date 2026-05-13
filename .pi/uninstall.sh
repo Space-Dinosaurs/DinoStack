@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PI_HOME="$HOME/.pi/agent"
+PI_HOME="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 SKILL_DST="$PI_HOME/skills/agentic-engineering"
 PROMPT_DST="$PI_HOME/prompts"
 EXT_DST="$PI_HOME/extensions/agentic-engineering"
