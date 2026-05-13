@@ -1086,6 +1086,15 @@ git branch -d <branch-name>
 
 **Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. No worktree coordination is needed between sessions at the conductor level.
 
+## Context Economy
+
+Agents must be mindful of context-window consumption. Large outputs increase latency, burn tokens, and can push the session toward truncation. Follow these rules:
+
+- **Do not duplicate file contents in prose.** Reference files by path. The reader can use ReadFile if they need the full text.
+- **Keep diffs minimal.** Use standard unified diff format with 3 lines of context per hunk. Do not paste entire files when only a few lines changed.
+- **Do not paste tool output verbatim** unless specifically asked or unless the output is short (<20 lines). Summarize command results: "`pytest` passes (42 tests, 0 failures)" rather than dumping the full test log.
+- **Structured blocks over prose.** Prefer the JSON structured block for machine-readable data (file lists, gate results) and keep prose for human-readable narrative only.
+
 Multi-developer coordination guidance lives in `content/references/multi-developer-coordination.md`.
 
 ---

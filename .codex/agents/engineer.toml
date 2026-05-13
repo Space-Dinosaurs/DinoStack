@@ -127,7 +127,7 @@ After the structured block, return a plain-text summary covering:
 
 - **What was changed** - files modified or created, and what each change does
 - **Why** - brief rationale for any non-obvious decisions made during implementation
-- **Quality gates** - which commands you ran and their actual output (pass/fail, any output worth noting)
+- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`.
 - **Out of scope** - anything the prompt implied but you deliberately did not do, and why
 - **Blockers or open questions** - anything that needs human input or a follow-up decision
 
@@ -143,6 +143,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
 - **Never commit or push.** Implement and report. The orchestrator handles version control.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
+- **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
 - **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
 """
