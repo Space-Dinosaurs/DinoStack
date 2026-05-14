@@ -1,0 +1,38 @@
+id: long-session-001
+description: Database choice decision retention across unrelated tickets
+turns:
+  - turn: 1
+    role: user
+    content: "Let's work on ticket #42."
+  - turn: 2
+    role: conductor
+    content: "Got it. Let me read the ticket."
+  - turn: 3
+    role: user
+    content: "For this ticket, we decided to use PostgreSQL, not SQLite."
+  - turn: 4
+    role: conductor
+    content: "Noted. I'll plan the migration for PostgreSQL."
+  - turn: 5
+    role: user
+    content: "Actually, while you're here, can you review ticket #50? It's about updating the README."
+  - turn: 6
+    role: conductor
+    content: "Sure, let me look at ticket #50."
+  - turn: 7
+    role: user
+    content: "Also, what's the status of the CI pipeline?"
+  - turn: 8
+    role: conductor
+    content: "The CI pipeline is green on main."
+  - turn: 9
+    role: user
+    content: "Great. And can you fix the linting errors in PR #77?"
+  - turn: 10
+    role: user
+    content: "Now implement the migration for ticket #42."
+decision:
+  turn: 3
+  constraint: "Use PostgreSQL, not SQLite"
+  expected_references: ["PostgreSQL", "postgres"]
+  forbidden_references: ["SQLite", "sqlite"]
