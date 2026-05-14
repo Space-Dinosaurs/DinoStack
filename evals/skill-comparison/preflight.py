@@ -157,17 +157,41 @@ def check_task(
     tier3_ctx = None
     non_tier3_fix_dir: Optional[Path] = None
 
+    # Derive image tag from per-task dockerfile (same logic as runner.py).
+    # Resolve tasks_root so the path computation works regardless of whether
+    # tasks_root is relative (e.g. "tasks/" -> "." parent) or absolute.
+    _dockerfile_dir = tasks_root.resolve().parent.parent / "runner"
+    _default_image_tag = "ae-eval-swebench:latest"
+
+    def _derive_image_tag(dockerfile_name: str) -> str:
+        if dockerfile_name == "Dockerfile.swebench":
+            return _default_image_tag
+        prefix = "Dockerfile.swebench-"
+        if dockerfile_name.startswith(prefix):
+            suffix = dockerfile_name[len(prefix):]
+            return f"ae-eval-swebench:{suffix}"
+        return f"ae-eval-swebench:{dockerfile_name.replace('.', '-')}"
+
+    dockerfile_name = task_meta.get("dockerfile", "Dockerfile.swebench")
+    image_tag = _derive_image_tag(dockerfile_name)
+
     try:
         if tier3:
             from evals.runner.isolator import Tier3Docker
 
-            Tier3Docker.ensure_image(force_rebuild=rebuild_image)
+            dockerfile_path = _dockerfile_dir / dockerfile_name
+            Tier3Docker.ensure_image(
+                image_tag=image_tag,
+                dockerfile=dockerfile_path,
+                force_rebuild=rebuild_image,
+            )
             tier3_instance = Tier3Docker(
                 fixture_repo_dir=None,
                 held_out_dir=None,
                 build_image=False,
                 timeout_seconds=timeout * 2,
                 held_out_from_fix_dir=True,
+                image_tag=image_tag,
             )
             tier3_ctx = tier3_instance.__enter__()
             fix_dir = tier3_ctx.fix_phase_dir
@@ -200,6 +224,44 @@ def check_task(
                 seed_error=str(exc),
                 diagnostics={"error_type": type(exc).__name__},
             )
+
+        # Post-seed commands (e.g. C-extension builds).
+        # In Tier3 mode, commands run inside the container so cross-platform
+        # builds work; in non-Tier3 mode they run on the host.
+        _post_seed_cmds = task_meta.get("post_seed_commands")
+        if _post_seed_cmds:
+            for _cmd in _post_seed_cmds:
+                _LOG.info("Preflight post-seed command for %s: %s", task_slug, _cmd)
+                if tier3_ctx is not None:
+                    _ps_result = Tier3Docker.run_fix_phase(
+                        ctx=tier3_ctx,
+                        command=["sh", "-c", _cmd],
+                        timeout_seconds=300,
+                    )
+                else:
+                    _ps_result = subprocess.run(
+                        _cmd,
+                        shell=True,
+                        cwd=fix_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                    )
+                if _ps_result.returncode != 0:
+                    _LOG.error(
+                        "Preflight post-seed command failed for %s: %s\nstderr: %s",
+                        task_slug, _cmd, _ps_result.stderr,
+                    )
+                    return PreflightResult(
+                        task_slug=task_slug,
+                        status="seed_error",
+                        seed_error=f"post_seed_command failed: {_cmd}",
+                        diagnostics={
+                            "cmd": _cmd,
+                            "stderr": _ps_result.stderr[:500],
+                            "returncode": _ps_result.returncode,
+                        },
+                    )
 
         # Run held-out pytest against the unmodified base commit.
         fail_to_pass = task_meta.get("fail_to_pass") or []
@@ -355,7 +417,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     corpus = yaml.safe_load(args.tasks_yaml.read_text(encoding="utf-8"))
     tasks = corpus.get("tasks", {})
-    tasks_root = args.tasks_yaml.parent
+    tasks_root = args.tasks_yaml.parent.resolve()
 
     task_slugs = args.tasks if args.tasks else list(tasks.keys())
 

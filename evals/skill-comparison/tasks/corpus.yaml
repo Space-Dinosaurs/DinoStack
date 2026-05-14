@@ -204,6 +204,9 @@ tasks:
     problem_summary: >
       separability_matrix computes incorrect results for nested CompoundModels;
       the _cstack helper assigns 1 instead of the right submatrix block.
+    dockerfile: "Dockerfile.swebench-py310"
+    post_seed_commands:
+      - "python setup.py build_ext --inplace"
 
   pylint-7080:
     swebench_instance_id: "pylint-dev__pylint-7080"
@@ -281,6 +284,7 @@ tasks:
       autosummary includes imported members in the members template variable
       even when autosummary_imported_members is False, polluting generated
       API docs with symbols from re-exported modules.
+    dockerfile: "Dockerfile.swebench-py310"
 
   sklearn-10297:
     swebench_instance_id: "scikit-learn__scikit-learn-10297"
@@ -298,6 +302,9 @@ tasks:
       RidgeClassifierCV raises an error when store_cv_values=True is passed
       because the parameter exists in the docstring but is not implemented
       in the underlying fit logic.
+    dockerfile: "Dockerfile.swebench-py310"
+    post_seed_commands:
+      - "python setup.py build_ext --inplace"
 
   # -----------------------------------------------------------------------
   # DESIGN-Y tasks (1 task, ~8%)
