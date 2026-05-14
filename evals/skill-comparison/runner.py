@@ -79,6 +79,7 @@ import csv
 import json
 import logging
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -475,20 +476,47 @@ def run_matrix(
         from evals.runner.isolator import (  # type: ignore[assignment]
             Tier3Docker as _Tier3Docker,
         )
-        # Build-once-reuse: build the Docker image ONCE before the cell loop.
-        # This avoids N*24 redundant docker builds (one per cell). Each per-cell
-        # Tier3Docker(...) call will find the cached digest and skip the build.
-        #
-        # rebuild_image=True: pass force_rebuild=True to ensure_image() so it
-        # runs `docker rmi -f` before `docker build`. This discards Docker's
-        # layer cache for the locally-tagged image (not just the in-process
-        # digest cache), which is necessary when Dockerfile.swebench has changed
-        # and the tag still points to a stale image built from the old file.
-        # Evicting only _IMAGE_DIGEST_CACHE (the old approach) was insufficient
-        # because `docker build` would still reuse cached layers and produce an
-        # image that appeared fresh but was not.
-        _LOG.info("Tier 3: ensuring image is built (one-time build before cell loop)")
-        _Tier3Docker.ensure_image(force_rebuild=rebuild_image)
+
+    # Per-task dockerfile routing.
+    # Collect unique dockerfiles from active tasks and ensure each image is
+    # built once before the cell loop.  Default dockerfile uses the standard
+    # tag; custom dockerfiles derive their tag from the filename.
+    _dockerfile_dir = Path(__file__).resolve().parent.parent.parent / "evals" / "runner"
+    _default_image_tag = "ae-eval-swebench:latest"
+
+    def _derive_image_tag(dockerfile_name: str) -> str:
+        """Map Dockerfile.swebench-<suffix> -> ae-eval-swebench:<suffix>."""
+        if dockerfile_name == "Dockerfile.swebench":
+            return _default_image_tag
+        prefix = "Dockerfile.swebench-"
+        if dockerfile_name.startswith(prefix):
+            suffix = dockerfile_name[len(prefix):]
+            return f"ae-eval-swebench:{suffix}"
+        # Fallback for unexpected filenames.
+        return f"ae-eval-swebench:{dockerfile_name.replace('.', '-')}"
+
+    _task_image_tags: dict[str, str] = {}  # task_slug -> image_tag
+    if use_tier3:
+        assert _Tier3Docker is not None
+        unique_dockerfiles: dict[str, str] = {}  # dockerfile_name -> image_tag
+        for task_slug, task_meta in tasks.items():
+            dockerfile_name = task_meta.get("dockerfile", "Dockerfile.swebench")
+            image_tag = _derive_image_tag(dockerfile_name)
+            _task_image_tags[task_slug] = image_tag
+            unique_dockerfiles[dockerfile_name] = image_tag
+
+        for dockerfile_name, image_tag in unique_dockerfiles.items():
+            dockerfile_path = _dockerfile_dir / dockerfile_name
+            _LOG.info(
+                "Tier 3: ensuring image %s from %s (one-time build before cell loop)",
+                image_tag,
+                dockerfile_path,
+            )
+            _Tier3Docker.ensure_image(
+                image_tag=image_tag,
+                dockerfile=dockerfile_path,
+                force_rebuild=rebuild_image,
+            )
 
     for task_slug, task_meta in tasks.items():
         for condition in active_conditions:
@@ -548,12 +576,16 @@ def run_matrix(
                     # provides a held_out_path (pre-seeded corpus files),
                     # held_out_from_fix_dir takes precedence so the
                     # post-seeding test files are used for scoring.
+                    _cell_image_tag = _task_image_tags.get(
+                        task_slug, _default_image_tag
+                    )
                     _tier3_instance = _Tier3Docker(
                         fixture_repo_dir=None,  # base repo seeded externally
                         held_out_dir=held_out_path,
                         build_image=False,  # image already built once by ensure_image() above
                         timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
                         held_out_from_fix_dir=True,
+                        image_tag=_cell_image_tag,
                     )
                     tier3_ctx = _tier3_instance.__enter__()
 
@@ -598,6 +630,48 @@ def run_matrix(
                                 cell_id, rep, seed_exc,
                             )
                             _seed_status = "seed_error"
+
+                    # Post-seed commands: run after successful seeding and before
+                    # the engineer spawn.  If any command fails, treat it as a
+                    # seed_error so the cell is skipped.
+                    #
+                    # When Tier3 is active, commands run INSIDE the container
+                    # (via run_fix_phase command path) so C-extension builds
+                    # produce Linux-compatible binaries even when the host is
+                    # macOS.  The container mounts fix_worktree rw, so in-place
+                    # builds write .so files back to the host directory.
+                    # When Tier3 is off, commands run directly on the host.
+                    if _seed_status is None and not dry_run:
+                        _post_seed_cmds = task_meta.get("post_seed_commands")
+                        if _post_seed_cmds and fix_worktree is not None:
+                            for _cmd in _post_seed_cmds:
+                                _LOG.info(
+                                    "Running post-seed command for %s: %s",
+                                    cell_id, _cmd,
+                                )
+                                if tier3_ctx is not None and _Tier3Docker is not None:
+                                    _ps_result = _Tier3Docker.run_fix_phase(
+                                        ctx=tier3_ctx,
+                                        command=["sh", "-c", _cmd],
+                                        timeout_seconds=300,
+                                    )
+                                else:
+                                    _ps_result = subprocess.run(
+                                        _cmd,
+                                        shell=True,
+                                        cwd=fix_worktree,
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=300,
+                                    )
+                                if _ps_result.returncode != 0:
+                                    _LOG.error(
+                                        "Post-seed command failed for %s rep %d: %s\nstderr: %s",
+                                        cell_id, rep, _cmd,
+                                        _ps_result.stderr,
+                                    )
+                                    _seed_status = "seed_error"
+                                    break
 
                     # If seeding failed, record seed_error row and skip engineer.
                     if _seed_status == "seed_error":

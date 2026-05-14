@@ -2262,3 +2262,356 @@ tasks:
                 "held-out-mount regression: without this flag, __enter__ creates an "
                 "empty tmpdir for /scoring/tests and pytest finds no test files."
             )
+
+
+# ---------------------------------------------------------------------------
+# Per-task dockerfile routing
+# ---------------------------------------------------------------------------
+
+
+_CORPUS_WITH_CUSTOM_DOCKERFILE = """\
+freeze_metadata:
+  freeze_date: "2026-05-12"
+tasks:
+  django-11039:
+    swebench_instance_id: "django__django-11039"
+    repo_url: "https://github.com/django/django"
+    base_commit: "d5276398046ce4a102776a1e67dcac2884d80dfe"
+    held_out_tests:
+      - "tests/migrations/test_commands.py"
+    fail_to_pass:
+      - "test_sqlmigrate_for_non_transactional_databases"
+    estimated_test_seconds: 30
+    difficulty: single-file
+    known_affected_files:
+      - "django/core/management/commands/sqlmigrate.py"
+    problem_summary: Bug in sqlmigrate.
+  astropy-12907:
+    swebench_instance_id: "astropy__astropy-12907"
+    repo_url: "https://github.com/astropy/astropy"
+    base_commit: "d16bfe05a744909de4b27f5875fe0d4ed41ce607"
+    held_out_tests:
+      - "astropy/modeling/tests/test_separable.py"
+    fail_to_pass:
+      - "test_separable"
+    estimated_test_seconds: 25
+    difficulty: single-file
+    known_affected_files:
+      - "astropy/modeling/separable.py"
+    problem_summary: Bug in separability.
+    dockerfile: "Dockerfile.swebench-py310"
+"""
+
+
+class TestPerTaskDockerfileRouting:
+    """Tests for per-task dockerfile selection and image_tag derivation."""
+
+    def test_ensure_image_called_with_custom_dockerfile(self, tmp_path: Path):
+        """Tasks with a custom dockerfile trigger ensure_image with the right params."""
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Context
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(_CORPUS_WITH_CUSTOM_DOCKERFILE, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        canned_cp = _make_completed_process(stdout="")
+
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "fix",
+            image_tag="ae-eval-swebench:py310",
+            image_digest="sha256:abc123",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+
+        ensure_image_calls: list[dict] = []
+
+        def fake_ensure_image(*, image_tag, dockerfile, force_rebuild=False):
+            ensure_image_calls.append({
+                "image_tag": image_tag,
+                "dockerfile_name": dockerfile.name,
+                "force_rebuild": force_rebuild,
+            })
+            return "sha256:abc123"
+
+        mock_tier3_cls = MagicMock(return_value=mock_tier3_instance)
+        mock_tier3_cls.ensure_image = MagicMock(side_effect=fake_ensure_image)
+        mock_tier3_cls.run_fix_phase = MagicMock(return_value=canned_cp)
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        # Two unique dockerfiles in the corpus -> two ensure_image calls.
+        assert len(ensure_image_calls) == 2, (
+            f"Expected 2 ensure_image calls (one per unique dockerfile), got {ensure_image_calls}"
+        )
+
+        tags = {c["image_tag"] for c in ensure_image_calls}
+        assert tags == {"ae-eval-swebench:latest", "ae-eval-swebench:py310"}, (
+            f"Expected both default and py310 tags; got {tags}"
+        )
+
+        # Verify the custom dockerfile call used the correct filename.
+        py310_calls = [c for c in ensure_image_calls if c["image_tag"] == "ae-eval-swebench:py310"]
+        assert len(py310_calls) == 1
+        assert py310_calls[0]["dockerfile_name"] == "Dockerfile.swebench-py310"
+
+    def test_tier3_init_uses_derived_image_tag(self, tmp_path: Path):
+        """Per-cell Tier3Docker is instantiated with the task's derived image_tag."""
+        from scoring import ScoringResult
+        from evals.runner.isolator import Tier3Context
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(_CORPUS_WITH_CUSTOM_DOCKERFILE, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+        canned_cp = _make_completed_process(stdout="")
+
+        mock_ctx = Tier3Context(
+            fix_phase_dir=tmp_path / "fix",
+            held_out_dir=tmp_path / "fix",
+            image_tag="ae-eval-swebench:py310",
+            image_digest="sha256:abc123",
+        )
+        (tmp_path / "fix").mkdir(parents=True, exist_ok=True)
+
+        captured_init_kwargs: list[dict] = []
+
+        mock_tier3_instance = MagicMock()
+        mock_tier3_instance.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_tier3_instance.__exit__ = MagicMock(return_value=None)
+
+        def capturing_tier3_cls(*args, **kwargs):
+            captured_init_kwargs.append(kwargs)
+            return mock_tier3_instance
+
+        mock_tier3_cls = MagicMock(side_effect=capturing_tier3_cls)
+        mock_tier3_cls.ensure_image = MagicMock(return_value="sha256:abc123")
+        mock_tier3_cls.run_fix_phase = MagicMock(return_value=canned_cp)
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner.seed_fix_phase"),
+            patch("evals.runner.isolator.Tier3Docker", mock_tier3_cls),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="auto",
+                tasks_filter=["astropy-12907"],
+            )
+
+        assert len(captured_init_kwargs) == 1, (
+            f"Expected 1 Tier3Docker init, got {len(captured_init_kwargs)}"
+        )
+        assert captured_init_kwargs[0].get("image_tag") == "ae-eval-swebench:py310", (
+            f"astropy-12907 must use py310 image tag; got {captured_init_kwargs[0]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Post-seed command execution
+# ---------------------------------------------------------------------------
+
+
+class TestPostSeedCommands:
+    """Tests for post_seed_commands execution and failure handling."""
+
+    def test_post_seed_command_runs_after_seeding(self, tmp_path: Path):
+        """post_seed_commands are executed after seed_fix_phase succeeds."""
+        from scoring import ScoringResult
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(_MINIMAL_CORPUS_YAML, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        # Inject a post_seed_commands into the task meta by patching _load_tasks
+        modified_tasks = {
+            "django-11039": {
+                "swebench_instance_id": "django__django-11039",
+                "repo_url": "https://github.com/django/django",
+                "base_commit": "d5276398046ce4a102776a1e67dcac2884d80dfe",
+                "held_out_tests": ["tests/migrations/test_commands.py"],
+                "fail_to_pass": ["test_sqlmigrate_for_non_transactional_databases"],
+                "estimated_test_seconds": 30,
+                "difficulty": "single-file",
+                "known_affected_files": ["django/core/management/commands/sqlmigrate.py"],
+                "problem_summary": "Bug in sqlmigrate.",
+                "post_seed_commands": ["echo 'post-seed-ok'"],
+            }
+        }
+
+        run_commands: list[str] = []
+
+        def fake_subprocess_run(cmd, *, shell=False, cwd=None, **kwargs):
+            if shell and cmd == "echo 'post-seed-ok'":
+                run_commands.append(cmd)
+                return _make_completed_process(stdout="post-seed-ok\n")
+            return _make_completed_process(stdout="")
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner._load_tasks", return_value=modified_tasks),
+            patch("subprocess.run", side_effect=fake_subprocess_run),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="off",
+            )
+
+        assert run_commands == ["echo 'post-seed-ok'"], (
+            f"post_seed_command must run after seeding; got {run_commands}"
+        )
+
+    def test_post_seed_command_failure_becomes_seed_error(self, tmp_path: Path):
+        """If a post_seed_command fails, the cell records status='seed_error'."""
+        from scoring import ScoringResult
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(_MINIMAL_CORPUS_YAML, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        modified_tasks = {
+            "django-11039": {
+                "swebench_instance_id": "django__django-11039",
+                "repo_url": "https://github.com/django/django",
+                "base_commit": "d5276398046ce4a102776a1e67dcac2884d80dfe",
+                "held_out_tests": ["tests/migrations/test_commands.py"],
+                "fail_to_pass": ["test_sqlmigrate_for_non_transactional_databases"],
+                "estimated_test_seconds": 30,
+                "difficulty": "single-file",
+                "known_affected_files": ["django/core/management/commands/sqlmigrate.py"],
+                "problem_summary": "Bug in sqlmigrate.",
+                "post_seed_commands": ["exit 1"],
+            }
+        }
+
+        def fake_subprocess_run(cmd, *, shell=False, cwd=None, **kwargs):
+            if shell and cmd == "exit 1":
+                cp = _make_completed_process(stdout="")
+                cp.returncode = 1
+                cp.stderr = "intentional failure"
+                return cp
+            return _make_completed_process(stdout="")
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner._load_tasks", return_value=modified_tasks),
+            patch("subprocess.run", side_effect=fake_subprocess_run),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=False,
+                conditions=["baseline"],
+                tier3_mode="off",
+            )
+
+        rows = _read_tsv(results_tsv)
+        assert len(rows) == 1
+        assert rows[0]["status"] == "seed_error", (
+            f"Expected status='seed_error' when post_seed_command fails; got {rows[0]['status']!r}"
+        )
+        assert rows[0]["score_primary"] == "", (
+            "seed_error rows must have empty score_primary"
+        )
+
+    def test_post_seed_commands_not_run_on_dry_run(self, tmp_path: Path):
+        """post_seed_commands are skipped in dry_run mode."""
+        from scoring import ScoringResult
+
+        corpus_yaml = tmp_path / "corpus.yaml"
+        corpus_yaml.write_text(_MINIMAL_CORPUS_YAML, encoding="utf-8")
+        results_tsv = tmp_path / "results.tsv"
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        modified_tasks = {
+            "django-11039": {
+                "swebench_instance_id": "django__django-11039",
+                "repo_url": "https://github.com/django/django",
+                "base_commit": "d5276398046ce4a102776a1e67dcac2884d80dfe",
+                "held_out_tests": ["tests/migrations/test_commands.py"],
+                "fail_to_pass": ["test_sqlmigrate_for_non_transactional_databases"],
+                "estimated_test_seconds": 30,
+                "difficulty": "single-file",
+                "known_affected_files": ["django/core/management/commands/sqlmigrate.py"],
+                "problem_summary": "Bug in sqlmigrate.",
+                "post_seed_commands": ["echo 'should-not-run'"],
+            }
+        }
+
+        run_commands: list[str] = []
+
+        def fake_subprocess_run(cmd, *, shell=False, cwd=None, **kwargs):
+            if shell:
+                run_commands.append(cmd)
+            return _make_completed_process(stdout="")
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("runner._load_tasks", return_value=modified_tasks),
+            patch("subprocess.run", side_effect=fake_subprocess_run),
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                conditions=["baseline"],
+                tier3_mode="auto",
+            )
+
+        assert run_commands == [], (
+            f"post_seed_commands must NOT run in dry_run mode; got {run_commands}"
+        )
