@@ -232,6 +232,33 @@ function writeSessionTotal(cwd, sessionId) {
   }
 }
 
+/**
+ * Remove the learnings-agent session marker if it belongs to the current session.
+ * Silent failure: any error is swallowed.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string|null} sessionId - Current session uuid from the Stop payload.
+ */
+function removeLearningsAgentSession(cwd, sessionId) {
+  // Reject cwd values with traversal components before any path join.
+  const resolvedCwd = path.resolve(cwd);
+  if (resolvedCwd !== cwd) {
+    return;
+  }
+
+  try {
+    const markerPath = path.join(cwd, '.agentic', 'learnings-agent.session');
+    if (!fs.existsSync(markerPath)) return;
+    const raw = fs.readFileSync(markerPath, 'utf8');
+    const marker = JSON.parse(raw);
+    if (typeof marker.session_id === 'string' && marker.session_id === sessionId) {
+      fs.unlinkSync(markerPath);
+    }
+  } catch (_) {
+    // Silent failure
+  }
+}
+
 function run() {
   // --- 1. Read stdin ---
   let raw = '';
@@ -456,6 +483,7 @@ ${toolsLine}
       writeBatchState(cwd, sessionId);
       // Write session_total to events.jsonl on this exit path too.
       writeSessionTotal(cwd, sessionId);
+      removeLearningsAgentSession(cwd, sessionId);
       process.exit(0);
     }
   } catch (_) {
@@ -483,6 +511,9 @@ ${toolsLine}
   // --- 12. Append session_total event to .agentic/events.jsonl if present ---
   // Independent best-effort write; any failure swallowed.
   writeSessionTotal(cwd, sessionId);
+
+  // --- 13. Remove learnings-agent session marker if owned by this session ---
+  removeLearningsAgentSession(cwd, sessionId);
 
   process.exit(0);
 }
