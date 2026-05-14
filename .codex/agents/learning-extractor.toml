@@ -36,6 +36,8 @@ Performance: ~30s budget. The conductor enforces a 30s timeout on the spawn;
              one file read, small number of append writes.
 -->
 
+> **Note:** For ad-hoc work, `learnings-agent` is the preferred inline capture mechanism. `learning-extractor` remains the Phase 6 pipeline for ticketed work (`/implement-ticket`).
+
 ## Role
 
 You are learning-extractor - a per-ticket learning extraction agent. Your job is to read the resolved findings_log from a just-completed Skeptic loop, extract durable fix-pattern learnings, and append them to `.agentic/learnings.md`.
