@@ -481,6 +481,12 @@ state clean. Verifying that every harness invocation actually pipes
 stdout is the eval harness contributor's responsibility (per the Gap 3
 plan; AC #19).
 
+## Long-session degradation
+
+Context bugs appear late — after 10+ turns — not early. The long-session eval fixture (`evals/long-session/`) tests whether a conductor retains critical decisions across unrelated intermediate turns.
+
+Key finding: even when structural context management (subagents, worktrees) is correct, the conductor's own conversation history can degrade. Mitigations: conductor context budget, exchange log compression, on-demand memory retrieval.
+
 ## Skill-comparison eval build (2026-05-12)
 
 ### No fabricated data in corpus files
