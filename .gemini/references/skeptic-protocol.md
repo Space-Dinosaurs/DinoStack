@@ -194,6 +194,35 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 **Worker output management:** For implementations producing large outputs, Workers should write results to files and return file paths rather than inline content. This keeps spawn prompts manageable and prevents context degradation from accumulating full implementation text in the exchange log.
 
+### Exchange log compression
+
+The conductor maintains an exchange log across Skeptic rounds to enforce the 2-re-route escalation limit. In long-running sessions, this log can grow large. The conductor MAY compress the exchange log to preserve context space, provided the compressed format retains all metadata required for escalation correctness.
+
+**Compression rules:**
+
+1. **Always preserve in full:**
+   - Round 1 (original plan + first Skeptic findings)
+   - The most recent round
+   - Any round containing a Critical finding that remains open
+
+2. **Compress middle rounds** (rounds 2 through N-1, where N is the most recent round) into a single summary block:
+   ```
+   Rounds 2–{N-1} (compressed):
+   - Rounds skipped: {count}
+   - Findings raised and resolved: [{finding_id}, {finding_id}, ...]
+   - Findings deferred: [{finding_id}: {rationale}, ...]
+   - Round outcomes: [Round 2: sign-off, Round 3: findings remained, ...]
+   ```
+
+3. **Escalation metadata retention:** The compressed log MUST retain:
+   - Every finding ID ever raised, its classification (Critical/Major/Minor), and its final resolution status
+   - For each finding that was escalated or re-routed, the round number(s) in which it appeared
+   - The total re-route count for each finding
+
+4. **When to compress:** The conductor SHOULD apply compression after Round 3 sign-off, or earlier if the exchange log exceeds ~500 tokens.
+
+5. **Fresh Skeptic invariant:** Compression affects ONLY the conductor's internal exchange log. The Skeptic remains a fresh invocation for every round. The Skeptic never sees the compressed log — it receives only the current round's adversarial brief, preflight list, and artifact.
+
 ---
 
 ## 4. The Resolved Issues Preflight List
@@ -511,6 +540,24 @@ Round 2:
 Round 3:
   Skeptic findings: none
   Sign-off granted.
+```
+
+#### Example: compressed 4-round exchange log
+
+```
+Round 1:
+  Skeptic findings: [C1: missing input validation, M1: inconsistent error handling, Minor: typo in comment]
+  Worker actions: [C1 fixed by adding validate_input(), M1 fixed by unifying error format, Minor: deferred]
+
+Rounds 2–3 (compressed):
+  - Rounds skipped: 2
+  - Findings raised and resolved: [M2: missing docstring on validate_input]
+  - Findings deferred: []
+  - Round outcomes: [Round 2: findings remained, Round 3: sign-off]
+
+Round 4 (most recent):
+  Skeptic findings: [M3: test coverage gap in edge case]
+  Worker actions: [M3 fixed by adding test_validate_input_empty_string]
 ```
 
 ### Sign-off validation
