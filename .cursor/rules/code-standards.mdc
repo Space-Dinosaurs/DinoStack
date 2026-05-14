@@ -49,6 +49,18 @@ Key tools and their uses:
 
 **Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic applies tiered enforcement: missing manifests are **Minor** (does not block sign-off), stale manifests are **Major** (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are **Critical**. See `content/rules/module-manifest.md` for the full policy.
 
+## DRY and Abstraction
+
+**Do not Repeat Yourself. Engineers must actively scan their own output for duplication before declaring work complete.**
+
+- **Repeated logic** — any block that appears more than once with identical or near-identical structure must be extracted into a helper, utility, or shared component.
+- **Copy-paste with tweaks** — copying code and changing only names or constants is a strong signal for abstraction, not a valid implementation strategy.
+- **Existing utilities first** — before writing new code, grep the codebase for functions that already solve the sub-problem. Prefer calling an existing utility over reimplementing it.
+- **Follow established patterns** — if the codebase has a convention for this class of problem (validation schemas, error wrappers, React hooks, data transformers), use it.
+- **Intentional exceptions** — if duplication is genuinely appropriate (the two paths are about to diverge significantly, or extraction would obscure meaning), state the reason explicitly in the output.
+
+The Skeptic review layer enforces this: duplication and missed abstractions are **Major** findings that block sign-off unless justified.
+
 ## Code Quality Gates
 
 **After writing or modifying code, run the project's lint, typecheck, and test commands.** All must pass with zero errors before work is complete.

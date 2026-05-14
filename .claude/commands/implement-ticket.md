@@ -1025,6 +1025,8 @@ Fires exactly once per ticket per `/implement-ticket` invocation.
 
 **Context budget check:** After Round 2 sign-off, if the conductor turn count is approaching the soft limit (15–20 turns), the conductor MUST recommend `/wrap` and preserve state before continuing. Do not initiate Round 3 or beyond if the hard limit (25–30 turns) is within reach. See `content/references/subagent-protocol.md` Section 13.
 
+**Exchange log compression:** After Round 2 sign-off, if the conductor detects the exchange log is growing large (>500 tokens), apply the compressed format for subsequent rounds. Always preserve Round 1 and the most recent round in full. See `content/references/skeptic-protocol.md` Section 3 "Exchange log compression".
+
 ---
 
 ## Phase 6b: QA Gate (conditional)
