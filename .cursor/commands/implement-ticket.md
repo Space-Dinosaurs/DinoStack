@@ -1021,6 +1021,8 @@ Fires exactly once per ticket per `/implement-ticket` invocation.
 
 **Limitation:** Cross-iteration semantic-dup within the same ticket where the Skeptic re-words the finding may produce different `pattern_hash` values and result in duplicate entries. Acknowledged.
 
+**Context budget check:** After Round 2 sign-off, if the conductor turn count is approaching the soft limit (15–20 turns), the conductor MUST recommend `/wrap` and preserve state before continuing. Do not initiate Round 3 or beyond if the hard limit (25–30 turns) is within reach. See `content/references/subagent-protocol.md` Section 13.
+
 ---
 
 ## Phase 6b: QA Gate (conditional)
