@@ -138,6 +138,9 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(4) { border-left-color: #6d4c41; }
   .columns-3 .card:nth-child(5) { border-left-color: #37474f; }
   .columns-3 .card:nth-child(6) { border-left-color: #f4511e; }
+  .columns-3 .card:nth-child(7) { border-left-color: #7b1fa2; }
+  .columns-3 .card:nth-child(8) { border-left-color: #00796b; }
+  .columns-3 .card:nth-child(9) { border-left-color: #e64a19; }
   h2 { margin-bottom: 0.4em; }
   .tier { font-size: 0.85em; color: #888; margin-top: 0.3em; }
 </style>
@@ -149,6 +152,9 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>perf-analyst</strong><br/>Profiles CPU, memory, and latency hotspots. Returns a measured findings brief; does not implement fixes.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing. Pre-flight gates, version bump, tag, deploy, post-deploy verification.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review. CVE scanning, license compliance, lockfile analysis across all ecosystems.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>learning-extractor</strong><br/>Per-ticket learning extraction at Phase 6 clean exit. Reads resolved findings_log and writes fix-pattern entries to .agentic/learnings.md.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>wrap-ticket</strong><br/>Per-ticket learnings capture at Phase 11b (PR open). Appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>learnings-agent</strong><br/>Session-scoped background learnings capture. Receives learning events in real-time and writes structured entries to .agentic/learnings.md immediately.<div class="tier">Default Tier: 1</div></div>
 </div>
 
 ---
@@ -158,7 +164,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 - Spawned into their own **isolated worktree** - their own files, their own context
 - Given a **structured brief** - goal, constraints, acceptance criteria, non-goals
 - Do their narrow job and return a **structured result** - not raw transcript
-- Only `engineer` writes files; every other specialist returns findings or plans
+- Most agents are read-only analysis/planning. `engineer`, `release-orchestrator`, `learnings-agent`, and `wrap-ticket` write files.
 
 <div class="callout">
 The main thread never sees their raw work - only their conclusion. That's the whole point: heavy work without heavy context.

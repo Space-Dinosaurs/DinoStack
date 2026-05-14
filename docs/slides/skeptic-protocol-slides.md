@@ -170,7 +170,7 @@ Blocks sign-off. Must be resolved. Security vulnerabilities, correctness failure
 </div>
 <div class="card" style="border-left-color: #fb8c00;">
 <strong>Major</strong><br/>
-Blocks sign-off unless the Worker provides a compelling documented reason to defer. Missing error handling, silent failure edge cases.
+Blocks sign-off unless the Worker provides a compelling documented reason to defer. Missing error handling, silent failure edge cases, DRY violations and missed abstractions (duplication, copy-paste programming, reinventing existing helpers).
 </div>
 <div class="card" style="border-left-color: #43a047;">
 <strong>Minor</strong><br/>

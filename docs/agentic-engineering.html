@@ -1129,7 +1129,7 @@
             <li><strong>Convergence failure</strong> - one re-raise of a Critical finding after a claimed fix triggers immediate escalation (does not consume remaining iteration budget). Signals a design-level conflict requiring human arbitration.</li>
             <li><strong>Explicit escalation contract</strong> - the loop exits with a structured stall report (<code>cap_reached</code>, <code>convergence_failure</code>, or <code>blocked</code>) listing open findings and recommended actions.</li>
             <li><strong>Durable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> at every phase transition (atomic write). Long-running loops survive rate limits and session exits: on the next <code>/implement-ticket</code> invocation the conductor detects the interrupted state, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. Schema includes <code>brief_path</code>, <code>plan_path</code>, and <code>promotion_tier</code> fields that record the planning artifact tier for the active task (used for mid-flight promotion and auto-promotion at the 3rd resume). No work is lost.</li>
-            <li><strong>Learning extraction</strong> - at Phase 6 clean exit (Skeptic sign-off), the <code>learning-extractor</code> agent reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code> (append-only, dedup, cap 5/run). Each entry has ID <code>LRN-YYYYMMDD-XXX</code>, severity, domain tag, pattern description, fix guidance, and source reference. These entries feed into <code>wrap-ticket</code> at Phase 11b for richer MEMORY.md/decisions.md appends. Soft-fail only; never blocks the loop.</li>
+            <li><strong>Learning extraction</strong> - at Phase 6 clean exit (Skeptic sign-off), the <code>learning-extractor</code> agent reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code> (append-only, dedup, cap 5/run). Each entry has ID <code>LRN-YYYYMMDD-XXX</code>, severity, domain tag, pattern description, fix guidance, and source reference. These entries feed into <code>wrap-ticket</code> at Phase 11b for richer MEMORY.md/decisions.md appends. Soft-fail only; never blocks the loop. During active sessions, the <code>learnings-agent</code> captures learning events in real-time (error→fix cycles, resolved Skeptic findings, discovered workarounds) and writes them immediately to <code>.agentic/learnings.md</code>, reducing reliance on manual <code>/wrap</code>.</li>
             <li><strong>Task coordination surface</strong> - multi-unit orchestration plans use <code>.agentic/tasks.jsonl</code> as a durable task coordination surface; the conductor tracks task status, dependencies, and loop state across the plan lifecycle. Applies to plans with 2+ tasks; single-unit spawns use in-context state only.</li>
           </ul>
         </div>
@@ -1301,7 +1301,7 @@
       <div>
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2);">
           <h4 style="color: #5a3d8a;">The Team</h4>
-          <p class="desc">11 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, perf-analyst, release-orchestrator, dependency-auditor). Only the engineer and release-orchestrator write files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">16 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, release-orchestrator, dependency-auditor, learning-extractor, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1367,7 +1367,7 @@
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
         <h4 style="color: var(--violet);">Review Agent</h4>
         <ul>
-          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks module manifests on non-trivial files with tiered enforcement (missing = Minor, stale = Major, stale-on-correctness/security path = Critical) and verifies regression tests were added for any Critical/Major fixes. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks for DRY violations, duplication, and missed abstractions. Checks module manifests on non-trivial files with tiered enforcement (missing = Minor, stale = Major, stale-on-correctness/security path = Critical) and verifies regression tests were added for any Critical/Major fixes. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -1379,6 +1379,9 @@
           <li><strong>perf-analyst</strong> - profiles CPU, memory, and latency hotspots; produces a measured findings brief for the engineer. Does not implement fixes.</li>
           <li><strong>release-orchestrator</strong> - sequences the full release from pre-flight gates through version bump, tag, deploy, and post-deploy verification. Enforces gates; refuses to proceed when any check fails.</li>
           <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
+          <li><strong>learning-extractor</strong> - per-ticket learning extraction at Phase 6 clean exit. Reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code>. Tier 1 leaf agent; soft-fail only.</li>
+          <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/context.md</code> (Recent Focus only). Constrained automated subset of <code>/wrap</code>; soft-fail only.</li>
+          <li><strong>learnings-agent</strong> - session-scoped background learnings capture. Spawned when the first learning-worthy event occurs in a session. Receives learning events as messages and writes structured entries to <code>.agentic/learnings.md</code> immediately, with optional MEMORY.md append for project-affecting facts. Tier 1 leaf agent; soft-fail only.</li>
         </ul>
       </div>
     </div>
@@ -1386,7 +1389,7 @@
   <div class="note">
     <strong>Key constraint:</strong> Only the main session agent (conductor) spawns agents. No agent spawns other agents.<br>
     <strong>Isolation:</strong> Agents run in background by default. Can use <code>isolation: "worktree"</code> for git-isolated work.<br>
-    <strong>engineer and release-orchestrator write files.</strong> All other agents are read-only analysis/planning. Gold left border = writes files.
+    <strong>Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files.</strong> Gold left border = writes files.
   </div>
 </div>
 
