@@ -15,6 +15,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
 - `gh pr create` for this repo requires an explicit token: `GITHUB_TOKEN=$(gh auth token --user tyson-solara6 2>/dev/null) gh pr create --repo Solara6/agentic-engineering` (SSH-alias remote not recognized by default gh auth)
 - `rm -rf` is blocked by Claude Code permissions in this repo; remove files individually: `rm <file>` then `rmdir <dir>`
+- `bin/agentic-memory` — lightweight memory retrieval tool for querying `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md` on demand.
 
 ## Deploy
 - Docs site: see `docs/technical/deploy.md`. Always verify the linked project ID before running `vercel --prod`.

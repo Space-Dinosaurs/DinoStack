@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""
+Purpose: Lightweight memory-retrieval CLI for querying AE's existing data
+         stores and returning a compact Markdown summary suitable for
+         pasting into a prompt.
+
+Public API: agentic-memory query [keyword] [--since YYYY-MM-DD]
+                      [--until YYYY-MM-DD] [--type event_type]
+                      [--agent agent_name] [--last N]
+                      [--source MEMORY.md|events.jsonl|context.md]
+                      [--topic topic]
+            agentic-memory turns --last N
+
+Upstream deps: Python 3 stdlib only (argparse, datetime, json, re, sys,
+               pathlib). No external dependencies.
+
+Downstream consumers: content/commands/memory-update.md (command spec);
+                      conductors running inline memory retrieval.
+
+Failure modes: missing source files -> warning to stderr, skipped;
+               malformed JSONL -> line skipped, warning to stderr;
+               no matches -> "No results found" to stdout, exit 0.
+               Never raises to the caller.
+
+Performance: O(file size). Linear scan of each source file.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from datetime import date, datetime
+from pathlib import Path
+
+EVENTS_PATH = Path(".agentic/events.jsonl")
+MEMORY_PATHS = [Path("MEMORY.md"), Path(".agentic/memory.md")]
+CONTEXT_PATH = Path(".agentic/context.md")
+
+
+def _parse_iso_date(s: str) -> date:
+    return datetime.strptime(s, "%Y-%m-%d").date()
+
+
+def _event_to_date(ts: str) -> date | None:
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _read_events_jsonl(
+    path: Path,
+    *,
+    keyword: str | None = None,
+    since: date | None = None,
+    until: date | None = None,
+    event_type: str | None = None,
+    agent: str | None = None,
+    last: int | None = None,
+) -> tuple[list[dict] | None, str | None]:
+    if not path.exists():
+        return None, f"Warning: {path} not found"
+
+    results: list[dict] = []
+    bad_lines = 0
+
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                bad_lines += 1
+                continue
+
+            ts = event.get("ts", "")
+            if since or until:
+                event_date = _event_to_date(ts)
+                if event_date is None:
+                    continue
+                if since and event_date < since:
+                    continue
+                if until and event_date > until:
+                    continue
+
+            if event_type and event.get("event") != event_type:
+                continue
+            if agent and event.get("agent") != agent:
+                continue
+
+            if keyword:
+                data = event.get("data", {})
+                data_str = json.dumps(data, separators=(",", ":")) if isinstance(data, (dict, list)) else str(data)
+                haystack = f"{event.get('event', '')} {event.get('agent', '')} {event.get('task_id', '')} {data_str}"
+                if keyword.lower() not in haystack.lower():
+                    continue
+
+            results.append(event)
+
+    if bad_lines:
+        print(f"Warning: {bad_lines} malformed JSONL line(s) skipped in {path}", file=sys.stderr)
+
+    results.sort(key=lambda e: e.get("ts", ""))
+    if last is not None and last > 0:
+        results = results[-last:]
+    return results, None
+
+
+def _read_memory(
+    paths: list[Path],
+    *,
+    keyword: str | None = None,
+    topic: str | None = None,
+) -> tuple[list[dict] | None, str | None]:
+    chosen: Path | None = None
+    for p in paths:
+        if p.exists():
+            chosen = p
+            break
+    if chosen is None:
+        return None, f"Warning: none of {', '.join(str(p) for p in paths)} found"
+
+    text = chosen.read_text(encoding="utf-8", errors="replace")
+    sections: list[tuple[str, str]] = []
+    current_heading: str | None = None
+    current_body: list[str] = []
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if current_heading is not None:
+                sections.append((current_heading, "\n".join(current_body)))
+            current_heading = line[3:].strip()
+            current_body = []
+        else:
+            current_body.append(line)
+    if current_heading is not None:
+        sections.append((current_heading, "\n".join(current_body)))
+
+    results: list[dict] = []
+    for heading, body in sections:
+        if topic:
+            if topic.lower() not in heading.lower():
+                continue
+            excerpt = body.strip().replace("\n", " ")[:200]
+            results.append({"heading": heading, "excerpt": excerpt})
+            continue
+
+        if keyword:
+            haystack = f"{heading}\n{body}"
+            if keyword.lower() not in haystack.lower():
+                continue
+            excerpt = body.strip().replace("\n", " ")[:200]
+            results.append({"heading": heading, "excerpt": excerpt})
+
+    return results, None
+
+
+def _split_turns(text: str) -> list[tuple[str, str]]:
+    """Split context.md into turns using a cascading heuristic."""
+    lines = text.splitlines()
+
+    # Heuristic 1: explicit "## Turn" markers
+    if any(re.match(r"^##\s+Turn\b", line, re.IGNORECASE) for line in lines):
+        turns: list[tuple[str, str]] = []
+        current_heading = "Start"
+        current_body: list[str] = []
+        for line in lines:
+            m = re.match(r"^##\s+(Turn.*)", line, re.IGNORECASE)
+            if m:
+                if current_body or current_heading != "Start":
+                    turns.append((current_heading, "\n".join(current_body)))
+                current_heading = m.group(1).strip()
+                current_body = []
+            else:
+                current_body.append(line)
+        turns.append((current_heading, "\n".join(current_body)))
+        return turns
+
+    # Heuristic 2: "---" separators (3+ dashes, alone on line)
+    if any(re.match(r"^---+$", line) for line in lines):
+        turns = []
+        current_body: list[str] = []
+        for line in lines:
+            if re.match(r"^---+$", line):
+                if current_body:
+                    turns.append((f"Turn {len(turns) + 1}", "\n".join(current_body)))
+                    current_body = []
+            else:
+                current_body.append(line)
+        if current_body:
+            turns.append((f"Turn {len(turns) + 1}", "\n".join(current_body)))
+        return turns
+
+    # Heuristic 3: "## " headings as turn boundaries
+    if any(line.startswith("## ") for line in lines):
+        turns = []
+        current_heading = "Start"
+        current_body: list[str] = []
+        for line in lines:
+            if line.startswith("## "):
+                if current_body or current_heading != "Start":
+                    turns.append((current_heading, "\n".join(current_body)))
+                current_heading = line[3:].strip()
+                current_body = []
+            else:
+                current_body.append(line)
+        turns.append((current_heading, "\n".join(current_body)))
+        return turns
+
+    # Heuristic 4: blank-line separators
+    turns = []
+    current_body: list[str] = []
+    for line in lines:
+        if line.strip() == "":
+            if current_body:
+                turns.append((f"Turn {len(turns) + 1}", "\n".join(current_body)))
+                current_body = []
+        else:
+            current_body.append(line)
+    if current_body:
+        turns.append((f"Turn {len(turns) + 1}", "\n".join(current_body)))
+    return turns
+
+
+def _read_context(
+    path: Path,
+    *,
+    keyword: str | None = None,
+    last: int | None = None,
+) -> tuple[list[tuple[str, str]] | None, str | None]:
+    if not path.exists():
+        return None, f"Warning: {path} not found"
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    turns = _split_turns(text)
+
+    if keyword:
+        turns = [(h, b) for h, b in turns if keyword.lower() in (h + "\n" + b).lower()]
+
+    if last is not None and last > 0:
+        turns = turns[-last:]
+
+    return turns, None
+
+
+def _format_events(results: list[dict]) -> str:
+    label = "match" if len(results) == 1 else "matches"
+    lines = [f"## Results from events.jsonl ({len(results)} {label})"]
+    for r in results:
+        ts = r.get("ts", "unknown")
+        evt = r.get("event", "unknown")
+        ag = r.get("agent") or "none"
+        tid = r.get("task_id") or "none"
+        lines.append(f"- {ts} | {evt} | agent={ag} | task_id={tid}")
+    return "\n".join(lines)
+
+
+def _format_memory(results: list[dict]) -> str:
+    label = "match" if len(results) == 1 else "matches"
+    lines = [f"## Results from MEMORY.md ({len(results)} {label})"]
+    for r in results:
+        lines.append(f'- Section: "{r["heading"]}"')
+        excerpt = r.get("excerpt", "")
+        if excerpt:
+            lines.append(f'- Excerpt: "{excerpt}..."')
+    return "\n".join(lines)
+
+
+def _format_context(turns: list[tuple[str, str]]) -> str:
+    label = "match" if len(turns) == 1 else "matches"
+    lines = [f"## Results from context.md ({len(turns)} {label})"]
+    for i, (heading, body) in enumerate(turns, 1):
+        excerpt = body.strip().replace("\n", " ")[:150]
+        lines.append(f"- Turn {i} ({heading}): {excerpt}...")
+    return "\n".join(lines)
+
+
+def _format_turns(turns: list[tuple[str, str]]) -> str:
+    label = "turn" if len(turns) == 1 else "turns"
+    lines = [f"## Last {len(turns)} {label} from context.md\n"]
+    for i, (heading, body) in enumerate(turns, 1):
+        lines.append(f"### Turn {i}: {heading}\n")
+        lines.append(body.strip())
+        lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_query(args: argparse.Namespace) -> int:
+    keyword: str | None = args.keyword
+    since = _parse_iso_date(args.since) if args.since else None
+    until = _parse_iso_date(args.until) if args.until else None
+    event_type: str | None = args.type
+    agent: str | None = args.agent
+    last: int | None = args.last
+    source: str | None = args.source
+    topic: str | None = args.topic
+
+    outputs: list[str] = []
+    has_error = False
+
+    sources = []
+    if source is None or source == "events.jsonl":
+        sources.append("events.jsonl")
+    if source is None or source in ("MEMORY.md", "memory.md"):
+        sources.append("memory")
+    if source is None or source == "context.md":
+        sources.append("context")
+
+    if "events.jsonl" in sources:
+        results, err = _read_events_jsonl(
+            EVENTS_PATH,
+            keyword=keyword,
+            since=since,
+            until=until,
+            event_type=event_type,
+            agent=agent,
+            last=last,
+        )
+        if err:
+            print(err, file=sys.stderr)
+            has_error = True
+        elif results:
+            outputs.append(_format_events(results))
+
+    if "memory" in sources:
+        results, err = _read_memory(MEMORY_PATHS, keyword=keyword, topic=topic)
+        if err:
+            print(err, file=sys.stderr)
+            has_error = True
+        elif results:
+            outputs.append(_format_memory(results))
+
+    if "context" in sources:
+        results, err = _read_context(CONTEXT_PATH, keyword=keyword, last=last)
+        if err:
+            print(err, file=sys.stderr)
+            has_error = True
+        elif results:
+            outputs.append(_format_context(results))
+
+    if not outputs:
+        print("No results found")
+        return 0
+
+    print("\n\n".join(outputs))
+    return 0
+
+
+def cmd_turns(args: argparse.Namespace) -> int:
+    last: int = args.last
+    turns, err = _read_context(CONTEXT_PATH, last=last)
+    if err:
+        print(err, file=sys.stderr)
+        print("No results found")
+        return 0
+
+    if not turns:
+        print("No results found")
+        return 0
+
+    print(_format_turns(turns))
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="agentic-memory",
+        description="Lightweight memory retrieval tool for querying .agentic/events.jsonl, MEMORY.md, and .agentic/context.md",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    query_parser = subparsers.add_parser("query", help="Query memory sources")
+    query_parser.add_argument("keyword", nargs="?", help="Keyword to search for")
+    query_parser.add_argument("--since", help="Date filter YYYY-MM-DD")
+    query_parser.add_argument("--until", help="Date filter YYYY-MM-DD")
+    query_parser.add_argument("--type", help="Event type filter")
+    query_parser.add_argument("--agent", help="Agent name filter")
+    query_parser.add_argument("--last", type=int, help="Limit to last N results")
+    query_parser.add_argument(
+        "--source",
+        choices=["events.jsonl", "MEMORY.md", "context.md"],
+        help="Source to query",
+    )
+    query_parser.add_argument(
+        "--topic", help="Topic filter for MEMORY.md section headings"
+    )
+
+    turns_parser = subparsers.add_parser("turns", help="Show recent turns from context.md")
+    turns_parser.add_argument(
+        "--last", type=int, default=5, help="Number of recent turns to show"
+    )
+
+    args = parser.parse_args(argv[1:])
+    if args.command == "query":
+        return cmd_query(args)
+    if args.command == "turns":
+        return cmd_turns(args)
+
+    parser.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
