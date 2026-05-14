@@ -310,7 +310,7 @@ The audit-note Minor is the per-spawn defense against rubber-stamping. The **cal
 
 - **Findings counters in `events.jsonl`** - every Skeptic `spawn_complete` carries `findings_count`, `diff_lines`, `signed_off`, and `iteration` inside `data`. Conductor builds the merged JSON inline; subagents do not write to `.agentic/`.
 - **5% sampled meta-Skeptic** - deterministic bucket from `hash(task_id+iteration) % 100 < 5`. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits `meta_review_complete`.
-- **Surfacing** - Critical/Major divergence on a sampled spawn surfaces as one inline `META-DIVERGENCE:` line. Original sign-off remains binding; the notice is advisory. Surfacing fires both in-session (Phase 6 turn boundaries) and at session start (catches async returns from prior sessions).
+- **Surfacing** - Critical/Major divergence on a sampled spawn surfaces as one inline `META-DIVERGENCE:` line. Original sign-off remains binding; the notice is advisory. Surfacing fires both in-session (Phase 6 turn boundaries) and at session start (catches async returns from prior sessions). The sweep paginates via `.meta-divergence-last-sweep` timestamp tracker to avoid reading the full events file on every boot.
 - **Inspection CLI** - `agentic-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `agentic-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
 
 <div class="callout">
