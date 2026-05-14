@@ -150,6 +150,7 @@ These transitions apply to fix-pass Engineer spawns inside `/implement-ticket` P
 - Reading a single specific file when the path is already known
 - Answering a question directly from context already in memory
 - `git status`, `git log`, `git diff` — read-only, instant
+- `agentic-memory query` / `agentic-memory turns` — read-only, instant; lightweight memory retrieval
 - Taking a screenshot or browser snapshot
 - Synthesizing and explaining results that subagents have already returned
 - A one or two-line edit to a single file, where the correct output is immediately apparent without reading any other file, **and no Elevated risk signals are present**
