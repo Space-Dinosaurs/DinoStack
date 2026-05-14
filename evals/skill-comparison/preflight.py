@@ -34,7 +34,7 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise ImportError("pyyaml is required; install with: pip install pyyaml") from exc
 
-from scoring import _normalize_fail_to_pass, _run_pytest_local, _run_pytest_tier3
+from scoring import _run_pytest_local, _run_pytest_tier3
 from seeding import SeedError, seed_fix_phase
 
 _LOG = logging.getLogger(__name__)
@@ -70,10 +70,22 @@ _INFRA_PATTERNS = [
 
 
 def _is_infra_failure(returncode: int, output: str) -> bool:
-    """Return True if pytest output signals an infrastructure failure."""
+    """Return True if pytest output signals an infrastructure failure.
+
+    When returncode == 1 and the output contains ``FAILED`` lines, pytest
+    successfully collected and executed tests — this is an expected test
+    failure, not an infrastructure error. Collection-only errors (no FAILED
+    lines) are flagged as infrastructure failures.
+    """
     if returncode not in (0, 1):
         return True
     output_lower = output.lower()
+    # If pytest collected and ran tests (FAILED lines), it's an expected
+    # test failure even if the traceback contains ImportError etc.
+    if returncode == 1 and (
+        output_lower.startswith("failed ") or " failed " in output_lower
+    ):
+        return False
     for pattern in _INFRA_PATTERNS:
         if pattern.lower() in output_lower:
             return True
@@ -192,9 +204,24 @@ def check_task(
         # Run held-out pytest against the unmodified base commit.
         fail_to_pass = task_meta.get("fail_to_pass") or []
         if tier3_ctx is not None:
-            returncode, pytest_out = _run_pytest_tier3(
-                tier3_ctx, timeout, fail_to_pass=fail_to_pass
-            )
+            try:
+                returncode, pytest_out = _run_pytest_tier3(
+                    tier3_ctx, timeout, fail_to_pass=fail_to_pass
+                )
+            except subprocess.TimeoutExpired:
+                _LOG.warning("Preflight timeout for %s (tier3)", task_slug)
+                return PreflightResult(
+                    task_slug=task_slug,
+                    status="infra_fail",
+                    returncode=-1,
+                    pytest_output="pytest timed out",
+                    diagnostics={
+                        "seed_commit": seed_commit,
+                        "timeout": timeout,
+                        "tier3": tier3,
+                        "error": "TimeoutExpired",
+                    },
+                )
         else:
             # test_patch was applied to fix_dir, so held-out tests live there.
             returncode, pytest_out = _run_pytest_local(
