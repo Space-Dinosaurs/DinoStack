@@ -428,3 +428,44 @@ This document is the canonical source for The Subagent Protocol. **When this doc
 When this document changes:
 1. If the change affects the risk signal list or delegation decision table, update `~/.claude/CLAUDE.md` to match. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
 2. Check `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
+
+## 13. Conductor context budget
+
+The conductor's own context window is a finite resource. Long-running sessions degrade reasoning quality, increase the risk of context-window exhaustion, and make recovery expensive. The Subagent Protocol therefore defines context-budget rules for the main conductor session.
+
+### 13.1 Soft limit (recommended: 15–20 conductor turns)
+
+When the conductor reaches the soft limit, it MUST:
+1. Warn the user that the session is approaching its recommended context budget.
+2. Recommend `/wrap` to preserve state and restart with a fresh context window.
+3. Summarize what has been accomplished and what remains.
+4. Offer to continue ONLY if the user explicitly confirms.
+
+The soft limit is a signal, not a stop. The user may choose to continue, but they do so with informed consent.
+
+### 13.2 Hard limit (recommended: 25–30 conductor turns)
+
+When the conductor reaches the hard limit, it MUST:
+1. Refuse further implementation work, Skeptic rounds, or subagent spawns.
+2. Invoke `/wrap` automatically (or instruct the user to do so).
+3. Preserve all state via `context.md` and `MEMORY.md` updates.
+4. Explain that the hard limit exists to protect output quality and that a fresh session is required.
+
+The hard limit is absolute. No exception, no override.
+
+### 13.3 Rationale
+
+AE's structural delegation (subagents, worktrees) offloads most implementation work from the conductor. The conductor's role is coordination, synthesis, and decision-making. These tasks require high-fidelity context. A conductor that has been running for 30+ turns is operating with degraded context, increasing the risk of:
+- Missing critical details from earlier turns
+- Re-introducing bugs that were already fixed
+- Making inconsistent decisions
+- Hitting the underlying model's context-window ceiling
+
+The `/wrap` + restart flow already handles session handoff. The context budget simply makes the handoff proactive rather than reactive.
+
+### 13.4 Exceptions
+
+The context budget applies to **implementation work** and **multi-turn planning**. It does NOT apply to:
+- Single-turn Q&A or information retrieval
+- Brief sessions that resolve quickly (fewer than 5 gray areas)
+- Diagnostic-only work (reading logs, explaining errors)
