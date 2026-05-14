@@ -37,6 +37,8 @@ Interactive planning dialogue. Produces a Brief at `docs/planning/<slug>.md` via
 structured multi-turn conversation, then hands off to the architect and engineer with
 `brief_path` pre-populated in the execution contract.
 
+**Context budget note:** Brief sessions are structured multi-turn conversations that track state in `brief-session.json`. Each gray-area resolution consumes conductor turns. Complex Briefs with many gray areas can push the conductor toward its context limit. The conductor SHOULD recommend `/wrap` after resolving 10+ gray areas in a single session, or if the total conductor turn count approaches the soft limit (15–20 turns). See `content/references/subagent-protocol.md` Section 13.
+
 ---
 
 ## Section 1 - Trigger model
