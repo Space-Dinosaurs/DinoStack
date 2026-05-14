@@ -24,6 +24,18 @@
 - **Baseline generation status:** All 20 components now have at least partial baselines. 7 components are at ceiling (conductor, init-project, qa-engineer, adr-generator, perf-analyst, investigator, cleanup-worktrees). 3 have structural blockers (skeptic cap, release-orchestrator invalid_format fixtures).
 - **Kimi CLI agent mapping:** `evals/runner/invoker.py` maps custom agent names to Kimi builtins (`coder`/`explore`/`plan`) and inlines instructions to avoid "Builtin subagent type not found" errors.
 
+## Runtime Context Management (2026-05-14)
+
+Implemented all 5 gaps from `docs/planning/gap-runtime-context-management.md` via 5 PRs:
+
+1. **Gap 1 — Conductor Context Budget** (#88): Added Section 13 to `subagent-protocol.md` with soft limit (15–20 turns) and hard limit (25–30 turns). Referenced in `/brief`, `/implement-ticket`, and `design-goals.md` Goal 4.
+2. **Gap 2 — Exchange Log Compression** (#89): Added compression rules to `skeptic-protocol.md` Section 3, compressed 4-round example in Section 11, and Phase 6 step in `implement-ticket.md`.
+3. **Gap 3 — Memory Retrieval Tool** (#90): Built `bin/agentic-memory` (Python, stdlib only) with `query` and `turns` subcommands. Documented in `memory-update.md`, `subagent-protocol.md` direct actions, and `AGENTS.md`.
+4. **Gap 4 — Long-Session Eval** (#91): Created `evals/long-session/` with 3 YAML fixtures (database, API, test strategy), pass/fail `scorer.py`, and `LEARNINGS.md` section.
+5. **Gap 5 — Vicious Loop Defense** (#87): Added meta-divergence sweep pagination to `skeptic-protocol.md` Section 14 and `conventions.md`. Uses `.meta-divergence-last-sweep` timestamp tracker with 100-line cold-start cap.
+
+**Process note:** Architect spawns timed out repeatedly for plan generation. Switched to direct plan file creation from the existing planning doc, then spawned per-gap engineers + skeptics in parallel. This proved more reliable than large architect spawns.
+
 ## Next Session Checklist
 
 1. ~~**Fix command-mode auto-harness editor**~~ ✅ DONE (whole-file replacement)
