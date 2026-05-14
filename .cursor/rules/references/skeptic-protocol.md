@@ -674,6 +674,29 @@ Original sign-off remains binding. Minor-only divergences are NOT surfaced inlin
 
 **Tracker file (`.agentic/.meta-divergence-surfaced`)** is one `original_task_id` per line, append-only, written by the conductor only. File-absent is equivalent to empty set. Project-local; gitignored under the `.agentic/` umbrella.
 
+### Session-start sweep pagination
+
+The session-start sweep described above scans `.agentic/events.jsonl` for `meta_review_complete` events. Without pagination, this scan reads the entire file on every boot -- a vicious loop as the file grows unbounded.
+
+**Pagination tracker file:** `.agentic/.meta-divergence-last-sweep`
+
+Format: single line, ISO8601 UTC timestamp (e.g. `2026-05-13T16:30:00Z`). File-absent equals "no prior sweep".
+
+**Sweep procedure:**
+
+1. Read `.agentic/.meta-divergence-last-sweep`. If the file does not exist, set `since_ts` to `null` (first run).
+2. Read `.agentic/events.jsonl` line by line:
+   - If `since_ts` is not `null`: skip any event whose `ts` field is less than or equal to `since_ts`. Only process events where `ts > since_ts`.
+   - If `since_ts` is `null` (first run on a legacy file): read only the **last 100 lines** of the file. This caps cold-start cost on projects with large pre-existing event logs.
+3. Process the filtered events as described in the "Meta-divergence surfacing" subsection above.
+4. After the sweep completes (whether or not any divergences were found), write the current ISO8601 UTC timestamp to `.agentic/.meta-divergence-last-sweep` (atomic: write to tmp, then `mv`). This timestamp becomes the `since_ts` for the next sweep.
+
+**In-session scan pagination:** The in-session scan (at Phase 6 boundaries) uses the same pagination tracker. It reads only events with `ts > since_ts` and updates the tracker after completion. Both sweep points share the same `.agentic/.meta-divergence-last-sweep` file; the last write wins, which is correct because sweeps are serialized per session.
+
+**No events missed:** Because `meta_review_complete` events are appended to the JSONL file with monotonically increasing `ts` fields, scanning `ts > since_ts` is exhaustive for new events. Events with `ts == since_ts` were already processed in the prior sweep and their `original_task_id` values are already in `.agentic/.meta-divergence-surfaced`.
+
+**Legacy file handling:** The 100-line cap on first run means a single cold-start sweep is bounded. After that first sweep writes the tracker, all subsequent sweeps are incremental. If the file has fewer than 100 lines total, the first sweep processes all of them -- no events are skipped.
+
 ### Inspection CLI
 
 `bin/agentic-calibrate` is the queryable surface for calibration data:
