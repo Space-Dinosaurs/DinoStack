@@ -87,6 +87,8 @@ The "Decisions & Context" section of `~/.claude/CLAUDE.md` operationalizes this 
 
 The trigger-pointer pattern in `~/.claude/CLAUDE.md` operationalizes this goal. Risk signals and the delegation decision table are inline; protocol procedural details are pointers to canonical specs read on trigger.
 
+Runtime context management complements structural delegation: the conductor defines context budgets, exchange log compression, and memory retrieval to manage its own context window. See `content/references/subagent-protocol.md` Section 13.
+
 ---
 
 ## Non-Goals
