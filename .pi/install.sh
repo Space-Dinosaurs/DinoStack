@@ -45,16 +45,32 @@ write_config() {
   local mode="$1"
   local profile="$2"
   python3 - "$AE_CONFIG_PATH" "$mode" "$profile" <<'PY'
-import json, sys, datetime
+import json, sys, os, datetime
 path, mode, profile = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    with open(path) as f:
-        data = json.load(f)
-except Exception:
+# Read existing config or start fresh
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+else:
     data = {}
+# Always overwrite these keys
 data["mode"] = mode
 data["profile"] = profile
 data["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+# skill_auto_load: preserve existing; prompt only on fresh install (key absent)
+if "skill_auto_load" not in data:
+    try:
+        with open("/dev/tty", "r+") as tty:
+            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.flush()
+            answer = (tty.readline() or "").strip().lower()
+        data["skill_auto_load"] = answer in ("y", "yes")
+    except OSError:
+        data["skill_auto_load"] = False
+# Write back
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")

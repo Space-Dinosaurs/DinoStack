@@ -3,6 +3,8 @@ name: agentic-engineering
 description: Structured multi-agent software engineering workflow for planning, delegation, review, risk classification, quality gates, and shipping code. Use for software development tasks, implementation planning, code review, debugging, refactoring, and release work.
 ---
 
+> **IMPORTANT - READ THIS FIRST:** If `skill_auto_load: true` is set in `~/.claude/agentic-engineering.json`, this skill is configured to auto-load. Read this entire SKILL.md before taking any action on software development tasks. Do not start implementing until you have read the Rules section below.
+
 The Agentic Engineering system defines how to plan, delegate, review, and ship software using a
 structured multi-agent workflow. It covers risk classification, adversarial review, task
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
