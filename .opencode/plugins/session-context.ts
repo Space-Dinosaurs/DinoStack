@@ -1,9 +1,11 @@
 /**
  * Purpose: OpenCode plugin that refreshes .agentic/context.md on every
- *          busy->idle transition (`session.idle`), and runs full Stop-hook-
+ *          busy->idle transition (`session.idle`), runs full Stop-hook-
  *          equivalent finalization (loop-state, batch-state, session_total,
  *          activity-block refresh) once per session when the user invokes
- *          `/wrap` (`command.executed`). Surfaces a session prompt on /wrap.
+ *          `/wrap` (`command.executed`), and emits a skill-load instruction
+ *          on `session.created` when `skill_auto_load: true` is set in
+ *          `~/.config/opencode/agentic-engineering.json`.
  *
  * Public API: SessionContextPlugin — exported plugin function for OpenCode.
  *
@@ -28,6 +30,11 @@
  *                     by `event.type` internally. Bus events read their data
  *                     from `event.properties`, not from a top-level
  *                     destructure.
+ *                session.created fires once per session; the handler reads
+ *                `~/.config/opencode/agentic-engineering.json` for
+ *                `skill_auto_load` and emits a skill-load instruction prompt
+ *                when true. Missing config or a prompt failure is logged and
+ *                swallowed.
  *                session.idle does context.md refresh only — no loop-state,
  *                batch-state, or events.jsonl writes happen there.
  *                Finalization writes (loop-state, batch-state,
@@ -527,6 +534,75 @@ ${toolsLine}
     event: async ({ event }: { event: { type: string; properties?: any } }) => {
       const type = event?.type;
       const props = event?.properties ?? {};
+
+      if (type === "session.created") {
+        // session.created fires once at session start. If skill_auto_load is
+        // enabled in ~/.config/opencode/agentic-engineering.json, emit a
+        // skill-load instruction so the model reads the agentic-engineering
+        // protocol before handling any software development request.
+        await log("info", "session.created event handler entered");
+        try {
+          const configPath = path.join(
+            process.env.HOME || "~",
+            ".config",
+            "opencode",
+            "agentic-engineering.json",
+          );
+          let skillAutoLoad = false;
+          try {
+            const configFile = Bun.file(configPath);
+            if (await configFile.exists()) {
+              const config: any = await configFile.json();
+              skillAutoLoad = config?.skill_auto_load === true;
+            }
+          } catch (configErr: any) {
+            await log("warn", "Failed to read agentic-engineering config", {
+              configPath,
+              error: configErr.message,
+            });
+          }
+
+          if (skillAutoLoad) {
+            await log("info", "skill_auto_load=true, emitting skill-load instruction");
+            const sessionID: string | undefined = props.sessionID;
+            const sid: string | null = sessionID ?? null;
+            try {
+              client.session.prompt({
+                path: { id: sid || "" },
+                body: {
+                  parts: [
+                    {
+                      type: "text",
+                      text: [
+                        "SKILL CHECK [agentic-engineering]: skill_auto_load=true.",
+                        "Before responding to any software development request, read the agentic-engineering SKILL.md.",
+                        "Do not implement directly - follow the delegation and risk classification protocol in that file.",
+                      ].join("\n"),
+                    },
+                  ],
+                  noReply: true,
+                },
+              }).catch((err: any) => {
+                log("warn", "Skill-load prompt delivery failed", {
+                  error: err?.message,
+                });
+              });
+              await log("info", "Skill-load instruction emitted");
+            } catch (promptErr: any) {
+              await log("warn", "Failed to emit skill-load instruction", {
+                error: promptErr.message,
+              });
+            }
+          } else {
+            await log("info", "skill_auto_load not set, skipping skill-load instruction");
+          }
+        } catch (err: any) {
+          await log("warn", "session.created handler crashed", {
+            error: err.message || String(err),
+          });
+        }
+        return;
+      }
 
       if (type === "session.idle") {
         // session.idle fires per busy->idle transition (every turn), NOT

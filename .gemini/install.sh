@@ -58,16 +58,23 @@ fi
 ae_write_mode() {
   local mode="$1"
   python3 - "$AE_CONFIG_PATH" "$mode" <<'PYEOF'
-import json, sys, datetime
+import json, sys, os, datetime
 path, mode = sys.argv[1], sys.argv[2]
-try:
-    with open(path) as f:
-        existing = json.load(f)
-except Exception:
-    existing = {}
-profile = existing.get("profile", "default")
+# Read existing config or start fresh (preserves all keys including skill_auto_load)
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except Exception:
+        config = {}
+else:
+    config = {}
+# Update only the fields ae_write_mode controls
+config["mode"] = mode
+config["profile"] = config.get("profile", "default")
+config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 with open(path, "w") as f:
-    json.dump({"mode": mode, "profile": profile, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}, f, indent=2)
+    json.dump(config, f, indent=2)
     f.write("\n")
 PYEOF
 }
@@ -76,11 +83,34 @@ ae_write_config() {
   local mode="$1"
   local profile="$2"
   python3 - "$AE_CONFIG_PATH" "$mode" "$profile" <<'PYEOF'
-import json, sys, datetime
+import json, sys, os, datetime
 path, mode, profile = sys.argv[1], sys.argv[2], sys.argv[3]
-data = {"mode": mode, "profile": profile, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+# Read existing config or start fresh
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except Exception:
+        config = {}
+else:
+    config = {}
+# Always overwrite these keys
+config["mode"] = mode
+config["profile"] = profile
+config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+# skill_auto_load: preserve existing; prompt only on fresh install (key absent)
+if "skill_auto_load" not in config:
+    try:
+        with open("/dev/tty", "r+") as tty:
+            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.flush()
+            answer = (tty.readline() or "").strip().lower()
+        config["skill_auto_load"] = answer in ("y", "yes")
+    except OSError:
+        config["skill_auto_load"] = False
+# Write back
 with open(path, "w") as f:
-    json.dump(data, f, indent=2)
+    json.dump(config, f, indent=2)
     f.write("\n")
 PYEOF
 }
@@ -275,11 +305,12 @@ echo "Configuring hooks in ~/.gemini/settings.json..."
 
 HOOKS_DIR_FOR_PYTHON="$GEMINI_HOOKS_DIR"
 
-python3 - "$SETTINGS" "$HOOKS_DIR_FOR_PYTHON" <<'PYEOF'
+python3 - "$SETTINGS" "$HOOKS_DIR_FOR_PYTHON" "$REPO_DIR" <<'PYEOF'
 import json, os, sys
 
 settings_path = sys.argv[1]
 hooks_dir = sys.argv[2]
+repo_dir = sys.argv[3]
 
 # Read existing settings
 if os.path.exists(settings_path):
@@ -326,6 +357,25 @@ else:
         "command": RISK_CMD
     })
     print(f"  + Added BeforeAgent risk-reminder hook: {RISK_CMD}")
+
+# ---- BeforeAgent hook (skill auto-load check) --------------------------------
+SKILL_CMD = f'bash "{repo_dir}/hooks/skill-auto-load-check.sh"'
+
+already_has_skill = any(
+    entry.get("name") == "skill-auto-load-check" or
+    ("skill-auto-load-check.sh" in entry.get("command", "") and "agentic-engineering" in entry.get("command", ""))
+    for entry in ba_star["hooks"]
+)
+
+if already_has_skill:
+    print("  = BeforeAgent skill-auto-load-check hook already present")
+else:
+    ba_star["hooks"].append({
+        "name": "skill-auto-load-check",
+        "type": "command",
+        "command": SKILL_CMD
+    })
+    print(f"  + Added BeforeAgent skill-auto-load-check hook: {SKILL_CMD}")
 
 # ---- SessionEnd hook (context save) ------------------------------------------
 STOP_CMD = f'node "{hooks_dir}/stop-context-gemini.js"'
@@ -396,7 +446,7 @@ echo "  ~/.gemini/agents/  -> $AGENTS_SRC"
 echo "    Contains: Named agent markdown files (engineer, architect, debugger, etc.)"
 echo ""
 echo "  ~/.gemini/settings.json"
-echo "    Updated: BeforeAgent (risk reminder) and SessionEnd (context save) hooks"
+echo "    Updated: BeforeAgent (risk reminder, skill auto-load check) and SessionEnd (context save) hooks"
 echo "    Hook scripts: $GEMINI_HOOKS_DIR/"
 echo ""
 echo "IMPORTANT - repo-move constraint:"

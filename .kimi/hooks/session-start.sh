@@ -34,6 +34,7 @@ fi
 # Also check global config mode
 ae_config="$HOME/.claude/agentic-engineering.json"
 mode="opt-out"
+skill_auto_load="false"
 if [[ -f "$ae_config" ]]; then
   mode=$(python3 -c "
 import json, sys
@@ -43,6 +44,15 @@ try:
 except Exception:
     print('opt-out')
 " 2>/dev/null || echo "opt-out")
+  skill_auto_load=$(python3 -c "
+import json, sys
+try:
+    with open('$ae_config') as f:
+        val = json.load(f).get('skill_auto_load', False)
+    print('true' if val is True else 'false')
+except Exception:
+    print('false')
+" 2>/dev/null || echo "false")
 fi
 
 # Only show reminder if the project looks like it should use agentic-engineering
@@ -55,6 +65,16 @@ if [[ "$has_marker" == "true" ]]; then
   >&2 echo "│  Conductor rule: delegate ALL work to subagents. No direct tools.   │"
   >&2 echo "└─────────────────────────────────────────────────────────────────────┘"
   >&2 echo ""
+fi
+
+# Emit skill-load instruction to stdout when skill_auto_load is enabled.
+# Note: Kimi hook stdout routing to agent context is unverified per Kimi CLI docs.
+# If stdout is not injected into agent context, this instruction is terminal-only.
+# Update to use the correct channel once confirmed.
+if [[ "$skill_auto_load" == "true" ]]; then
+  echo "SKILL CHECK [agentic-engineering]: skill_auto_load=true."
+  echo "Before responding to any software development request, read ~/.kimi/skills/agentic-engineering/SKILL.md."
+  echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
 fi
 
 exit 0
