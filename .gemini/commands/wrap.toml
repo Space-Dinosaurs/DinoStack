@@ -93,6 +93,7 @@ Survey the current conversation and note down:
 - Check for and read: the root `AGENTS.md` (if it exists), and any `[track]/AGENTS.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
 - **Migrate `.claude/compression-state.json` → `.agentic/compression-state.json`** if `.claude/compression-state.json` exists AND `.agentic/compression-state.json` does NOT exist: `mv <cwd>/.claude/compression-state.json <cwd>/.agentic/compression-state.json`. Log the move to the wrap run output only.
 - **Read `.agentic/compression-state.json`** if it exists in the project. Record its full current content — this will be passed to Part E later to determine whether compression is needed for each target.
+- **Read `.agentic/learnings.md`** if it exists in the project. Record its full current content — this will be passed to the draft Worker in Step 1 so it does not re-derive facts already captured by `learnings-agent`.
 - Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates.
 - **Check for missing AGENTS.md files:** For each directory that had files touched this session, check whether an AGENTS.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
@@ -158,6 +159,9 @@ You are a Worker agent. Format the raw session data below into three outputs. Re
 **Raw session data:**
 [paste your Step 0 notes here verbatim — this covers the task, files touched, errors, next steps, tools used, and stable facts. Do NOT embed existing AGENTS.md file contents here; those go in the dedicated field below.]
 
+**Existing learnings:**
+[Paste the full current content of `.agentic/learnings.md` read in Step 0, clearly labeled. If the file was not found, write "None." The Worker must check whether a proposed memory entry is already captured here as a structured learning before proposing it.]
+
 **Existing AGENTS.md file contents:**
 [For each AGENTS.md file read in Step 0, paste its full current content here, clearly labeled with its absolute path, e.g.:
 
@@ -210,6 +214,8 @@ Review the raw session data for stable project facts: setup commands that don't 
 `- **YYYY-MM-DD:** [what was decided and why this approach was chosen - alternatives considered may be noted as supporting context, in one to two sentences]`
 
 Use today's date for all entries. If there are no stable facts to record, write "None."
+
+Before proposing a memory entry, check the **Existing learnings** field above. If the same fact is already captured as a structured learning entry (same pattern, same gotcha, same architectural decision), skip it. Do not duplicate content between `.agentic/learnings.md` and `.agentic/memory.md` — they serve different purposes (structured fix-patterns vs. session-synthesized stable facts), but the underlying fact should only be recorded once.
 
 Stable = true every session, not just this one. Temporary = only relevant right now (current task, files touched this session).
 
@@ -356,7 +362,7 @@ Skip Part B entirely if the memory entries input above is "None".
 
 2. **If the file does not exist**: write all non-deferred entries directly as a markdown list. Return: "Wrote fresh memory to [path] (N entries written, M deferred to memory-pending.md)."
 
-3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded, K deferred to memory-pending.md)."
+3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured — not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read in Step 0): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded, K deferred to memory-pending.md)."
 
 **Part C — Write AGENTS.md updates**
 
