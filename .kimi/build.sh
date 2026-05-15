@@ -81,8 +81,12 @@ symlink_dir() {
   local target="$1"
   local link="$2"
   if [[ -L "$link" ]]; then
-    current="$(readlink "$link")"
-    if [[ "$current" == "$target" ]]; then
+    local link_dir
+    link_dir="$(dirname "$link")"
+    local current_abs target_abs
+    current_abs="$(python3 -c "import os.path; print(os.path.realpath(os.path.join('$link_dir', os.readlink('$link'))))")"
+    target_abs="$(python3 -c "import os.path; print(os.path.realpath(os.path.join('$link_dir', '$target')))")"
+    if [[ "$current_abs" == "$target_abs" ]]; then
       echo "  = $(basename "$link") (already linked)"
     else
       rm "$link"
