@@ -64,17 +64,23 @@ fi
 ae_write_mode() {
   local mode="$1"
   python3 - "$AE_CONFIG_PATH" "$mode" <<'PYEOF'
-import json, sys, datetime
+import json, sys, os, datetime
 path, mode = sys.argv[1], sys.argv[2]
-try:
-    with open(path) as f:
-        existing = json.load(f)
-except Exception:
-    existing = {}
-profile = existing.get("profile", "default")
-data = {"mode": mode, "profile": profile, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+# Read existing config or start fresh (preserves all keys including skill_auto_load)
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except Exception:
+        config = {}
+else:
+    config = {}
+# Update only the fields ae_write_mode controls
+config["mode"] = mode
+config["profile"] = config.get("profile", "default")
+config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 with open(path, "w") as f:
-    json.dump(data, f, indent=2)
+    json.dump(config, f, indent=2)
     f.write("\n")
 PYEOF
 }
@@ -83,11 +89,34 @@ ae_write_config() {
   local mode="$1"
   local profile="$2"
   python3 - "$AE_CONFIG_PATH" "$mode" "$profile" <<'PYEOF'
-import json, sys, datetime
+import json, sys, os, datetime
 path, mode, profile = sys.argv[1], sys.argv[2], sys.argv[3]
-data = {"mode": mode, "profile": profile, "set_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+# Read existing config or start fresh
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except Exception:
+        config = {}
+else:
+    config = {}
+# Always overwrite these keys
+config["mode"] = mode
+config["profile"] = profile
+config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+# skill_auto_load: preserve existing; prompt only on fresh install (key absent)
+if "skill_auto_load" not in config:
+    try:
+        with open("/dev/tty", "r+") as tty:
+            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.flush()
+            answer = (tty.readline() or "").strip().lower()
+        config["skill_auto_load"] = answer in ("y", "yes")
+    except OSError:
+        config["skill_auto_load"] = False
+# Write back
 with open(path, "w") as f:
-    json.dump(data, f, indent=2)
+    json.dump(config, f, indent=2)
     f.write("\n")
 PYEOF
 }

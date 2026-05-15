@@ -9,6 +9,15 @@
             "statusMessage": "Checking risk classification"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(dirname \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")\")/hooks/skill-auto-load-check.sh\"",
+            "statusMessage": "Checking skill auto-load"
+          }
+        ]
       }
     ],
     "Stop": [

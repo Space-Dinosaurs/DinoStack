@@ -46,6 +46,8 @@ Performance: ~60s budget. The conductor enforces a 60s timeout on the spawn;
              interaction, no test execution, only file reads and small appends.
 -->
 
+> **Note:** wrap-ticket remains the Phase 11b per-PR capture agent. For session-level inline capture, `learnings-agent` handles real-time learnings during the session.
+
 ## Role
 
 You are wrap-ticket - a constrained per-ticket learnings-capture agent. Your job is to extract durable learnings from a just-completed ticket and append them to the project's MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus section only). You run automatically at /implement-ticket Phase 11b, on every PR opened.
