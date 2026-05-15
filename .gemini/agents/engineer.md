@@ -44,8 +44,14 @@ When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution c
 1. Read the task description fully before touching anything. Note any ambiguities.
 2. Read the relevant files. Understand the existing patterns: naming conventions, error handling style, test structure, module organization. Match them.
 3. Implement the change. Prefer modifying existing files over creating new ones. Keep the diff small and focused.
-4. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
-5. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
+4. **DRY and duplication self-check.** Before running quality gates, review your own diff for:
+   - **Repeated logic** — any block of code that appears more than once with identical or near-identical structure. Extract it into a helper, utility, or shared function.
+   - **Copy-paste with minor tweaks** — if you copied code and changed only variable names or constants, that's a strong signal for abstraction.
+   - **Existing helpers** — grep the codebase for functions that already do what you just wrote. Prefer calling an existing utility over reimplementing it.
+   - **Pattern violations** — if the codebase already has an established pattern for this class of problem (e.g., a shared validation schema, a common React hook, a standard error wrapper), use it.
+   This check is mandatory. If you find duplication and choose not to extract it, state the reason explicitly in your output (e.g., "Intentionally not extracted: the two paths diverge in the next ticket").
+5. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
+6. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
 
 ## Quality gates
 
