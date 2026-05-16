@@ -10,7 +10,7 @@ For changes whose `qa_criteria` does not match the concurrent path (or where the
 - The change is Trivial risk (direct action; existing carve-out preserved).
 - `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
 
-Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision.
+Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision. The `qa_default_skip` key in `.agentic/config.json` is a reserved, documented-but-inert schema key (canonical definition in §Planning Artifacts); it does NOT override or weaken this invariant.
 
 **QA gate flow (UI-visible - concurrent):**
 1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).

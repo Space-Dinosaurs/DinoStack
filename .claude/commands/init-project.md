@@ -163,10 +163,11 @@ Before writing any files, check which files already exist. The full set of files
 - `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/learnings.md` — durable fix-pattern learnings from resolved Skeptic findings; always created (committed, not gitignored)
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
+- `.agentic/config.json` - committed (NOT gitignored) project-level methodology toggles; always created with documented defaults so the conductor has a stable file to read
 - `glossary.md` (root) - the project's Ubiquitous Language; seeded with a header and TODO bullet so the team and agents have a place to record domain terms
 - `memory/MEMORY.md` (created at `<cwd>/.agentic/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
 - `.gitignore`
-- `docs/overview/.gitkeep`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
+- `docs/overview/vision.md`, `docs/overview/requirements.md`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
 
 **Report findings in two groups:**
 
@@ -299,6 +300,8 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 10. **`.agentic/preferences.json`** — if the file does not exist: plan to create it with `{}` as content.
 
+10a. **`.agentic/config.json`** — if the file does not exist: plan to create it with the documented defaults (see Step 6f). Never overwrite an existing `.agentic/config.json` — it is operator-tunable and the user's existing values win.
+
 11. **Legacy path migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`, `learnings.md`:
     - **Both paths exist** (e.g. `.claude/findings.md` AND `.agentic/findings.md` both on disk): refuse to migrate. Emit a **Major warning** in the diff preview block listing each conflicting pair: `WARNING (Major): both .claude/<name>.md and .agentic/<name>.md exist for <name>. Cannot decide which is canonical. Resolve manually (remove or merge one) before re-running /init-project.` Do NOT proceed to apply any changes — block the "Proceed? [y/N]" confirmation until the conflict is resolved.
     - **Only legacy `.claude/<name>.md` exists**: plan to migrate via `git mv .claude/<name>.md .agentic/<name>.md`. Before planning the `git mv`, run `git status --porcelain` to verify the working tree is clean of staged or unstaged changes. If dirty, block with: `Cannot migrate legacy .claude/ config while the working tree is dirty. Commit or stash first, then re-run /init-project.` Do NOT stash or commit on behalf of the user.
@@ -415,6 +418,7 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
     - Root `AGENTS.md` has required sections (`## Tools`, `## Docs`, `## Conventions`, `## Session start`) - always check.
     - `.claude/settings.json` - always check.
     - `docs/{planning,research,technical,overview}/` - always check.
+    - `docs/overview/vision.md` and `docs/overview/requirements.md` - always check.
     - Seeded `MEMORY.md` at `<cwd>/.agentic/memory/MEMORY.md` - always check.
     - `.agentic/qa.md` (or legacy `.claude/qa.md`) - only if this project has a web UI.
     - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
@@ -624,6 +628,26 @@ The root `AGENTS.md` template (Step 3) already includes the glossary bullet unde
 
 If the glossary is declined or not relevant for the project, the user can delete the file later; this scaffolding step does not prompt - presence of an empty glossary is harmless and signals "this project may grow one."
 
+### 6f. Create `.agentic/config.json`
+
+Always create. No signal required - the conductor reads this file to resolve project-level methodology toggles, and `content/rules/conventions.md` and `content/sections/04-risk-classification.md` both document it as "seeded with defaults by `/init-project`". Only create if the file does not already exist - **never overwrite** an existing `.agentic/config.json` (it is operator-tunable; the user's existing values win, same "only if absent / never overwrite" discipline as `.agentic/qa.md`, `.agentic/deploy.md`, `.agentic/preferences.json`, and the Step 10a `docs/overview/*` templates).
+
+Seed with these documented defaults exactly:
+
+```json
+{
+  "debugger_on_failure": false,
+  "qa_default_skip": null,
+  "model_profile": "default"
+}
+```
+
+- `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
+- `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/sections/03-planning-artifacts.md`.
+- `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
+
+This file is committed (NOT gitignored) - the `.agentic/` umbrella ignore carves it out via `!.agentic/config.json` in `.gitignore` (added in Step 9) so the project's methodology toggles are portable and travel with the repo, the same way `qa.md` and `deploy.md` do. It is optional and graceful: if absent, every toggle takes its default and nothing breaks - seeding it here just gives the conductor a stable file to read and the operator a discoverable place to tune.
+
 ### 7. Create `.claude/settings.local.json`
 
 Only create this file if it does not already exist (enforced in Step 2 - skip if it exists).
@@ -713,11 +737,58 @@ The targeted list covers runtime artifacts only: `loop-state.json` (loop resume 
 Create the following empty directories with a `.gitkeep` (only for directories that do not already exist):
 ```
 docs/
-  overview/
   technical/
   planning/
   research/
 ```
+
+The `docs/overview/` directory is seeded in Step 10a below with template files rather than a bare `.gitkeep`.
+
+### Step 10a - Seed docs/overview/ onboarding templates
+
+Create `docs/overview/vision.md` and `docs/overview/requirements.md` only if they do not already exist (never overwrite - these are operator-owned).
+
+`docs/overview/vision.md` template:
+```markdown
+# Vision
+
+<!-- What is this product and why does it exist? Who does it serve? What outcome does it deliver? -->
+<!-- Keep this to one screen. Write in narrative form. -->
+
+## Purpose
+
+TODO: describe the product's core purpose in 1-3 sentences.
+
+## Target Users
+
+TODO: who uses this and what problem does it solve for them?
+
+## Success Looks Like
+
+TODO: what does a successful outcome look like for users?
+```
+
+`docs/overview/requirements.md` template:
+```markdown
+# Requirements
+
+<!-- Scoped functional and non-functional requirements. -->
+<!-- Use bullet statements. Mark optional items with "(nice to have)". -->
+
+## Functional Requirements
+
+- TODO: list what the system must do
+
+## Non-Functional Requirements
+
+- TODO: performance, reliability, security, compliance constraints
+
+## Out of Scope
+
+- TODO: explicit exclusions to prevent scope creep
+```
+
+These files are operator-owned and committed. Architect and Investigator read them when present.
 
 ### 11. Set up tracker
 
@@ -826,4 +897,5 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
-13. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, add `agentic-engineering: opt-out` to `AGENTS.md` (under `## Activation` or as a bare line near the top). *(If global mode was `opt-in` and the user activated)* This project has `agentic-engineering: opt-in` in `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, add `agentic-engineering-profile: relaxed` (or `default` or `strict`) to `AGENTS.md`.
+13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context.
+14. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, add `agentic-engineering: opt-out` to `AGENTS.md` (under `## Activation` or as a bare line near the top). *(If global mode was `opt-in` and the user activated)* This project has `agentic-engineering: opt-in` in `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, add `agentic-engineering-profile: relaxed` (or `default` or `strict`) to `AGENTS.md`.

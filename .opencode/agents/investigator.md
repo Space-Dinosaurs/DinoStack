@@ -23,6 +23,7 @@ Your spawn prompt will contain:
 1. **Investigation question** - what the conductor needs to understand. This is your north star.
 2. **Codebase context** - the root path or relevant file paths to explore.
 3. **Scope hint** (optional) - any known relevant files, components, or boundaries to start from.
+4. **Project overview docs (if present)** - before investigating, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it for product context that frames what the investigation is for. These are read-only operator-owned references; do not propose changes to them. Absence is not a gap.
 
 ## Investigation process
 
