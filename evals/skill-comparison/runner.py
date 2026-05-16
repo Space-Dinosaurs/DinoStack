@@ -166,6 +166,14 @@ def _methodology_pair_for_backend(backend: str) -> tuple[str, ...]:
 # Per-task pytest timeout (Brief: <120 s held-out test budget).
 _PYTEST_TIMEOUT_SECONDS = 120
 
+# Agent-mode CLI timeout: Claude typically completes within 240 s; Kimi needs
+# more headroom for the same SWE-bench tasks (observed: ~4-5 min for simple
+# tasks, up to 10 min for complex multi-file fixes).
+_FIX_TIMEOUT_SECONDS: dict[str, int] = {
+    "claude": _PYTEST_TIMEOUT_SECONDS * 2,   # 240 s
+    "kimi": _PYTEST_TIMEOUT_SECONDS * 5,     # 600 s
+}
+
 # TSV schema for the skill-comparison ledger.
 _TSV_HEADER: tuple[str, ...] = (
     "task_slug",
@@ -338,7 +346,7 @@ def _run_cell(
     result = invoke_run(
         prompt=prompt,
         worktree=effective_worktree,
-        timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,  # give engineer 240s
+        timeout_seconds=_FIX_TIMEOUT_SECONDS[backend],
         agent_name=agent_name,
         mode="agent",
         system_prompt=system_prompt,
@@ -638,7 +646,7 @@ def run_matrix(
                         fixture_repo_dir=None,  # base repo seeded externally
                         held_out_dir=held_out_path,
                         build_image=False,  # image already built once by ensure_image() above
-                        timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
+                        timeout_seconds=_FIX_TIMEOUT_SECONDS[backend],
                         held_out_from_fix_dir=True,
                         image_tag=_cell_image_tag,
                     )
@@ -794,7 +802,7 @@ def run_matrix(
                             cp = _Tier3Docker.run_fix_phase(
                                 ctx=tier3_ctx,
                                 prompt=_fix_prompt,
-                                timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
+                                timeout_seconds=_FIX_TIMEOUT_SECONDS[backend],
                                 agent_name=_agent_name,
                                 system_prompt=_system_prompt,
                                 backend=backend,
