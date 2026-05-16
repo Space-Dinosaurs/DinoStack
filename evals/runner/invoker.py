@@ -2,11 +2,11 @@
 Purpose: Probe for the Claude CLI, shell out to it with the eval-standard
          non-interactive flags, and return a normalized per-run record.
 
-Public API: probe_claude_cli() -> str,
+Public API: probe_cli(backend) -> str,
             invoke_run(prompt, worktree, timeout_seconds,
                        agent_name=None, mode="agent", home=None,
-                       model=None, system_prompt=None) -> dict,
-            build_two_level_prompt(agent_name: str, brief: str) -> str.
+                       model=None, system_prompt=None, backend="claude") -> dict,
+            build_two_level_prompt(agent_name: str, brief: str, backend="claude") -> str.
 
             mode="command" skips the two-level Task wrapper, uses a
             permissive tool list + acceptEdits permission mode, and returns
@@ -17,25 +17,26 @@ Upstream deps: stdlib subprocess, time, tempfile, shutil; evals.runner.normalize
 
 Downstream consumers: evals.runner.cli.
 
-Failure modes: probe_claude_cli raises RuntimeError with remediation text if the
-               `claude` binary is not on PATH. invoke_run captures timeouts and
+Failure modes: probe_cli raises RuntimeError with remediation text if the
+               requested binary is not on PATH. invoke_run captures timeouts and
                non-zero exits into the returned record's status field rather than
                raising; the scoring module decides how to score invalid runs.
 
-               Two-level spawn: when agent_name is provided, the outer Claude
+               Two-level spawn: when agent_name is provided, the outer CLI
                session is instructed to spawn the named subagent via the Task
-               tool and return its response verbatim. The normalizer extracts
-               the subagent's text from the tool_result event. If no
-               tool_result is present (e.g. the outer session refused to
-               spawn), invocation_mode is reported as "raw-prompt" as a
+               tool (Claude) or Agent tool (Kimi) and return its response verbatim.
+               The normalizer extracts the subagent's text from the tool_result
+               event. If no tool_result is present (e.g. the outer session refused
+               to spawn), invocation_mode is reported as "raw-prompt" as a
                diagnostic fallback, and the outer assistant text is used.
 
-Performance: dominated by the Claude CLI call itself (seconds). Runner overhead
+Performance: dominated by the CLI call itself (seconds). Runner overhead
              is a single subprocess.run per run.
 """
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import shutil
 import subprocess
@@ -45,6 +46,17 @@ from pathlib import Path
 from .normalizer import parse_stream_json
 
 CLAUDE_BIN = "claude"
+KIMI_BIN = "kimi"
+
+_LOG = logging.getLogger(__name__)
+
+
+class Backend:
+    """Backend identifiers for the eval runner."""
+
+    CLAUDE = "claude"
+    KIMI = "kimi"
+
 
 # Tier 1 is read-only. The Skeptic (and any future Tier 1 component) reads
 # diffs and worker output - it does not execute shell commands and does not
@@ -70,39 +82,68 @@ _COMMAND_MAX_TURNS = "60"
 
 
 def probe_claude_cli() -> str:
-    if shutil.which(CLAUDE_BIN) is None:
+    """Legacy alias for probe_cli(Backend.CLAUDE). Kept for backward compat."""
+    return probe_cli(Backend.CLAUDE)
+
+
+def probe_cli(backend: str = Backend.CLAUDE) -> str:
+    """Check that the requested CLI binary is on PATH and returns its version."""
+    if backend == Backend.KIMI:
+        bin_name = KIMI_BIN
+        install_hint = (
+            "Install Kimi CLI (https://docs.moonshot.cn/kimi-cli) and ensure "
+            "`kimi --version` runs before using the evals runner."
+        )
+    else:
+        bin_name = CLAUDE_BIN
+        install_hint = (
+            "Install Claude Code (https://docs.claude.com/claude-code) and ensure "
+            "`claude --version` runs before using the evals runner."
+        )
+
+    if shutil.which(bin_name) is None:
         raise RuntimeError(
-            "The `claude` CLI was not found on PATH. Install Claude Code "
-            "(https://docs.claude.com/claude-code) and ensure `claude --version` "
-            "runs before using the evals runner."
+            f"The `{bin_name}` CLI was not found on PATH. {install_hint}"
         )
     result = subprocess.run(
-        [CLAUDE_BIN, "--version"],
+        [bin_name, "--version"],
         capture_output=True,
         text=True,
         timeout=15,
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"`claude --version` exited {result.returncode}: {result.stderr.strip()}"
+            f"`{bin_name} --version` exited {result.returncode}: {result.stderr.strip()}"
         )
     return result.stdout.strip()
 
 
-def build_two_level_prompt(agent_name: str, brief: str) -> str:
+def build_two_level_prompt(agent_name: str, brief: str, backend: str = Backend.CLAUDE) -> str:
     """Wrap a subagent brief in the outer-session spawner instruction.
 
-    The outer claude -p session's job is to spawn the named subagent via the
-    Task tool, pass the brief through unchanged, and return the subagent's
-    response verbatim. The outer session must not add commentary, and must
-    not re-interpret or re-format the brief.
+    The outer CLI session's job is to spawn the named subagent via the
+    Task tool (Claude) or Agent tool (Kimi), pass the brief through unchanged,
+    and return the subagent's response verbatim. The outer session must not add
+    commentary, and must not re-interpret or re-format the brief.
     """
+    if backend == Backend.KIMI:
+        tool_name = "Agent"
+        instruction = (
+            f"Use the {tool_name} tool exactly once with subagent_type='{agent_name}' "
+            "and the prompt below. Return the subagent's response verbatim, with "
+            "no added commentary or formatting.\n\n"
+        )
+    else:
+        tool_name = "Task"
+        instruction = (
+            f"Invoke the {tool_name} tool exactly once with subagent_type='{agent_name}' "
+            "and the prompt below. Return the subagent's response verbatim, with "
+            "no added commentary or formatting.\n\n"
+        )
     return (
-        f"Invoke the Task tool exactly once with subagent_type='{agent_name}' "
-        "and the prompt below. Return the subagent's response verbatim, with "
-        "no added commentary or formatting.\n\n"
-        "---\n\n"
-        f"{brief.rstrip()}\n"
+        instruction
+        + "---\n\n"
+        + f"{brief.rstrip()}\n"
     )
 
 
@@ -112,7 +153,7 @@ def _snapshot_filesystem(root: Path) -> dict[str, str]:
     Used by Tier 2 command-mode runs to capture the resulting worktree state
     so the scorer can check file existence, sizes, and content. Skips
     symlinks (shouldn't occur in a scaffolding run) and anything under
-    `.git/` (none in Tier 2 worktrees today, but belt-and-braces).
+    `.git/` (none in Tier 2 worktrees today, but belt-and-suspenders).
     """
     out: dict[str, str] = {}
     if not root.exists():
@@ -143,35 +184,31 @@ def invoke_run(
     model: str | None = None,
     system_prompt: str | None = None,
     max_turns: int | None = None,
+    backend: str = Backend.CLAUDE,
 ) -> dict:
-    """Run the Claude CLI once with `prompt` at `worktree` cwd; return a run record.
+    """Run the CLI once with `prompt` at `worktree` cwd; return a run record.
 
     Modes:
-      "agent"   (default): wrap prompt in a two-level Task spawn of the named
+      "agent"   (default): wrap prompt in a two-level Task/Agent spawn of the named
                 subagent; use the Tier 1 read-only tool list.
-      "command": pass the prompt through verbatim (no Task wrapper), use the
+      "command": pass the prompt through verbatim (no Task/Agent wrapper), use the
                 command tool list with acceptEdits, and capture a filesystem
                 snapshot of the worktree on exit under the key "filesystem".
 
     If `home` is provided, the subprocess inherits the current environment
     except HOME is overridden to `home` (Tier 2 HOME redirect).
 
-    If `model` is provided, --model is passed through to the Claude CLI and
-    ANTHROPIC_BASE_URL is set when the model id starts with a litellm prefix
-    (e.g. claude-kimi-, claude-qwen-, claude-owl-, claude-deepseek).
+    If `model` is provided, --model is passed through to the CLI.
 
     If `system_prompt` is provided, it is appended to the default system
-    prompt via --append-system-prompt. This is how the ae-rules-injected
-    condition injects the AE methodology payload so the model runs with the
-    full protocol context on top of the standard Claude Code system prompt.
-    Flag verified present via `claude --help` (2026-05-12): --append-system-prompt
-    appends to the default; --system-prompt replaces it entirely. We use
-    --append-system-prompt to preserve the default context and add the rules.
-    subprocess argv handling means no shell escaping is needed.
+    prompt via --append-system-prompt (Claude only). For Kimi, this parameter
+    is ignored with a warning because Kimi has no equivalent flag.
 
     If `max_turns` is provided, it overrides the module-level default for
     agent mode (_MAX_TURNS_DEFAULT=40) or command mode (_COMMAND_MAX_TURNS=60).
     Useful for SWE-bench fix tasks that need more tool iterations.
+
+    `backend` selects the CLI to invoke: "claude" (default) or "kimi".
     """
     if mode == "command":
         outer_prompt = prompt
@@ -181,7 +218,7 @@ def invoke_run(
         expect_subagent = False
     else:
         if agent_name:
-            outer_prompt = build_two_level_prompt(agent_name, prompt)
+            outer_prompt = build_two_level_prompt(agent_name, prompt, backend=backend)
         else:
             outer_prompt = prompt
         allowed_tools = _ALLOWED_TOOLS
@@ -189,32 +226,52 @@ def invoke_run(
         effective_max_turns = str(max_turns) if max_turns is not None else _MAX_TURNS
         expect_subagent = bool(agent_name)
 
-    # The Claude CLI accepts the prompt as the argument to -p; subprocess.run
-    # passes it through argv without shell parsing, so no escaping is needed.
-    cmd = [
-        CLAUDE_BIN,
-        "-p",
-        outer_prompt,
-        "--output-format", "stream-json",
-        "--verbose",
-        "--allowed-tools", allowed_tools,
-        "--permission-mode", permission_mode,
-        "--max-turns", effective_max_turns,
-    ]
+    if backend == Backend.KIMI:
+        cmd = [
+            KIMI_BIN,
+            "-p",
+            outer_prompt,
+            "--print",
+            "--yolo",
+            "--output-format", "stream-json",
+            "--work-dir", str(worktree),
+            "--max-steps-per-turn", effective_max_turns,
+        ]
+        if model is not None:
+            cmd.extend(["--model", model])
+        if system_prompt is not None:
+            _LOG.warning(
+                "Kimi backend does not support --append-system-prompt; "
+                "system_prompt parameter is ignored."
+            )
+        # Kimi uses --work-dir instead of subprocess cwd.
+        subprocess_cwd = None
+    else:
+        # Claude CLI accepts the prompt as the argument to -p; subprocess.run
+        # passes it through argv without shell parsing, so no escaping is needed.
+        cmd = [
+            CLAUDE_BIN,
+            "-p",
+            outer_prompt,
+            "--output-format", "stream-json",
+            "--verbose",
+            "--allowed-tools", allowed_tools,
+            "--permission-mode", permission_mode,
+            "--max-turns", effective_max_turns,
+        ]
+        if model is not None:
+            cmd.extend(["--model", model])
+        if system_prompt is not None:
+            # Inject AE rules (or any system context) via --append-system-prompt.
+            # This appends to (not replaces) the default Claude Code system prompt,
+            # preserving the baseline context while adding the AE methodology rules.
+            # Flag verified in `claude --help` (2026-05-12).
+            cmd.extend(["--append-system-prompt", system_prompt])
+        subprocess_cwd = str(worktree)
 
     # Route through litellm when model id uses a non-Anthropic prefix.
     _litellm_prefixes = ("claude-kimi-", "claude-qwen-", "claude-owl-", "claude-deepseek")
     _use_litellm = model is not None and any(model.startswith(p) for p in _litellm_prefixes)
-
-    if model is not None:
-        cmd.extend(["--model", model])
-
-    if system_prompt is not None:
-        # Inject AE rules (or any system context) via --append-system-prompt.
-        # This appends to (not replaces) the default Claude Code system prompt,
-        # preserving the baseline context while adding the AE methodology rules.
-        # Flag verified in `claude --help` (2026-05-12).
-        cmd.extend(["--append-system-prompt", system_prompt])
 
     env = None
     if home is not None or _use_litellm:
@@ -252,7 +309,7 @@ def invoke_run(
     try:
         result = subprocess.run(
             cmd,
-            cwd=str(worktree),
+            cwd=subprocess_cwd,
             capture_output=True,
             text=True,
             timeout=timeout_seconds,

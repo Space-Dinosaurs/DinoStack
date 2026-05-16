@@ -710,16 +710,17 @@ class Tier3Docker(IsolatorBase):
         agent_name: str | None = None,
         system_prompt: str | None = None,
         model: str | None = None,
+        backend: str = "claude",
     ) -> subprocess.CompletedProcess[str]:
-        """Run the engineer fix phase, either via Claude CLI (prompt mode) or
+        """Run the engineer fix phase, either via CLI (prompt mode) or
         an arbitrary command (command mode).
 
-        When `prompt` is provided the method invokes the Claude CLI on the
+        When `prompt` is provided the method invokes the CLI on the
         HOST (not inside the container) with cwd=ctx.fix_phase_dir so that
         the agent's file writes land in the host-side directory that is
         later mounted at /workspace/repo:rw inside the score-phase container.
-        The container is NOT started for the claude CLI invocation because the
-        CLI requires outbound network to reach the Anthropic API; an
+        The container is NOT started for the CLI invocation because the
+        CLI requires outbound network to reach the API; an
         in-container invocation under --network none would break auth.
 
         When `command` is provided (and `prompt` is None) the command is
@@ -737,16 +738,17 @@ class Tier3Docker(IsolatorBase):
             ctx: Tier3Context from __enter__.
             command: command to run INSIDE the container (command path).
             timeout_seconds: wall-clock limit.
-            env: additional env vars for the claude CLI subprocess (prompt path)
+            env: additional env vars for the CLI subprocess (prompt path)
                  or injected into the docker run command (command path).
-            prompt: engineer prompt for the Claude CLI. When set, the CLI is
+            prompt: engineer prompt for the CLI. When set, the CLI is
                     invoked on the HOST at cwd=ctx.fix_phase_dir.
-            agent_name: optional named-agent spawned via two-level Task wrapper
+            agent_name: optional named-agent spawned via two-level Task/Agent wrapper
                         (prompt path only). None = conductor runs directly.
             system_prompt: optional system prompt appended via
-                           --append-system-prompt (prompt path only; used for
+                           --append-system-prompt (Claude prompt path only; used for
                            ae-rules-injected condition).
-            model: optional --model flag for the Claude CLI (prompt path only).
+            model: optional --model flag for the CLI (prompt path only).
+            backend: "claude" (default) or "kimi".
 
         Returns a CompletedProcess. For the prompt path, returncode is 0 when
         the invoker returns status='ok' and 1 otherwise; stdout contains the
@@ -765,13 +767,13 @@ class Tier3Docker(IsolatorBase):
             )
 
         if prompt is not None:
-            # Claude CLI requires network (Anthropic API) so the fix-phase CLI
+            # CLI requires network (Anthropic/Moonshot API) so the fix-phase CLI
             # invocation runs on the host at cwd=fix_phase_dir. Filesystem isolation
             # is provided by routing all engineer edits through fix_phase_dir; held-out
             # tests are not present in fix_phase_dir. See risk-register item #6 and
             # architect-plan "Implementation deviation" note.
-            # Prompt path: run the Claude CLI on the HOST so it can reach the
-            # Anthropic API.  The agent's file writes go into ctx.fix_phase_dir,
+            # Prompt path: run the CLI on the HOST so it can reach the
+            # API.  The agent's file writes go into ctx.fix_phase_dir,
             # which is the host-side copy of the repo mounted at /workspace/repo:rw
             # for the score phase.
             import json as _json
@@ -784,6 +786,7 @@ class Tier3Docker(IsolatorBase):
                 mode="agent",
                 system_prompt=system_prompt,
                 model=model,
+                backend=backend,
             )
             returncode = 0 if result.get("status") == "ok" else 1
             stdout_json = _json.dumps(result, default=str)

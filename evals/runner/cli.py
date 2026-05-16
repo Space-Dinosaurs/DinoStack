@@ -94,6 +94,7 @@ def _run_fixture(
     content_hash: str,
     scoring,
     max_turns: int | None = None,
+    backend: str = "claude",
 ) -> dict:
     per_run_scores: list[dict] = []
     invocation_modes: list[str] = []
@@ -166,6 +167,7 @@ def _run_fixture(
                     mode="command",
                     home=fake_home,
                     max_turns=max_turns,
+                    backend=backend,
                 )
                 # Scorer needs the worktree root to read AGENTS.md/.gitignore
                 # line-level content. Stuff it into the record before the
@@ -179,6 +181,7 @@ def _run_fixture(
                 run_record = inv_mod.invoke_run(
                     prompt_text, worktree, manifest.timeout_seconds,
                     agent_name=agent_name, max_turns=max_turns,
+                    backend=backend,
                 )
             score = _score_run(scoring, run_record, fixture)
         per_run_scores.append(score)
@@ -213,7 +216,7 @@ def _run_fixture(
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    inv_mod.probe_claude_cli()
+    inv_mod.probe_cli(args.backend)
     manifest = ld.load_component(args.component)
     content_hash = ld.compute_component_content_hash(manifest)
     commit = _git_head_commit()
@@ -252,6 +255,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         row = _run_fixture(
             manifest, fx, n_runs, commit, content_hash, scoring,
             max_turns=args.max_turns,
+            backend=args.backend,
         )
         rows.append(row)
         _log.info(
@@ -309,6 +313,15 @@ def main(argv: list[str] | None = None) -> int:
             "Override --max-turns passed to the Claude CLI for agent-mode runs "
             f"(default: {inv_mod._MAX_TURNS_DEFAULT}). Raise for SWE-bench fix "
             "tasks that need many tool iterations."
+        ),
+    )
+    p_run.add_argument(
+        "--backend",
+        choices=["claude", "kimi"],
+        default="claude",
+        help=(
+            "CLI backend to use for eval runs. 'claude' (default) uses Claude Code; "
+            "'kimi' uses the Kimi CLI."
         ),
     )
     p_run.set_defaults(func=cmd_run)
