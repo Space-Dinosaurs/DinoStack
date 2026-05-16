@@ -1,1 +1,1 @@
-/Users/tyson.hummel/Documents/tools/agentic-engineering/.kimi/skills/agentic-engineering/SKILL.md
+../../../content/SKILL.md

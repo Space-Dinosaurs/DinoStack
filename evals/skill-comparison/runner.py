@@ -104,7 +104,7 @@ _LOG = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-CONDITION_LABELS: list[str] = [
+CONDITION_LABELS_CLAUDE: list[str] = [
     "baseline",
     "ae-rules-injected",
     "engineer-direct",
@@ -115,8 +115,19 @@ CONDITION_LABELS: list[str] = [
     "qa-engineer-direct",
 ]
 
-# Conditions that route via named-agent direct spawn (two-level Task).
-_AGENT_CONDITIONS: dict[str, str] = {
+CONDITION_LABELS_KIMI: list[str] = [
+    "baseline",
+    "ae-skill",
+    "coder-direct",
+    "explore-direct",
+    "plan-direct",
+]
+
+# Backward compat: default to Claude conditions.
+CONDITION_LABELS: list[str] = CONDITION_LABELS_CLAUDE
+
+# Conditions that route via named-agent direct spawn (two-level Task/Agent).
+_AGENT_CONDITIONS_CLAUDE: dict[str, str] = {
     "engineer-direct": "engineer",
     "architect-direct": "architect",
     "investigator-direct": "investigator",
@@ -124,6 +135,33 @@ _AGENT_CONDITIONS: dict[str, str] = {
     "skeptic-direct": "skeptic",
     "qa-engineer-direct": "qa-engineer",
 }
+
+_AGENT_CONDITIONS_KIMI: dict[str, str] = {
+    "coder-direct": "coder",
+    "explore-direct": "explore",
+    "plan-direct": "plan",
+}
+
+# Backward compat: default to Claude agent mapping.
+_AGENT_CONDITIONS: dict[str, str] = _AGENT_CONDITIONS_CLAUDE
+
+
+def _agent_conditions_for_backend(backend: str) -> dict[str, str]:
+    if backend == "kimi":
+        return _AGENT_CONDITIONS_KIMI
+    return _AGENT_CONDITIONS_CLAUDE
+
+
+def _condition_labels_for_backend(backend: str) -> list[str]:
+    if backend == "kimi":
+        return CONDITION_LABELS_KIMI
+    return CONDITION_LABELS_CLAUDE
+
+
+def _methodology_pair_for_backend(backend: str) -> tuple[str, ...]:
+    if backend == "kimi":
+        return ("baseline", "ae-skill")
+    return ("baseline", "ae-rules-injected")
 
 # Per-task pytest timeout (Brief: <120 s held-out test budget).
 _PYTEST_TIMEOUT_SECONDS = 120
@@ -238,6 +276,7 @@ def _run_cell(
     ae_payload: Optional[str],
     dry_run: bool,
     worktree: Optional[Path] = None,
+    backend: str = "claude",
 ) -> dict:
     """Run one (task, condition, replicate) cell and return a raw result dict.
 
@@ -248,6 +287,7 @@ def _run_cell(
         worktree: the fix-phase directory to run the CLI in. Defaults to
                   Path(".") for backward compat; in production this is the
                   Tier3Context.fix_phase_dir seeded with the task's base repo.
+        backend: "claude" (default) or "kimi".
 
     Returns a dict with keys matching the invoker's run record plus extra
     fields used for TSV row construction.
@@ -281,16 +321,20 @@ def _run_cell(
             "_parse_warnings": [],
         }
 
-    agent_name: Optional[str] = _AGENT_CONDITIONS.get(condition)
-    # ae-rules-injected: inject the full AE methodology payload as the system
-    # prompt so the model runs with the complete protocol context. This is the
-    # headline measurement; baseline runs with system_prompt=None.
-    system_prompt: Optional[str] = ae_payload if condition == "ae-rules-injected" else None
+    agent_conditions = _agent_conditions_for_backend(backend)
+    agent_name: Optional[str] = agent_conditions.get(condition)
+    # ae-rules-injected (Claude): inject the full AE methodology payload as the
+    # system prompt so the model runs with the complete protocol context.
+    # Kimi has no --append-system-prompt equivalent, so system_prompt is None.
+    if backend == "kimi":
+        system_prompt: Optional[str] = None
+    else:
+        system_prompt = ae_payload if condition == "ae-rules-injected" else None
 
     effective_worktree = worktree if worktree is not None else Path(".")
 
-    # For per-agent conditions, the two-level Task wrapper is built by invoker.
-    # For baseline and ae-rules-injected, agent_name is None (conductor runs directly).
+    # For per-agent conditions, the two-level Task/Agent wrapper is built by invoker.
+    # For baseline and methodology conditions, agent_name is None (conductor runs directly).
     result = invoke_run(
         prompt=prompt,
         worktree=effective_worktree,
@@ -298,6 +342,7 @@ def _run_cell(
         agent_name=agent_name,
         mode="agent",
         system_prompt=system_prompt,
+        backend=backend,
     )
     return result
 
@@ -346,8 +391,9 @@ def run_matrix(
     tasks_filter: Optional[list[str]] = None,
     max_cells: Optional[int] = None,
     rebuild_image: bool = False,
+    backend: str = "claude",
 ) -> RunReport:
-    """Orchestrate the 8-condition skill-comparison eval matrix.
+    """Orchestrate the skill-comparison eval matrix.
 
     For each (task, condition, replicate) cell:
       1. Skip if already present in TSV (resume semantics; override with force=True).
@@ -373,14 +419,14 @@ def run_matrix(
         content_root: path to content/ directory (for ae-rules-injected payload).
                       Defaults to <repo_root>/content/.
         n_replicates: replicates per cell (default 3).
-        n_replicates_methodology: replicates for baseline and ae-rules-injected
+        n_replicates_methodology: replicates for the methodology pair
                                    (default 5; this is the headline pair).
         max_usd: global USD ceiling (default 250).
         max_tokens: global token ceiling (default 75 M).
         max_wall_seconds: global wall-clock ceiling (default 12 h).
         dry_run: if True, skip actual CLI calls and return canned results.
                  Implies tier3_mode='off'.
-        conditions: subset of CONDITION_LABELS to run (None = all 8).
+        conditions: subset of condition labels to run (None = all for backend).
         tier3_mode: "auto" (default) - instantiate Tier3Docker in production
                     (i.e. when not dry_run); "off" - skip Tier3, run local
                     subprocess for both fix and score phases (for dry-run /
@@ -403,6 +449,8 @@ def run_matrix(
                        a fresh docker build. Useful when Dockerfile.swebench has
                        changed and the locally-tagged image is stale. Has no
                        effect when tier3_mode='off' or dry_run=True.
+        backend: "claude" (default) or "kimi". Selects the CLI backend and
+                 condition matrix.
 
     Returns:
         RunReport with summary stats.
@@ -433,14 +481,17 @@ def run_matrix(
             )
         tasks = {slug: tasks[slug] for slug in tasks_filter}
 
-    active_conditions = conditions if conditions is not None else CONDITION_LABELS
+    default_conditions = _condition_labels_for_backend(backend)
+    active_conditions = conditions if conditions is not None else default_conditions
 
     # Resolve effective tier3 mode. dry_run forces Tier3 off.
     use_tier3 = (tier3_mode == "auto") and (not dry_run)
 
     # Build ae-rules payload once (reused for every ae-rules-injected cell).
+    # Kimi backend has no --append-system-prompt equivalent, so skip payload build.
     ae_payload: Optional[str] = None
-    if "ae-rules-injected" in active_conditions and not dry_run:
+    methodology_pair = _methodology_pair_for_backend(backend)
+    if backend != "kimi" and "ae-rules-injected" in active_conditions and not dry_run:
         from ae_rules_payload import build_payload
         ae_payload = build_payload(content_root)
 
@@ -507,6 +558,10 @@ def run_matrix(
 
         for dockerfile_name, image_tag in unique_dockerfiles.items():
             dockerfile_path = _dockerfile_dir / dockerfile_name
+            if rebuild_image:
+                # Evict cached digest so ensure_image() rebuilds from scratch.
+                from evals.runner.isolator import _IMAGE_DIGEST_CACHE
+                _IMAGE_DIGEST_CACHE.pop(image_tag, None)
             _LOG.info(
                 "Tier 3: ensuring image %s from %s (one-time build before cell loop)",
                 image_tag,
@@ -728,16 +783,21 @@ def run_matrix(
                             # Score-phase enforces container isolation - see run_score_phase.
                             # Build prompt and invoke via the isolator.
                             _fix_prompt = _build_fix_prompt(task_slug, task_meta)
-                            _agent_name: Optional[str] = _AGENT_CONDITIONS.get(condition)
-                            _system_prompt: Optional[str] = (
-                                ae_payload if condition == "ae-rules-injected" else None
-                            )
+                            _agent_conditions = _agent_conditions_for_backend(backend)
+                            _agent_name: Optional[str] = _agent_conditions.get(condition)
+                            if backend == "kimi":
+                                _system_prompt: Optional[str] = None
+                            else:
+                                _system_prompt = (
+                                    ae_payload if condition == "ae-rules-injected" else None
+                                )
                             cp = _Tier3Docker.run_fix_phase(
                                 ctx=tier3_ctx,
                                 prompt=_fix_prompt,
                                 timeout_seconds=_PYTEST_TIMEOUT_SECONDS * 2,
                                 agent_name=_agent_name,
                                 system_prompt=_system_prompt,
+                                backend=backend,
                             )
                             # run_fix_phase (prompt path) encodes the invoker
                             # dict as JSON in cp.stdout.
@@ -764,6 +824,7 @@ def run_matrix(
                                 ae_payload=ae_payload,
                                 dry_run=dry_run,
                                 worktree=fix_worktree,
+                                backend=backend,
                             )
                     except Exception as exc:
                         _LOG.error(
@@ -1032,6 +1093,15 @@ if __name__ == "__main__":
             "stale. Has no effect when --tier3=off or --dry-run."
         ),
     )
+    parser.add_argument(
+        "--backend",
+        choices=["claude", "kimi"],
+        default="claude",
+        help=(
+            "CLI backend to use for the eval runs. 'claude' (default) uses the "
+            "Claude Code CLI; 'kimi' uses the Kimi CLI."
+        ),
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
@@ -1052,6 +1122,7 @@ if __name__ == "__main__":
         tasks_filter=args.tasks_filter if args.tasks_filter else None,
         max_cells=args.max_cells,
         rebuild_image=args.rebuild_image,
+        backend=args.backend,
     )
 
     print(json.dumps(

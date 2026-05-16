@@ -2615,3 +2615,263 @@ class TestPostSeedCommands:
         assert run_commands == [], (
             f"post_seed_commands must NOT run in dry_run mode; got {run_commands}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Kimi backend tests
+# ---------------------------------------------------------------------------
+
+
+class TestKimiBackendFlagGeneration:
+    """Tests for Kimi backend CLI flag generation in _run_cell."""
+
+    def test_kimi_backend_uses_kimi_binary(self, tmp_path: Path):
+        """Kimi backend invokes the `kimi` binary, not `claude`."""
+        from runner import _run_cell
+
+        task_meta = {
+            "problem_summary": "test bug",
+            "repo_url": "https://github.com/example/repo",
+            "base_commit": "abc123",
+        }
+
+        captured_cmds: list[list[str]] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return _make_completed_process(stdout="")
+
+        with patch("subprocess.run", side_effect=fake_subprocess_run):
+            _run_cell(
+                task_slug="test-task",
+                task_meta=task_meta,
+                condition="baseline",
+                replicate=1,
+                ae_payload=None,
+                dry_run=False,
+                backend="kimi",
+            )
+
+        assert captured_cmds, "subprocess.run must have been called"
+        invoke_cmd = captured_cmds[-1]
+        assert invoke_cmd[0] == "kimi", (
+            f"Kimi backend must use 'kimi' binary; got {invoke_cmd[0]!r}"
+        )
+
+    def test_kimi_backend_has_correct_flags(self, tmp_path: Path):
+        """Kimi backend generates --print --yolo --work-dir --max-steps-per-turn."""
+        from runner import _run_cell
+
+        task_meta = {
+            "problem_summary": "test bug",
+            "repo_url": "https://github.com/example/repo",
+            "base_commit": "abc123",
+        }
+
+        captured_cmds: list[list[str]] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return _make_completed_process(stdout="")
+
+        with patch("subprocess.run", side_effect=fake_subprocess_run):
+            _run_cell(
+                task_slug="test-task",
+                task_meta=task_meta,
+                condition="baseline",
+                replicate=1,
+                ae_payload=None,
+                dry_run=False,
+                backend="kimi",
+            )
+
+        assert captured_cmds, "subprocess.run must have been called"
+        invoke_cmd = captured_cmds[-1]
+        assert "--print" in invoke_cmd, "Kimi backend must include --print"
+        assert "--yolo" in invoke_cmd, "Kimi backend must include --yolo"
+        assert "--work-dir" in invoke_cmd, "Kimi backend must include --work-dir"
+        assert "--max-steps-per-turn" in invoke_cmd, (
+            "Kimi backend must include --max-steps-per-turn"
+        )
+        # Kimi must NOT have Claude-specific flags.
+        assert "--allowed-tools" not in invoke_cmd, (
+            "Kimi backend must NOT include --allowed-tools"
+        )
+        assert "--permission-mode" not in invoke_cmd, (
+            "Kimi backend must NOT include --permission-mode"
+        )
+        assert "--verbose" not in invoke_cmd, (
+            "Kimi backend must NOT include --verbose"
+        )
+
+    def test_kimi_backend_no_append_system_prompt_for_ae_skill(self, tmp_path: Path):
+        """Kimi ae-skill condition must NOT pass --append-system-prompt."""
+        from runner import _run_cell
+
+        ae_payload = "## AE methodology rules content here"
+        task_meta = {
+            "problem_summary": "test bug",
+            "repo_url": "https://github.com/example/repo",
+            "base_commit": "abc123",
+        }
+
+        captured_cmds: list[list[str]] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return _make_completed_process(stdout="")
+
+        with patch("subprocess.run", side_effect=fake_subprocess_run):
+            _run_cell(
+                task_slug="test-task",
+                task_meta=task_meta,
+                condition="ae-skill",
+                replicate=1,
+                ae_payload=ae_payload,
+                dry_run=False,
+                backend="kimi",
+            )
+
+        assert captured_cmds, "subprocess.run must have been called"
+        invoke_cmd = captured_cmds[-1]
+        assert "--append-system-prompt" not in invoke_cmd, (
+            f"Kimi ae-skill must NOT include --append-system-prompt; cmd was: {invoke_cmd}"
+        )
+
+    def test_kimi_backend_uses_agent_tool_wording(self, tmp_path: Path):
+        """Kimi two-level prompt references 'Agent tool', not 'Task tool'."""
+        from runner import _run_cell
+
+        task_meta = {
+            "problem_summary": "test bug",
+            "repo_url": "https://github.com/example/repo",
+            "base_commit": "abc123",
+        }
+
+        captured_cmds: list[list[str]] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            return _make_completed_process(stdout="")
+
+        with patch("subprocess.run", side_effect=fake_subprocess_run):
+            _run_cell(
+                task_slug="test-task",
+                task_meta=task_meta,
+                condition="coder-direct",
+                replicate=1,
+                ae_payload=None,
+                dry_run=False,
+                backend="kimi",
+            )
+
+        assert captured_cmds, "subprocess.run must have been called"
+        # The prompt is passed as the -p argument (index 2 for kimi).
+        prompt_arg = captured_cmds[-1][2]
+        assert "Agent tool" in prompt_arg, (
+            "Kimi two-level prompt must reference 'Agent tool'"
+        )
+        assert "Task tool" not in prompt_arg, (
+            "Kimi two-level prompt must NOT reference 'Task tool'"
+        )
+        assert "subagent_type='coder'" in prompt_arg, (
+            "Kimi coder-direct must map to subagent_type='coder'"
+        )
+
+
+class TestKimiBackendRunMatrix:
+    """Tests for run_matrix with backend='kimi'."""
+
+    def test_kimi_backend_uses_kimi_conditions(self, tmp_path: Path, corpus_yaml: Path):
+        """run_matrix with backend='kimi' uses the 5-condition Kimi matrix."""
+        results_tsv = tmp_path / "skill-comparison.tsv"
+
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        with patch("runner.score_cell", return_value=canned_score):
+            report = run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                backend="kimi",
+            )
+
+        rows = _read_tsv(results_tsv)
+        conditions_seen = {r["condition"] for r in rows}
+        expected = {
+            "baseline",
+            "ae-skill",
+            "coder-direct",
+            "explore-direct",
+            "plan-direct",
+        }
+        assert conditions_seen == expected, (
+            f"Kimi backend must use Kimi condition set; expected {expected}, got {conditions_seen}"
+        )
+        assert report.rows_written == 5, (
+            f"Expected 5 rows (1 task x 5 conditions x n=1), got {report.rows_written}"
+        )
+
+    def test_kimi_backend_does_not_build_ae_payload(self, tmp_path: Path, corpus_yaml: Path):
+        """Kimi backend skips ae_rules_payload.build_payload since it cannot inject rules."""
+        results_tsv = tmp_path / "results.tsv"
+
+        from scoring import ScoringResult
+
+        canned_score = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        with (
+            patch("runner.score_cell", return_value=canned_score),
+            patch("ae_rules_payload.build_payload") as mock_build_payload,
+        ):
+            run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=1,
+                n_replicates_methodology=1,
+                dry_run=True,
+                backend="kimi",
+            )
+
+        mock_build_payload.assert_not_called(), (
+            "Kimi backend must NOT call build_payload (no --append-system-prompt support)"
+        )
+
+    def test_kimi_methodology_pair_uses_higher_n(self, tmp_path: Path, corpus_yaml: Path):
+        """baseline and ae-skill use n_replicates_methodology on Kimi backend."""
+        results_tsv = tmp_path / "skill-comparison.tsv"
+
+        from scoring import ScoringResult
+
+        canned = ScoringResult(
+            pass_fail=True, score_primary=1.0,
+            lines_touched=1, files_touched=1, scope_creep_flag=False,
+        )
+
+        with patch("runner.score_cell", return_value=canned):
+            report = run_matrix(
+                tasks_yaml=corpus_yaml,
+                results_tsv=results_tsv,
+                n_replicates=2,
+                n_replicates_methodology=3,
+                dry_run=True,
+                backend="kimi",
+                conditions=["baseline", "coder-direct"],
+            )
+
+        rows = _read_tsv(results_tsv)
+        baseline_rows = [r for r in rows if r["condition"] == "baseline"]
+        coder_rows = [r for r in rows if r["condition"] == "coder-direct"]
+
+        assert len(baseline_rows) == 3, "baseline should use n_replicates_methodology=3"
+        assert len(coder_rows) == 2, "coder-direct should use n_replicates=2"
