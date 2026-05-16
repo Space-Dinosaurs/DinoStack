@@ -41,6 +41,8 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 
 A project's intent is encoded across a small set of artifacts. Treat them as a coherent layer, not as unrelated files:
 
+- `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
+- `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
 - `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
 - `MEMORY.md` - stable facts learned about the project, with rationale.
 - `decisions.md` - the project's decision log, where used.
@@ -49,6 +51,19 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `glossary.md` - the project's Ubiquitous Language (see below).
 
 Together these form the project's **intent layer**. Drift in any of them is **intent debt** - the system stops reflecting what we meant to build, and downstream agents and humans drift along with the artifacts. Keep them current. A stale entry is worse than a missing one because readers trust it.
+
+### Project Overview Layer
+
+`docs/overview/vision.md` and `docs/overview/requirements.md` are operator-authored documents that capture durable product intent above the task level. When present, Architect and Investigator read them before producing output; the design or investigation must not contradict them.
+
+**What each file contains:**
+- `vision.md` - why the product exists, who it serves, what outcome it delivers (one screen, narrative form)
+- `requirements.md` - scoped functional and non-functional requirements, as bulleted statements
+
+**Rules:**
+- Operator-owned: agents read, never write or propose edits to these files
+- Optional and graceful: if `docs/overview/` does not exist or these files are absent, nothing breaks
+- Not a replacement for per-task Briefs: the Brief's "Problem" and "Constraints" fields should be consistent with these docs when present, but overview docs do not replace task-scoped planning artifacts
 
 ### Ubiquitous Language (`glossary.md`)
 
