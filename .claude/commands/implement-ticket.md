@@ -193,6 +193,8 @@ else:
 | quality_gate | engineer_spawned | Check `git status --porcelain`. If clean: re-spawn Phase 7 engineer with quality gate failure output from `loop_state.last_engineer_summary`. If dirty: ask human (discard and re-run, or commit and re-run `$QUALITY_CMD`). |
 | quality_gate | engineer_returned | Phase 7 engineer committed. On the Elevated path: verify the engineer's reported `quality_gate_results`. On the Trivial path: re-run `$QUALITY_CMD`. |
 | quality_gate | rerun_pending | On the Elevated path: wait for the fix-engineer return and verify its `quality_gate_results` - do not invoke `$QUALITY_CMD` directly. On the Trivial path: re-run `$QUALITY_CMD`. |
+| quality_gate | debugger_spawned | Re-spawn Debugger from scratch with the captured gate failure output (Debugger is read-only and idempotent - same pattern as "Full Skeptic re-run on interruption"). |
+| quality_gate | debugger_returned | Debugger output was captured before interruption. Proceed to spawn the next engineer fix pass with the Debugger's Fix brief. No Debugger re-run needed. |
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
@@ -212,6 +214,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` — the branch all work is based from. If not declared in `AGENTS.md`, resolve in this order: (1) `main` if it exists locally; (2) `master` if it exists locally; (3) `develop` if it exists locally; (4) `development` if it exists locally; (5) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
+- `DEBUGGER_ON_FAILURE` — read from `.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
@@ -757,6 +760,8 @@ Extend `completion_conditions` to include: "quality_gates.command exits 0", "com
 
 The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
 
+**Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
+
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns (per METHODOLOGY.md §Delegation table - spawned only when other subagents are running) keep the lightweight contract: no `worktree_setup`, no `quality_gates`, no `git_finalization`, no `quality_gate_results` return field. Trivial flow is conductor-orchestrated end to end - branch creation, quality gates, commits, and pushes are all conductor-direct as today.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
@@ -1205,7 +1210,15 @@ All checks must pass (typecheck, lint, tests, knip, jscpd). Do not suppress or s
 
 **If the gate fails (either path):**
 
-This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter. Instead:
+This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter.
+
+**Check `DEBUGGER_ON_FAILURE` (from Setup) to determine the failure path:**
+
+**Trivial-path exclusion (unconditional).** A Trivial-path ticket NEVER invokes the Debugger, regardless of `debugger_on_failure`. The Debugger gate is `debugger_on_failure == true` AND path is Elevated; both conditions must hold. A Trivial-path gate failure always takes the default (no-Debugger) path below even when `debugger_on_failure: true` is set in `.agentic/config.json`.
+
+---
+
+**When `DEBUGGER_ON_FAILURE` is `false` OR the path is Trivial** - preserve existing behavior exactly:
 
 1. Before spawning the Phase 7 engineer: write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
 2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: "worktree"` on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble).
@@ -1215,7 +1228,31 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
 7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
-**No unbounded loop:** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
+**No unbounded loop (default path):** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
+
+---
+
+**When `DEBUGGER_ON_FAILURE` is `true` AND the path is Elevated** - interpose a Debugger diagnosis step before each engineer fix pass. Max 3 debug-fix cycles total.
+
+For each debug-fix cycle (cycle count tracked in-context; escalate to human after 3 exhausted cycles with open gate failures):
+
+1. Write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=debugger_spawned` (atomic write).
+2. Spawn `debugger` (read-only; no worktree isolation needed - Debugger never writes files) with:
+   - The captured gate failure output (`raw_output` from the failing run)
+   - The failing context (branch diff, relevant files, prior cycle summaries if any)
+3. After Debugger returns: write `last_phase=quality_gate`, `last_phase_action=debugger_returned` (atomic write).
+4. Write `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
+5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: "worktree"` (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble).
+6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
+7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.
+8. Verify the fix engineer's `quality_gate_results`.
+   - If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
+   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.
+   - If it still fails AND cycle count == 3: set `status=stalled`. Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
+
+**Convergence short-circuit (test runners only).** If the quality gate is a test runner (pytest, jest, vitest, cargo test, etc.) AND the set of failing test IDs in `quality_gate_results.failures[]` is identical to the set from the immediately preceding cycle (the engineer made no progress on the failing tests), escalate immediately without consuming remaining cycles. Surface the stalled test IDs and both cycle outputs to the human. This short-circuit applies ONLY to test runners with structured `failures[]` output. For lint (eslint, ruff, etc.) and typecheck (tsc, mypy, pyright, etc.) gates, rely solely on the 3-cycle limit - do not attempt a short-circuit.
+
+**Cross-reference:** `content/sections/05-qa-gate.md` Re-route limits section for shared escalation semantics.
 
 ---
 

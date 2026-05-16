@@ -131,6 +131,8 @@ the conductor surfaces the question with a recommended default and proceeds with
 | Multi-unit plan (2-5 units) | 2 across the whole plan |
 | Large multi-unit plan (6+ units) | 3 across the whole plan |
 
+**Pre-architect planning-input scans are exempt from this budget.** The Phase 2b ambiguity scan in `/implement-ticket` surfaces clarifying questions before any agent is spawned — no architect, investigator, or engineer has run yet. This is structurally different from a mid-work stop: it is bounded to exactly one operator turn, has a proceed-with-defaults fallback, and produces no work that needs to be discarded if the operator redirects. Phase 2b does not count against the per-task stop budget for any task shape.
+
 When the threshold is exceeded, the conductor stops spawning Workers and surfaces a planning concern to the user instead of another piecemeal question. Format:
 
 *"I've hit N blockers on this task: [bullet list of each blocker and why]. This is past the threshold for a [task shape] task and suggests the plan needs revisiting before we continue. Options: (a) re-spawn architect with these gaps, (b) answer the open questions upfront and resume, or (c) descope. Recommendation: [pick one]."*
@@ -204,7 +206,7 @@ Then: the main session may apply the edit directly, followed immediately by spaw
 
 **Investigator external-data claims require evidence.** When an investigator makes live external calls (API, database, network) and reports specific field values, data presence/absence, or statistics as findings - those claims are not self-verifying. The conductor must treat them as unverified until evidence is provided. Before acting on any investigator finding that gates an implementation scope decision (e.g. "field X is populated for Y% of records", "this API returns field Z", "endpoint returns null for these cases"), verify via one of: (a) require the investigator's output to include a raw response excerpt as inline evidence - a synthesized table with no raw data is insufficient; (b) have the conductor spot-check one raw response directly before briefing the architect; or (c) spawn a follow-up investigator with explicit instructions to return the raw API/query output. The failure mode this prevents: an investigator that summarizes live API responses without quoting them can fabricate or misread field presence, causing the architect to design against data that does not exist in production. "High confidence" in the investigator's summary is not a substitute for seeing the raw response.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Use `engineer` for implementation, `architect` for pre-implementation design, `investigator` for codebase exploration and blast radius mapping, `debugger` for root cause analysis, `security-auditor` for security review, `qa-engineer` for post-Skeptic browser verification of UI-visible changes, `perf-analyst` for profiling, benchmarking, and performance regression hunting, `release-orchestrator` for version bump, tag, deploy sequencing, and rollback decisions, `dependency-auditor` for lockfile CVE triage and license compliance review, `wrap-ticket` for per-ticket learnings capture at `/implement-ticket` Phase 11b (constrained automated subset of `/wrap`; soft-fails, never blocks PR). Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator. For Trivial-classified tasks, the conductor acts directly when no subagents are running; when subagents are running, spawn a single `engineer` Worker in background with no Skeptic and no brief file - this preserves conductor availability and aligns with background-by-default. **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Use `engineer` for implementation, `architect` for pre-implementation design, `investigator` for codebase exploration and blast radius mapping, `debugger` for root cause analysis (**Auto-trigger:** when `debugger_on_failure: true` is set in `.agentic/config.json` and the Elevated path's quality gate fails in `/implement-ticket` Phase 7, the Debugger is auto-spawned for diagnosis before the next engineer fix pass - see Phase 7 for the full flow), `security-auditor` for security review, `qa-engineer` for post-Skeptic browser verification of UI-visible changes, `perf-analyst` for profiling, benchmarking, and performance regression hunting, `release-orchestrator` for version bump, tag, deploy sequencing, and rollback decisions, `dependency-auditor` for lockfile CVE triage and license compliance review, `wrap-ticket` for per-ticket learnings capture at `/implement-ticket` Phase 11b (constrained automated subset of `/wrap`; soft-fails, never blocks PR). Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator. For Trivial-classified tasks, the conductor acts directly when no subagents are running; when subagents are running, spawn a single `engineer` Worker in background with no Skeptic and no brief file - this preserves conductor availability and aligns with background-by-default. **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 
 **wrap-ticket writer carve-out.** wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention → ./decisions.md → docs/decisions.md → docs/adr/ → create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. The Stop hook retains its `.agentic/context.md` auto-write. `/wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap.lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
@@ -271,7 +273,9 @@ Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
                METHODOLOGY.md §Cross-session loop resume (loop-state.json
                schema for brief_path / plan_path / promotion_tier);
                content/rules/module-manifest.md (manifest header contract);
-               content/agents/architect.md, content/agents/orchestration-planner.md.
+               content/agents/architect.md, content/agents/orchestration-planner.md
+               (the acceptance_criteria array field from orchestration-planner
+               JSONL output is consumed by the cross-artifact alignment step).
 
 Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       brief_path / plan_path); METHODOLOGY.md §Task
@@ -281,15 +285,17 @@ Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       promotion_tier); METHODOLOGY.md §Risk Classification
                       (Declaration format optionally includes Brief / Plan);
                       METHODOLOGY.md §Protocol Details (cross-link entry);
-                      /implement-ticket command (follow-on unit, out of scope
-                      here).
+                      /implement-ticket command (Gate semantics step ordering
+                      is referenced by Phase 3b cross-artifact alignment check).
 
 Failure modes: Prose; does not execute. Drift between this section and the
                cross-references above is a Major Skeptic finding (stale
-               manifest or stale cross-reference). Operator failure mode
-               this section exists to prevent: multi-unit Elevated work
-               proceeding without a committed problem statement, success
-               criteria, non-goals, and verification plan.
+               manifest or stale cross-reference). Stale step numbering in
+               Gate semantics causes misrouted cross-references across phases;
+               update inline step references whenever steps are renumbered.
+               Operator failure mode this section exists to prevent: multi-unit
+               Elevated work proceeding without a committed problem statement,
+               success criteria, non-goals, and verification plan.
 
 Performance: Standard.
 -->
@@ -433,9 +439,10 @@ The verification gate is non-skippable. **If verification cannot be specified at
 3. Open Questions on architect plan resolved.
 4. Orchestration-planner runs.
 5. Promotion check against the trigger table.
-6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 7. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
-7. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
-8. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
+6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
+7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements — does not replace — the adversarial Skeptic-on-Brief.
+8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
+9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
 
 **Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
 - Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
@@ -449,6 +456,7 @@ The verification gate is non-skippable. **If verification cannot be specified at
 - Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
 - Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation). This section explicitly extends the existing rule rather than restating it.
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
+- Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
 
 **What does not block:**
 - Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
@@ -466,6 +474,19 @@ The verification gate is non-skippable. **If verification cannot be specified at
 **Auto-promotion at 3rd resume.** When `.agentic/loop-state.json` records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - resume-count tracked in the loop-state file - and fires regardless of whether the operator notices the session span.
 
 **Promotion is upward only.** A task cannot be demoted. Once a Brief or Plan exists, subsequent workers continue to read it.
+
+### Product-intent layer (operator-owned)
+
+Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
+
+### `qa_default_skip` (canonical definition)
+
+`qa_default_skip` is a **reserved** project-level config key in `.agentic/config.json`, documented here for schema completeness. This is the canonical definition; `content/rules/conventions.md` and §Risk Classification cross-reference this section and must not redefine it.
+
+- It is **distinct from** the per-Brief/per-unit `qa_skip` enum (the 5 values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`). The two are unrelated keys and must not be conflated: `qa_skip` is a per-unit QA decision; `qa_default_skip` is a reserved project-level toggle.
+- It **does NOT currently alter QA-gate behavior.** The QA fire/skip decision remains governed entirely by the per-unit `qa_skip` enum and the invariant in §QA Gate (`content/sections/05-qa-gate.md`). `qa_default_skip` does not override, weaken, or bypass that invariant, and introduces no new skip category.
+
+The key is reserved so projects and tooling can rely on a stable schema; any future behavioral wiring is out of scope until separately specified.
 
 ## Risk Classification
 
@@ -534,6 +555,16 @@ If a task initially classified as Low reveals Elevated signals during execution,
 ### Low risk self-check
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
+
+### Project config (`.agentic/config.json`)
+
+The conductor reads `.agentic/config.json` to resolve three project-level orchestration toggles before classifying and spawning. The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+
+- `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
+- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/sections/03-planning-artifacts.md` §`qa_default_skip`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
+- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`.
+
+Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: §Planning Artifacts "Product-intent layer" and `content/rules/conventions.md` §Project Overview Layer.
 
 ### Declaration format
 
@@ -641,7 +672,7 @@ For changes whose `qa_criteria` does not match the concurrent path (or where the
 - The change is Trivial risk (direct action; existing carve-out preserved).
 - `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
 
-Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision.
+Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision. The `qa_default_skip` key in `.agentic/config.json` is a reserved, documented-but-inert schema key (canonical definition in §Planning Artifacts); it does NOT override or weaken this invariant.
 
 **QA gate flow (UI-visible - concurrent):**
 1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
