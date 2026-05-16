@@ -470,6 +470,7 @@ Before any architect spawn, check for an existing Brief, snapshot qa.md for Elev
   pre-existing and operator-confirmed.
 - Pass `brief_source: operator` to the Skeptic-on-Brief gate; use the operator-confirmed
   Skeptic variant (completeness-only review per `content/commands/brief.md` Section 6).
+- If `.agentic/brief-session.json` confirms `brief_source: operator`, set `operator_brief_injectionable: true` to signal Phase 3 that the Brief's committed constraints should be injected into the architect spawn brief (see Phase 3 "Pre-authored Brief injection").
 
 **If not found:** proceed normally. The promotion gate in Phase 3b determines whether a
 Brief is required based on the unit count from the orchestration-planner.
@@ -564,6 +565,33 @@ Trivial-classified tickets retain conductor-direct flow per METHODOLOGY.md §Ris
 
 ---
 
+## Phase 2b: Pre-architect ambiguity scan
+
+**Applies only when ALL of the following hold:**
+- Risk classification is Elevated
+- `operator_brief_injectionable` was NOT set in Phase 0b (no operator-authored Brief)
+- This is the single-unit path (no prior agent has decomposed the ticket into multiple units)
+
+Skip this phase entirely for Trivial, Low, multi-unit, or Brief-present tickets.
+
+**The conductor scans the ticket text for ambiguity signals:**
+- Vague scope language ("something like", "similar to", "improve", "better", "clean up") with no concrete target state
+- No explicit done condition or acceptance criteria stated anywhere in the ticket
+- Two or more mutually exclusive reasonable interpretations of the core ask
+- A load-bearing context value is unstated (target environment, performance budget, affected user type, data scale) where the implementation would materially branch on it
+
+**When one or more signals are present:** the conductor surfaces 1-3 targeted, specific questions in its user-facing turn, each with a recommended default. Format follows the surface-and-proceed protocol in `content/sections/02-delegation.md`. The conductor waits exactly one operator turn.
+- If the operator answers: fold answers verbatim into the Phase 3 architect brief under `"Operator clarifications:"`.
+- If the operator does not answer within their next turn (says "proceed", asks something else, or is silent): proceed with the recommended defaults, noted in the architect brief under `"Conductor defaults applied:"`.
+
+The scan never blocks more than one turn. Proceed to Phase 3 after the response (or default).
+
+**When no signals are present:** proceed directly to Phase 3, silently.
+
+**Stop-frequency budget:** this pre-architect planning-input scan is explicitly exempt from the stop-frequency table in `content/sections/02-delegation.md` (see the carve-out there). It does not count toward the per-task stop budget for any task shape. It is a planning-input step, not a mid-work blocker.
+
+---
+
 ## Phase 3: Architecture plan
 
 Spawn an `architect` agent. Provide:
@@ -571,6 +599,16 @@ Spawn an `architect` agent. Provide:
 - The relevant code snippets you gathered
 - The AGENTS.md conventions
 - Any architectural decisions and rationale from MEMORY.md (or the project's custom decision log) that bear on this ticket
+
+**Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
+- The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`
+- The Brief's **Success criteria** bullets, labeled: `"Committed success criteria — your plan MUST demonstrably address every one of these:"`
+- The Brief's **Non-goals**, labeled: `"Out of scope (do not design for these):"`
+- The Brief's **Constraints**, labeled: `"Hard constraints (a design that violates any of these is rejected):"`
+
+The architect treats these as fixed inputs. An uncovered committed success criterion is a Critical Skeptic finding on the architect plan.
+
+This injection does NOT apply to conductor-authored Briefs (those are downstream of the architect by design). Only operator-authored Briefs (`brief_source: operator`) carry committed constraints.
 
 Ask the architect for:
 1. A concrete implementation plan (what changes, in which files, in what order)
@@ -619,6 +657,30 @@ Also add `.agentic/` to the project's `.gitignore` if not already present.
 **Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
+
+### Cross-artifact alignment check (Brief present + planner returned units with non-empty criteria)
+
+**Applies only when ALL hold:**
+- `brief_path` is set (a Brief exists — operator-authored from Phase 0b, or conductor-authored at the promotion gate)
+- The orchestration-planner returned a JSONL block with at least one unit carrying a non-empty `acceptance_criteria` array
+
+When the guard does not apply (no Brief, or all units carry `acceptance_criteria: []`): emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed to the promotion gate.
+
+**This is a conductor-direct mechanical mapping, not a subagent and not adversarial review.** It complements the Skeptic-on-Brief; it does not replace it.
+
+**Procedure:**
+1. For each **Success criterion** in the Brief: scan every orchestration unit's `acceptance_criteria` array. Mark the criterion **COVERED** if at least one unit's entry explicitly addresses it; mark it **UNCOVERED** otherwise.
+2. Produce a mapping table: `success criterion → covering unit_slug(s)`, or `"UNCOVERED"`.
+
+**On any UNCOVERED criterion:** resolve before the Skeptic-on-Brief fires by one of:
+- (a) Re-spawn the orchestration-planner with the specific uncovered criteria called out, so it adds or amends a unit's `acceptance_criteria`.
+- (b) Surface the mismatch to the operator with a recommended resolution (descope the criterion from the Brief, or expand scope to cover it).
+
+The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVERED criterion.
+
+**On full coverage:** emit `[phase: cross-artifact-aligned | N/N criteria covered]` and proceed to the promotion gate.
+
+See `content/sections/03-planning-artifacts.md` Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
 **ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
 
