@@ -481,12 +481,12 @@ Above task-level Briefs and Plans sits an optional operator-owned product-intent
 
 ### `qa_default_skip` (canonical definition)
 
-`qa_default_skip` is a project-level `.agentic/config.json` toggle (boolean, default `false`) that sets the **default** QA-gate disposition for the project. This is the canonical definition; `content/rules/conventions.md` and §Risk Classification cross-reference this section and must not redefine it.
+`qa_default_skip` is a **reserved** project-level config key in `.agentic/config.json`, documented here for schema completeness. This is the canonical definition; `content/rules/conventions.md` and §Risk Classification cross-reference this section and must not redefine it.
 
-- **`false` (default):** unchanged behavior - QA fires for every Elevated unit unless that unit's `qa_criteria` explicitly commits to one of the 5 `qa_skip` enum values (see the `QA criteria` field guidance above).
-- **`true`:** the project's default disposition is skip - a unit with no explicit `qa_criteria` decision defaults to QA-skipped rather than QA-fires. A unit may still opt back IN by declaring `qa_skip: null` with a non-empty `scenarios[]` in its Brief / architect plan; an explicit per-unit decision always overrides the project default.
+- It is **distinct from** the per-Brief/per-unit `qa_skip` enum (the 5 values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`). The two are unrelated keys and must not be conflated: `qa_skip` is a per-unit QA decision; `qa_default_skip` is a reserved project-level toggle.
+- It **does NOT currently alter QA-gate behavior.** The QA fire/skip decision remains governed entirely by the per-unit `qa_skip` enum and the invariant in §QA Gate (`content/sections/05-qa-gate.md`). `qa_default_skip` does not override, weaken, or bypass that invariant, and introduces no new skip category.
 
-`qa_default_skip` only changes the default applied when a unit makes no explicit QA decision. It never overrides an explicit per-unit `qa_skip` value (in either direction), and it never suppresses QA for a unit whose `qa_criteria` declares `qa_skip: null` with scenarios. The per-unit `qa_skip` enum and `scenarios[]` semantics are unchanged - see the `QA criteria` field guidance under "Brief template" above.
+The key is reserved so projects and tooling can rely on a stable schema; any future behavioral wiring is out of scope until separately specified.
 
 ## Risk Classification
 
@@ -561,8 +561,8 @@ After completing a Low-risk change, re-read it in full. Verify intent, edge case
 The conductor reads `.agentic/config.json` to resolve three project-level orchestration toggles before classifying and spawning. The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
-- `qa_default_skip` - sets the project's default QA-gate disposition. Canonical definition: §Planning Artifacts `qa_default_skip` (METHODOLOGY.md). This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
-- `model_profile` - enum (`default` | `budget` | ...). When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`.
+- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/sections/03-planning-artifacts.md` §`qa_default_skip`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
+- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`.
 
 Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: §Planning Artifacts "Product-intent layer" and `content/rules/conventions.md` §Project Overview Layer.
 
@@ -672,7 +672,7 @@ For changes whose `qa_criteria` does not match the concurrent path (or where the
 - The change is Trivial risk (direct action; existing carve-out preserved).
 - `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
 
-Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision.
+Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision. The `qa_default_skip` key in `.agentic/config.json` is a reserved, documented-but-inert schema key (canonical definition in §Planning Artifacts); it does NOT override or weaken this invariant.
 
 **QA gate flow (UI-visible - concurrent):**
 1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
