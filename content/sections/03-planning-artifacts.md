@@ -220,3 +220,16 @@ The verification gate is non-skippable. **If verification cannot be specified at
 **Auto-promotion at 3rd resume.** When `.agentic/loop-state.json` records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - resume-count tracked in the loop-state file - and fires regardless of whether the operator notices the session span.
 
 **Promotion is upward only.** A task cannot be demoted. Once a Brief or Plan exists, subsequent workers continue to read it.
+
+### Product-intent layer (operator-owned)
+
+Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
+
+### `qa_default_skip` (canonical definition)
+
+`qa_default_skip` is a project-level `.agentic/config.json` toggle (boolean, default `false`) that sets the **default** QA-gate disposition for the project. This is the canonical definition; `content/rules/conventions.md` and §Risk Classification cross-reference this section and must not redefine it.
+
+- **`false` (default):** unchanged behavior - QA fires for every Elevated unit unless that unit's `qa_criteria` explicitly commits to one of the 5 `qa_skip` enum values (see the `QA criteria` field guidance above).
+- **`true`:** the project's default disposition is skip - a unit with no explicit `qa_criteria` decision defaults to QA-skipped rather than QA-fires. A unit may still opt back IN by declaring `qa_skip: null` with a non-empty `scenarios[]` in its Brief / architect plan; an explicit per-unit decision always overrides the project default.
+
+`qa_default_skip` only changes the default applied when a unit makes no explicit QA decision. It never overrides an explicit per-unit `qa_skip` value (in either direction), and it never suppresses QA for a unit whose `qa_criteria` declares `qa_skip: null` with scenarios. The per-unit `qa_skip` enum and `scenarios[]` semantics are unchanged - see the `QA criteria` field guidance under "Brief template" above.
