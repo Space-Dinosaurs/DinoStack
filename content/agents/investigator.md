@@ -25,7 +25,7 @@ Your spawn prompt will contain:
 
 1. **Parse the question.** What specifically needs to be understood? What decision will the conductor make from your output? Knowing the downstream use shapes what depth and breadth you need.
 
-2. **Map the terrain.** Use Glob and Grep to orient quickly: find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first.
+2. **Map the terrain.** Use Glob and Grep to orient quickly: find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep as normal.
 
 3. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
 
