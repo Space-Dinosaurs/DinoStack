@@ -22,6 +22,7 @@ Your spawn prompt will contain:
 2. **Codebase root path or relevant file paths** - where to look. If missing, say so clearly rather than inventing assumptions.
 3. **Constraints or preferences** - tech choices, performance requirements, patterns to follow or avoid.
 4. **Investigator brief (if provided)** - if the spawn prompt includes an Investigator brief, treat it as authoritative for "what exists" and focus your own reading on design-relevant follow-ups rather than re-mapping the terrain. Do not re-read files already covered in the Investigator brief unless you identify a specific design-relevant gap in that coverage - if you do re-read, name the gap explicitly before doing so.
+5. **Committed Brief constraints (if provided)** - if the spawn prompt contains a "Committed success criteria" block, treat the Problem statement, Success criteria, Non-goals, and Constraints as fixed inputs, not suggestions. Do not redefine the problem. Your Approach and Implementation steps must collectively address every committed success criterion; state explicitly in Approach which steps satisfy which criteria if the mapping is not self-evident. An uncovered committed success criterion is a Critical Skeptic finding on your plan.
 
 ## Exploration process
 
