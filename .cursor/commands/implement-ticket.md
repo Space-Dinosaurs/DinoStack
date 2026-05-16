@@ -191,6 +191,8 @@ else:
 | quality_gate | engineer_spawned | Check `git status --porcelain`. If clean: re-spawn Phase 7 engineer with quality gate failure output from `loop_state.last_engineer_summary`. If dirty: ask human (discard and re-run, or commit and re-run `$QUALITY_CMD`). |
 | quality_gate | engineer_returned | Phase 7 engineer committed. On the Elevated path: verify the engineer's reported `quality_gate_results`. On the Trivial path: re-run `$QUALITY_CMD`. |
 | quality_gate | rerun_pending | On the Elevated path: wait for the fix-engineer return and verify its `quality_gate_results` - do not invoke `$QUALITY_CMD` directly. On the Trivial path: re-run `$QUALITY_CMD`. |
+| quality_gate | debugger_spawned | Re-spawn Debugger from scratch with the captured gate failure output (Debugger is read-only and idempotent - same pattern as "Full Skeptic re-run on interruption"). |
+| quality_gate | debugger_returned | Debugger output was captured before interruption. Proceed to spawn the next engineer fix pass with the Debugger's Fix brief. No Debugger re-run needed. |
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
@@ -210,6 +212,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` — the branch all work is based from. If not declared in `AGENTS.md`, resolve in this order: (1) `main` if it exists locally; (2) `master` if it exists locally; (3) `develop` if it exists locally; (4) `development` if it exists locally; (5) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
+- `DEBUGGER_ON_FAILURE` — read from `.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
@@ -468,6 +471,7 @@ Before any architect spawn, check for an existing Brief, snapshot qa.md for Elev
   pre-existing and operator-confirmed.
 - Pass `brief_source: operator` to the Skeptic-on-Brief gate; use the operator-confirmed
   Skeptic variant (completeness-only review per `content/commands/brief.md` Section 6).
+- If `.agentic/brief-session.json` confirms `brief_source: operator`, set `operator_brief_injectionable: true` to signal Phase 3 that the Brief's committed constraints should be injected into the architect spawn brief (see Phase 3 "Pre-authored Brief injection").
 
 **If not found:** proceed normally. The promotion gate in Phase 3b determines whether a
 Brief is required based on the unit count from the orchestration-planner.
@@ -562,6 +566,33 @@ Trivial-classified tickets retain conductor-direct flow per METHODOLOGY.md §Ris
 
 ---
 
+## Phase 2b: Pre-architect ambiguity scan
+
+**Applies only when ALL of the following hold:**
+- Risk classification is Elevated
+- `brief_path` was NOT set in Phase 0b (no Brief found — neither a file-existence match nor an operator-confirmed session)
+- This is the single-unit path (no prior agent has decomposed the ticket into multiple units)
+
+Skip this phase entirely for Trivial, Low, multi-unit, or Brief-present tickets.
+
+**The conductor scans the ticket text for ambiguity signals:**
+- Vague scope language ("something like", "similar to", "improve", "better", "clean up") with no concrete target state
+- No explicit done condition or acceptance criteria stated anywhere in the ticket
+- Two or more mutually exclusive reasonable interpretations of the core ask
+- A load-bearing context value is unstated (target environment, performance budget, affected user type, data scale) where the implementation would materially branch on it
+
+**When one or more signals are present:** the conductor surfaces 1-3 targeted, specific questions in its user-facing turn, each with a recommended default. Format follows the surface-and-proceed protocol in `content/sections/02-delegation.md`. The conductor waits exactly one operator turn.
+- If the operator answers: fold answers verbatim into the Phase 3 architect brief under `"Operator clarifications:"`.
+- If the operator does not answer within their next turn (says "proceed", asks something else, or is silent): proceed with the recommended defaults, noted in the architect brief under `"Conductor defaults applied:"`.
+
+The scan never blocks more than one turn. Proceed to Phase 3 after the response (or default).
+
+**When no signals are present:** proceed directly to Phase 3, silently.
+
+**Stop-frequency budget:** this pre-architect planning-input scan is explicitly exempt from the stop-frequency table in `content/sections/02-delegation.md` (see the carve-out there). It does not count toward the per-task stop budget for any task shape. It is a planning-input step, not a mid-work blocker.
+
+---
+
 ## Phase 3: Architecture plan
 
 Spawn an `architect` agent. Provide:
@@ -569,6 +600,16 @@ Spawn an `architect` agent. Provide:
 - The relevant code snippets you gathered
 - The AGENTS.md conventions
 - Any architectural decisions and rationale from MEMORY.md (or the project's custom decision log) that bear on this ticket
+
+**Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
+- The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`
+- The Brief's **Success criteria** bullets, labeled: `"Committed success criteria — your plan MUST demonstrably address every one of these:"`
+- The Brief's **Non-goals**, labeled: `"Out of scope (do not design for these):"`
+- The Brief's **Constraints**, labeled: `"Hard constraints (a design that violates any of these is rejected):"`
+
+The architect treats these as fixed inputs. An uncovered committed success criterion is a Critical Skeptic finding on the architect plan.
+
+This injection does NOT apply to conductor-authored Briefs (those are downstream of the architect by design). Only operator-authored Briefs (`brief_source: operator`) carry committed constraints.
 
 Ask the architect for:
 1. A concrete implementation plan (what changes, in which files, in what order)
@@ -617,6 +658,30 @@ Also add `.agentic/` to the project's `.gitignore` if not already present.
 **Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
+
+### Cross-artifact alignment check (Brief present + planner returned units with non-empty criteria)
+
+**Applies only when ALL hold:**
+- `brief_path` is set (a Brief exists — operator-authored from Phase 0b, or conductor-authored at the promotion gate)
+- The orchestration-planner returned a JSONL block with at least one unit carrying a non-empty `acceptance_criteria` array
+
+When the guard does not apply (no Brief, or all units carry `acceptance_criteria: []`): emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed to the promotion gate.
+
+**This is a conductor-direct mechanical mapping, not a subagent and not adversarial review.** It complements the Skeptic-on-Brief; it does not replace it.
+
+**Procedure:**
+1. For each **Success criterion** in the Brief: scan every orchestration unit's `acceptance_criteria` array. Mark the criterion **COVERED** if at least one unit's entry explicitly addresses it; mark it **UNCOVERED** otherwise.
+2. Produce a mapping table: `success criterion → covering unit_slug(s)`, or `"UNCOVERED"`.
+
+**On any UNCOVERED criterion:** resolve before the Skeptic-on-Brief fires by one of:
+- (a) Re-spawn the orchestration-planner with the specific uncovered criteria called out, so it adds or amends a unit's `acceptance_criteria`.
+- (b) Surface the mismatch to the operator with a recommended resolution (descope the criterion from the Brief, or expand scope to cover it).
+
+The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVERED criterion.
+
+**On full coverage:** emit `[phase: cross-artifact-aligned | N/N criteria covered]` and proceed to the promotion gate.
+
+See `content/sections/03-planning-artifacts.md` Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
 **ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
 
@@ -692,6 +757,8 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
 The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
+
+**Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns (per METHODOLOGY.md §Delegation table - spawned only when other subagents are running) keep the lightweight contract: no `worktree_setup`, no `quality_gates`, no `git_finalization`, no `quality_gate_results` return field. Trivial flow is conductor-orchestrated end to end - branch creation, quality gates, commits, and pushes are all conductor-direct as today.
 
@@ -1141,7 +1208,15 @@ All checks must pass (typecheck, lint, tests, knip, jscpd). Do not suppress or s
 
 **If the gate fails (either path):**
 
-This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter. Instead:
+This phase runs after Phase 6 and 6b loops have already exited cleanly. A quality gate failure here does NOT continue or re-enter the Phase 6 iteration counter.
+
+**Check `DEBUGGER_ON_FAILURE` (from Setup) to determine the failure path:**
+
+**Trivial-path exclusion (unconditional).** A Trivial-path ticket NEVER invokes the Debugger, regardless of `debugger_on_failure`. The Debugger gate is `debugger_on_failure == true` AND path is Elevated; both conditions must hold. A Trivial-path gate failure always takes the default (no-Debugger) path below even when `debugger_on_failure: true` is set in `.agentic/config.json`.
+
+---
+
+**When `DEBUGGER_ON_FAILURE` is `false` OR the path is Trivial** - preserve existing behavior exactly:
 
 1. Before spawning the Phase 7 engineer: write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
 2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: "worktree"` on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble).
@@ -1151,7 +1226,31 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
 7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
-**No unbounded loop:** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
+**No unbounded loop (default path):** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
+
+---
+
+**When `DEBUGGER_ON_FAILURE` is `true` AND the path is Elevated** - interpose a Debugger diagnosis step before each engineer fix pass. Max 3 debug-fix cycles total.
+
+For each debug-fix cycle (cycle count tracked in-context; escalate to human after 3 exhausted cycles with open gate failures):
+
+1. Write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=debugger_spawned` (atomic write).
+2. Spawn `debugger` (read-only; no worktree isolation needed - Debugger never writes files) with:
+   - The captured gate failure output (`raw_output` from the failing run)
+   - The failing context (branch diff, relevant files, prior cycle summaries if any)
+3. After Debugger returns: write `last_phase=quality_gate`, `last_phase_action=debugger_returned` (atomic write).
+4. Write `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
+5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: "worktree"` (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble).
+6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
+7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.
+8. Verify the fix engineer's `quality_gate_results`.
+   - If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
+   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.
+   - If it still fails AND cycle count == 3: set `status=stalled`. Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
+
+**Convergence short-circuit (test runners only).** If the quality gate is a test runner (pytest, jest, vitest, cargo test, etc.) AND the set of failing test IDs in `quality_gate_results.failures[]` is identical to the set from the immediately preceding cycle (the engineer made no progress on the failing tests), escalate immediately without consuming remaining cycles. Surface the stalled test IDs and both cycle outputs to the human. This short-circuit applies ONLY to test runners with structured `failures[]` output. For lint (eslint, ruff, etc.) and typecheck (tsc, mypy, pyright, etc.) gates, rely solely on the 3-cycle limit - do not attempt a short-circuit.
+
+**Cross-reference:** `content/sections/05-qa-gate.md` Re-route limits section for shared escalation semantics.
 
 ---
 

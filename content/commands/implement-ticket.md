@@ -1212,6 +1212,8 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 
 **Check `DEBUGGER_ON_FAILURE` (from Setup) to determine the failure path:**
 
+**Trivial-path exclusion (unconditional).** A Trivial-path ticket NEVER invokes the Debugger, regardless of `debugger_on_failure`. The Debugger gate is `debugger_on_failure == true` AND path is Elevated; both conditions must hold. A Trivial-path gate failure always takes the default (no-Debugger) path below even when `debugger_on_failure: true` is set in `.agentic/config.json`.
+
 ---
 
 **When `DEBUGGER_ON_FAILURE` is `false` OR the path is Trivial** - preserve existing behavior exactly:

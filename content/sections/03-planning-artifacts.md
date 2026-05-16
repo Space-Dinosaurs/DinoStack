@@ -220,3 +220,16 @@ The verification gate is non-skippable. **If verification cannot be specified at
 **Auto-promotion at 3rd resume.** When `.agentic/loop-state.json` records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - resume-count tracked in the loop-state file - and fires regardless of whether the operator notices the session span.
 
 **Promotion is upward only.** A task cannot be demoted. Once a Brief or Plan exists, subsequent workers continue to read it.
+
+### Product-intent layer (operator-owned)
+
+Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
+
+### `qa_default_skip` (canonical definition)
+
+`qa_default_skip` is a **reserved** project-level config key in `.agentic/config.json`, documented here for schema completeness. This is the canonical definition; `content/rules/conventions.md` and §Risk Classification cross-reference this section and must not redefine it.
+
+- It is **distinct from** the per-Brief/per-unit `qa_skip` enum (the 5 values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`). The two are unrelated keys and must not be conflated: `qa_skip` is a per-unit QA decision; `qa_default_skip` is a reserved project-level toggle.
+- It **does NOT currently alter QA-gate behavior.** The QA fire/skip decision remains governed entirely by the per-unit `qa_skip` enum and the invariant in §QA Gate (`content/sections/05-qa-gate.md`). `qa_default_skip` does not override, weaken, or bypass that invariant, and introduces no new skip category.
+
+The key is reserved so projects and tooling can rely on a stable schema; any future behavioral wiring is out of scope until separately specified.

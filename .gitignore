@@ -16,8 +16,25 @@ node_modules/
 .DS_Store
 .vercel
 
-# Local agent config (project-level tier-map and task state)
-.agentic/
+# Local agent runtime state is ignored, but committed project-intent config
+# (.agentic/config.json) is carved out - it is portable, like qa.md/deploy.md.
+# A bare `.agentic/` ignore cannot be overridden by a later negation (git does
+# not descend into an ignored directory), so use the `.agentic/*` form and then
+# re-ignore the runtime artifacts explicitly.
+.agentic/*
+!.agentic/config.json
+.agentic/worktrees/
+.agentic/loop-state.json
+.agentic/tasks.jsonl
+.agentic/batch-state.json
+.agentic/events.jsonl
+.agentic/events-prev.jsonl
+.agentic/learnings.md
+.agentic/.activated
+.agentic/.meta-divergence-surfaced
+.agentic/.meta-divergence-last-sweep
+.agentic/wrap.lock
+.agentic/learnings-agent.session
 
 # Generated Kimi per-command skills (built by .kimi/build.sh from content/commands/)
 .kimi/skills/*/
