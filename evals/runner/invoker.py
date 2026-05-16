@@ -244,6 +244,9 @@ def invoke_run(
                 "Kimi backend does not support --append-system-prompt; "
                 "system_prompt parameter is ignored."
             )
+        # Disable MCP servers for eval runs to avoid connection errors from
+        # misconfigured or unavailable MCP servers interfering with the harness.
+        cmd.extend(["--mcp-config-file", "/tmp/empty-mcp.json"])
         # Kimi uses --work-dir instead of subprocess cwd.
         subprocess_cwd = None
     else:
