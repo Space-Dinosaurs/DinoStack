@@ -567,7 +567,7 @@ Trivial-classified tickets retain conductor-direct flow per METHODOLOGY.md §Ris
 
 **Applies only when ALL of the following hold:**
 - Risk classification is Elevated
-- `operator_brief_injectionable` was NOT set in Phase 0b (no operator-authored Brief)
+- `brief_path` was NOT set in Phase 0b (no Brief found — neither a file-existence match nor an operator-confirmed session)
 - This is the single-unit path (no prior agent has decomposed the ticket into multiple units)
 
 Skip this phase entirely for Trivial, Low, multi-unit, or Brief-present tickets.
