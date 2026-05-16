@@ -929,6 +929,8 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
 
+Exception: `sg` (AST-grep) for structural symbol-level searches is run via Bash - no dedicated harness tool wraps it. Check availability with `which sg 2>/dev/null` before use.
+
 ## Context Window Management
 
 **When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
