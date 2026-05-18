@@ -16,6 +16,15 @@ REFS_DST="$SKILL_DST/references"
 
 PREREQ='> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.'
 
+# Portable inode helper (macOS uses -f, Linux uses -c)
+get_inode() {
+  if stat -c %i /dev/null >/dev/null 2>&1; then
+    stat -c %i "$1"
+  else
+    stat -f %i "$1"
+  fi
+}
+
 # Methodology: assemble content/sections/*.md into a single METHODOLOGY.md.
 mkdir -p "$SKILL_DST"
 bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
@@ -50,7 +59,7 @@ mkdir -p "$REFS_DST"
 for src in "$CONTENT/references/"*.md; do
   name="$(basename "$src")"
   dst="$REFS_DST/$name"
-  if [[ -e "$dst" ]] && [[ "$(stat -f %i "$src")" == "$(stat -f %i "$dst")" ]]; then
+  if [[ -e "$dst" ]] && [[ "$(get_inode "$src")" == "$(get_inode "$dst")" ]]; then
     continue
   fi
   rm -f "$dst"
