@@ -4,7 +4,9 @@
 # Upstream deps: content/commands/, content/references/, content/rules/, content/agents/,
 #               content/sections/, content/SKILL.md, scripts/build-methodology.sh.
 # Downstream consumers: .pi/skills/agentic-engineering/, .pi/prompts/.
-# Failure modes: exits non-zero on missing inputs or assembly failure.
+# Failure modes: exits non-zero on missing inputs or assembly failure. Idempotent;
+#               prunes orphan .pi/prompts/*.md whose source content/commands/*.md
+#               was removed (safe to re-run).
 # Performance: standard.
 
 set -euo pipefail
@@ -81,9 +83,12 @@ link_dir "../../../content/agents" "$SKILL_DST/agents"
 
 # Pi prompt templates are project-local slash-command equivalents. They expand
 # into instructions that load the skill and then read the canonical command doc.
+declare -a generated_prompts=()
 for src in "$CONTENT/commands/"*.md; do
+  [[ -e "$src" ]] || continue
   name="$(basename "$src" .md)"
   dst="$PROMPTS_DST/$name.md"
+  generated_prompts+=("$name.md")
   title="$(sed -n '1s/^# *//p' "$src")"
   if [[ -z "$title" ]]; then
     title="$name"
@@ -97,6 +102,24 @@ Use the /skill:agentic-engineering skill. Load /skill:agentic-engineering, then 
 
 \$ARGUMENTS
 PROMPT_EOF
+done
+
+# Remove stale prompt templates whose source content/commands/*.md was deleted.
+# Scoped strictly to $PROMPTS_DST/*.md - never touches the $SKILL_DST symlinks.
+for existing in "$PROMPTS_DST"/*.md; do
+  [[ -e "$existing" ]] || continue
+  bname="$(basename "$existing")"
+  found=0
+  for gen in "${generated_prompts[@]}"; do
+    if [[ "$gen" == "$bname" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    rm "$existing"
+    echo "  - removed stale prompt template: $bname"
+  fi
 done
 
 for script in "$REPO_DIR/.pi"/*.sh; do
