@@ -8,9 +8,38 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 ## Getting started
 
-Clone the repo, cd into it, and start Claude Code:
+### One-liner install (quickest)
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh | bash
 ```
+
+This clones the repo into `agentic-engineering/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
+
+> **Note:** the one-liner requires the repo to be public. Until then, collaborators can use the SSH path below - the script automatically falls back to SSH on clone failure.
+
+**Custom install location:** set `AE_DEST_DIR` before running. The default is `<current directory>/agentic-engineering`.
+
+```bash
+# Install to ~/tools/agentic-engineering instead of the current directory
+AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh | bash
+```
+
+**Pass flags through to the installer** (e.g. to set activation mode without prompts):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh | bash -s -- --mode=opt-in
+```
+
+### Manual / SSH install
+
+```bash
+git clone git@github.com:Solara6/agentic-engineering.git && cd agentic-engineering && bash bootstrap.sh
+```
+
+Or clone, cd in, and start Claude Code to let the agent run the installer interactively:
+
+```bash
 git clone git@github.com:Solara6/agentic-engineering.git
 cd agentic-engineering
 claude
@@ -41,9 +70,9 @@ QA engineer verifying acceptance criteria in the browser...
 
 If you see none of this, the task was classified as a small, reversible direct action and handled without spawning subagents. That's the protocol working correctly on a cheap task - not a sign that it's off.
 
-**Or install manually:**
+**Or install manually via install.sh directly:**
 
-```
+```bash
 git clone git@github.com:Solara6/agentic-engineering.git
 cd agentic-engineering
 bash .claude/install.sh
