@@ -153,19 +153,23 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (5 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (6 files) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
 - Design goals - system design principles and intent
+- Multi-developer coordination - parallel sessions, branch and worktree hygiene
+- Regression test obligation - when a fix requires a regression test and what counts
 
-**Agents** (13) - named specialist roles:
-architect, debugger, engineer, investigator, orchestration-planner, perf-analyst, dependency-auditor, release-orchestrator, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer
+**Agents** (16) - named specialist roles:
+adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
 
-**Commands** (10) - workflow shortcuts:
-skeptic, implement-ticket, init-project, wrap, memory-update, cleanup-worktrees, update-agentic-engineering, prune-harness, representation-audit, agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`)
+**Commands** (14) - workflow shortcuts:
+agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, prune-harness, representation-audit, skeptic, test-suite-comprehension, update-agentic-engineering, wrap
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
+
+**Project config / overview layer** - the committed `.agentic/config.json` holds three operator-tunable methodology toggles: `debugger_on_failure` (bool, default `false`; interposes a Debugger diagnosis step before each Phase 7 engineer fix pass), `qa_default_skip` (reserved; no-op, does not alter QA-gate behavior), and `model_profile` (`default` | `budget`; `budget` routes eligible spawns to Tier 1). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Repo structure
 
@@ -194,8 +198,8 @@ agentic-engineering/
 - `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
 - `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
 - `~/agentic-engineering/docs/slides/agent-team-slides.html` - the agent team and how they compose
-- `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.claude/qa.md` as project QA memory
-- `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner uses `.claude/tracking.md`
+- `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.agentic/qa.md` (legacy `.claude/qa.md` fallback) as project QA memory
+- `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / `.agentic/loop-state.json`
 - `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/agentic-engineering/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
