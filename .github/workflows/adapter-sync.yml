@@ -1,0 +1,27 @@
+name: adapter-sync
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  check-adapter-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild all adapters
+        run: |
+          bash .claude/build.sh
+          bash .cursor/build.sh
+          bash .codex/build.sh
+          bash .gemini/build.sh
+          bash .kimi/build.sh
+          bash .opencode/build.sh
+          bash .omp/build.sh
+          bash .pi/build.sh
+      - name: Fail on adapter drift
+        run: |
+          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi; then
+            echo "::error::Adapter output is out of sync with content/. Run the build scripts locally and commit the regenerated adapter files." >&2
+            exit 1
+          fi
