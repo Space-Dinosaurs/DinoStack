@@ -24,12 +24,19 @@ LABEL org.opencontainers.image.title="ae-eval-swebench-py310" \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ make git \
     libopenblas-dev gfortran liblapack-dev \
+    libfreetype-dev libpng-dev libqhull-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # GCC 14+ treats incompatible pointer types as errors.  The C extensions in
 # astropy and scikit-learn were generated for older GCC/numpy and need this
 # workaround until they are regenerated with modern Cython.
 ENV CFLAGS="-Wno-error=incompatible-pointer-types"
+
+# Python 3.10 removed collections.Sequence/Mapping/Iterable/Sized (moved to
+# collections.abc). Old scikit-learn and astropy code still imports from
+# collections. Monkey-patch them back at interpreter startup.
+RUN echo "import collections.abc; collections.Sequence = collections.abc.Sequence; collections.Mapping = collections.abc.Mapping; collections.Iterable = collections.abc.Iterable; collections.Sized = collections.abc.Sized" > /usr/local/lib/python3.10/site-packages/collections_compat_startup.py && \
+    echo "import collections_compat_startup" > /usr/local/lib/python3.10/site-packages/collections_compat.pth
 
 # Install pytest, test utilities, and task-specific runtime dependencies.
 # Network is available at BUILD time only.
@@ -59,9 +66,9 @@ ENV CFLAGS="-Wno-error=incompatible-pointer-types"
 RUN pip install --no-cache-dir \
     pytest==8.3.5 pytest-timeout==2.4.0 \
     urllib3 chardet certifi idna requests \
-    docutils pytest-doctestplus setuptools-scm \
-    "setuptools<58" wheel extension-helpers "cython==0.29.22" \
-    "numpy==1.26.4"
+    docutils pytest-doctestplus setuptools-scm setuptools_scm_git_archive \
+    "setuptools<58" wheel extension-helpers "cython==0.29.37" \
+    "numpy==1.26.4" Pillow "pyparsing==2.4.7" cycler kiwisolver fonttools python-dateutil
 
 RUN pip install --no-cache-dir \
     scipy hypothesis pyerfa PyYAML \

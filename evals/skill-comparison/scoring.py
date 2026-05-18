@@ -469,6 +469,8 @@ def _run_pytest_tier3(
     tier3_ctx: object,  # Tier3Context (avoid hard import cycle)
     timeout: int,
     fail_to_pass: "list[str] | None" = None,
+    env: "dict[str, str] | None" = None,
+    use_timeout: bool = True,
 ) -> tuple[int, str]:
     """Run pytest inside the Tier 3 container's score phase.
 
@@ -527,11 +529,15 @@ def _run_pytest_tier3(
                 "--noconftest",
                 "--rootdir=/scoring/tests",
                 "--confcutdir=/scoring",
+                "--import-mode=append",
                 "-p", "no:cacheprovider",
                 "--tb=short",
                 "-q",
-                f"--timeout={timeout}",
             ]
+            if use_timeout:
+                cmd.append(f"--timeout={timeout}")
+            else:
+                cmd.extend(["-p", "no:timeout"])
         else:
             # Run only the specified test node-ids. The held_out_dir is mounted at
             # /scoring/tests inside the container, so prepend that path to each
@@ -556,11 +562,15 @@ def _run_pytest_tier3(
                 "python3", "-m", "pytest",
                 *test_targets,
                 "--confcutdir=/scoring",
+                "--import-mode=append",
                 "-p", "no:cacheprovider",
                 "--tb=short",
                 "-q",
-                f"--timeout={timeout}",
             ]
+            if use_timeout:
+                cmd.append(f"--timeout={timeout}")
+            else:
+                cmd.extend(["-p", "no:timeout"])
     else:
         # Full-tree case: use the original security-hardened flags.
         # --noconftest is safe here because we are running the full tree and
@@ -571,11 +581,15 @@ def _run_pytest_tier3(
             "--noconftest",
             "--rootdir=/scoring/tests",
             "--confcutdir=/scoring",
+            "--import-mode=append",
             "-p", "no:cacheprovider",
             "--tb=short",
             "-q",
-            f"--timeout={timeout}",
         ]
+        if use_timeout:
+            cmd.append(f"--timeout={timeout}")
+        else:
+            cmd.extend(["-p", "no:timeout"])
 
     _LOG.info(
         "_run_pytest_tier3: cmd=%s node_ids=%s",
@@ -586,11 +600,64 @@ def _run_pytest_tier3(
     # inside the score-phase container without pip install (network is disabled).
     # This resolves ImportError when conftest.py or test modules do
     # `from <repo_package> import ...` (e.g. `from requests.packages import ...`).
+    base_env = {"PYTHONPATH": "/workspace/repo:/workspace/repo/src:/workspace/repo/lib", "HOME": "/tmp"}
+    if env:
+        base_env.update(env)
     result = Tier3Docker.run_score_phase(
         tier3_ctx,
         cmd,
         timeout_seconds=timeout,
-        env={"PYTHONPATH": "/workspace/repo"},
+        env=base_env,
+    )
+    return result.returncode, result.stdout + result.stderr
+
+
+def _run_django_tests_tier3(
+    tier3_ctx: object,
+    timeout: int,
+    fail_to_pass: "list[str] | None" = None,
+) -> tuple[int, str]:
+    """Run Django tests via tests/runtests.py inside the Tier 3 container."""
+    from evals.runner.isolator import Tier3Docker
+
+    labels: list[str] = []
+    if fail_to_pass:
+        for nid in fail_to_pass:
+            if nid.startswith("tests/"):
+                nid = nid[6:]
+            # Convert filesystem path separators to Python module dots
+            nid = nid.replace("/", ".")
+            if ".py::" in nid:
+                nid = nid.replace(".py::", ".", 1)
+            nid = nid.replace("::", ".")
+            labels.append(nid)
+
+    if labels:
+        cmd = [
+            "python3", "tests/tests/runtests.py",
+            "--verbosity", "2",
+            "--settings", "test_sqlite",
+            "--parallel", "1",
+            *labels,
+        ]
+    else:
+        cmd = [
+            "python3", "tests/tests/runtests.py",
+            "--verbosity", "2",
+            "--settings", "test_sqlite",
+            "--parallel", "1",
+        ]
+
+    env = {
+        "PYTHONPATH": "/workspace/repo:/workspace/repo/src:/workspace/repo/lib:/workspace/repo/tests",
+        "HOME": "/tmp",
+    }
+
+    result = Tier3Docker.run_score_phase(
+        tier3_ctx,
+        cmd,
+        timeout_seconds=timeout,
+        env=env,
     )
     return result.returncode, result.stdout + result.stderr
 
@@ -662,9 +729,14 @@ def score_cell(
     # 2. Compute diff hygiene.
     hygiene = compute_diff_hygiene(diff_text, known_affected)
 
-    # 3. Run held-out pytest.
+    # 3. Run held-out tests.
     if tier3_ctx is not None:
-        returncode, pytest_out = _run_pytest_tier3(tier3_ctx, pytest_timeout, fail_to_pass=fail_to_pass)
+        if task_slug.startswith("django-"):
+            returncode, pytest_out = _run_django_tests_tier3(tier3_ctx, pytest_timeout, fail_to_pass=fail_to_pass)
+        else:
+            task_env: dict[str, str] | None = None
+            use_timeout = task_meta.get("use_pytest_timeout", True)
+            returncode, pytest_out = _run_pytest_tier3(tier3_ctx, pytest_timeout, fail_to_pass=fail_to_pass, env=task_env, use_timeout=use_timeout)
     else:
         returncode, pytest_out = _run_pytest_local(held_out_dir, fix_phase_dir, pytest_timeout, fail_to_pass=fail_to_pass)
 
