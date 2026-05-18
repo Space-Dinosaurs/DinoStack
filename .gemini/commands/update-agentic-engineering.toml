@@ -8,12 +8,12 @@ prompt = """
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under `~/agentic-engineering/`.
+Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/agentic-engineering`).
 
 **When to use - use whenever ANY of these hold:**
-- (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under `~/agentic-engineering/`.
+- (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
 - (b) The user says "update the methodology", "change the protocol", "edit the wrap skill", "add an agent", "rename a command", or anything similar that implies changing a file in the agentic-engineering repo.
-- (c) You are about to use Edit or Write on any file whose absolute path is within one of the in-scope directories listed in Scope below (e.g. `~/agentic-engineering/content/**`, `~/agentic-engineering/.codex/skill/**`, the build scripts, `~/agentic-engineering/hooks/**`, or `~/agentic-engineering/.codex/hooks/**`). Files outside those directories (docs, README, build artifacts, top-level config) may be edited directly.
+- (c) You are about to use Edit or Write on any file whose absolute path is within one of the in-scope directories listed in Scope below (e.g. `<AE_REPO_DIR>/content/**`, `<AE_REPO_DIR>/.codex/skill/**`, the build scripts, `<AE_REPO_DIR>/hooks/**`, or `<AE_REPO_DIR>/.codex/hooks/**`). Files outside those directories (docs, README, build artifacts, top-level config) may be edited directly.
 
 **Why it matters:** Without this command's Step 0 git sync, concurrent edits from multiple machines produce push conflicts and messy rebases; without Step 4 commit+push, edits pile up uncommitted locally.
 
@@ -37,9 +37,31 @@ Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/
 
 ## Step 0 - Pre-flight git sync
 
-Before making any edits, the main agent (not a subagent - git state decisions require main-agent judgment) runs the following checks:
+Before making any edits, the main agent (not a subagent - git state decisions require main-agent judgment) resolves the repo location and runs the following checks.
 
-1. `cd ~/agentic-engineering && git fetch origin`
+**Resolve `AE_REPO_DIR` once at the start of the command - it persists for all subsequent steps in this invocation:**
+
+```bash
+AE_REPO_DIR=""
+AE_CONFIG="$HOME/.agentic/agentic-engineering-config.json"
+if [[ -f "$AE_CONFIG" ]]; then
+  AE_REPO_DIR="$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('repo_dir', ''))
+except Exception:
+    print('')
+" "$AE_CONFIG" 2>/dev/null)"
+fi
+if [[ -z "$AE_REPO_DIR" ]] || ! git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  AE_REPO_DIR="$HOME/agentic-engineering"
+fi
+```
+
+Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/agentic-engineering` exactly as before.
+
+1. `cd "$AE_REPO_DIR" && git fetch origin`
 2. Run `git status --porcelain` to check for uncommitted changes.
 3. Run `git rev-list --left-right --count HEAD...origin/main` to measure divergence.
 
@@ -71,7 +93,7 @@ Show the diff, state what the change does. If the diff includes `content/command
 
 ## Step 3 - Run the build
 
-After approval: if the diff includes any `content/commands/` changes, run `bash ~/agentic-engineering/.claude/build.sh` and confirm success. If the diff only touches `content/rules/`, `content/references/`, or `content/agents/`, skip the build - those changes are already live.
+After approval: if the diff includes any `content/commands/` changes, run `bash "$AE_REPO_DIR/.claude/build.sh"` and confirm success. If the diff only touches `content/rules/`, `content/references/`, or `content/agents/`, skip the build - those changes are already live.
 
 ## Step 3.5 - Docs update check
 
