@@ -40,6 +40,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -47,6 +48,10 @@ from .normalizer import parse_stream_json
 
 CLAUDE_BIN = "claude"
 KIMI_BIN = "kimi"
+
+_MCP_EMPTY = Path(tempfile.gettempdir()) / "ae-empty-mcp.json"
+if not _MCP_EMPTY.exists():
+    _MCP_EMPTY.write_text("{}")
 
 _LOG = logging.getLogger(__name__)
 
@@ -246,7 +251,7 @@ def invoke_run(
             )
         # Disable MCP servers for eval runs to avoid connection errors from
         # misconfigured or unavailable MCP servers interfering with the harness.
-        cmd.extend(["--mcp-config-file", "/tmp/empty-mcp.json"])
+        cmd.extend(["--mcp-config-file", str(_MCP_EMPTY)])
         # Kimi uses --work-dir instead of subprocess cwd.
         subprocess_cwd = None
     else:
