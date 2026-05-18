@@ -1,6 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# ae_confirm: TTY-safe yes/no prompt for optional installs.
+#
+# When /dev/tty is available (interactive or curl|bash in a real terminal),
+# prompts the user exactly as a bare `read -p` would. When /dev/tty is not
+# available (headless/piped/CI), defaults to "no" and returns 1 without
+# aborting under set -e.
+#
+# Usage: if ae_confirm "  Install foo? [y/N] "; then ...
+# ---------------------------------------------------------------------------
+ae_confirm() {
+  local prompt="$1"
+  local reply=""
+  if [[ -r /dev/tty ]]; then
+    read -p "$prompt" -n 1 -r reply </dev/tty || reply=""
+    echo
+  fi
+  [[ "$reply" =~ ^[Yy]$ ]]
+}
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export REPO_DIR
 
@@ -508,9 +528,7 @@ for tool_entry in "${CLI_TOOLS[@]}"; do
   if command -v "$cmd" &>/dev/null; then
     echo "  = $cmd already installed"
   else
-    read -p "  Install $cmd ($desc)? [y/N] " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if ae_confirm "  Install $cmd ($desc)? [y/N] "; then
       eval "$install_cmd" 2>&1 || echo "  ! $cmd install failed (non-blocking)"
     else
       echo "  - skipped $cmd"
@@ -529,9 +547,7 @@ sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
 " 2>/dev/null; then
   echo "  = chrome-devtools MCP already configured"
 else
-  read -p "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] " -n 1 -r
-  echo
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
+  if ae_confirm "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "; then
     python3 - <<'PYEOF'
 import json, os
 
@@ -571,9 +587,7 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
 " 2>/dev/null; then
   echo "  = mcp-atlassian MCP already configured"
 else
-  read -p "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] " -n 1 -r
-  echo
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
+  if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
     python3 - <<'PYEOF'
 import json, os
 
