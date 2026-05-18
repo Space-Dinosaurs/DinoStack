@@ -171,7 +171,7 @@ _PYTEST_TIMEOUT_SECONDS = 120
 # tasks, up to 10 min for complex multi-file fixes).
 _FIX_TIMEOUT_SECONDS: dict[str, int] = {
     "claude": _PYTEST_TIMEOUT_SECONDS * 2,   # 240 s
-    "kimi": _PYTEST_TIMEOUT_SECONDS * 5,     # 600 s
+    "kimi": _PYTEST_TIMEOUT_SECONDS * 10,    # 1200 s
 }
 
 # TSV schema for the skill-comparison ledger.

@@ -36,7 +36,10 @@ LABEL org.opencontainers.image.title="ae-eval-swebench" \
 #   urllib3 chardet certifi idna - requests stack (requests-3362, etc.)
 RUN pip install --no-cache-dir \
     pytest==8.3.5 pytest-timeout==2.4.0 \
-    urllib3 chardet certifi idna
+    urllib3 chardet certifi idna \
+    flask pytz sqlparse asgiref \
+    astroid==2.11.6 py "numpy==1.26.4" \
+    tomlkit mpmath isort dill attrs colorama more_itertools toml
 
 # Create a non-root user for running eval commands.
 RUN groupadd --gid 1001 evaluser && \
