@@ -23,6 +23,15 @@ REFS_DST="$REPO_DIR/.cursor/rules/references"
 COMMANDS_DST="$REPO_DIR/.cursor/commands"
 FRONTMATTER_DIR="$REPO_DIR/.cursor/rules/frontmatter"
 
+# Portable inode helper (macOS uses -f, Linux uses -c)
+get_inode() {
+  if stat -c %i /dev/null >/dev/null 2>&1; then
+    stat -c %i "$1"
+  else
+    stat -f %i "$1"
+  fi
+}
+
 # Methodology: assemble from content/sections/ then prepend YAML frontmatter.
 # content/rules/agent-methodology.md was deleted in Wave 1; the loop below
 # covers only the remaining 3 rules files.
@@ -47,7 +56,7 @@ done
 hardlink_from_content() {
   local src="$1"
   local dst="$2"
-  if [[ -e "$dst" ]] && [[ "$(stat -f %i "$src")" == "$(stat -f %i "$dst")" ]]; then
+  if [[ -e "$dst" ]] && [[ "$(get_inode "$src")" == "$(get_inode "$dst")" ]]; then
     return
   fi
   rm -f "$dst"
