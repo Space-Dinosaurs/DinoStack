@@ -15,7 +15,7 @@ Internal eval harness for component-level evals of named agents and slash comman
 - Isolation tiers:
   - Tier 1: read-only, no Bash, no network (Skeptic, Conductor).
   - Tier 2: git worktree + redirected HOME, write-enabled (init-project).
-  - Tier 3: Docker - currently a `NotImplementedError` stub, required for Worker eval.
+  - Tier 3: Docker container isolation with `Tier3Docker` in `evals/runner/isolator.py` — build-once cache, force_rebuild via `docker rmi -f`, `--network none`, `--read-only` rootfs, held-out tests mounted at `/scoring/tests:ro`. Required for skill-comparison and Worker eval.
 - `fixture_hash` normalizes to a semantic JSON subset, not raw YAML bytes, to avoid pre-commit secret-scanner false-positives on sha256 substrings.
 - TSV results under `evals/results/` are committed; `.runlog.jsonl` files and `.worktrees/` are gitignored.
 - Overfitting Rule (`evals/OVERFITTING-RULE.md`) gates any `content/` edit motivated by eval scores: "would this edit still matter if the fixture disappeared?"

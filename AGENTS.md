@@ -10,6 +10,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - `.claude/install.sh` manages `~/.claude/CLAUDE.md` via a `managed_content` Python string (lines ~364-380). Four @-import lines (METHODOLOGY.md plus 3 rules files under `rules/`) must appear in that string or rules will not auto-inject in Claude Code sessions. Re-run install.sh after any changes to that string.
 - Auto-harness keep-metric is mean-of-medians (`evals/auto/runner_shim.py:147`, PR #41). Median was blind to single-fixture wins when ≥half fixtures sat at ceiling 1.0.
 - Auto-harness dimension signal (`evals/auto/loop.py:_build_dimension_signal`, PR #49) requires scorers to emit `{dim: {score: float}}`. Components using semantically-rich nested dicts (`tp_recall.matched[*].credit`, `signal_discipline` tiers, etc.) are dim-signal-blind until per-component extractors are added.
+- Eval runner supports Kimi CLI backend (`evals/runner/invoker.py`) with MCP config path fix and timeout multiplier, in addition to the original Claude CLI backend. The stream-json normalizer was committed in PR #99.
 
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP

@@ -28,8 +28,31 @@ pass/fail on held-out test suite.
   `claude -p "follow <agent>"` does not preserve frontmatter.
 - When testing, mock at `subprocess.run` or the real integration boundary,
   not at a wrapper function. Wrapper mocks hide kwarg mismatches.
+- `--import-mode=append` is required on all Tier 3 pytest invocations when
+  held-out tests live inside the repo tree; prevents `/scoring/tests` from
+  shadowing `/workspace/repo`.
+- Per-task `dockerfile` routing in `corpus.yaml` selects the sandbox image per
+  task (e.g., `Dockerfile.swebench-py310` for Python 3.10 tasks).
+- `post_seed_commands` in `corpus.yaml` apply patches before the fix phase runs
+  (e.g., collections.abc migration, numpy alias fixes, version file writing for
+  SCM version resolution).
+- `use_pytest_timeout: false` in task metadata disables pytest-timeout for old
+  pytest versions incompatible with `pytest-timeout==2.4.0`.
+- Old pytest (pre-7.x) needs extra deps (`more_itertools`, `colorama`, `toml`,
+  `attrs`) installed in the Docker image.
 - Every `content/` edit motivated by a score must cite the task fixture and
   pass the counterfactual in `evals/OVERFITTING-RULE.md`.
+
+## Gotchas
+
+- Docker layer cache masks Dockerfile changes; `docker rmi -f` +
+  `force_rebuild=True` is required after any `Dockerfile.swebench` edit.
+- pytest path shadowing: default import mode puts `/scoring/tests` ahead of
+  `/workspace/repo`. `--import-mode=append` is the fix.
+- Network-isolated containers may fail SCM version resolution; write version
+  files directly in `post_seed_commands`.
+- Python 3.10 removed `collections.MutableMapping`; old repos need
+  `collections.abc` patches in `post_seed_commands`.
 
 ## Quality gates
 
