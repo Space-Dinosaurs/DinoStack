@@ -33,7 +33,7 @@
 
 **Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:
 - `content/rules/` - the 3 rule files (agent-methodology, code-standards, conventions)
-- `content/references/` - the 6 reference docs (agent-team, design-goals, multi-developer-coordination, regression-test-obligation, skeptic-protocol, subagent-protocol)
+- `content/references/` - the 7 reference docs (agent-team, design-goals, doc-sync-obligation, multi-developer-coordination, regression-test-obligation, skeptic-protocol, subagent-protocol)
 - `content/commands/` - the 14 command files (agentic-cost, agentic-disable, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, prune-harness, representation-audit, skeptic, test-suite-comprehension, update-agentic-engineering, wrap)
 - `content/agents/` - the 16 agent definitions (adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket)
 

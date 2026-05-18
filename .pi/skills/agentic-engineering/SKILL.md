@@ -46,6 +46,10 @@ files on every session and the reference docs on the triggers described in agent
   Skeptic finding fixed during a task must come with a regression test that would have caught it;
   read when fixing a Skeptic finding to confirm what counts as a valid regression test.
 
+- **references/doc-sync-obligation.md** - per-change doc-sync obligation: a reality-asserting
+  change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
+  the affected docs in the same change; read when a change touches a documented surface.
+
 ## Rules (read on trigger)
 
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;
