@@ -23,6 +23,7 @@ node_modules/
 # re-ignore the runtime artifacts explicitly.
 .agentic/*
 !.agentic/config.json
+!.agentic/findings.md
 .agentic/worktrees/
 .agentic/loop-state.json
 .agentic/tasks.jsonl
