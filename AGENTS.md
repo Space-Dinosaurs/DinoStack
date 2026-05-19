@@ -39,7 +39,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 	8. Update local main: `git checkout main && git pull --ff-only origin main`.
 	- Steps 6-8 are automatic - never pause for merge approval when CI is green.
 	- Failed CI is a hard stop - investigate before proceeding.
-- **Conductor never creates worktrees for itself.** The conductor edits directly on `main`. Worktrees are exclusively for subagent Workers. For Trivial-risk changes the conductor edits directly on `main` with no worktree.
+- **Conductor never edits shippable artifacts directly, including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`; the conductor edits only exempt artifacts (`.agentic/`, `docs/planning/`, conductor-direct prints/decisions/resolver execution) in its own checkout. See `content/rules/conventions.md` §Git Workflow for the shippable/exempt classifier.
 - When isolation:worktree Workers are used across multiple sequential spawns in the same task, the worktree is cleaned up between them and subsequent Workers fall back to the main tree. Tell follow-up Workers this explicitly.
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
 - The pre-commit hook does not currently auto-stage `.claude/skills/agentic-engineering/METHODOLOGY.md` or `.codex/agents/*.toml`. After any `content/` edit, either stage these regenerated artifacts manually or extend the `git add` list in `hooks/pre-commit`.
