@@ -102,6 +102,7 @@ After the build, evaluate whether the content change affects concepts covered in
 1. Check which docs reference the affected concept. The main reference is `docs/agentic-engineering.html`; slides live in `docs/slides/`. Use grep to locate the relevant sections quickly.
 2. For simple value changes (a table cell, a model name, a step number): apply the update directly to the doc file(s) and include them in the commit.
 3. For structural changes (new rule, new agent, new command, removed section): surface a specific note to the user - name the exact doc file(s) and section(s) that are now stale, and what needs updating. Do not just say "consider updating docs". Then wait for the user to decide whether to update now or track it separately before proceeding to Step 4.
+4. If any `docs/slides/*-slides.md` deck content changed as part of this update, run `bash scripts/build-slides.sh` and stage the regenerated `docs/slides/*.html` into the same commit. Never hand-edit the `.html` - it is build output enforced by the `slides-sync` CI gate. Upgrading marp is an intentional same-PR action: bump `scripts/package.json`, regenerate `scripts/package-lock.json`, and rebuild all decks in the same commit.
 
 ## Step 4 - Commit and push
 
