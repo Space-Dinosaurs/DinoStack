@@ -39,7 +39,7 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **`BASE_BRANCH` resolution and `AGENTS.md` config parsing.** Setup phase work.
 - **`gh pr create` in Phase 9.** PR opener stays in the conductor; synthesis-context savings did not justify a spawn.
 - **CI Test URL polling in Phase 10.**
-- **Branch/worktree creation on the Trivial single-engineer path and the Phase 5 parallel fan-out path.** Elevated single-engineer path delegates this to the engineer (see Phase 4).
+- **Branch/worktree creation on the Phase 5 parallel fan-out path.** The Elevated single-engineer path AND the Trivial single-engineer path both delegate branch/worktree creation to the (worktree-isolated) engineer (see Phase 4). Only fan-out worktree creation remains conductor-orchestrated.
 
 This list is not exhaustive — any operation listed elsewhere as conductor-direct is also irreducible.
 
@@ -564,7 +564,7 @@ Focus on understanding enough to make a solid plan - don't over-read.
 
 **Investigator conditional:** If the task risk is **Low or above AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
 
-Trivial-classified tickets retain conductor-direct flow per METHODOLOGY.md §Risk Classification; the investigator is not required.
+Trivial-classified tickets skip the investigator (not required); the shippable change is still performed by a worktree-isolated `engineer` (no Skeptic, no brief) per METHODOLOGY.md §Risk Classification - the conductor does not edit the shippable tree directly.
 
 ---
 
@@ -702,16 +702,11 @@ See `content/sections/03-planning-artifacts.md` Gate semantics for where this st
 
 **Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands.
 
-**Trivial single-engineer path.** Conductor-side branch creation is preserved as today (per METHODOLOGY.md §Delegation Trivial rule). The conductor runs:
-
-```bash
-export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
-git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH
-```
+**Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH` command. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
 
 **Phase 5 parallel fan-out path.** Conductor-side worktree creation is preserved as today; the fan-out logic lives in Phase 5 itself.
 
-**Cross-reference note.** Three paths now exist for branch/worktree creation: (a) Elevated single-engineer — engineer-owned via `worktree_setup`; (b) Trivial single-engineer — conductor-owned per METHODOLOGY.md Trivial rule; (c) Parallel fan-out — conductor-owned per Phase 5 protocol. Future edits to any one site should sync the others.
+**Cross-reference note.** Branch/worktree creation paths: (a) Elevated single-engineer — engineer-owned via `worktree_setup`; (b) Trivial single-engineer — engineer-owned in a worktree (lightweight contract; conductor never edits the shippable tree directly); (c) Parallel fan-out — conductor-orchestrated per Phase 5 protocol. Future edits to any one site should sync the others.
 
 ---
 
@@ -748,7 +743,7 @@ Decision table:
 | Returns a SHA AND that SHA is reachable from the local resume state for this ticket (resume case - we're picking up our own prior work) | Proceed with `BRANCH_NAME` as resolved. |
 | Returns a SHA that does NOT match anything we intend to push (stale branch from an unrelated session, abandoned PR, prior batch run) | Append a uniqueness suffix to `BRANCH_NAME` BEFORE passing it to the engineer. Default suffix: `-v2`. If `-v2` also collides, use `-<7-char-short-sha>` of the conductor's current HEAD. Re-run `ls-remote` against the new name to confirm it is free. |
 
-The engineer is never asked to handle a rename mid-implementation. The conductor resolves uniqueness once, before the spawn. Log the resolution to `resolution_notes` (one line: `branch_collision: <original> → <renamed> (remote SHA <sha>)`) so the operator can audit later. This preflight runs on every Elevated engineer spawn (single-engineer, fan-out per-unit, and any Phase 7 fix engineer that creates a new branch). Trivial-path conductor-direct branch creation (Phase 4) MUST also apply this preflight.
+The engineer is never asked to handle a rename mid-implementation. The conductor resolves uniqueness once, before the spawn. Log the resolution to `resolution_notes` (one line: `branch_collision: <original> → <renamed> (remote SHA <sha>)`) so the operator can audit later. This preflight runs on every engineer spawn that creates a branch (Elevated single-engineer, fan-out per-unit, Phase 7 fix engineer, and the Trivial-path solo worktree engineer - branch creation on the Trivial path is performed by that engineer in its worktree, see Phase 4).
 
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
@@ -762,7 +757,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
-**Trivial-path solo engineer carve-out.** Trivial solo engineer spawns (per METHODOLOGY.md §Delegation table - spawned only when other subagents are running) keep the lightweight contract: no `worktree_setup`, no `quality_gates`, no `git_finalization`, no `quality_gate_results` return field. Trivial flow is conductor-orchestrated end to end - branch creation, quality gates, commits, and pushes are all conductor-direct as today.
+**Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
