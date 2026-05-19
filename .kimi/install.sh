@@ -192,16 +192,29 @@ SKILL_DST="$HOME/.kimi/skills/agentic-engineering"
 echo ""
 echo "Global skill install (optional)..."
 
+# If $SKILL_DST is a symlink pointing back into the repo (stale install style),
+# remove it and create a real directory. Writing individual files through a
+# dir-symlink that resolves to $SKILL_SRC would corrupt tracked repo symlinks.
+if [[ -L "$SKILL_DST" ]]; then
+  _dst_real="$(python3 -c "import os.path; print(os.path.realpath('$SKILL_DST'))")"
+  _src_real="$(python3 -c "import os.path; print(os.path.realpath('$SKILL_SRC'))")"
+  if [[ "$_dst_real" == "$_src_real" ]]; then
+    rm "$SKILL_DST"
+    echo "  ~ removed stale dir-symlink at $SKILL_DST (was pointing into repo)"
+  fi
+fi
 mkdir -p "$SKILL_DST"
 
-# Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/"
+# Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/
+# Canonical comparison (realpath both sides) so a no-op install is truly a no-op.
 link_abs() {
   local src="$1"
   local dst="$2"
   if [[ -L "$dst" ]]; then
-    local current
-    current="$(readlink "$dst")"
-    if [[ "$current" == "$src" ]]; then
+    local current_abs src_abs
+    current_abs="$(python3 -c "import os.path; print(os.path.realpath('$(readlink "$dst")'))" 2>/dev/null || python3 -c "import os.path; print(os.path.realpath(os.path.join('$(dirname "$dst")', os.readlink('$dst'))))")"
+    src_abs="$(python3 -c "import os.path; print(os.path.realpath('$src'))")"
+    if [[ "$current_abs" == "$src_abs" ]]; then
       echo "  = $(basename "$dst") (already linked)"
     else
       rm "$dst"
@@ -216,8 +229,10 @@ link_abs() {
   fi
 }
 
-# Symlink SKILL.md (same treatment as content dirs)
-link_abs "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
+# SKILL.md: point at the actual content file, not the intermediate repo symlink.
+# Using $REPO_DIR/content/SKILL.md avoids a self-referential link when $SKILL_DST
+# is a stale dir-symlink pointing at $SKILL_SRC.
+link_abs "$REPO_DIR/content/SKILL.md"  "$SKILL_DST/SKILL.md"
 
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"
