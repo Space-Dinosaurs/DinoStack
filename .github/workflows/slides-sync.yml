@@ -1,0 +1,25 @@
+name: slides-sync
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  check-slides-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: scripts/package-lock.json
+      - run: npm ci --prefix scripts --no-audit --no-fund
+      - run: bash scripts/build-slides.sh
+      - name: Fail on slide drift
+        run: |
+          if ! git diff --exit-code -- docs/slides; then
+            echo "::error::Slide HTML out of sync. Run 'bash scripts/build-slides.sh' and commit docs/slides/*.html." >&2
+            exit 1
+          fi
