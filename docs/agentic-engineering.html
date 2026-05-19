@@ -824,7 +824,7 @@
 <!-- ═══ Side Navigation ═══ -->
 <nav class="side-nav">
   <div class="side-nav-brand">AE</div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: May 18, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: May 19, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -848,6 +848,7 @@
   <a href="#profiles"><span class="nav-dot" style="background: var(--cyan);"></span> Risk Profiles</a>
   <a href="#risk"><span class="nav-dot" style="background: var(--rose);"></span> Risk Classification</a>
   <a href="#other-adapters"><span class="nav-dot" style="background: var(--text-muted);"></span> Other Adapters</a>
+  <a href="#competitors"><span class="nav-dot" style="background: var(--violet);"></span> Ecosystem Comparison</a>
 </nav>
 
 <div class="doc-header">
@@ -2347,6 +2348,159 @@
   </div>
 
 </div><!-- /#other-adapters -->
+
+<div id="competitors" class="section">
+  <div class="section-title" data-num="13"><h2>Ecosystem Comparison</h2><h3>How agentic-engineering relates to adjacent frameworks</h3></div>
+  <p class="desc">AE is a verification-first delegation methodology. The frameworks below overlap in the autonomous-coding space but optimize for different goals. The matrix maps where they converge and diverge.</p>
+
+  <!-- ── One-line positioning ── -->
+  <div class="rel-card" style="margin-top: 24px;">
+    <h4 style="color: var(--violet); font-size: 18px; margin-bottom: 4px;">Framework Positioning</h4>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">One-line thesis per framework</p>
+    <table>
+      <thead><tr><th>Framework</th><th>One-line thesis</th></tr></thead>
+      <tbody>
+        <tr><td><strong>agentic-engineering</strong></td><td>"Don't ship a bug, and prove you didn't" - verification-first, risk-gated delegation with adversarially independent review.</td></tr>
+        <tr><td><strong>GSD (Get Shit Done)</strong></td><td>"Ship my idea fast" - spec-driven, phase-gated lifecycle for solo devs; cross-harness; low onboarding cost.</td></tr>
+        <tr><td><strong>Oh My ClaudeCode</strong></td><td>Autonomy-first - hides the loop behind a self-looping autopilot; large agent roster; multi-provider worker pools.</td></tr>
+        <tr><td><strong>Oh My OpenCode</strong></td><td>Goal-in, agents-out - OpenCode-native autonomous multi-agent team with full Claude Code compat layer.</td></tr>
+        <tr><td><strong>Chase Hannegan's Agentic OS</strong></td><td>Skills + Obsidian memory + visual dashboard aimed at non-technical users and agencies.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Main comparison matrix ── -->
+  <div class="rel-card" style="margin-top: 16px;">
+    <h4 style="color: var(--violet); font-size: 18px; margin-bottom: 4px;">Comparison Matrix</h4>
+    <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'DM Mono', monospace;">13 dimensions across 5 frameworks</p>
+    <div style="overflow-x: auto;">
+      <table style="width: 100%; min-width: 860px;">
+        <thead>
+          <tr>
+            <th style="text-align: left; width: 16%;">Dimension</th>
+            <th style="text-align: left; width: 17%; color: var(--violet);">agentic-engineering</th>
+            <th style="text-align: left; width: 16%; color: var(--green);">GSD</th>
+            <th style="text-align: left; width: 17%; color: var(--cyan);">Oh My ClaudeCode</th>
+            <th style="text-align: left; width: 17%; color: var(--cyan);">Oh My OpenCode</th>
+            <th style="text-align: left; width: 17%; color: var(--text-muted);">Chase Agentic OS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Core thesis</strong></td>
+            <td>Verification-first; prove correctness</td>
+            <td>Ship fast (solo-dev velocity)</td>
+            <td>Autonomy-first; hide the loop</td>
+            <td>Goal-in, agents plan/build/test/review</td>
+            <td>Skills + memory + dashboard for non-technical users</td>
+          </tr>
+          <tr>
+            <td><strong>Independent adversarial review</strong></td>
+            <td>Yes - Skeptic Protocol, cannot self-ratify, fresh reviewer</td>
+            <td>No - verifier reviews work it supported</td>
+            <td>Partial - critic + /ralph self-loop (self-ratifying)</td>
+            <td>Partial - Metis/Momus plan QA (not independent of execution)</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong>Risk classification gate</strong></td>
+            <td>Yes - Trivial/Low/Elevated + profiles gate the review chain</td>
+            <td>No</td>
+            <td>No (model routing by stakes, not a risk gate)</td>
+            <td>No</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong>Named specialist agents</strong></td>
+            <td>10+ persistent roles</td>
+            <td>Phase-scoped functional agents (not persistent)</td>
+            <td>19 named agents</td>
+            <td>Named team (Sisyphus, Atlas, Prometheus, Metis, Momus, Hephaestus, Oracle, Librarian)</td>
+            <td>None (skills + automations model)</td>
+          </tr>
+          <tr>
+            <td><strong>Parallel fan-out</strong></td>
+            <td>Yes - orchestration-planner + isolated workers</td>
+            <td>Yes - parallel subagents per phase</td>
+            <td>Yes - Ultrawork + tmux multi-provider pools</td>
+            <td>Yes - parallel builds</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong>Worktree isolation per task</strong></td>
+            <td>Yes - mandatory for concurrent spawns</td>
+            <td>No</td>
+            <td>No explicit per-task worktree</td>
+            <td>No explicit per-task worktree</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong>Cross-session resume</strong></td>
+            <td>Yes - loop-state / batch-state, phase-transition writes</td>
+            <td>Partial - STATE.md tracks position</td>
+            <td>Yes - rate-limit daemon + tmux auto-resume</td>
+            <td>Yes - Sisyphus todo + resume</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong>Audit / intent trail</strong></td>
+            <td>Yes - decisions.md, ADR drift detection, events.jsonl, module manifests</td>
+            <td>Partial - .planning/ artifacts</td>
+            <td>Partial - session replay logs</td>
+            <td>No formal audit trail</td>
+            <td>Obsidian vault (knowledge, not decision audit)</td>
+          </tr>
+          <tr>
+            <td><strong>Dedicated QA / security / perf roles</strong></td>
+            <td>Yes - qa-engineer, security-auditor, perf-analyst</td>
+            <td>No</td>
+            <td>Partial - qa-tester, security-reviewer (no perf)</td>
+            <td>No dedicated security/perf</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong>Cross-harness portability</strong></td>
+            <td>Adapters: Codex, Cursor, Gemini, Kimi, OpenCode (Claude-native primary)</td>
+            <td>Yes - OpenCode, Gemini CLI, Cursor, Windsurf</td>
+            <td>Multi-provider pools (Claude + Codex + Gemini)</td>
+            <td>OpenCode-native + Claude Code compat layer</td>
+            <td>Anthropic-only</td>
+          </tr>
+          <tr>
+            <td><strong>Onboarding / distribution</strong></td>
+            <td>curl|bash bootstrap; methodology transfer (users learn the loop)</td>
+            <td>npx zero-config, one config file</td>
+            <td>npm + plugin marketplace (~29k stars)</td>
+            <td>Plugin install (~57.9k stars; ~32% of OpenCode users)</td>
+            <td>Voice-dump setup; packaged skills handed to clients</td>
+          </tr>
+          <tr>
+            <td><strong>Autonomy model</strong></td>
+            <td>Risk-gated; conductor proactive within authority; hard-stop on irreversible</td>
+            <td>Interactive or yolo (full auto-approve) toggle</td>
+            <td>Autonomy-first; self-loop; human optional</td>
+            <td>Human at checkpoints only</td>
+            <td>Dashboard buttons; non-technical trigger</td>
+          </tr>
+          <tr>
+            <td><strong>Target user</strong></td>
+            <td>Teams/engineers needing correctness + auditability</td>
+            <td>Solo devs / creative builders shipping fast</td>
+            <td>Users wanting hands-off autonomous coding at scale</td>
+            <td>OpenCode users wanting autonomous multi-agent builds</td>
+            <td>Non-technical users, agencies, clients</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Closing note ── -->
+  <div class="note" style="border-left-color: var(--cyan); margin-top: 16px;">
+    <strong>Adjacent libraries (not direct comparisons):</strong> General-purpose Python agent-orchestration libraries - LangGraph (graph workflows), AutoGen (multi-agent debate), CrewAI (role pipelines) - solve a different problem (programmatic LLM orchestration) than a Claude Code engineering methodology, and are listed here for context rather than direct comparison.
+  </div>
+
+</div><!-- /#competitors -->
 
 </div>
 <script>
