@@ -43,6 +43,8 @@ Build scripts regenerate adapter files from `content/`:
 
 The pre-commit hook runs both build scripts automatically when `content/` files are staged. If you bypass the hook, run the build scripts manually before committing.
 
+A third build script, `scripts/build-slides.sh`, regenerates `docs/slides/*.html` from `docs/slides/*-slides.md` using a pinned Marp toolchain (`scripts/package.json` + `scripts/package-lock.json`). It is a separate mechanism from the two adapter builds above: it is NOT run by the `content/` pre-commit hook. Instead it is enforced by the `slides-sync` CI gate, which rebuilds the decks and fails the build on any drift - analogous to how `adapter-sync` and `methodology-drift` enforce the adapter and methodology builds. After changing any slide `.md`, run `bash scripts/build-slides.sh` and commit the regenerated `.html`; never hand-edit the `.html`. Upgrading marp is an intentional same-PR action: bump `scripts/package.json`, regenerate `scripts/package-lock.json`, and rebuild all decks.
+
 **Frontmatter sidecars.** Cursor rules require YAML frontmatter. This metadata lives in `.cursor/rules/frontmatter/*.yaml` (one file per rule). The cursor build script combines the sidecar with the rule content to produce the `.mdc` file. Edit the sidecar to change frontmatter; edit `content/rules/` to change rule content.
 
 ## Architecture guardrails
