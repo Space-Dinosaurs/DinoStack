@@ -1479,14 +1479,8 @@
     <div class="flow-section">
       <div class="flow-title">Trivial change</div>
       <div class="flow-row">
-        <span class="flow-label" style="margin-right: 10px; font-style: italic;">[no subagents running]</span>
-        <span class="flow-box fb-conductor">Conductor edits directly</span>
-        <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-faint);">done (commit required)</span>
-      </div>
-      <div class="flow-row" style="margin-top: 6px;">
-        <span class="flow-label" style="margin-right: 10px; font-style: italic;">[subagents running]</span>
-        <span class="flow-box fb-agent">solo engineer Worker</span>
+        <span class="flow-label" style="margin-right: 10px; font-style: italic;">[any subagent state]</span>
+        <span class="flow-box fb-agent">solo engineer Worker (isolation: worktree)</span>
         <span class="flow-arrow">&rarr;</span>
         <span class="flow-box" style="background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-faint);">done (commit required)</span>
       </div>
@@ -1856,7 +1850,7 @@
       <div class="rel-card">
         <h4>Core Rules</h4>
         <ul>
-          <li><strong>Conductor works directly on its current branch.</strong> The main working tree stays on the conductor's current branch. No conductor-level feature worktrees are created; worktrees are a subagent-only construct.</li>
+          <li><strong>Conductor delegates every shippable edit to a worktree-isolated engineer.</strong> The conductor never edits shippable artifacts in its own checkout; worktrees are the execution location for all shippable changes. The conductor edits only exempt artifacts directly.</li>
           <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/agentic-engineering</code> may commit and push directly to <code>main</code>.</li>
           <li><strong>Base branch resolution:</strong> use <code>main</code> if it exists, fall back to <code>master</code>, then <code>develop</code>, then <code>development</code>.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
@@ -1870,7 +1864,7 @@
         <ul>
           <li><strong>Subagent worktrees</strong> (<code>feature/*</code>, <code>fix/*</code>) - one per parallel subagent, branched from the conductor's current branch, created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>. The conductor merges and removes them after sign-off.</li>
           <li><strong>Isolation worktrees</strong> (<code>worktree-agent-*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Removed after the conductor confirms no PR is needed.</li>
-          <li><strong>Conductor works directly on its branch.</strong> No conductor-level feature worktrees. The main working tree stays on the conductor's current branch; worktrees are a subagent-only construct.</li>
+          <li><strong>Conductor delegates shippable edits; it does not edit the shippable tree itself.</strong> Every shippable change runs in a subagent worktree branched from origin/main. The conductor edits only exempt artifacts directly.</li>
         </ul>
       </div>
     </div>

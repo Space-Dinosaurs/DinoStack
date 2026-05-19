@@ -34,7 +34,7 @@ When the conductor spawns workers for a multi-unit plan with task-state tracking
 
 ### Rule 3 — Spawn threshold
 
-**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action. Trivial risk → conductor edits directly if no subagents are running; spawn a single `engineer` Worker in background (no Skeptic, no brief file) if any subagent is running.** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
+**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action. Trivial risk → delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow).** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
 
 The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
 
@@ -179,8 +179,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Take a screenshot or snapshot | Yes | No |
 | Synthesize already-returned subagent results | Yes | No |
 | 1–2 line edit, single file, correct output apparent, no Elevated signals | Yes | No |
-| Trivial risk (ALL qualifying signals hold) - no subagents currently running | Yes (direct edit, no Skeptic) | No |
-| Trivial risk (ALL qualifying signals hold) - one or more subagents currently running | No (spawn solo `engineer` Worker in background; no Skeptic) | No |
+| Trivial risk (ALL qualifying signals hold) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
 | Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
 | Architecture decision that constrains future choices | No | **Yes** |

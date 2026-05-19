@@ -85,11 +85,7 @@ self-check
 ### Trivial change (single-file cosmetic or copy change, no logic impact)
 
 ```
-[no subagents running] conductor edits directly
-    ↓
-done (commit still required)
-
-[subagents running] solo engineer Worker in background
+[any subagent state] solo engineer Worker, isolation: "worktree"
     ↓
 done (no Skeptic, no brief file, commit still required)
 ```
@@ -163,7 +159,7 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 
 **Skeptic is always spawned for Elevated risk.** It reviews whatever the engineer produced. The security-auditor is an additional pass, not a replacement for the Skeptic. For high-stakes Elevated units (auth, payments, data migrations, crypto, secrets), the `multi-dimensional` skeptic_strategy fans out correctness-Skeptic + security-auditor + perf-analyst in a single message on the same diff; see `content/references/subagent-protocol.md` for the full definition and `content/references/skeptic-protocol.md` Section 13 for the workflow.
 
-**Trivial risk skips Skeptic entirely.** Trivial tasks - single-file cosmetic or copy changes with no logic impact, where all qualifying signals hold - do not go through the Skeptic loop. The conductor edits directly when no subagents are running; otherwise a single `engineer` Worker handles it in background with no Skeptic and no brief file (background preserves conductor availability for in-flight work). When in doubt between Trivial and Elevated, choose Elevated.
+**Trivial risk skips Skeptic entirely.** Trivial tasks - single-file cosmetic or copy changes with no logic impact, where all qualifying signals hold - do not go through the Skeptic loop. A worktree-isolated `engineer` handles the shippable change with no Skeptic and no brief file; the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). When in doubt between Trivial and Elevated, choose Elevated.
 
 ---
 
