@@ -1,4 +1,36 @@
 #!/usr/bin/env bash
+# Purpose: Installs the agentic-engineering skill for the Kimi CLI adapter.
+#          Runs build.sh to generate AGENTS.md and per-command skills, writes
+#          the activation mode/profile to ~/.claude/agentic-engineering.json,
+#          and wires up global skill symlinks under ~/.kimi/skills/.
+#
+# Public API: bash .kimi/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
+#             Safe to re-run (idempotent). No required arguments.
+#             When invoked non-interactively (stdin not a TTY), defaults to
+#             mode=opt-out, profile=default without prompting.
+#
+# Upstream deps: bash 3.2+, python3 (for JSON config reads/writes and realpath
+#                resolution), git (via build.sh), REPO_DIR layout with content/
+#                tree, .kimi/build.sh, .kimi/skills/agentic-engineering/ as
+#                the per-adapter skill source.
+#
+# Downstream consumers: humans installing the adapter manually;
+#                       scripts/update.js (generic multi-adapter updater,
+#                       launched via ./update.sh) invokes this script for
+#                       each selected adapter after pulling new content.
+#
+# Failure modes: exits non-zero on build.sh failure (propagated). Partial
+#                install is possible if the script exits mid-run; re-running
+#                is safe. The dir-symlink guard prevents write-through
+#                corruption: if ~/.kimi/skills/agentic-engineering is a
+#                directory symlink pointing into the repo, the symlink is
+#                removed and replaced with a real directory before any files
+#                are written, ensuring tracked repo symlinks (SKILL.md, agents,
+#                commands, references) are never clobbered. The sections/rules
+#                migration is a 5-case contract; Case 4 (both exist) exits 1
+#                and requires manual intervention.
+#
+# Performance: ~2-5 s wall time (dominated by build.sh git operations).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -192,16 +224,29 @@ SKILL_DST="$HOME/.kimi/skills/agentic-engineering"
 echo ""
 echo "Global skill install (optional)..."
 
+# If $SKILL_DST is a symlink pointing back into the repo (stale install style),
+# remove it and create a real directory. Writing individual files through a
+# dir-symlink that resolves to $SKILL_SRC would corrupt tracked repo symlinks.
+if [[ -L "$SKILL_DST" ]]; then
+  _dst_real="$(python3 -c "import os.path; print(os.path.realpath('$SKILL_DST'))")"
+  _src_real="$(python3 -c "import os.path; print(os.path.realpath('$SKILL_SRC'))")"
+  if [[ "$_dst_real" == "$_src_real" ]]; then
+    rm "$SKILL_DST"
+    echo "  ~ removed stale dir-symlink at $SKILL_DST (was pointing into repo)"
+  fi
+fi
 mkdir -p "$SKILL_DST"
 
-# Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/"
+# Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/
+# Canonical comparison (realpath both sides) so a no-op install is truly a no-op.
 link_abs() {
   local src="$1"
   local dst="$2"
   if [[ -L "$dst" ]]; then
-    local current
-    current="$(readlink "$dst")"
-    if [[ "$current" == "$src" ]]; then
+    local current_abs src_abs
+    current_abs="$(python3 -c "import os.path; print(os.path.realpath('$(readlink "$dst")'))" 2>/dev/null || python3 -c "import os.path; print(os.path.realpath(os.path.join('$(dirname "$dst")', os.readlink('$dst'))))")"
+    src_abs="$(python3 -c "import os.path; print(os.path.realpath('$src'))")"
+    if [[ "$current_abs" == "$src_abs" ]]; then
       echo "  = $(basename "$dst") (already linked)"
     else
       rm "$dst"
@@ -216,8 +261,10 @@ link_abs() {
   fi
 }
 
-# Symlink SKILL.md (same treatment as content dirs)
-link_abs "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
+# SKILL.md: point at the actual content file, not the intermediate repo symlink.
+# Using $REPO_DIR/content/SKILL.md avoids a self-referential link when $SKILL_DST
+# is a stale dir-symlink pointing at $SKILL_SRC.
+link_abs "$REPO_DIR/content/SKILL.md"  "$SKILL_DST/SKILL.md"
 
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"
