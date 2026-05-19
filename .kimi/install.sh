@@ -1,4 +1,35 @@
 #!/usr/bin/env bash
+# Purpose: Installs the agentic-engineering skill for the Kimi CLI adapter.
+#          Runs build.sh to generate AGENTS.md and per-command skills, writes
+#          the activation mode/profile to ~/.claude/agentic-engineering.json,
+#          and wires up global skill symlinks under ~/.kimi/skills/.
+#
+# Public API: bash .kimi/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
+#             Safe to re-run (idempotent). No required arguments.
+#             When invoked non-interactively (stdin not a TTY), defaults to
+#             mode=opt-out, profile=default without prompting.
+#
+# Upstream deps: bash 3.2+, python3 (for JSON config reads/writes and realpath
+#                resolution), git (via build.sh), REPO_DIR layout with content/
+#                tree, .kimi/build.sh, .kimi/skills/agentic-engineering/ as
+#                the per-adapter skill source.
+#
+# Downstream consumers: humans installing the adapter manually;
+#                       update.js (the Kimi adapter updater) may re-invoke
+#                       this script after pulling new content.
+#
+# Failure modes: exits non-zero on build.sh failure (propagated). Partial
+#                install is possible if the script exits mid-run; re-running
+#                is safe. The dir-symlink guard prevents write-through
+#                corruption: if ~/.kimi/skills/agentic-engineering is a
+#                directory symlink pointing into the repo, the symlink is
+#                removed and replaced with a real directory before any files
+#                are written, ensuring tracked repo symlinks (SKILL.md, agents,
+#                commands, references) are never clobbered. The sections/rules
+#                migration is a 5-case contract; Case 4 (both exist) exits 1
+#                and requires manual intervention.
+#
+# Performance: ~2-5 s wall time (dominated by build.sh git operations).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
