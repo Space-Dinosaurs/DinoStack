@@ -156,7 +156,7 @@ fi
 
 # ---- Test 3: dst is absent (clean install) - must not disturb repo symlinks ----
 
-rm -rf "$FAKE_HOME"
+if [[ -n "$FAKE_HOME" && -d "$FAKE_HOME" ]]; then rm -rf "$FAKE_HOME"; fi
 FAKE_HOME="$(mktemp -d)"
 mkdir -p "$FAKE_HOME/.kimi/skills"
 # No symlink or directory at dst - clean install path.

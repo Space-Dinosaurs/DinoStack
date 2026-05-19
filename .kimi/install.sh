@@ -15,8 +15,9 @@
 #                the per-adapter skill source.
 #
 # Downstream consumers: humans installing the adapter manually;
-#                       update.js (the Kimi adapter updater) may re-invoke
-#                       this script after pulling new content.
+#                       scripts/update.js (generic multi-adapter updater,
+#                       launched via ./update.sh) invokes this script for
+#                       each selected adapter after pulling new content.
 #
 # Failure modes: exits non-zero on build.sh failure (propagated). Partial
 #                install is possible if the script exits mid-run; re-running
