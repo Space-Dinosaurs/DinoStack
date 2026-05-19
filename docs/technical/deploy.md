@@ -93,7 +93,7 @@ curl -sSI https://agentic-engineering-deploy.vercel.app/
 curl -sS https://agentic-engineering-deploy.vercel.app/ | head -c 300
 ```
 
-Expect HTTP 200 and a body containing `<title>Agentic Software Engineering</title>`. The custom alias may take 10-30 seconds to flip after the deploy returns.
+Expect HTTP 200 and a body containing `<title>Agentic Engineering</title>`. The custom alias may take 10-30 seconds to flip after the deploy returns.
 
 ## Footgun: silent auto-create on the wrong account
 
