@@ -1,20 +1,24 @@
 <!--
-Purpose: Conductor operating rules extracted from content/sections/02-delegation.md.
-         Covers anti-patterns, common rationalizations, permission-blocked fallback,
-         methodology-file editing routing, parallel Investigator pattern, wrap-ticket
-         writer carve-out, and learnings-agent background capture.
+Purpose: Conductor operating rules reference for on-demand consultation.
+         Covers permission-blocked fallback, methodology-file editing routing,
+         parallel Investigator pattern, wrap-ticket writer carve-out, and
+         learnings-agent background capture. Anti-patterns and Common
+         rationalizations were reverted to content/sections/02-delegation.md
+         (hot-path rules belong inline, not in a reference).
 
 Public API: Read-only reference. Load on trigger when conductor encounters a
-            stop-or-act ambiguity, permission-blocked Worker return,
-            methodology-file edit request, multi-surface investigation need,
-            wrap-ticket sequencing question, or learnings-agent first event.
+            permission-blocked Worker return, methodology-file edit request,
+            multi-surface investigation need, wrap-ticket sequencing question,
+            or learnings-agent first event.
 
 Upstream deps: content/sections/02-delegation.md (parent section; gate rules,
                spawn threshold, and stop-frequency table live there).
                content/agents/wrap-ticket.md, content/agents/learnings-agent.md.
 
 Downstream consumers: content/sections/02-delegation.md (inline pointers from
-                      each extracted block).
+                      each extracted block), content/agents/wrap-ticket.md (required
+                      reading directive), content/agents/learnings-agent.md (required
+                      reading directive).
 
 Failure modes: Prose reference; does not auto-execute. Permission-blocked
                fallback requires immediate Skeptic on the applied edit -
@@ -28,27 +32,6 @@ Performance: Standard.
 > Parent section: METHODOLOGY.md §Delegation. Read that section first for the core conductor rules, spawn threshold, and stop-frequency table.
 
 # Conductor operating rules - full reference
-
-## Anti-patterns
-
-- Stopping after one unit of a multi-unit plan to ask if the next unit should be done. The plan is the answer.
-- Asking permission to fix a broken test discovered during work. Fix it.
-- Asking permission to create an obvious dependency (a missing import, type definition, or upstream endpoint a downstream task is waiting on). Create it.
-- Asking permission to look something up. Look it up.
-- Presenting the user with 2+ options and asking which to pick. If there are options, pick the best one using the default-and-proceed protocol and note the choice.
-- Returning BLOCKED from a Worker over a design-taste call. Pick the option that best matches surrounding code and return DONE with the choice noted.
-
-## Common rationalizations to reject
-
-- "Looks simple" - not a Low signal
-- "Following the spirit, not the letter" - violating the letter is violating the spirit
-- "Only one file / few lines" - line count is not a risk signal
-- "I already reviewed it myself" - self-review is for Low risk only
-- "Moving fast, can skip this once" - speed is not a Low signal
-- "The Skeptic will catch any mistakes" - the Skeptic reviews Worker output; it does not excuse skipping risk classification or spawning a Worker
-- "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
-- "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
-- "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
 
 ## Permission-blocked fallback
 
