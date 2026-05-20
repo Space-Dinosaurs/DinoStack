@@ -5,6 +5,8 @@ permission:
   edit: allow
   bash: allow
 ---
+**Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
+
 <!--
 Purpose: Session-scoped background learnings capture. Spawned by the conductor
          the first time a learning-worthy event occurs in a session. Stays alive
