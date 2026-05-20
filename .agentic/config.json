@@ -1,0 +1,6 @@
+{
+  "debugger_on_failure": false,
+  "qa_default_skip": null,
+  "model_profile": "default",
+  "auto_merge_on_ci_green": true
+}

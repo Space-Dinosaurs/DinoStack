@@ -199,6 +199,11 @@ else:
 | quality_gate | rerun_pending | On the Elevated path: wait for the fix-engineer return and verify its `quality_gate_results` - do not invoke `$QUALITY_CMD` directly. On the Trivial path: re-run `$QUALITY_CMD`. |
 | quality_gate | debugger_spawned | Re-spawn Debugger from scratch with the captured gate failure output (Debugger is read-only and idempotent - same pattern as "Full Skeptic re-run on interruption"). |
 | quality_gate | debugger_returned | Debugger output was captured before interruption. Proceed to spawn the next engineer fix pass with the Debugger's Fix brief. No Debugger re-run needed. |
+| ci_wait | timeout | Re-enter Phase 10 poll loop once (operator may have manually fixed; if still timing out, re-escalate). |
+| ci_loop | fix_engineer_spawned | Re-spawn the fix engineer from the latest commit on the branch (assumes prior spawn was interrupted). Resume from cycle N. |
+| ci_loop | fix_engineer_returned | Re-enter Phase 10 poll loop to check CI status. |
+| ci_loop | ci_poll_pending | Re-enter Phase 10 poll loop from current iteration. |
+| ci_loop | cap_exceeded | Do NOT auto-resume. Surface the prior escalation summary and require human direction. |
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
@@ -219,6 +224,8 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `BASE_BRANCH` — the branch all work is based from. If not declared in `AGENTS.md`, resolve in this order: (1) `main` if it exists locally; (2) `master` if it exists locally; (3) `develop` if it exists locally; (4) `development` if it exists locally; (5) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
 - `DEBUGGER_ON_FAILURE` — read from `.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
+- `AUTO_MERGE_ON_CI_GREEN` — read from `.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.
+- `PR_WORKFLOW_REVIEWERS` — read from `AGENTS.md` `## PR Workflow` section, `Reviewers:` field (comma-separated GitHub usernames). Default: empty string. Section absence = empty. Used in Phase 10b as fallback reviewer assignment when no CODEOWNERS file is found.
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
@@ -241,9 +248,11 @@ Do not continue. Do not attempt to write the migration. All config-mutation logi
 Print a summary of resolved values before Phase 1:
 
 ```
-Tracker:       [linear | jira | none]
-TICKET_PREFIX: [value or "n/a"]
-BASE_BRANCH:   [value]
+Tracker:                [linear | jira | none]
+TICKET_PREFIX:          [value or "n/a"]
+BASE_BRANCH:            [value]
+AUTO_MERGE_ON_CI_GREEN: [true | false]
+PR_WORKFLOW_REVIEWERS:  [comma-separated usernames or "(none)"]
 ```
 
 All work lives in `$REPO`.
@@ -1308,6 +1317,8 @@ Omit the tracker reference block entirely. The PR body will have only Summary an
 
 ---
 
+Open as draft PR. GitHub does not request reviewers on a draft; reviewers are assigned in Phase 10b after CI passes.
+
 Run:
 
 ```bash
@@ -1315,6 +1326,7 @@ gh pr create \\
   --repo [GH_REPO] \\
   --base [BASE_BRANCH] \\
   --head [BRANCH_NAME] \\
+  --draft \\
   --title "[TICKET_PREFIX]-NNN: [ticket title]" \\
   --body "$(cat <<'EOF'
 ## Summary
@@ -1336,64 +1348,115 @@ Capture the PR number from the URL printed by `gh pr create`.
 
 ---
 
-## Phase 10: Wait for CI Test URL
+## Phase 10: Wait for CI checks
 
-The CI workflow deploys the branch to a preview environment (Cloudflare Pages, Vercel, Netlify, etc.) and exposes the deployment via a GitHub status check (and often a PR comment as well). Phase 10 polls the **status check rollup** as the authoritative source rather than scraping comment bodies.
+Poll all CI check runs until completion. The conductor uses `gh pr checks` to detect when every required check has finished. Outcomes route to one of three sub-phases.
 
-**Why status checks, not comments.** Comment-scraping has two failure modes that silently produce a "no Test URL yet" result when the real state is "the deploy was rejected and will never appear":
+**Preserved fast-exit:** the `preview_blocked: true` qa.md flag continues to suppress preview-URL polling specifically. It does NOT suppress the CI-check poll - those are distinct concerns. If `preview_blocked` is set, the Test URL line in the tracker comment (Phase 11) is "Preview deploy blocked - verify with local QA."
 
-1. The deploy provider rejects the deploy at the project level (e.g. Vercel project blocked, billing suspended, build quota exceeded) and never posts a comment - the conductor polls forever and times out without ever surfacing the rejection.
-2. The deploy succeeds but the comment is posted by a non-`github-actions[bot]` author (e.g. `vercel[bot]`, a custom CI bot) and the comment-author filter misses it.
-
-`gh pr view --json statusCheckRollup` returns every check the GitHub API knows about, including provider-rejected states with their failure messages, so the conductor can detect blocked-deploy conditions early and surface them to the operator instead of timing out blind.
-
-**qa.md `preview_blocked: true` flag.** If the resolved qa.md (`.agentic/qa.md` preferred) sets `preview_blocked: true`, the conductor SKIPS the status-check poll entirely and treats the Test URL as unavailable from the start. This is for projects where the preview-deploy environment is known to be blocked at the org or project level and waiting is wasted effort. Phase 11 proceeds with the PR link as the only artifact.
-
-**Poll loop.** When `preview_blocked` is not set, poll every 30 seconds for up to 5 minutes (10 checks):
+**Poll loop:**
 
 ```bash
-PR_NUMBER=[PR_NUMBER]
-TEST_URL=""
-BLOCKED_REASON=""
+PR_NUMBER=<captured-from-Phase-9>
+TIMEOUT_POLLS=60
+POLL_INTERVAL=30
 
-for i in $(seq 1 10); do
-  ROLLUP=$(gh pr view "$PR_NUMBER" \\
-    --repo "$GH_REPO" \\
-    --json statusCheckRollup \\
-    --jq '.statusCheckRollup' 2>/dev/null)
-
-  # Detect provider-rejected deploys early. The exact string varies by provider;
-  # match the common cases (Vercel: "project blocked"; generic: "blocked").
-  if echo "$ROLLUP" | grep -qiE 'project[ _-]?blocked|deployment[ _-]?blocked'; then
-    BLOCKED_REASON=$(echo "$ROLLUP" | grep -oiE '[^"]*blocked[^"]*' | head -1)
-    echo "Preview deploy is blocked: $BLOCKED_REASON"
+for i in $(seq 1 $TIMEOUT_POLLS); do
+  STATUS=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json name,status,conclusion 2>/dev/null)
+  if [ -z "$STATUS" ]; then
+    # No checks configured - treat as passed (project has no CI)
+    echo "[phase: ci-wait | no-checks-configured | status: passed-by-default]"
     break
   fi
-
-  # Look for a successful deploy check that exposes a target URL.
-  TEST_URL=$(echo "$ROLLUP" | jq -r '
-    .[] | select(.conclusion == "SUCCESS" or .state == "SUCCESS")
-        | .targetUrl // .detailsUrl // empty
-  ' | grep -E '^https?://' | head -1)
-
-  if [ -n "$TEST_URL" ]; then
-    echo "Test URL: $TEST_URL"
+  PENDING=$(echo "$STATUS" | jq -r '[.[] | select(.status != "COMPLETED")] | length')
+  if [ "$PENDING" -eq 0 ]; then
+    echo "[phase: ci-wait | all-checks-complete]"
     break
   fi
-
-  echo "Waiting for CI status check... ($i/10)"
-  sleep 30
+  echo "Waiting for CI checks... ($i/$TIMEOUT_POLLS, $PENDING pending)"
+  sleep $POLL_INTERVAL
 done
 
-echo "Final Test URL: ${TEST_URL:-not found}"
-echo "Preview blocked reason: ${BLOCKED_REASON:-none}"
+# After the loop, check final state
+FAILED=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json conclusion 2>/dev/null | jq -r '[.[] | select(.conclusion == "FAILURE" or .conclusion == "TIMED_OUT")] | length')
 ```
 
-**Outcome handling:**
+**Outcome routing:**
+- `STATUS empty` (no checks configured): emit `[phase: ci-wait | result: passed-by-default | no-checks]`. Proceed to Phase 10b.
+- `FAILED == 0` after all complete: emit `[phase: ci-wait | result: passed]`. Proceed to Phase 10b.
+- `FAILED > 0`: emit `[phase: ci-wait | result: failed | failing-checks: <names>]`. Enter Phase 10a.
+- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. Write `last_phase: ci_wait, last_phase_action: timeout` to `.agentic/loop-state.json`. Surface to human and STOP (do NOT auto-fix, do NOT proceed). Human decides whether to extend the wait or escalate.
 
-- `TEST_URL` populated: proceed to Phase 11 with the URL.
-- `BLOCKED_REASON` populated: proceed to Phase 11 with PR link only; surface the rejection cause to the operator and recommend setting `preview_blocked: true` in qa.md if the block is persistent.
-- Neither populated after 5 minutes: proceed with the PR link and note that the Test URL is pending.
+---
+
+## Phase 10a: CI fix loop (conditional on Phase 10 result: failed)
+
+Mirrors Phase 7's quality-gate retry loop, but targets CI failures detected post-push.
+
+**Cap:** 3 cycles. Convergence short-circuit on identical failing check-name set across two consecutive cycles.
+
+**Per cycle:**
+
+1. **Capture failure log:**
+   ```bash
+   RUN_ID=$(gh run list --pr "$PR_NUMBER" --repo "$GH_REPO" --status failure --limit 1 --json databaseId 2>/dev/null | jq -r '.[0].databaseId')
+   FAILURE_LOG=$(gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed 2>/dev/null | tail -300)
+   ```
+
+   The `tail -300` truncation caps log size to keep engineer context bounded. The last 300 lines of the failed run almost always contain the actual failure - earlier lines are setup/install noise. If the truncated log misses the failure (extremely rare), the next cycle will retry with the next failure run's log.
+
+2. **Write loop-state:** `last_phase: ci_loop, last_phase_action: fix_engineer_spawned, last_phase_iteration: N`.
+
+3. **Spawn engineer** (worktree-isolated, Elevated path). Brief includes:
+   - The failure log (`$FAILURE_LOG`, last-300 truncated)
+   - Prior cycle summaries (iter N >= 2 surgical-edit directive: paste iter N-1 verbatim, instruction "APPLY SURGICAL EDITS, do not regenerate")
+   - Instruction to commit and push to the same branch
+
+4. **After engineer returns:** Write `last_phase: ci_loop, last_phase_action: fix_engineer_returned, last_phase_iteration: N` to loop-state. Re-enter Phase 10 poll. Write `last_phase: ci_loop, last_phase_action: ci_poll_pending, last_phase_iteration: N` while polling.
+
+5. **Convergence short-circuit:** If failing check-name set in cycle N equals cycle N-1 (engineer made no progress), escalate immediately without consuming remaining cycles.
+
+6. **Cap exceeded (3 cycles without all-pass):**
+   - Write `last_phase: ci_loop, last_phase_action: cap_exceeded` to loop-state.
+   - Print summary of failing checks + each cycle's outcome.
+   - STOP. Human investigates.
+   - Note: PR 2 will add a tracker-status writeback to BLOCKED here. For now, just escalate to human with the failing-check summary.
+
+Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
+
+---
+
+## Phase 10b: Mark ready + assign reviewers (conditional on Phase 10 result: passed)
+
+**Mark ready-for-review:**
+
+```bash
+gh pr ready "$PR_NUMBER" --repo "$GH_REPO" 2>/dev/null
+```
+
+Soft-fail: if the call errors, log and continue. The PR remaining in draft state is recoverable (operator can mark ready manually).
+
+**Reviewer assignment (resolution order; first match wins):**
+
+1. **CODEOWNERS path** - check 3 standard locations:
+   ```bash
+   if [ -f .github/CODEOWNERS ] || [ -f docs/CODEOWNERS ] || [ -f CODEOWNERS ]; then
+     echo "CODEOWNERS detected - GitHub will auto-route review requests."
+   ```
+   (Note: this checks repo root and `.github/`/`docs/` subdirectories - the standard GitHub CODEOWNERS locations. Subdirectory CODEOWNERS in monorepo tracks - e.g. `helios/.github/CODEOWNERS` - are out of scope for v1; root-level CODEOWNERS is sufficient for the typical project.)
+
+2. **AGENTS.md `## PR Workflow` `Reviewers:` fallback** - if no CODEOWNERS file found AND `PR_WORKFLOW_REVIEWERS` (resolved in Setup) is non-empty:
+   ```bash
+   else
+     gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --add-reviewer "$PR_WORKFLOW_REVIEWERS" 2>/dev/null
+   ```
+
+3. **Neither configured** - emit one-line operator notice:
+   ```
+   No reviewers assigned: no CODEOWNERS file found and no Reviewers: in AGENTS.md ## PR Workflow.
+   ```
+
+Emit breadcrumb: `[phase: pr-ready | reviewers: auto|assigned|none]`
 
 ---
 
@@ -1501,6 +1564,29 @@ If the file does not exist (it was never written, e.g. loop never started), skip
 ```bash
 rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
 ```
+
+**Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `.agentic/config.json`):
+
+```bash
+if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft,mergeable,reviewDecision 2>/dev/null)
+  IS_DRAFT=$(echo "$PR_STATE" | jq -r '.isDraft')
+  MERGEABLE=$(echo "$PR_STATE" | jq -r '.mergeable')
+  REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
+
+  if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
+    gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null
+    echo "[phase: auto-merged | pr=$PR_NUMBER]"
+  else
+    echo "[phase: auto-merge-skipped | isDraft=$IS_DRAFT mergeable=$MERGEABLE reviewDecision=$REVIEW_DECISION]"
+  fi
+else
+  echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
+  echo "Note: If auto-merge is off (default), run \\`/ticket-status-sync TICKET_ID\\` after manual merge to push the Done transition to the tracker."
+fi
+```
+
+The `Note:` line is a forward-reference to PR 4's `/ticket-status-sync` command. In PR 1 it is just a hint; PR 4 lands the actual command.
 
 ---
 
