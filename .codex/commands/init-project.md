@@ -597,7 +597,7 @@ Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer 
 
 If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `agentic-engineering` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
 
-Resolution order at spawn time (per `METHODOLOGY.md` Spawn presets section): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
+Resolution order at spawn time (per `content/references/spawn-presets.md`): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
 
 This step is global (writes outside the project tree). It is idempotent - the file is created on the first `/init-project` invocation on a machine, and subsequent invocations are no-ops. The example library defines `engineer:default`, `engineer:tight-bug`, `skeptic:standard`, `skeptic:plan-review`, `skeptic:security`, and `architect:default`.
 
