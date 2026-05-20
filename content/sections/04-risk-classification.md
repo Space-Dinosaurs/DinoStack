@@ -8,7 +8,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
-| Trivial | Direct (conductor) if no subagents running; solo `engineer` Worker (foreground) if any subagent is running | None (no Skeptic, no brief file) | Silent |
+| Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
 | Low | Direct action | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
@@ -44,7 +44,7 @@ All signals not mentioned above keep their default level regardless of profile.
 
 ### Elevated signals
 
-Any single one triggers adversarial review: any code edit to file contents (excluding diagnostic-only logging) — **in `relaxed` and `default` profiles, single-file locally-scoped edits are Low per the profile deltas above**; security / auth / crypto / payments / secrets; irreversible operations; architecture decisions that constrain future choices; modifies protocol or infrastructure files; production or shared state; multi-file changes — **in `relaxed` profile, multi-file pure-UI-only changes are Low per the profile deltas above**; new file creation; external APIs or services; unfamiliar codebase area; logic with emergent/non-obvious cross-component interactions; user signals high stakes; configuration changes; research that produces a document, recommendation, or plan to be acted on; changes to shared utilities used across many call sites (single-file but high blast radius); anything where a mistake costs time or data.
+See §Delegation signal table above for the full Elevated signals list.
 
 ### Trivial signals
 
@@ -133,39 +133,6 @@ Spawning security-auditor.
 
 ### Spawn presets (per-spawn capability bundles)
 
-A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate. They are distinct from the session-wide `preset` field in `~/.claude/agentic-engineering.json` (which is a tone setting that maps to a risk profile - see Activation preflight Step 1). Same word, different scope.
-
-**Declaration format (optional line, immediately below `Tier:`):**
-```
-Risk: Elevated - new file creation
-Tier: 2
-Preset: engineer:default
-Spawning engineer.
-```
-
-The `Preset:` line is OPTIONAL. When absent, the conductor selects agent and tier inline (current behavior). When present, the preset supplies the agent identity, the tier override, and a brief prefix prepended to the spawn brief. The conductor still writes the rest of the brief inline.
-
-**Preset library location:**
-- Global: `~/.agentic/presets.yml`
-- Project override: `.agentic/presets.yml` (wins on key collision; merged shallowly per top-level key)
-
-**Reference format:** `<agent>:<variant>` (e.g., `engineer:default`, `skeptic:plan-review`, `skeptic:security`).
-
-**Schema (each preset entry):**
-- `agent`: string - which named agent to spawn (engineer, skeptic, architect, etc.)
-- `tier`: 1 | 2 | 3 - the model tier to use for this spawn
-- `brief_prefix`: string - text prepended to the conductor's inline brief; may be empty
-
-The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping is advisory documentation only (not harness-enforced), so embedding it in presets adds no enforcement value. Keep the preset surface minimal.
-
-**Resolution rules:**
-1. Conductor reads `.agentic/presets.yml` if it exists; merges over `~/.agentic/presets.yml`. Project keys win on collision.
-2. If the referenced `<agent>:<variant>` is undefined, the conductor warns inline (`Preset 'engineer:foo' not found in presets library; falling back to engineer:default.`) and uses `<agent>:default`.
-3. If `<agent>:default` is also undefined, the conductor proceeds with no preset (full inline-spec behavior) and notes the absence in the spawn declaration.
-4. The `Tier:` line and the preset's tier MUST agree. If they disagree, the explicit `Tier:` line wins (operator intent overrides library default) and the conductor notes the override.
-
-See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
-
-**Canonical variant for wide-design-gap work:** `architect:grill` is the opt-in deep-questioning Architect variant. Concrete trigger: the task description is under 200 words and asks an open "how should we..." question, OR the standard `architect:default` first-pass plan returns with 5+ Open Questions. Subjective trigger also valid: novel architecture, high blast-radius decisions, or vague problem framing where Open Questions feels insufficient. Grill mode is a two-phase orchestration (question-dump spawn, then plan-synthesis spawn with accumulated Q&A as input) - see `content/agents/architect.md` Variants for the full flow and the preset entry for the brief.
+**Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
 
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
