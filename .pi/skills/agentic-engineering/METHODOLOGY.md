@@ -205,7 +205,7 @@ Then: the main session may apply the edit directly, followed immediately by spaw
 
 **Investigator external-data claims require evidence.** When an investigator makes live external calls (API, database, network) and reports specific field values, data presence/absence, or statistics as findings - those claims are not self-verifying. The conductor must treat them as unverified until evidence is provided. Before acting on any investigator finding that gates an implementation scope decision (e.g. "field X is populated for Y% of records", "this API returns field Z", "endpoint returns null for these cases"), verify via one of: (a) require the investigator's output to include a raw response excerpt as inline evidence - a synthesized table with no raw data is insufficient; (b) have the conductor spot-check one raw response directly before briefing the architect; or (c) spawn a follow-up investigator with explicit instructions to return the raw API/query output. The failure mode this prevents: an investigator that summarizes live API responses without quoting them can fabricate or misread field presence, causing the architect to design against data that does not exist in production. "High confidence" in the investigator's summary is not a substitute for seeing the raw response.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Use `engineer` for implementation, `architect` for pre-implementation design, `investigator` for codebase exploration and blast radius mapping, `debugger` for root cause analysis (**Auto-trigger:** when `debugger_on_failure: true` is set in `.agentic/config.json` and the Elevated path's quality gate fails in `/implement-ticket` Phase 7, the Debugger is auto-spawned for diagnosis before the next engineer fix pass - see Phase 7 for the full flow), `security-auditor` for security review, `qa-engineer` for post-Skeptic browser verification of UI-visible changes, `perf-analyst` for profiling, benchmarking, and performance regression hunting, `release-orchestrator` for version bump, tag, deploy sequencing, and rollback decisions, `dependency-auditor` for lockfile CVE triage and license compliance review, `wrap-ticket` for per-ticket learnings capture at `/implement-ticket` Phase 11b (constrained automated subset of `/wrap`; soft-fails, never blocks PR). Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 
 **wrap-ticket writer carve-out.** wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention → ./decisions.md → docs/decisions.md → docs/adr/ → create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. The Stop hook retains its `.agentic/context.md` auto-write. `/wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap.lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
@@ -391,7 +391,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
-| Trivial | Direct (conductor) if no subagents running; solo `engineer` Worker (foreground) if any subagent is running | None (no Skeptic, no brief file) | Silent |
+| Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
 | Low | Direct action | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
@@ -427,7 +427,7 @@ All signals not mentioned above keep their default level regardless of profile.
 
 ### Elevated signals
 
-Any single one triggers adversarial review: any code edit to file contents (excluding diagnostic-only logging) — **in `relaxed` and `default` profiles, single-file locally-scoped edits are Low per the profile deltas above**; security / auth / crypto / payments / secrets; irreversible operations; architecture decisions that constrain future choices; modifies protocol or infrastructure files; production or shared state; multi-file changes — **in `relaxed` profile, multi-file pure-UI-only changes are Low per the profile deltas above**; new file creation; external APIs or services; unfamiliar codebase area; logic with emergent/non-obvious cross-component interactions; user signals high stakes; configuration changes; research that produces a document, recommendation, or plan to be acted on; changes to shared utilities used across many call sites (single-file but high blast radius); anything where a mistake costs time or data.
+See §Delegation signal table above for the full Elevated signals list.
 
 ### Trivial signals
 
@@ -516,40 +516,7 @@ Spawning security-auditor.
 
 ### Spawn presets (per-spawn capability bundles)
 
-A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate. They are distinct from the session-wide `preset` field in `~/.claude/agentic-engineering.json` (which is a tone setting that maps to a risk profile - see Activation preflight Step 1). Same word, different scope.
-
-**Declaration format (optional line, immediately below `Tier:`):**
-```
-Risk: Elevated - new file creation
-Tier: 2
-Preset: engineer:default
-Spawning engineer.
-```
-
-The `Preset:` line is OPTIONAL. When absent, the conductor selects agent and tier inline (current behavior). When present, the preset supplies the agent identity, the tier override, and a brief prefix prepended to the spawn brief. The conductor still writes the rest of the brief inline.
-
-**Preset library location:**
-- Global: `~/.agentic/presets.yml`
-- Project override: `.agentic/presets.yml` (wins on key collision; merged shallowly per top-level key)
-
-**Reference format:** `<agent>:<variant>` (e.g., `engineer:default`, `skeptic:plan-review`, `skeptic:security`).
-
-**Schema (each preset entry):**
-- `agent`: string - which named agent to spawn (engineer, skeptic, architect, etc.)
-- `tier`: 1 | 2 | 3 - the model tier to use for this spawn
-- `brief_prefix`: string - text prepended to the conductor's inline brief; may be empty
-
-The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping is advisory documentation only (not harness-enforced), so embedding it in presets adds no enforcement value. Keep the preset surface minimal.
-
-**Resolution rules:**
-1. Conductor reads `.agentic/presets.yml` if it exists; merges over `~/.agentic/presets.yml`. Project keys win on collision.
-2. If the referenced `<agent>:<variant>` is undefined, the conductor warns inline (`Preset 'engineer:foo' not found in presets library; falling back to engineer:default.`) and uses `<agent>:default`.
-3. If `<agent>:default` is also undefined, the conductor proceeds with no preset (full inline-spec behavior) and notes the absence in the spawn declaration.
-4. The `Tier:` line and the preset's tier MUST agree. If they disagree, the explicit `Tier:` line wins (operator intent overrides library default) and the conductor notes the override.
-
-See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
-
-**Canonical variant for wide-design-gap work:** `architect:grill` is the opt-in deep-questioning Architect variant. Concrete trigger: the task description is under 200 words and asks an open "how should we..." question, OR the standard `architect:default` first-pass plan returns with 5+ Open Questions. Subjective trigger also valid: novel architecture, high blast-radius decisions, or vague problem framing where Open Questions feels insufficient. Grill mode is a two-phase orchestration (question-dump spawn, then plan-synthesis spawn with accumulated Q&A as input) - see `content/agents/architect.md` Variants for the full flow and the preset entry for the brief.
+**Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
 
 For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
 
