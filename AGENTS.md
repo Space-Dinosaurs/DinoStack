@@ -11,12 +11,14 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - Auto-harness keep-metric is mean-of-medians (`evals/auto/runner_shim.py:147`, PR #41). Median was blind to single-fixture wins when ≥half fixtures sat at ceiling 1.0.
 - Auto-harness dimension signal (`evals/auto/loop.py:_build_dimension_signal`, PR #49) requires scorers to emit `{dim: {score: float}}`. Components using semantically-rich nested dicts (`tp_recall.matched[*].credit`, `signal_discipline` tiers, etc.) are dim-signal-blind until per-component extractors are added.
 - Eval runner supports Kimi CLI backend (`evals/runner/invoker.py`) with MCP config path fix and timeout multiplier, in addition to the original Claude CLI backend. The stream-json normalizer was committed in PR #99.
+- `bootstrap.sh` (repo root, PR #109) is the public `curl | bash` installer: clones to `$(pwd)/agentic-engineering` (override `AE_DEST_DIR`), writes the resolved path to `~/.agentic/agentic-engineering-config.json` (`repo_dir`). `/update-agentic-engineering` reads `repo_dir` at runtime (git-rev-parse validated, falls back to `~/agentic-engineering`) for location-aware updates. Repo is private (Solara6); the one-liner activates with no code change when made public.
 
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
 - `gh pr create` for this repo requires an explicit token: `GITHUB_TOKEN=$(gh auth token --user tyson-solara6 2>/dev/null) gh pr create --repo Solara6/agentic-engineering` (SSH-alias remote not recognized by default gh auth)
 - `rm -rf` is blocked by Claude Code permissions in this repo; remove files individually: `rm <file>` then `rmdir <dir>`
 - `bin/agentic-memory` — lightweight memory retrieval tool for querying `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md` on demand.
+- The `fullmetalblanket` git remote points to a non-existent GitHub repo - never push or PR to it. `origin` (`Solara6/agentic-engineering`, what `main` tracks) is the only canonical remote.
 
 ## Deploy
 - Docs site: see `docs/technical/deploy.md`. Always verify the linked project ID before running `vercel --prod`.
@@ -44,3 +46,4 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
 - The pre-commit hook does not currently auto-stage `.claude/skills/agentic-engineering/METHODOLOGY.md` or `.codex/agents/*.toml`. After any `content/` edit, either stage these regenerated artifacts manually or extend the `git add` list in `hooks/pre-commit`.
 - Any change to `content/rules/`, `content/references/`, `content/agents/`, `content/commands/`, or `content/sections/` MUST also update `docs/agentic-engineering.html` and any affected `docs/slides/*.md` (then run `bash scripts/build-slides.sh` and commit the regenerated `.html` - do not hand-edit the `.html`; upgrading marp is an intentional same-PR action: bump `scripts/package.json` + regenerate `scripts/package-lock.json` + rebuild) in the same PR; additionally, any now-stale count, list, or reference in `README.md`, `CONTRIBUTING.md`, or `content/SKILL.md` is in-scope for the same PR. Public-facing intent debt is the worst kind. The canonical trigger predicate and tiered Skeptic classification for this obligation live in `content/references/doc-sync-obligation.md`; Skeptic flags missing docs sync per those tiers (Major by default, Critical when a public-facing doc actively misleads).
+- Any new interactive prompt added to `.claude/install.sh` MUST use the `ae_confirm()` helper (reads `/dev/tty` when available, defaults "no"). Never use bare `read -p` - it aborts under `set -euo pipefail` + piped stdin (the `curl | bash` install path).

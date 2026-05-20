@@ -643,7 +643,7 @@ Seed with these documented defaults exactly:
 ```
 
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
-- `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/sections/03-planning-artifacts.md`.
+- `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
 - `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
 
 This file is committed (NOT gitignored) - the `.agentic/` umbrella ignore carves it out via `!.agentic/config.json` in `.gitignore` (added in Step 9) so the project's methodology toggles are portable and travel with the repo, the same way `qa.md` and `deploy.md` do. It is optional and graceful: if absent, every toggle takes its default and nothing breaks - seeding it here just gives the conductor a stable file to read and the operator a discoverable place to tune.

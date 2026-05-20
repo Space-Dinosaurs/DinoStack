@@ -359,87 +359,6 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 - Session span is initially declared, then auto-promoted by the resume hook when the threshold is hit (see Promotion mechanics below).
 - A task can be promoted upward mid-work. It cannot be demoted.
 
-### Brief template
-
-**Canonical path:** `docs/planning/<slug>.md` (slug = kebab-case feature name, prefixed with priority tag if the project uses one, e.g. `p2-foo.md`).
-
-**Template (must fit on one screen; ~15-20 lines):**
-
-```markdown
-# Brief: <feature name>
-
-**Problem:** <1-2 sentences. Behavior gap in user/system terms, not implementation terms.>
-
-**Success criteria:** <Bulleted, observable from outside. Max 4 bullets.>
-- <criterion 1>
-- <criterion 2>
-
-**Non-goals:** <What this explicitly does NOT do. Max 3 bullets. Write "none plausible" if none.>
-- <non-goal 1>
-
-**Constraints:** <Hard constraints only - existing contracts, perf budgets, compat targets, deadlines. Not preferences.>
-
-**Verification:** <Single non-skippable line. The test(s), gate(s), qa.md trigger pattern(s), and any regression test mandated by `.agentic/findings.md` that prove this is done. "Cannot specify" is itself a planning gap and blocks Skeptic sign-off.>
-
-**QA criteria:** <Required for Elevated. YAML block with `qa_skip` (one of 5 valid enums or null), `qa_skip_rationale` (required iff qa_skip != null), `scenarios[]` (required if qa_skip null; method ∈ {browser, api, runtime-required}), `manual_smoke`. Operator-supplied Briefs must include this field; absence on Elevated is a Critical Skeptic finding.>
-
-**Linked artifacts:** architect-plan: <path>; orchestration: <path or inline JSONL block>
-```
-
-**Field guidance (one line each):**
-- Problem: behavior gap, not solution. If you wrote "add X", restate as "users cannot Y".
-- Success criteria: pass/fail testable from outside. Drives Skeptic completion review.
-- Non-goals: written to defeat the most likely scope-creep direction.
-- Constraints: list only what would change the architect's design if violated.
-- Verification: non-skippable. Name the concrete tests, gates, qa.md trigger patterns, and regression tests required by the findings flywheel. If verification cannot be specified at planning time, that is itself a planning gap and must be flagged before the promotion gate passes - the Brief is not Skeptic-eligible until verification is named.
-- QA criteria: required for Elevated. YAML schema fields: `qa_skip` (one of: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only` - or null); `qa_skip_rationale` (string, max 200 chars, required iff `qa_skip != null`); `scenarios[]` with `id` (monotonic int), `description` (one observable sentence), `method` (one of: `browser`, `api`, `runtime-required`), `evidence` (string) - required when `qa_skip == null` with at least 1 entry; `manual_smoke` (paragraph or "none"). Drives the Phase 6b QA gate trigger in `/implement-ticket`. The Skeptic-on-Brief reviewer validates this field: an absent QA criteria block on an Elevated Brief is a Critical finding; an invalid `qa_skip` enum is a Major finding. Operator-supplied Briefs (`brief_source: operator`) must include this field; absence is a Critical finding the operator must resolve before sign-off.
-- Linked artifacts: makes the Brief auditable against its own inputs.
-
-### Plan-tier directory
-
-The Plan is primarily assembled from existing artifacts (architect plan, planner JSONL, Brief), with three short conductor-authored coverage documents. The "assembly" framing prevents the Plan from becoming a long-form design rewrite.
-
-A "Plan" is a directory:
-
-```
-docs/planning/<slug>/
-  brief.md                  # Brief template above (assembled)
-  architect-plan.md         # architect's existing output, as-is (assembled)
-  orchestration.jsonl       # orchestration-planner output, verbatim (assembled)
-  risk-register.md          # <=10 lines, conductor-authored (coverage)
-  rollback.md               # <=10 lines, conductor-authored (coverage)
-  verification-gate.md      # see template below, conductor-authored (coverage)
-```
-
-**`verification-gate.md` owns the trigger (the signal that says "verification failed, time to roll back"); `rollback.md` owns the procedure (the steps to actually undo). They are complementary, not overlapping.**
-
-**ADR carve-out:** for ADR-required work (cross-track or "Architecture decision constraining future choices"), add `adr-NNN.md` using the project's existing ADR convention. The Plan does not redefine ADR format.
-
-**Coverage exception to "assembly":** risk register, rollback, and verification gate are conductor-authored because they exist nowhere upstream - the architect plan covers implementation, the planner covers structure, neither covers operational risk or verification. These three files are short by design (<=10 lines each plus the verification template); if any one exceeds the budget, the Plan is too large and should be split into multiple Briefs.
-
-### Verification gate template
-
-`verification-gate.md`:
-
-```markdown
-# Verification Gate
-
-**Tests that must pass:**
-- Unit: <commands or "n/a">
-- Integration: <commands or "n/a">
-- E2E: <commands or "n/a">
-
-**qa-engineer triggered?** <yes/no>. If yes, list the qa.md trigger patterns that fire and the units they apply to.
-
-**Manual smoke check:** <single paragraph or "none">
-
-**Rollback signal:** <how we will know post-merge that this needs to be reverted - what alarm, what user signal, what metric. This is the trigger that hands off to `rollback.md`.>
-
-**New regression tests required by findings flywheel?** <yes/no>. If yes, list the `.agentic/findings.md` entry IDs and the test files that will hold the regression.
-```
-
-The verification gate is non-skippable. **If verification cannot be specified at planning time, that is itself a planning gap and must be flagged before the promotion gate passes.** Any "cannot specify" entry blocks Skeptic sign-off; the operator resolves the gap by re-running architect, tightening the Brief, or descoping until verification is knowable.
-
 ### Gate semantics
 
 **Authoring sequence (Brief tier):**
@@ -470,32 +389,7 @@ The verification gate is non-skippable. **If verification cannot be specified at
 **What does not block:**
 - Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
 
-### Promotion mechanics
-
-**Mid-flight escalation.** A task can be promoted upward mid-work (e.g., a 3-unit Brief-tier task that the architect re-plans into 8 units gets re-classified as Plan-tier; an Elevated-single task whose planner re-decomposition produces 3+ Elevated units gets promoted to Brief-tier). When this fires:
-
-- The in-flight engineer is allowed to return.
-- Already-completed units are not retroactively re-reviewed.
-- The retroactive Brief (or Plan) is authored before the next engineer spawn and governs all subsequent units.
-- The Skeptic pass on the retroactive artifact runs to completion before the next worker spawns.
-- `.agentic/loop-state.json` `promotion_tier` is updated to reflect the new tier (see METHODOLOGY.md §Cross-session loop resume).
-
-**Auto-promotion at 3rd resume.** When `.agentic/loop-state.json` records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - resume-count tracked in the loop-state file - and fires regardless of whether the operator notices the session span.
-
-**Promotion is upward only.** A task cannot be demoted. Once a Brief or Plan exists, subsequent workers continue to read it.
-
-### Product-intent layer (operator-owned)
-
-Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
-
-### `qa_default_skip` (canonical definition)
-
-`qa_default_skip` is a **reserved** project-level config key in `.agentic/config.json`, documented here for schema completeness. This is the canonical definition; `content/rules/conventions.md` and §Risk Classification cross-reference this section and must not redefine it.
-
-- It is **distinct from** the per-Brief/per-unit `qa_skip` enum (the 5 values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`). The two are unrelated keys and must not be conflated: `qa_skip` is a per-unit QA decision; `qa_default_skip` is a reserved project-level toggle.
-- It **does NOT currently alter QA-gate behavior.** The QA fire/skip decision remains governed entirely by the per-unit `qa_skip` enum and the invariant in §QA Gate (`content/sections/05-qa-gate.md`). `qa_default_skip` does not override, weaken, or bypass that invariant, and introduces no new skip category.
-
-The key is reserved so projects and tooling can rely on a stable schema; any future behavioral wiring is out of scope until separately specified.
+For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`.
 
 ## Risk Classification
 
@@ -570,10 +464,10 @@ After completing a Low-risk change, re-read it in full. Verify intent, edge case
 The conductor reads `.agentic/config.json` to resolve three project-level orchestration toggles before classifying and spawning. The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
-- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/sections/03-planning-artifacts.md` §`qa_default_skip`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
+- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
 - `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`.
 
-Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: §Planning Artifacts "Product-intent layer" and `content/rules/conventions.md` §Project Overview Layer.
+Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
 
 ### Declaration format
 
@@ -731,52 +625,7 @@ Static-only QA on an Elevated UI-visible change is approximately zero signal. St
 
 When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
 
-### Multi-PR / multi-ticket parallel-by-worktree
-
-When more than one PR (or unit) is awaiting QA, the conductor defaults to parallel verification - one qa-engineer per PR, each in its own worktree, each on a unique port. Single-message fan-out:
-
-```bash
-# For each PR awaiting QA at index N (0-based):
-git worktree add .agentic/worktrees/qa-<branch> <branch>
-# Spawn qa-engineer with isolation: "worktree" and PORT=$((3000 + N)) injected into the brief.
-```
-
-All qa-engineers run concurrently (background, single message). After each returns, remove its worktree:
-
-```bash
-git worktree remove .agentic/worktrees/qa-<branch>
-```
-
-Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
-
-### Architect-plan-driven scenarios (no hand-authored briefs)
-
-Phase 6b reads `qa_criteria.scenarios[]` directly from the architect plan or Brief - that block is the authoritative test plan. The architect plan template MUST include the `qa_criteria` YAML block on every Elevated unit (Critical Skeptic finding if absent; see `content/agents/architect.md`). The qa-engineer brief is a thin wrapper supplying the URL, the dev-server boot recipe, the diff, and the `ticket_id`; it does NOT re-author scenarios. Conductor MUST NOT hand-author scenarios at spawn time - that recreates the failure mode where verification drifts from what the architect committed to.
-
-### qa-engineer dev-server boot pattern
-
-When the qa-engineer needs to start a local dev server, it resolves the boot command in this order:
-
-1. Per-track qa.md `command:` field (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback; for multi-track repos, the track-scoped qa.md takes priority over the root index per `content/agents/qa-engineer.md`).
-2. Fallback to the project's package.json `dev` script (`npm run dev`, `pnpm dev`, etc.) if no qa.md `command:` is set.
-
-After starting the server, the qa-engineer polls for readiness with a curl-until loop bounded by a 90-second timeout - never a fixed `sleep`:
-
-```bash
-PORT=<port>
-TIMEOUT=90
-ELAPSED=0
-until curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}/" | grep -qE '^(200|3..)$'; do
-  sleep 2
-  ELAPSED=$((ELAPSED + 2))
-  if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-    echo "Dev server failed to respond on port ${PORT} within ${TIMEOUT}s"
-    exit 1
-  fi
-done
-```
-
-Boot detection by fixed `sleep` is unreliable across machines and network conditions; the curl-until loop is the canonical pattern.
+For parallel-by-worktree multi-PR fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern (curl-until loop, boot command resolution order), see `content/references/qa-gate.md`.
 
 ### Re-route limits
 
@@ -826,21 +675,7 @@ When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the co
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-**V1 telemetry event types** (cost & latency observability; see `bin/agentic-emit`, `bin/agentic-parse-subagent-usage`, `bin/agentic-cost`):
-- `spawn_start`: emitted by the conductor immediately before a Task tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, and `agent_id: null` (Claude Code assigns the agent id after the Task returns).
-- `spawn_complete`: emitted by the conductor immediately after a Task tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), and `status`.
-  - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
-- `conductor_direct`: emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carries `wall_seconds` and a `note`; tokens are zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
-- `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), and `agreement` (boolean). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
-- `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup.
-
-**Append discipline**: plain shell `>>` append. No fsync, no tmp+rename, no lock file. Single-writer-by-protocol means contention is structurally impossible. If a partial line ever appears (impossible under single-writer but for robustness), readers tolerate it - JSONL parsers skip malformed lines.
-
-**Atomicity**: best-effort. Records are not size-bounded. Catastrophic events during write may leave a truncated line. Documented honestly; not load-bearing.
-
-**Retention**: not auto-rotated. Manual `mv` to `events-prev.jsonl` if a file grows past concern. Project-local; gitignored; ~50KB per session is the operating budget.
-
-**Consumer**: optional. /wrap may consult events.jsonl as supplementary signal for the structural session skeleton. Conversation-memory review remains primary. /wrap on a project with no events.jsonl works exactly as today.
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`), append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`.
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
@@ -861,50 +696,18 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately:
+**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
-```bash
-# Verify no uncommitted changes before removing:
-git -C <worktree-path> status --porcelain
-# If clean (no output), remove:
-git worktree remove <worktree-path>
-# If the above fails (modified tracked files exist), inspect them first,
-# then force-remove only after confirming nothing important is uncommitted:
-# git worktree remove --force <worktree-path>
-# Do NOT delete the branch - it backs the open PR.
-# Exception: if no PR was opened (task cancelled/no PR needed), also delete the branch:
-# git branch -D <branch-name>
-```
+**Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
-**Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged:
-
-```bash
-gh pr merge <number> --squash --delete-branch
-git worktree remove --force <worktree-path>
-git branch -D <branch-name>   # if not auto-deleted by --delete-branch
-git worktree prune             # clean up any stale metadata
-```
-
-**Worktree prune and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight.
-
-```bash
-# Run at session start (conductor preflight):
-git fetch origin
-git worktree prune
-# Resolve base branch (main > master > develop > development):
-# Cache result as BASE_BRANCH in-context
-# Delete any worktree-agent-* branches not currently checked out in a worktree:
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
-done
-```
+**Worktree prune and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script for the command block.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
 ## Protocol Details (read on trigger)
 
-**Planning artifacts (Brief and Plan tiers)** - when orchestration-planner returns 2+ Elevated-or-above units, when work spans multiple tracks, or when resuming a Brief-tier task into its third session:
-See METHODOLOGY.md §Planning Artifacts for the full promotion-gate protocol (trigger table, Brief template, Plan-tier directory, verification gate, mid-flight escalation, auto-promotion mechanics).
+**Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
+See METHODOLOGY.md §Planning Artifacts for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
 **Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
 Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/agentic-engineering/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
@@ -937,7 +740,13 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regres
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-Check qa.md for trigger patterns (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the diff matches, spawn `qa-engineer`. The qa-engineer reads the resolved qa.md for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.
+See METHODOLOGY.md §QA Gate for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
+
+**Events log schema** - full V1 telemetry event-type field shapes and operational notes:
+Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, and `session_total` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in METHODOLOGY.md §Events log.
+
+**Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
+Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in METHODOLOGY.md §Worktree Lifecycle.
 
 ---
 
@@ -1112,7 +921,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 `.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Three toggles:
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
-- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/sections/03-planning-artifacts.md` §`qa_default_skip`** - this entry is a cross-reference only and does not restate the semantics.
+- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
 - `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`.
 
 The file is operator-tunable but optional and graceful: if absent, every toggle takes its default and nothing breaks.

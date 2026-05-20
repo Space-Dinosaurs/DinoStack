@@ -1,7 +1,7 @@
 ## Protocol Details (read on trigger)
 
-**Planning artifacts (Brief and Plan tiers)** - when orchestration-planner returns 2+ Elevated-or-above units, when work spans multiple tracks, or when resuming a Brief-tier task into its third session:
-See METHODOLOGY.md §Planning Artifacts for the full promotion-gate protocol (trigger table, Brief template, Plan-tier directory, verification gate, mid-flight escalation, auto-promotion mechanics).
+**Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
+See METHODOLOGY.md §Planning Artifacts for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
 **Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
 Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/agentic-engineering/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
@@ -34,4 +34,10 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regres
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-Check qa.md for trigger patterns (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the diff matches, spawn `qa-engineer`. The qa-engineer reads the resolved qa.md for dev server config, trigger patterns, and accumulated knowledge. See the QA Gate section above for the full flow.
+See METHODOLOGY.md §QA Gate for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
+
+**Events log schema** - full V1 telemetry event-type field shapes and operational notes:
+Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, and `session_total` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in METHODOLOGY.md §Events log.
+
+**Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
+Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in METHODOLOGY.md §Worktree Lifecycle.
