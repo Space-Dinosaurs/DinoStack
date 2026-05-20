@@ -73,3 +73,15 @@ git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```
+
+## Pre-spawn stash fallback
+
+Pre-spawn safety net (fallback, not a substitute for isolation): before any non-isolated spawn that the conductor cannot avoid, the conductor stashes its scaffolding to keep it out of the subagent's working tree:
+
+```bash
+git stash push --include-untracked --keep-index --message 'conductor-scaffolding-pre-spawn'
+# ... spawn returns ...
+git stash pop
+```
+
+This is a fallback only. Worktree isolation is the primary mechanism; the stash dance exists for the rare case where isolation is genuinely not possible (e.g. the Trivial carve-out interleaving with an unexpected concurrent spawn).
