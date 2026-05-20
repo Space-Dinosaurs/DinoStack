@@ -283,7 +283,18 @@ When the conductor reaches a writeback boundary:
 **Subagent responsibilities (extended for `forward_only_guard`):**
 
 1. **Pre-read current state:** call `mcp__linear__get_issue` (or Jira `mcp__mcp-atlassian__jira_get_issue`) to read the ticket's current state including `state.type` (Linear: `backlog`, `unstarted`, `started`, `completed`, `cancelled`; Jira: map via status category).
-2. **Forward-only guard:** compute rank of current state and target state. Rank ordering: `backlog` < `unstarted` < `started` < `completed`; `cancelled` is terminal (never overwritten by any automatic transition).
+2. **Forward-only guard:** compute rank of current state and target state.
+
+   **Linear ranking** (uses `state.type` directly):
+   `backlog` < `unstarted` < `started` < `completed`; `cancelled` is terminal (never overwritten by any automatic transition).
+
+   **Jira ranking** (map via status category, available on every Jira status via `statusCategory.key`):
+   - `new` (To Do, Open, Backlog) → rank `unstarted`
+   - `indeterminate` (In Progress, In Review, Testing) → rank `started`
+   - `done` (Done, Closed, Resolved) → rank `completed`
+   - Custom categories or names matching cancellation semantics (Won't Do, Cancelled, Will Not Fix) → terminal (never overwritten)
+
+   Apply the same rank-comparison rule for both trackers: if current rank >= target rank, skip the transition.
 3. **Skip semantics:**
    - If current state read fails (MCP/API error): skip transition silently. Do NOT assume position; do NOT proceed with the transition. Log a one-line warning to stderr.
    - If current rank >= target rank (already there or past it): skip transition. No notification noise.
@@ -1633,11 +1644,15 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
 
   if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
-    gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null
-    echo "[phase: auto-merged | pr=$PR_NUMBER]"
-    # Tracker writeback (W7): transition ticket to Done after successful auto-merge
-    # if TRACKER != none, invoke the Tracker Writeback Helper with target_state: $TRACKER_STATE_DONE, forward_only_guard: true. Fire-and-forget.
-    # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
+    if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
+      echo "[phase: auto-merged | pr=$PR_NUMBER]"
+      # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
+      # with target_state: $TRACKER_STATE_DONE, forward_only_guard: true.
+      # Fire-and-forget. Fires ONLY when merge succeeded (this branch).
+      # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
+    else
+      echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
+    fi
   else
     echo "[phase: auto-merge-skipped | isDraft=$IS_DRAFT mergeable=$MERGEABLE reviewDecision=$REVIEW_DECISION]"
   fi
@@ -1649,7 +1664,7 @@ fi
 
 The `Note:` line is a forward-reference to PR 4's `/ticket-status-sync` command. In PR 1 it is just a hint; PR 4 lands the actual command.
 
-**Tracker writeback (W7):** After `gh pr merge` succeeds (inside the `AUTO_MERGE_ON_CI_GREEN` gate, after the merge command exits 0): if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DONE`, `forward_only_guard: true`. Fire-and-forget.
+**Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check). If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DONE`, `forward_only_guard: true`. Fire-and-forget.
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
 
