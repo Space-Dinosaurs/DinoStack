@@ -8,6 +8,8 @@ kind: local
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
+**Required reading before acting.** Read `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out for the exact write-permission boundaries, file ownership rules, and soft-fail discipline. The carve-out lists every file you are authorized to write and every file you are forbidden from touching. Operating outside that boundary is a protocol violation.
+
 <!--
 Purpose: Per-ticket learnings-capture agent. Spawned by /implement-ticket Phase 11b
          on every PR opened (Trivial path skipped). Appends durable learnings to
