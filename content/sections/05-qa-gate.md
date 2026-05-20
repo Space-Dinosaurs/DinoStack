@@ -60,52 +60,7 @@ Static-only QA on an Elevated UI-visible change is approximately zero signal. St
 
 When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
 
-### Multi-PR / multi-ticket parallel-by-worktree
-
-When more than one PR (or unit) is awaiting QA, the conductor defaults to parallel verification - one qa-engineer per PR, each in its own worktree, each on a unique port. Single-message fan-out:
-
-```bash
-# For each PR awaiting QA at index N (0-based):
-git worktree add .agentic/worktrees/qa-<branch> <branch>
-# Spawn qa-engineer with isolation: "worktree" and PORT=$((3000 + N)) injected into the brief.
-```
-
-All qa-engineers run concurrently (background, single message). After each returns, remove its worktree:
-
-```bash
-git worktree remove .agentic/worktrees/qa-<branch>
-```
-
-Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
-
-### Architect-plan-driven scenarios (no hand-authored briefs)
-
-Phase 6b reads `qa_criteria.scenarios[]` directly from the architect plan or Brief - that block is the authoritative test plan. The architect plan template MUST include the `qa_criteria` YAML block on every Elevated unit (Critical Skeptic finding if absent; see `content/agents/architect.md`). The qa-engineer brief is a thin wrapper supplying the URL, the dev-server boot recipe, the diff, and the `ticket_id`; it does NOT re-author scenarios. Conductor MUST NOT hand-author scenarios at spawn time - that recreates the failure mode where verification drifts from what the architect committed to.
-
-### qa-engineer dev-server boot pattern
-
-When the qa-engineer needs to start a local dev server, it resolves the boot command in this order:
-
-1. Per-track qa.md `command:` field (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback; for multi-track repos, the track-scoped qa.md takes priority over the root index per `content/agents/qa-engineer.md`).
-2. Fallback to the project's package.json `dev` script (`npm run dev`, `pnpm dev`, etc.) if no qa.md `command:` is set.
-
-After starting the server, the qa-engineer polls for readiness with a curl-until loop bounded by a 90-second timeout - never a fixed `sleep`:
-
-```bash
-PORT=<port>
-TIMEOUT=90
-ELAPSED=0
-until curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}/" | grep -qE '^(200|3..)$'; do
-  sleep 2
-  ELAPSED=$((ELAPSED + 2))
-  if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-    echo "Dev server failed to respond on port ${PORT} within ${TIMEOUT}s"
-    exit 1
-  fi
-done
-```
-
-Boot detection by fixed `sleep` is unreliable across machines and network conditions; the curl-until loop is the canonical pattern.
+For parallel-by-worktree multi-PR fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern (curl-until loop, boot command resolution order), see `content/references/qa-gate.md`.
 
 ### Re-route limits
 
