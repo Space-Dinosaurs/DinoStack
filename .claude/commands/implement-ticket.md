@@ -653,6 +653,44 @@ The scan never blocks more than one turn. Proceed to Phase 3 after the response 
 
 ---
 
+## Phase 2c: Tracker state discovery (conditional)
+
+Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the tracker's workflow states once, cache them, and validate the configured `TRACKER_STATE_*` names so misconfigurations surface as a warning at planning time rather than as a silent no-op transition at runtime.
+
+**Cache check.** Read `.agentic/tracker-states.json` if present. Use the cache when ALL hold: file exists, `fetched_at` is within 24 hours of now, `tracker` matches the resolved `TRACKER`, and `workspace` matches the resolved workspace/base-url. Otherwise fetch fresh.
+
+**Fetch.**
+- Linear: call `mcp__linear__list_workflow_states` (filter by the resolved team when available). Collect `{id, name, type}` for each state.
+- Jira: call `mcp__mcp-atlassian__jira_get_transitions` on a probe ticket (the first unresolved ticket in the batch, or `$TICKET_PREFIX-1` as a fallback probe). On 404 or error, fall back to an empty state list and skip validation. Map each transition's target status to `{id, name, type}` where `type` derives from the status category (`new`->`unstarted`, `indeterminate`->`started`, `done`->`completed`).
+
+**Write cache** atomically (tmp + `mv`) to `.agentic/tracker-states.json`:
+
+```json
+{
+  "fetched_at": "<ISO8601 UTC>",
+  "tracker": "linear|jira",
+  "workspace": "<workspace-slug-or-base-url>",
+  "states": [{"id": "...", "name": "In Progress", "type": "started"}],
+  "warnings": []
+}
+```
+
+`.agentic/tracker-states.json` is a runtime cache, gitignored under the `.agentic/` umbrella (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
+
+**Validate.** For each of the 5 resolved `TRACKER_STATE_*` values, look for an exact (case-insensitive) name match in `states[].name`. For each miss, compute the closest match by case-insensitive Levenshtein distance and emit one operator-visible warning:
+
+```
+WARNING: configured state '<name>' not found in <tracker> workflow. Closest match: '<closest>'. Proceeding with configured name - transition may be silently skipped at runtime.
+```
+
+Append each warning to the cache's `warnings[]` array. Do NOT block execution.
+
+**Soft-fail.** Any MCP/API error during fetch is logged and the phase proceeds (no cache write on fetch failure; validation skipped). Never block planning on tracker discovery.
+
+Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses=<N>]`
+
+---
+
 ## Phase 3: Architecture plan
 
 Spawn an `architect` agent. Provide:
