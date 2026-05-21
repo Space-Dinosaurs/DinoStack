@@ -1696,13 +1696,11 @@ else
 fi
 ```
 
-The `Note:` line is a forward-reference to PR 4's `/ticket-status-sync` command. In PR 1 it is just a hint; PR 4 lands the actual command.
-
 **Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check). If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DONE`, `forward_only_guard: true`. Fire-and-forget.
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
 
-Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. The `Note:` above mentions `/ticket-status-sync` as the post-merge reconciliation path for the human-merge case (PR 4 ships that command).
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
 
 ---
 
