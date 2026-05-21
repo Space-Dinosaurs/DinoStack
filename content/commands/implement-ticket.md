@@ -223,10 +223,10 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
-1. If a `## Tracker` section exists in `AGENTS.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default).
-2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`.
-3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional).
-4. Else: set `TRACKER=none`.
+1. If a `## Tracker` section exists in `AGENTS.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default). Also extract optional state-name overrides: `JIRA_STATE_IN_PROGRESS` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `JIRA_STATE_IN_REVIEW` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `JIRA_STATE_QA` → `TRACKER_STATE_QA` (default `"QA"`), `JIRA_STATE_BLOCKED` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `JIRA_STATE_DONE` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default.
+2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`. Apply the same state-name override fields as the Linear path below.
+3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional). Also extract optional state-name overrides: `State In Progress:` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `State In Review:` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `State QA:` → `TRACKER_STATE_QA` (default `"Testing"`), `State Blocked:` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `State Done:` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default. (Note: Linear `TRACKER_STATE_QA` defaults to `"Testing"` while Jira defaults to `"QA"` — reflects common workspace conventions for each tracker.)
+4. Else: set `TRACKER=none`. Set all `TRACKER_STATE_*` variables to their defaults: `TRACKER_STATE_IN_PROGRESS="In Progress"`, `TRACKER_STATE_IN_REVIEW="In Review"`, `TRACKER_STATE_QA="Testing"`, `TRACKER_STATE_BLOCKED="Blocked"`, `TRACKER_STATE_DONE="Done"`.
 
 **Dual-shape note:** Linear projects canonically store tracker config under `## Linear`; Jira projects use `## Tracker`. This is intentional — it preserves zero-migration compatibility for every existing Linear project that already has a `## Linear` section.
 
@@ -242,14 +242,63 @@ Do not continue. Do not attempt to write the migration. All config-mutation logi
 Print a summary of resolved values before Phase 1:
 
 ```
-Tracker:                [linear | jira | none]
-TICKET_PREFIX:          [value or "n/a"]
-BASE_BRANCH:            [value]
-AUTO_MERGE_ON_CI_GREEN: [true | false]
-PR_WORKFLOW_REVIEWERS:  [comma-separated usernames or "(none)"]
+Tracker:                    [linear | jira | none]
+TICKET_PREFIX:              [value or "n/a"]
+BASE_BRANCH:                [value]
+AUTO_MERGE_ON_CI_GREEN:     [true | false]
+PR_WORKFLOW_REVIEWERS:      [comma-separated usernames or "(none)"]
+TRACKER_STATE_IN_PROGRESS:  [value]
+TRACKER_STATE_IN_REVIEW:    [value]
+TRACKER_STATE_QA:           [value]
+TRACKER_STATE_BLOCKED:      [value]
+TRACKER_STATE_DONE:         [value]
 ```
 
 All work lives in `$REPO`.
+
+---
+
+## Tracker Writeback Helper
+
+Reusable subagent invocation pattern. Used by Phase 11 (existing) and 7 new sites below. Gated on `TRACKER != none`; no-op otherwise.
+
+**Invocation contract:**
+
+When the conductor reaches a writeback boundary:
+1. Skip entirely if `TRACKER == none`.
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase).
+3. Pass to the subagent:
+   - `tracker`: `linear` | `jira`
+   - `ticket_id`: from current task context
+   - `target_state`: one of the resolved `TRACKER_STATE_*` variables
+   - `forward_only_guard`: `true` for all 7 new sites; preserves existing Phase 11 behavior (which used hardcoded `Testing`)
+   - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
+
+**Subagent responsibilities (extended for `forward_only_guard`):**
+
+1. **Pre-read current state:** call `mcp__linear__get_issue` (or Jira `mcp__mcp-atlassian__jira_get_issue`) to read the ticket's current state including `state.type` (Linear: `backlog`, `unstarted`, `started`, `completed`, `cancelled`; Jira: map via status category).
+2. **Forward-only guard:** compute rank of current state and target state.
+
+   **Linear ranking** (uses `state.type` directly):
+   `backlog` < `unstarted` < `started` < `completed`; `cancelled` is terminal (never overwritten by any automatic transition).
+
+   **Jira ranking** (map via status category, available on every Jira status via `statusCategory.key`):
+   - `new` (To Do, Open, Backlog) → rank `unstarted`
+   - `indeterminate` (In Progress, In Review, Testing) → rank `started`
+   - `done` (Done, Closed, Resolved) → rank `completed`
+   - Custom categories or names matching cancellation semantics (Won't Do, Cancelled, Will Not Fix) → terminal (never overwritten)
+
+   Apply the same rank-comparison rule for both trackers: if current rank >= target rank, skip the transition.
+3. **Skip semantics:**
+   - If current state read fails (MCP/API error): skip transition silently. Do NOT assume position; do NOT proceed with the transition. Log a one-line warning to stderr.
+   - If current rank >= target rank (already there or past it): skip transition. No notification noise.
+   - If current state is `cancelled`: skip transition unconditionally.
+   - Otherwise: perform the transition via `mcp__linear__save_issue` (or Jira equivalent).
+4. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase.
+
+**Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. No block.
+
+For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block below — the brief is unchanged except for the addition of `target_state` and `forward_only_guard` parameters.
 
 ---
 
@@ -727,6 +776,10 @@ Read the orchestration-planner's output to make the routing determination below 
 
 ### If work is a single logical unit (or units must be sequential):
 
+**Tracker writeback (W1):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the engineer spawn below.
+
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
+
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
 - The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit
@@ -765,6 +818,10 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
+
+**Tracker writeback (W1 — Trivial path):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the Trivial engineer spawn.
+
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS | path: trivial]
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -877,6 +934,10 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 ## Phase 6: Skeptic review
 
 **Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $REPO diff origin/$BASE_BRANCH..HEAD`). This is a full-picture review that catches cross-unit interactions the per-unit Skeptics could not see (emergent behaviors, combined diff scope). Phase 6 is NOT skipped for the `per-unit` strategy.
+
+**Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
+
+[phase: tracker-writeback | site: W2 | target: $TRACKER_STATE_IN_REVIEW | iter: 1]
 
 Spawn a `skeptic` agent with:
 - The adversarial brief type identified by the architect
@@ -1049,7 +1110,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 **Telemetry emit (V1):** Bracket the Engineer Task tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Emit escalation format. Stop. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
 - Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -1158,6 +1219,10 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
+**Tracker writeback (W3)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first qa-engineer spawn in Phase 6b, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_QA`, `forward_only_guard: true`. Fire-and-forget.
+
+[phase: tracker-writeback | site: W3 | target: $TRACKER_STATE_QA | iter: 1]
+
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
 **Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
@@ -1184,7 +1249,7 @@ The following failures were identified and fix attempts were made in earlier ite
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
 
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and hallucinates; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Escalate immediately. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
 **Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -1250,7 +1315,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 8. Verify the fix engineer's `quality_gate_results`.
    - If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
    - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.
-   - If it still fails AND cycle count == 3: set `status=stalled`. Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
+   - If it still fails AND cycle count == 3: set `status=stalled`. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
 
 **Convergence short-circuit (test runners only).** If the quality gate is a test runner (pytest, jest, vitest, cargo test, etc.) AND the set of failing test IDs in `quality_gate_results.failures[]` is identical to the set from the immediately preceding cycle (the engineer made no progress on the failing tests), escalate immediately without consuming remaining cycles. Surface the stalled test IDs and both cycle outputs to the human. This short-circuit applies ONLY to test runners with structured `failures[]` output. For lint (eslint, ruff, etc.) and typecheck (tsc, mypy, pyright, etc.) gates, rely solely on the 3-cycle limit - do not attempt a short-circuit.
 
@@ -1413,8 +1478,8 @@ Mirrors Phase 7's quality-gate retry loop, but targets CI failures detected post
 6. **Cap exceeded (3 cycles without all-pass):**
    - Write `last_phase: ci_loop, last_phase_action: cap_exceeded` to loop-state.
    - Print summary of failing checks + each cycle's outcome.
+   - **Tracker writeback (W6b):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6b | target: $TRACKER_STATE_BLOCKED | escalation: ci-fix-loop-cap]`
    - STOP. Human investigates.
-   - Note: PR 2 will add a tracker-status writeback to BLOCKED here. For now, just escalate to human with the failing-check summary.
 
 Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 
@@ -1472,12 +1537,16 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > - `PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`
 > - `TEST_URL`: extracted from CI (or the literal string `pending — see PR` if Phase 10 timed out)
 > - `qa_summary`: 1-2 sentences on what specifically to test and any known limitations from the Skeptic review
-> - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured); transition target `Testing` (or team equivalent)
+> - `target_state`: `$TRACKER_STATE_QA` (resolved in Setup; defaults to `"Testing"` for Linear, `"QA"` for Jira)
+> - `forward_only_guard`: `true`
+> - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured)
 > - For Jira: `JIRA_QA_TRANSITION` (optional - omit if not configured); `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional - omit if not configured)
 >
+> For the full brief shape governing this subagent (state pre-read, forward-only guard semantics, skip conditions, soft-fail), see the `## Tracker Writeback Helper` block above.
+>
 > **Behavior:**
-> - **Linear:** Call `mcp__linear__save_issue` with `state: "Testing"` (or equivalent) and `assigneeId` only when configured. Then call `mcp__linear__save_comment` with the comment body below.
-> - **Jira:** Call `mcp__mcp-atlassian__jira_get_transitions` to discover available transitions, then `mcp__mcp-atlassian__jira_transition_issue` (only if `JIRA_QA_TRANSITION` configured AND the name matches an available transition - log and skip on miss). Update assignee via `mcp__mcp-atlassian__jira_update_issue` (only if configured). Post the comment via `mcp__mcp-atlassian__jira_add_comment`. Failures on transition or assignee are logged and the spawn proceeds to the comment - the comment is higher value than the status change.
+> - **Linear:** Apply forward-only guard (pre-read current state, skip if already at or past `target_state` rank). Call `mcp__linear__save_issue` with `state: $TRACKER_STATE_QA` and `assigneeId` only when configured. Then call `mcp__linear__save_comment` with the comment body below.
+> - **Jira:** Apply forward-only guard (pre-read current status via `mcp__mcp-atlassian__jira_get_issue`, skip if already at or past `target_state`). Call `mcp__mcp-atlassian__jira_get_transitions` to discover available transitions, then `mcp__mcp-atlassian__jira_transition_issue` to `$TRACKER_STATE_QA` (only if `JIRA_QA_TRANSITION` configured AND the name matches an available transition - log and skip on miss). Update assignee via `mcp__mcp-atlassian__jira_update_issue` (only if configured). Post the comment via `mcp__mcp-atlassian__jira_add_comment`. Failures on transition or assignee are logged and the spawn proceeds to the comment - the comment is higher value than the status change.
 >
 > **Comment body template:**
 >
@@ -1569,8 +1638,15 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
 
   if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
-    gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null
-    echo "[phase: auto-merged | pr=$PR_NUMBER]"
+    if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
+      echo "[phase: auto-merged | pr=$PR_NUMBER]"
+      # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
+      # with target_state: $TRACKER_STATE_DONE, forward_only_guard: true.
+      # Fire-and-forget. Fires ONLY when merge succeeded (this branch).
+      # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
+    else
+      echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
+    fi
   else
     echo "[phase: auto-merge-skipped | isDraft=$IS_DRAFT mergeable=$MERGEABLE reviewDecision=$REVIEW_DECISION]"
   fi
@@ -1581,6 +1657,12 @@ fi
 ```
 
 The `Note:` line is a forward-reference to PR 4's `/ticket-status-sync` command. In PR 1 it is just a hint; PR 4 lands the actual command.
+
+**Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check). If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DONE`, `forward_only_guard: true`. Fire-and-forget.
+
+[phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
+
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. The `Note:` above mentions `/ticket-status-sync` as the post-merge reconciliation path for the human-merge case (PR 4 ships that command).
 
 ---
 
