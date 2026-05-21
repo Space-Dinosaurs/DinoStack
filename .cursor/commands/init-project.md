@@ -409,6 +409,15 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
   - **Glossary** - see `glossary.md` for the project's domain terms (Ubiquitous Language).
   - <!-- TODO: Add project conventions as they emerge -->
   ```
+- `## PR Workflow` section - optional reviewer assignment fallback (commented out by default; CODEOWNERS takes precedence when present):
+  ```markdown
+  ## PR Workflow
+  # Uncomment and fill in Reviewers: only if you have NO CODEOWNERS file and want
+  # automatic reviewer assignment when /implement-ticket marks a PR ready for review.
+  # CODEOWNERS (at .github/CODEOWNERS, docs/CODEOWNERS, or repo root) takes precedence.
+  # Reviewers: github-user-1, github-user-2
+  ```
+  Always include this section (commented out). It is a no-op until the operator explicitly uncomments it.
 - `## Session start` section - tool-agnostic instruction for the session agent to verify scaffolding on the first interaction of each new session:
   ```markdown
   ## Session start
@@ -725,12 +734,15 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/wrap.lock/
 .agentic/preferences.json
 .agentic/compression-state.json
+.agentic/tracker-states.json
+# tracker-states.json is an intentionally-ignored runtime cache (24h TTL,
+# machine-local; stale on fresh checkout is acceptable - Phase 2c refetches).
 # Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
 # .agentic/tracking.md - these are tool-agnostic agent config and belong in
 # source control.
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), and `compression-state.json` (compression bookkeeping). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
 
 ### 10. Create `docs/` structure
 
@@ -831,6 +843,12 @@ If `lc` was already installed, run `lc doctor` to verify the connection. If it f
 - QA assignee ID: [Linear user UUID — optional, omit line if not provided]
 - Branch prefix: Include issue ID (e.g., `feature/[TEAM]-12-description`)
 - Projects: [comma-separated project names, or omit this line if none provided]
+# Optional workflow-state name overrides (defaults shown; uncomment to override):
+# State In Progress: In Progress
+# State In Review: In Review
+# State QA: Testing
+# State Blocked: Blocked
+# State Done: Done
 ```
 
 Place after `## Tools`. Prompt for: team key (required), workspace slug (required), QA assignee UUID (optional — "press Enter to skip"). If the user did not provide project names, omit the `Projects:` line.
@@ -868,6 +886,12 @@ TICKET_PREFIX: [project key, e.g. PROJ]
 JIRA_BASE_URL: [e.g. https://acme.atlassian.net]
 JIRA_QA_ASSIGNEE_ACCOUNT_ID: [Atlassian account ID — optional, omit line if not provided]
 JIRA_QA_TRANSITION: [transition name — optional, omit line if not provided]
+# Optional workflow-state name overrides (defaults shown; uncomment to override):
+# JIRA_STATE_IN_PROGRESS: In Progress
+# JIRA_STATE_IN_REVIEW: In Review
+# JIRA_STATE_QA: QA
+# JIRA_STATE_BLOCKED: Blocked
+# JIRA_STATE_DONE: Done
 ```
 
 Place after `## Tools`. Prompt for: TICKET_PREFIX (required), JIRA_BASE_URL (required), JIRA_QA_ASSIGNEE_ACCOUNT_ID (optional), JIRA_QA_TRANSITION (optional). **Do not use a default value for `JIRA_QA_TRANSITION`** — if the user does not provide one, omit the line entirely. `/implement-ticket` Phase 11 will skip the transition step when absent rather than guessing a transition name.
