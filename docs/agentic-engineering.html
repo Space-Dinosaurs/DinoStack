@@ -1502,6 +1502,7 @@
         <ul>
           <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
           <li><strong>/implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and skeptic phases in sequence for a scoped ticket.</li>
+          <li><strong>/ticket-status-sync</strong> - reconcile a ticket's tracker column with the actual state of its code after <code>/implement-ticket</code> exits before merge. Fires the Done transition the default human-merge flow leaves unfired. Single-ticket or <code>--all</code> sweep; soft-fails on tracker API errors.</li>
           <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
