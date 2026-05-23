@@ -586,6 +586,7 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 2. Read the full description — specifically the **Implementation**, **Files**, and **QA** sections.
 3. Note any blocking tickets (`blockedBy`) — confirm they are done before proceeding.
 4. Note the ticket type (feature vs bug) — this drives branch naming.
+5. **Comment thread fetch.** Call `mcp__linear__list_comments` with the UUID `issueId` of the issue (graceful-skip if the tool name differs or the call fails). Collect all returned comment bodies. Scan each comment: if the body contains the string `"QA"` AND at least one of `FAIL`, `PARTIAL`, `BLOCKED`, `failed`, `re-work`, flag that comment as a prior-QA-failure comment. Accumulate flagged comments in `PRIOR_QA_COMMENTS` (array of comment bodies). Build `COMMENT_THREAD_SUMMARY` as the concatenation of all comment bodies, truncated to 2000 characters. If the call is not available or returns an error, set both to empty (graceful no-op).
 
 #### If TRACKER is `jira`
 
@@ -593,10 +594,11 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 2. Read the full description — note any **Acceptance Criteria**, **Implementation Notes**, and **QA** content in the description or sub-tasks.
 3. Note any blocking issues — confirm they are resolved before proceeding.
 4. Note the issue type (Story, Bug, Task) — this drives branch naming.
+5. **Comment thread parse.** Parse `issue.fields.comment.comments` from the EXISTING `jira_get_issue fields:*all` response fetched in step 1 above. **Do NOT make a second Jira API call.** The `comment` field is included in the default `fields=*all` response. For each comment, extract the plain-text content (collapse ADF nodes to text). Scan each comment: if the body contains the string `"QA"` AND at least one of `FAIL`, `PARTIAL`, `BLOCKED`, `failed`, `re-work`, flag that comment as a prior-QA-failure comment. Accumulate flagged comments in `PRIOR_QA_COMMENTS` (array of comment bodies). Build `COMMENT_THREAD_SUMMARY` as the concatenation of all comment bodies, truncated to 2000 characters. If the `comment` field is absent or empty, set both to empty (graceful no-op).
 
 #### If TRACKER is `none`
 
-No ticket to fetch. **Use `normalized_input.freeform_task` as the ticket content** for all downstream phases. The pre-existing operator prompt is superseded by Phase 0's freeform fast path. Set ticket type to "feature" unless the operator's description indicates otherwise.
+No ticket to fetch. **Use `normalized_input.freeform_task` as the ticket content** for all downstream phases. The pre-existing operator prompt is superseded by Phase 0's freeform fast path. Set ticket type to "feature" unless the operator's description indicates otherwise. Set `PRIOR_QA_COMMENTS=[]` and `COMMENT_THREAD_SUMMARY=""`.
 
 ---
 
@@ -717,6 +719,29 @@ Ask the architect for:
 3. Any risks, gotchas, or ambiguities that need resolution before coding
 4. The appropriate adversarial brief type for Skeptic review (security, logic, performance, data integrity, etc.)
 
+**Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
+
+Append the following section to the architect spawn brief when `COMMENT_THREAD_SUMMARY` is non-empty:
+
+```
+## Prior ticket context
+
+The following is a summary of comments on this ticket (up to 2000 characters):
+
+[COMMENT_THREAD_SUMMARY]
+```
+
+When `PRIOR_QA_COMMENTS` is non-empty, prepend the following callout immediately before the comment summary:
+
+```
+PRIOR QA FAILURES DETECTED. The following comments indicate prior QA failures on this ticket:
+[bullet list of each PRIOR_QA_COMMENTS entry]
+
+Factor these into the implementation plan. Ensure the plan explicitly addresses each prior QA failure point.
+```
+
+Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
+
 **Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `METHODOLOGY.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
@@ -828,6 +853,29 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The branch name to work on
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
+
+**Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
+
+When `COMMENT_THREAD_SUMMARY` is non-empty, append the following section to the engineer spawn brief:
+
+```
+## Prior ticket context
+
+The following is a summary of comments on this ticket (up to 2000 characters):
+
+[COMMENT_THREAD_SUMMARY]
+```
+
+When `PRIOR_QA_COMMENTS` is non-empty, prepend the following callout immediately before the comment summary:
+
+```
+PRIOR QA FAILURES DETECTED. The following comments indicate prior QA failures on this ticket:
+[bullet list of each PRIOR_QA_COMMENTS entry]
+
+Ensure your implementation addresses each prior QA failure point explicitly.
+```
+
+Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
 
 **Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: "worktree"` (see METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.
 
@@ -1286,9 +1334,28 @@ The following failures were identified and fix attempts were made in earlier ite
 - Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
 
 **Step 3. Termination check:**
-- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Exit loop cleanly. Proceed to Phase 7.
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
+
+**QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
+
+```
+Look for a fenced block whose info string is exactly `qa-screenshots-json`, regardless of whether
+the fence character is backticks (```) or tildes (~~~). Either of the following forms is valid:
+
+  ```qa-screenshots-json
+  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
+  ```
+
+  ~~~qa-screenshots-json
+  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
+  ~~~
+
+Match by the info string `qa-screenshots-json`; do not require a specific fence character.
+```
+
+Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and hallucinates; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
@@ -1394,6 +1461,148 @@ Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
 ---
 
+## Phase 8.5: QA evidence (conditional)
+
+**Skip conditions (all must be false for phase to run):**
+- QA was skipped (`qa_skip != null`) or the ticket is Trivial
+- `QA_SCREENSHOT_PATHS` is empty (`()`)
+- `gh` or `jq` is unavailable (`which gh jq` fails)
+
+When any skip condition is true, set `QA_EVIDENCE_URLS=()` and proceed directly to Phase 9.
+
+**Goal:** commit PASS screenshots to a long-lived orphan `qa-evidence` branch on GitHub under the deterministic path `<TICKET_SLUG>/<BRANCH_SLUG>/<filename>`, build click-through evidence URLs, and emit them into the PR body. The branch is never merged to main; it is a parallel evidence store.
+
+**Slug derivation:**
+- `TICKET_SLUG`: `$TICKET_ID` lowercased, non-alphanum replaced with hyphens (e.g. `eng-123`)
+- `BRANCH_SLUG`: `$BRANCH_NAME` with leading `feature/`, `fix/`, `chore/` stripped; remaining slashes replaced with hyphens
+
+**Copy screenshots to a stable temp directory:**
+
+```bash
+SCREENSHOTS_SRC="/tmp/qa-evidence-$$"
+mkdir -p "$SCREENSHOTS_SRC"
+# Copy each path from QA_SCREENSHOT_PATHS into $SCREENSHOTS_SRC
+# (QA_SCREENSHOT_PATHS is a bash array; entries are JSON objects from Phase 6b parse)
+for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+  SRC_PATH=$(echo "$entry" | jq -r '.path')
+  cp "$SRC_PATH" "$SCREENSHOTS_SRC/" 2>/dev/null || true
+done
+# If nothing copied, treat as skip
+[ "$(ls -A "$SCREENSHOTS_SRC")" ] || { QA_EVIDENCE_URLS=(); rm -rf "$SCREENSHOTS_SRC"; proceed to Phase 9; }
+```
+
+**Check whether `qa-evidence` branch already exists on remote:**
+
+```bash
+REMOTE_EXISTS=$(git -C "$REPO" ls-remote --heads origin qa-evidence | wc -l)
+```
+
+**First-create path (branch does not exist on remote):**
+
+Create a scratch clone in `/tmp` to bootstrap the orphan branch. `$SCREENSHOTS_SRC` lives in `/tmp` (outside the clone) so `reset --hard` never destroys the source.
+
+```bash
+TEMP_CLONE="/tmp/qa-evidence-clone-$$"
+git clone --depth=1 "$REPO" "$TEMP_CLONE"
+git -C "$TEMP_CLONE" checkout --orphan qa-evidence
+git -C "$TEMP_CLONE" rm -rf . 2>/dev/null || true
+mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
+cp -r "$SCREENSHOTS_SRC"/. "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
+git -C "$TEMP_CLONE" add .
+git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
+
+# RACE RECOVERY LOOP: handles concurrent first-creators racing on the orphan root
+PUSH_SUCCEEDED_FIRST_CREATE=false
+for i in 1 2 3; do
+  if git -C "$TEMP_CLONE" push origin qa-evidence; then
+    PUSH_SUCCEEDED_FIRST_CREATE=true
+    break
+  fi
+  # push rejected — a concurrent creator won; adopt the landed history
+  git -C "$TEMP_CLONE" fetch origin qa-evidence
+  git -C "$TEMP_CLONE" reset --hard origin/qa-evidence   # adopts remote history; wipes worktree
+  mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"      # recreate dest dir destroyed by reset
+  cp -r "$SCREENSHOTS_SRC"/. "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
+  git -C "$TEMP_CLONE" add .
+  git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
+done
+
+rm -rf "$TEMP_CLONE"
+```
+
+After temp-clone push succeeds, fetch the updated remote-tracking ref into the main repo:
+
+```bash
+git -C "$REPO" fetch origin qa-evidence
+```
+
+**Steady-state path (branch already exists on remote):**
+
+Add a detached-HEAD worktree pointing at `origin/qa-evidence`, copy files, and push using the `HEAD:qa-evidence` refspec (mandatory because the worktree is on a detached HEAD - `push origin qa-evidence` would be a no-op in this state).
+
+```bash
+WORKTREE_PATH="$REPO/.agentic/worktrees/qa-evidence-$$"
+git -C "$REPO" fetch origin qa-evidence
+git -C "$REPO" worktree add "$WORKTREE_PATH" origin/qa-evidence   # detached HEAD
+
+mkdir -p "$WORKTREE_PATH/$TICKET_SLUG/$BRANCH_SLUG/"
+cp -r "$SCREENSHOTS_SRC"/. "$WORKTREE_PATH/$TICKET_SLUG/$BRANCH_SLUG/"
+git -C "$WORKTREE_PATH" add .
+git -C "$WORKTREE_PATH" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
+
+# CRITICAL: worktree is on a detached HEAD; must use HEAD:qa-evidence refspec
+PUSH_SUCCEEDED_STEADY=false
+for i in 1 2 3; do
+  if git -C "$WORKTREE_PATH" push origin HEAD:qa-evidence; then
+    PUSH_SUCCEEDED_STEADY=true
+    break
+  fi
+  git -C "$WORKTREE_PATH" fetch origin qa-evidence
+  git -C "$WORKTREE_PATH" rebase origin/qa-evidence
+done
+
+git -C "$REPO" worktree remove "$WORKTREE_PATH" --force 2>/dev/null || true
+git -C "$REPO" worktree prune 2>/dev/null || true
+```
+
+**Build `QA_EVIDENCE_URLS` (only after push succeeds):**
+
+Build `QA_EVIDENCE_URLS` only when the push in the active path succeeded. `$GH_REPO` is the repo slug resolved at Phase 0 setup (e.g. `org/repo-name`, same variable used throughout the command). Use `jq -n --arg` to safely interpolate description strings that may contain quotes or special characters.
+
+```bash
+# PUSH_SUCCEEDED is true only if the first-create or steady-state push loop above exited with success
+PUSH_SUCCEEDED="${PUSH_SUCCEEDED_FIRST_CREATE:-${PUSH_SUCCEEDED_STEADY:-false}}"
+
+QA_EVIDENCE_URLS=()
+if [ "$PUSH_SUCCEEDED" = "true" ]; then
+  OWNER=$(echo "$GH_REPO" | cut -d/ -f1)
+  REPO_NAME=$(echo "$GH_REPO" | cut -d/ -f2)
+  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+    FNAME=$(basename "$(echo "$entry" | jq -r '.path')")
+    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+    DESC=$(echo "$entry" | jq -r '.description')
+    RESULT=$(echo "$entry" | jq -r '.result')
+    URL="https://github.com/${OWNER}/${REPO_NAME}/blob/qa-evidence/${TICKET_SLUG}/${BRANCH_SLUG}/${FNAME}"
+    # Use jq --arg to safely encode description (handles quotes and special chars)
+    ENTRY_JSON=$(jq -n --arg url "$URL" --arg cid "$CRITERION" --arg d "$DESC" --arg r "$RESULT" \
+      '{"url":$url,"criterion_id":$cid,"description":$d,"result":$r}')
+    QA_EVIDENCE_URLS+=("$ENTRY_JSON")
+  done
+fi
+```
+
+If any step in the above sequence fails (push fails after 3 retries, worktree creation fails, copy fails), `QA_EVIDENCE_URLS` remains `()` (empty) and the phase continues. Phase 8.5 is always soft-fail - do not block Phase 9.
+
+Clean up temp dir:
+
+```bash
+rm -rf "$SCREENSHOTS_SRC" 2>/dev/null || true
+```
+
+Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]`
+
+---
+
 ## Phase 9: Open the PR
 
 Compose the `[TRACKER_REFERENCE_BLOCK]` based on the resolved `TRACKER`, then run the `gh pr create` command with that block included in the body.
@@ -1446,6 +1655,44 @@ EOF
 For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
 
 Capture the PR number from the URL printed by `gh pr create`.
+
+**QA Evidence section (append to PR body after `gh pr create`).**
+
+After the PR is created, append a `## QA Evidence` section to the PR body based on the state of `QA_EVIDENCE_URLS`. Use a temp file (not stdin) to avoid shell escaping issues:
+
+```bash
+PR_BODY_APPEND_FILE="/tmp/qa-evidence-pr-body-$$"
+
+# Case 1: QA ran and evidence URLs are available
+if [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
+  printf "## QA Evidence\n\n" > "$PR_BODY_APPEND_FILE"
+  for entry in "${QA_EVIDENCE_URLS[@]}"; do
+    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+    DESC=$(echo "$entry" | jq -r '.description')
+    RESULT=$(echo "$entry" | jq -r '.result')
+    URL=$(echo "$entry" | jq -r '.url')
+    printf -- "- **%s** %s - [screenshot](%s)\n" "$CRITERION" "$RESULT" "$URL" >> "$PR_BODY_APPEND_FILE"
+  done
+
+# Case 2: QA ran (PASS) but no evidence URLs (push failed, or ran with no screenshots captured)
+# Covers: push failed after retries, AND also the case where QA passed but captured zero screenshots.
+# Does NOT fire when QA was skipped (QA_RAN_AND_PASSED is "false" in that case).
+elif [ "$QA_RAN_AND_PASSED" = "true" ]; then
+  printf "> QA ran (PASS) but no screenshot evidence is available (push failed or no screenshots were captured).\n" > "$PR_BODY_APPEND_FILE"
+
+# Case 3: QA was skipped or not configured (QA_RAN_AND_PASSED is "false")
+else
+  printf "> QA skipped or not configured for this ticket (see qa_criteria in architect plan).\n" > "$PR_BODY_APPEND_FILE"
+fi
+
+# Fetch existing body and append
+EXISTING_BODY=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+printf "%s\n\n%s" "$EXISTING_BODY" "$(cat "$PR_BODY_APPEND_FILE")" > "/tmp/qa-evidence-full-body-$$"
+gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
+rm -f "$PR_BODY_APPEND_FILE" "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
+```
+
+`QA_RAN_AND_PASSED` is set to `"true"` when Phase 6b exited cleanly (`termination_reason: clean`). Set it in Phase 6b on clean exit, alongside the `QA_SCREENSHOT_PATHS` parse. Soft-fail: if any step fails (gh pr edit, body fetch), do not block Phase 10.
 
 ---
 
@@ -1605,11 +1852,47 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 >
 > **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed", errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`.
 
+**Screenshot attachment upload (Linear and Jira, opt-in).** After the main tracker comment is posted, if `screenshot_upload: true` is set in `.agentic/qa.md` AND `QA_SCREENSHOT_PATHS` is non-empty, the tracker-writeback subagent also uploads the PASS screenshots as native attachments. Pass the following additional inputs to the subagent:
+
+- `screenshot_upload: true` (flag; only when qa.md `screenshot_upload: true` AND paths non-empty)
+- `qa_screenshot_paths`: the `QA_SCREENSHOT_PATHS` array (PASS entries only)
+
+**Subagent behavior for screenshot upload:**
+
+**Linear upload (when `TRACKER=linear`):**
+1. For each screenshot in `qa_screenshot_paths`, call the `fileUpload` mutation with `contentType: "image/png"` and `filename: <basename>`. Fields requested: `uploadFile { uploadUrl assetUrl headers { key value } }`. The token is `LINEAR_API_KEY` (env var).
+2. PUT the file bytes to `uploadFile.uploadUrl` with all headers from `uploadFile.headers` (e.g. `Content-Type`).
+3. Build a comment body containing `![<description>](<uploadFile.assetUrl>)` for each screenshot - uses `assetUrl` (the permanent URL), never `uploadUrl` (which is the expiring PUT target). Post the comment via `mcp__linear__save_comment`.
+4. Graceful-skip on any `fileUpload` mutation error (the mutation is schema-confirmed but behavioral details may change). If upload fails, post a plain comment noting that screenshots were available but upload failed.
+
+**Jira upload (when `TRACKER=jira`):**
+1. For each screenshot in `qa_screenshot_paths`, `POST /rest/api/3/issue/{key}/attachments` as multipart form data. Required headers: `X-Atlassian-Token: no-check`, `Authorization: Basic base64(<JIRA_USER_EMAIL>:<JIRA_API_TOKEN>)`. The response is an array of `Attachment` objects; capture `attachment[0].content` (authenticated download URL) and `attachment[0].filename`.
+2. ADF inline embedding is NOT attempted (Atlassian Media API UUID is not available from standard Jira REST v3 credentials - see plan §Verified API facts). Instead, post an ADF comment with a plain-text paragraph for each screenshot:
+   ```json
+   {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"QA Evidence - PASS: <filename> (<content_url>)"}]}]}}
+   ```
+   The `content_url` is `attachment[0].content` (authenticated download URL, click-through for Jira users - NOT an inline image). This is the maximum fidelity achievable without a separate Media API integration.
+3. Credentials absent (`JIRA_USER_EMAIL` or `JIRA_API_TOKEN` env var missing): skip upload, post a plain comment noting skipped upload.
+
+**Gating:** upload only fires when BOTH `screenshot_upload: true` (qa.md field) AND `qa_screenshot_paths` is non-empty AND credentials/tool are available. Credentials or capability absent: skip upload, the main tracker comment still posts with a note: `"(QA screenshots available but upload skipped - set JIRA_USER_EMAIL+JIRA_API_TOKEN or LINEAR_API_KEY env vars and screenshot_upload: true in qa.md to enable attachment upload.)"`. Soft-fail throughout: upload errors never block the tracker comment.
+
 #### If TRACKER is `none`
 
-Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update. PR is open at: https://github.com/[GH_REPO]/pull/[PR_NUMBER]"
+Skip Phase 11 entirely. Print: "No tracker configured - skipping ticket update. PR is open at: https://github.com/[GH_REPO]/pull/[PR_NUMBER]"
 
 (This sub-section is conductor-direct - it is a print, not delegable.)
+
+**qa.md `screenshot_upload` field.** The `screenshot_upload: true` field in `.agentic/qa.md` opts the project in to native tracker attachment upload of QA screenshots. When absent or `false`, Phase 11 screenshot upload is skipped. Example qa.md entry:
+
+```yaml
+screenshot_upload: true
+```
+
+Required env vars for upload:
+- Linear: `LINEAR_API_KEY`
+- Jira: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
+
+These are the same credentials used for existing tracker writebacks. No new credential types are introduced.
 
 ---
 
