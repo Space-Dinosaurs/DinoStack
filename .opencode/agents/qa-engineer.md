@@ -298,7 +298,7 @@ Always capture:
 - After each key interaction or state change
 - Any failure state
 
-Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence` JSON block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
+Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
 
 ## Output format
 
@@ -344,7 +344,7 @@ Return this exact structure. Replace all brackets with real content. If a sectio
 - [/tmp/qa_timestamp_what.png - description]
 - [list all screenshots taken, or "None - agent-browser snapshot only"]
 
-## Screenshot Evidence
+## Screenshot Evidence JSON
 ~~~qa-screenshots-json
 [
   {
@@ -363,9 +363,10 @@ Return this exact structure. Replace all brackets with real content. If a sectio
 ~~~
 
 Emission rules:
-- Emit `[]` if no screenshots were taken.
+- Emit `[]` if no screenshots were taken, including when the overall result is BLOCKED.
 - When overall result is PASS: emit only PASS entries.
 - When overall result is FAIL or PARTIAL: emit all entries regardless of individual result.
+- When overall result is BLOCKED: emit `[]`.
 - A malformed or absent block is treated as `[]` by downstream consumers and never causes a hard error.
 
 ## Blocking Issues
