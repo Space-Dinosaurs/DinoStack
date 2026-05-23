@@ -1337,13 +1337,21 @@ The following failures were identified and fix attempts were made in earlier ite
 **QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
 
 ```
-Look for a fenced block of the form:
+Look for a fenced block whose info string is exactly `qa-screenshots-json`, regardless of whether
+the fence character is backticks (```) or tildes (~~~). Either of the following forms is valid:
+
   ```qa-screenshots-json
   [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
   ```
+
+  ~~~qa-screenshots-json
+  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
+  ~~~
+
+Match by the info string `qa-screenshots-json`; do not require a specific fence character.
 ```
 
-Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=[]` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
+Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and hallucinates; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
@@ -1453,10 +1461,10 @@ Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
 **Skip conditions (all must be false for phase to run):**
 - QA was skipped (`qa_skip != null`) or the ticket is Trivial
-- `QA_SCREENSHOT_PATHS` is empty (`[]`)
+- `QA_SCREENSHOT_PATHS` is empty (`()`)
 - `gh` or `jq` is unavailable (`which gh jq` fails)
 
-When any skip condition is true, set `QA_EVIDENCE_URLS=[]` and proceed directly to Phase 9.
+When any skip condition is true, set `QA_EVIDENCE_URLS=()` and proceed directly to Phase 9.
 
 **Goal:** commit PASS screenshots to a long-lived orphan `qa-evidence` branch on GitHub under the deterministic path `<TICKET_SLUG>/<BRANCH_SLUG>/<filename>`, build click-through evidence URLs, and emit them into the PR body. The branch is never merged to main; it is a parallel evidence store.
 
@@ -1470,13 +1478,13 @@ When any skip condition is true, set `QA_EVIDENCE_URLS=[]` and proceed directly 
 SCREENSHOTS_SRC="/tmp/qa-evidence-$$"
 mkdir -p "$SCREENSHOTS_SRC"
 # Copy each path from QA_SCREENSHOT_PATHS into $SCREENSHOTS_SRC
-# (QA_SCREENSHOT_PATHS contains full /tmp/... paths from the qa-engineer worktree)
-for entry in $QA_SCREENSHOT_PATHS; do
+# (QA_SCREENSHOT_PATHS is a bash array; entries are JSON objects from Phase 6b parse)
+for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
   SRC_PATH=$(echo "$entry" | jq -r '.path')
   cp "$SRC_PATH" "$SCREENSHOTS_SRC/" 2>/dev/null || true
 done
 # If nothing copied, treat as skip
-[ "$(ls -A "$SCREENSHOTS_SRC")" ] || { QA_EVIDENCE_URLS=[]; rm -rf "$SCREENSHOTS_SRC"; proceed to Phase 9; }
+[ "$(ls -A "$SCREENSHOTS_SRC")" ] || { QA_EVIDENCE_URLS=(); rm -rf "$SCREENSHOTS_SRC"; proceed to Phase 9; }
 ```
 
 **Check whether `qa-evidence` branch already exists on remote:**
@@ -1500,8 +1508,12 @@ git -C "$TEMP_CLONE" add .
 git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
 
 # RACE RECOVERY LOOP: handles concurrent first-creators racing on the orphan root
+PUSH_SUCCEEDED_FIRST_CREATE=false
 for i in 1 2 3; do
-  git -C "$TEMP_CLONE" push origin qa-evidence && break
+  if git -C "$TEMP_CLONE" push origin qa-evidence; then
+    PUSH_SUCCEEDED_FIRST_CREATE=true
+    break
+  fi
   # push rejected — a concurrent creator won; adopt the landed history
   git -C "$TEMP_CLONE" fetch origin qa-evidence
   git -C "$TEMP_CLONE" reset --hard origin/qa-evidence   # adopts remote history; wipes worktree
@@ -1535,8 +1547,12 @@ git -C "$WORKTREE_PATH" add .
 git -C "$WORKTREE_PATH" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
 
 # CRITICAL: worktree is on a detached HEAD; must use HEAD:qa-evidence refspec
+PUSH_SUCCEEDED_STEADY=false
 for i in 1 2 3; do
-  git -C "$WORKTREE_PATH" push origin HEAD:qa-evidence && break
+  if git -C "$WORKTREE_PATH" push origin HEAD:qa-evidence; then
+    PUSH_SUCCEEDED_STEADY=true
+    break
+  fi
   git -C "$WORKTREE_PATH" fetch origin qa-evidence
   git -C "$WORKTREE_PATH" rebase origin/qa-evidence
 done
@@ -1547,21 +1563,31 @@ git -C "$REPO" worktree prune 2>/dev/null || true
 
 **Build `QA_EVIDENCE_URLS` (only after push succeeds):**
 
+Build `QA_EVIDENCE_URLS` only when the push in the active path succeeded. `$GH_REPO` is the repo slug resolved at Phase 0 setup (e.g. `org/repo-name`, same variable used throughout the command). Use `jq -n --arg` to safely interpolate description strings that may contain quotes or special characters.
+
 ```bash
+# PUSH_SUCCEEDED is true only if the first-create or steady-state push loop above exited with success
+PUSH_SUCCEEDED="${PUSH_SUCCEEDED_FIRST_CREATE:-${PUSH_SUCCEEDED_STEADY:-false}}"
+
 QA_EVIDENCE_URLS=()
-OWNER=$(echo "$GH_REPO" | cut -d/ -f1)
-REPO_NAME=$(echo "$GH_REPO" | cut -d/ -f2)
-for entry in $QA_SCREENSHOT_PATHS; do
-  FNAME=$(basename "$(echo "$entry" | jq -r '.path')")
-  CRITERION=$(echo "$entry" | jq -r '.criterion_id')
-  DESC=$(echo "$entry" | jq -r '.description')
-  RESULT=$(echo "$entry" | jq -r '.result')
-  URL="https://github.com/${OWNER}/${REPO_NAME}/blob/qa-evidence/${TICKET_SLUG}/${BRANCH_SLUG}/${FNAME}"
-  QA_EVIDENCE_URLS+=("{\"url\":\"$URL\",\"criterion_id\":\"$CRITERION\",\"description\":\"$DESC\",\"result\":\"$RESULT\"}")
-done
+if [ "$PUSH_SUCCEEDED" = "true" ]; then
+  OWNER=$(echo "$GH_REPO" | cut -d/ -f1)
+  REPO_NAME=$(echo "$GH_REPO" | cut -d/ -f2)
+  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+    FNAME=$(basename "$(echo "$entry" | jq -r '.path')")
+    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+    DESC=$(echo "$entry" | jq -r '.description')
+    RESULT=$(echo "$entry" | jq -r '.result')
+    URL="https://github.com/${OWNER}/${REPO_NAME}/blob/qa-evidence/${TICKET_SLUG}/${BRANCH_SLUG}/${FNAME}"
+    # Use jq --arg to safely encode description (handles quotes and special chars)
+    ENTRY_JSON=$(jq -n --arg url "$URL" --arg cid "$CRITERION" --arg d "$DESC" --arg r "$RESULT" \
+      '{"url":$url,"criterion_id":$cid,"description":$d,"result":$r}')
+    QA_EVIDENCE_URLS+=("$ENTRY_JSON")
+  done
+fi
 ```
 
-If any step in the above sequence fails (push fails after 3 retries, worktree creation fails, copy fails), set `QA_EVIDENCE_URLS=[]` and continue. Phase 8.5 is always soft-fail - do not block Phase 9.
+If any step in the above sequence fails (push fails after 3 retries, worktree creation fails, copy fails), `QA_EVIDENCE_URLS` remains `()` (empty) and the phase continues. Phase 8.5 is always soft-fail - do not block Phase 9.
 
 Clean up temp dir:
 
@@ -1644,11 +1670,13 @@ if [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
     printf -- "- **%s** %s - [screenshot](%s)\n" "$CRITERION" "$RESULT" "$URL" >> "$PR_BODY_APPEND_FILE"
   done
 
-# Case 2: QA ran (PASS) but evidence is unavailable (push failed or screenshots lost)
-elif [ "$QA_RAN_AND_PASSED" = "true" ] && [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
-  printf "> QA ran (PASS) but screenshot evidence could not be committed to qa-evidence branch (push failed or screenshots unavailable at commit time).\n" > "$PR_BODY_APPEND_FILE"
+# Case 2: QA ran (PASS) but no evidence URLs (push failed, or ran with no screenshots captured)
+# Covers: push failed after retries, AND also the case where QA passed but captured zero screenshots.
+# Does NOT fire when QA was skipped (QA_RAN_AND_PASSED is "false" in that case).
+elif [ "$QA_RAN_AND_PASSED" = "true" ]; then
+  printf "> QA ran (PASS) but no screenshot evidence is available (push failed or no screenshots were captured).\n" > "$PR_BODY_APPEND_FILE"
 
-# Case 3: QA was skipped or not configured
+# Case 3: QA was skipped or not configured (QA_RAN_AND_PASSED is "false")
 else
   printf "> QA skipped or not configured for this ticket (see qa_criteria in architect plan).\n" > "$PR_BODY_APPEND_FILE"
 fi
