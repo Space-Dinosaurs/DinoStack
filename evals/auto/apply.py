@@ -22,6 +22,7 @@ Public API:
         {ok: bool, reason: str, stdout: str, stderr: str}
     apply_whole_file(repo_root: Path, path: str, content: str) -> dict with keys
         {ok: bool, reason: str, stdout: str, stderr: str}
+    normalise_heading(line: str) -> str
 
 Upstream deps: stdlib difflib, fnmatch, pathlib, re, subprocess.
 
@@ -51,6 +52,26 @@ _WHOLE_FILE_FENCE_RE = re.compile(r"```(?:markdown|md)\s*\n(.*?)\n```", re.DOTAL
 
 # Matches the "+++ b/path" and "--- a/path" headers of a unified diff.
 _DIFF_PATH_RE = re.compile(r"^(?:\+\+\+|---)\s+[ab]/(.+?)(?:\s|$)", re.MULTILINE)
+
+
+def normalise_heading(line: str) -> str:
+    """Strip markdown heading/bold markers and return bare lowercase text.
+
+    Handles ``## Foo``, ``**Foo**``, ``**Foo:**``, and plain text so callers
+    can match section headings in LLM output independent of formatting choice.
+
+    Examples::
+
+        normalise_heading("## Diff")               -> "diff"
+        normalise_heading("**Overfitting Rule:**") -> "overfitting rule"
+        normalise_heading("plain line")             -> "plain line"
+    """
+    h = line.strip()
+    h = re.sub(r'^#+\s*', '', h)       # strip ## / ### leading markers
+    h = re.sub(r'^\*+', '', h)         # strip leading **
+    h = re.sub(r'\*+:?\s*$', '', h)    # strip trailing ** with optional colon
+    h = h.rstrip(':').strip()          # strip any remaining trailing colon
+    return h.lower()
 
 
 def extract_diff(text: str) -> Optional[str]:
