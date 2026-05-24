@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""
+Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation background-by-default
+         rule by denying any Task (subagent spawn) tool call that lacks
+         run_in_background: true. Converts a prose advisory into a hard gate on
+         Claude Code. Feeds the deny reason back to the model so it can re-issue
+         the call correctly.
+
+Public API: Run as a Claude Code PreToolUse hook. Reads JSON from stdin,
+            writes hookSpecificOutput JSON to stdout when denying, exits 0 always.
+
+Upstream deps: Python 3 stdlib only (json, sys). No external dependencies.
+
+Downstream consumers: Claude Code hook runner (PreToolUse event for the Task tool).
+                      Wired via ~/.claude/settings.json by .claude/install.sh.
+
+Failure modes:
+    - Malformed stdin: fail-open (exit 0, no deny). A hook bug must never brick
+      all spawns - the conductor can still work, just without enforcement.
+    - Non-Task tool_name: passthrough (exit 0). This hook is scoped to Task only.
+    - run_in_background absent or false: deny with reason fed back to model.
+    - Older Claude Code versions (pre-permissionDecision support, issue #4669):
+      if a future version ignores permissionDecision: deny, switch to exit 2 with
+      the reason on stderr as the fallback enforcement path.
+
+Performance: < 1 ms per call (pure in-memory JSON parse + single print, no I/O).
+"""
+
+import json
+import sys
+
+
+def main() -> None:
+    # Fail-open: never block on malformed input - a broken hook must not
+    # prevent the conductor from spawning workers at all.
+    try:
+        data = json.load(sys.stdin)
+    except Exception:
+        sys.exit(0)
+
+    # Only enforce on Task (subagent spawn). All direct-action tools
+    # (Read, Bash, Write, Edit, Glob, Grep, etc.) never use Task, so
+    # there are no false positives from a blanket Task-scoped deny.
+    if data.get("tool_name") != "Task":
+        sys.exit(0)
+
+    # Allow correctly-formed background spawns.
+    if data.get("tool_input", {}).get("run_in_background", False):
+        sys.exit(0)
+
+    # Deny foreground spawns and feed back a clear, actionable reason
+    # so the conductor re-issues with run_in_background: true.
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                "Task spawn blocked: run_in_background is missing or false. "
+                "All delegated subagent spawns MUST set run_in_background: true "
+                "(METHODOLOGY.md §Delegation). Re-issue the Task call with "
+                "run_in_background: true. Direct-action cases (reads, memory "
+                "answers, synthesis) do not use Task at all - use the appropriate "
+                "dedicated tool instead."
+            )
+        }
+    }))
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
