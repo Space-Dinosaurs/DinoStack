@@ -7,7 +7,12 @@ permission:
 ---
 ```yaml
 capabilities:
-  required: []
+  required:
+    - tool: "git"
+      check: "command -v git"
+    - tool: "gh"
+      check: "command -v gh"
+      install_hint: "brew install gh"
   optional: []
 ```
 
