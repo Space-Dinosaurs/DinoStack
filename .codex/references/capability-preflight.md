@@ -6,7 +6,7 @@ Purpose: Full reference for capability manifest schema and conductor preflight
          the verbatim output message format.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/05b-capability-preflight.md (parent section);
+            content/sections/06-capability-preflight.md (parent section);
             content/sections/12-protocol-details.md (Protocol Details entry);
             content/agents/qa-engineer.md (populated capabilities block).
 
