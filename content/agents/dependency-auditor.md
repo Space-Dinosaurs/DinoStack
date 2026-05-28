@@ -6,8 +6,20 @@ tools: Read, Glob, Grep, Bash
 
 ```yaml
 capabilities:
-  required: []
-  optional: []
+  required:
+    - tool: "git"
+      check: "command -v git"
+    - tool: "node"
+      check: "command -v node"
+      required_when: "brief.has_field('package_json')"
+    - tool: "npm"
+      check: "command -v npm"
+      required_when: "brief.has_field('package_json')"
+  optional:
+    - tool: "pip"
+      check: "command -v pip"
+    - tool: "cargo"
+      check: "command -v cargo"
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
