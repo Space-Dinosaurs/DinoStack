@@ -33,6 +33,9 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regres
 **Doc-sync obligation** - when a change alters a count, list, path, convention, or behavior an intent-layer doc asserts:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
 
+**Capability preflight** - before every Agent spawn:
+See METHODOLOGY.md §Capability Preflight for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
+
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
 See METHODOLOGY.md §QA Gate for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
 

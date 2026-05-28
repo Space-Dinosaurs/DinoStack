@@ -4,6 +4,16 @@ description: Performance analysis specialist. Spawn when a feature is slow, inve
 tools: Read, Glob, Grep, Bash
 kind: local
 ---
+
+```yaml
+capabilities:
+  required: []
+  optional:
+    - tool: "playwright-python"
+      check: "python -c 'import playwright'"
+      install_hint: "pip install playwright && playwright install chromium"
+```
+
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.

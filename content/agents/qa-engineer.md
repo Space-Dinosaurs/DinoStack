@@ -3,6 +3,37 @@ name: qa-engineer
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), and perceptual_diff (pixel regression via pixelmatch). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
 ---
+
+```yaml
+capabilities:
+  required:
+    - tool: "@axe-core/playwright"
+      check: "npm ls @axe-core/playwright"
+      install: "npm install --no-save @axe-core/playwright"
+      auto_install: true
+      required_when: "scenario.method == 'accessibility'"
+    - tool: "pixelmatch"
+      check: "npm ls pixelmatch"
+      install: "npm install --no-save pixelmatch pngjs"
+      auto_install: true
+      required_when: "scenario.method == 'perceptual_diff'"
+    - tool: "pngjs"
+      check: "npm ls pngjs"
+      install: "npm install --no-save pngjs"
+      auto_install: true
+      required_when: "scenario.method == 'perceptual_diff'"
+  optional:
+    - tool: "playwright-python"
+      check: "python -c 'import playwright'"
+      install_hint: "pip install playwright && playwright install chromium"
+    - tool: "agent-browser"
+      check: "command -v agent-browser"
+      install_hint: "npm install -g agent-browser"
+    - tool: "chrome-devtools-mcp"
+      check: "test -f .claude/settings.json && grep -q chrome-devtools .claude/settings.json"
+      install_hint: "add chrome-devtools MCP server to .claude/settings.json"
+```
+
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
