@@ -16,14 +16,12 @@ Upstream deps: content/sections/05-qa-gate.md (preflight runs before every
                .agentic/.capability-cache.json (runtime hit cache, TTL 30 min).
 
 Downstream consumers: conductor (reads agent spec capabilities: block before
-                      every spawn); qa-engineer (primary agent with populated
-                      manifest at P0); all other agents at P1+ (empty blocks
-                      now, filled per-agent in follow-up Briefs).
+                      every spawn); all agents now have populated manifests
+                      as of P2 (qa-engineer at P0, remaining 9 at P2).
 
-Failure modes: Prose; does not execute. advisory mode (default) warns and
-               proceeds on missing deps - spawn is never blocked at P0.
-               blocking mode (opt-in via config key) refuses the spawn when
-               required deps fail check after auto_install attempt.
+Failure modes: Prose; does not execute. advisory mode warns and proceeds on
+               missing deps. blocking mode (default as of P2) refuses the
+               spawn when required deps fail check after auto_install attempt.
 
 Performance: Standard. Check commands are fast shell one-liners. Cache TTL
              of 30 min prevents re-running checks on every spawn in a session.
@@ -135,7 +133,7 @@ Run before every Agent spawn when the target agent's spec contains a `capabiliti
 
 6. **Emit preflight output.** Collect all remaining required misses and optional misses. Emit the verbatim message template (see Output format below). In `advisory` mode: emit and proceed with the spawn. In `blocking` mode: emit and refuse the spawn when any required miss remains after step 5.
 
-7. **Mode resolution.** Read `capability_preflight_mode` from `.agentic/config.json`. Valid values: `advisory` (default) and `blocking`. Any missing or unrecognized value falls back to `advisory`. Default at P0 is `advisory`; flip to `blocking` is a separate one-line config change once every agent under `content/agents/` has a populated manifest.
+7. **Mode resolution.** Read `capability_preflight_mode` from `.agentic/config.json`. Valid values: `advisory` and `blocking`. Any missing or unrecognized value falls back to `blocking` (default as of P2 - all agent manifests are now populated). Projects seeded before P2 that have `advisory` in their config retain their existing value.
 
 ---
 
@@ -154,10 +152,10 @@ When preflight finds any missing dependency, emit the following verbatim block (
 - When both sections are empty, emit nothing (no preflight output for a clean check).
 - `<mode>` is either `advisory` or `blocking` (the resolved mode from config).
 
-Example (advisory mode, one required miss, one optional miss):
+Example (blocking mode, one required miss, one optional miss):
 
 ```
-qa-engineer preflight: advisory
+qa-engineer preflight: blocking
   required missing: @axe-core/playwright — install: npm install --no-save @axe-core/playwright
   optional missing: agent-browser — install: npm install -g agent-browser
 ```
