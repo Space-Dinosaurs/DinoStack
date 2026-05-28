@@ -23,10 +23,11 @@ capabilities:
       install: "npm install --no-save pngjs"
       auto_install: true
       required_when: "scenario.method == 'perceptual_diff'"
-  optional:
     - tool: "playwright-python"
-      check: "python -c 'import playwright'"
+      check: "python -c 'import playwright' 2>/dev/null"
       install_hint: "pip install playwright && playwright install chromium"
+      required_when: "scenario.method == 'motion'"
+  optional:
     - tool: "agent-browser"
       check: "command -v agent-browser"
       install_hint: "npm install -g agent-browser"
@@ -120,6 +121,7 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 - `axe-rule` entries: project-wide axe rule additions or exclusions applied to every accessibility scenario; format: `axe-rule: exclude=region` (prefer scenario-level `axe_tags` for targeted overrides)
 - `theme` entries: selector or custom action recipe for the project's theme toggle mechanism; used by the Theme-aware scenarios section when neither the class-based nor data-attribute defaults produce a visible state change. Format examples: `theme: selector=button[data-theme-toggle]` or `theme: action=localStorage.setItem('theme','dark');location.reload()`
 - `story-url` entries: override the Storybook base URL for this project; used by the Storybook scenarios section. Format: `story-url: http://localhost:9009`
+- `motion` entries: operator-declared route and element list that overrides the scenario's `route` and `elements` fields when both are present. Format: `motion: /route [selector,selector,...]` or `motion: /route auto`
 
 ## Workflow
 
@@ -654,9 +656,22 @@ When `.agentic/config.json` has `storybook_enabled: true` AND a scenario has a `
    ```
    A non-200 response returns INCONCLUSIVE with operator message "Storybook dev server not reachable at `<url>`. Start it with `npm run storybook` or set storybook_url." Do NOT return FAIL or clean-skip - CI must surface the unmet precondition.
 
+**SB6 URL conversion (when `storybook_version: 6` in `.agentic/config.json`):**
+
+Read `.agentic/config.json` `storybook_version` (default `7` when absent).
+
+- If `7` or absent: use `<storybook_url>/iframe.html?id=<story_id>` (current format).
+- If `6`: apply the SB6 conversion algorithm:
+  1. Split `story_id` on `--`. Left = kind segment; right = story segment.
+  2. If no `--` separator is present: return **FAIL** with operator message "Invalid story_id format: missing '--' separator. Correct the story_id field in your qa_criteria." (Not INCONCLUSIVE - this is malformed operator input.)
+  3. Kind segment: replace `-` with `/`, then Title Case each path part. Example: `components-button` → `Components/Button`.
+  4. Story segment: replace `-` with ` `, then Title Case each word. Example: `with-icon` → `With Icon`.
+  5. Build URL: `<storybook_url>/iframe.html?selectedKind=<percent-encoded kind>&selectedStory=<percent-encoded story>`.
+  6. Verify reachability: `curl -s -o /dev/null -w '%{http_code}' <converted_url>`. If non-200: return INCONCLUSIVE with "SB6 story-name convention mismatch; set explicit URL via qa.md `story-url` tag override."
+
 **Verification procedure:**
 
-1. Navigate to `<storybook_url>/iframe.html?id=<story_id>` (Storybook 7+ URL format).
+1. Navigate to the resolved URL (SB7: `?id=<story_id>`; SB6: `?selectedKind=...&selectedStory=...`).
 2. Set the viewport using the canonical sizes or qa.md override.
 3. If the scenario also has a `theme` field and `theme_aware: true` in config, apply the theme-aware loop (see Theme-aware scenarios section). The full iteration is `(scenario × viewport × theme)`.
 4. Run the scenario's method against the iframe content:
