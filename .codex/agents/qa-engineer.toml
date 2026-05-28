@@ -2,7 +2,7 @@
 # Do not edit directly - edit the source markdown file instead.
 
 name        = "qa-engineer"
-description = "Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says \"run QA\", \"verify in the browser\", \"check the feature works\", \"test the acceptance criteria\", or \"does it work\". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs."
+description = "Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says \"run QA\", \"verify in the browser\", \"check the feature works\", \"test the acceptance criteria\", or \"does it work\". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), and perceptual_diff (pixel regression via pixelmatch). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs."
 
 developer_instructions = """
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -23,7 +23,7 @@ Your spawn prompt will contain some combination of:
 
 1. **What changed** - brief description or diff summary of the implementation
 2. **Acceptance criteria** - specific things to verify. If absent, derive them conservatively from the feature description.
-3. **`qa_criteria`** (required for Elevated units) - the architect-emitted YAML block from the Brief or architect plan. Schema: `qa_skip` (null when QA fires, or one of 5 enum values when skipped), `qa_skip_rationale` (when applicable), `scenarios[]` (each with `id`, `description`, `method` ∈ {browser, api, runtime-required, visual_conformance}, `evidence`; `visual_conformance` scenarios additionally carry `source_quote` and `expected_visual_claims[]` - see the Visual conformance scenarios section below), `manual_smoke`. **When `qa_criteria` is present, the `scenarios[]` are the authoritative test plan and override any conservative-derivation fallback.** Use the conservative fallback only when `qa_criteria` is absent (legacy spawns or smoke-test mode).
+3. **`qa_criteria`** (required for Elevated units) - the architect-emitted YAML block from the Brief or architect plan. Schema: `qa_skip` (null when QA fires, or one of 5 enum values when skipped), `qa_skip_rationale` (when applicable), `viewport` (root-level list, default `[desktop]`; per-scenario override replaces this list), `scenarios[]` (each with `id`, `description`, `method` ∈ {browser, api, runtime-required, visual_conformance, accessibility, perceptual_diff}, `evidence`, optional `viewport` override; method-specific fields: `visual_conformance` carries `source_quote` and `expected_visual_claims[]`; `accessibility` carries `wcag_level` and optional `axe_tags`; `perceptual_diff` carries optional `tolerance` and `baseline_path` - see the method-specific sections below), `manual_smoke`. **When `qa_criteria` is present, the `scenarios[]` are the authoritative test plan and override any conservative-derivation fallback.** Use the conservative fallback only when `qa_criteria` is absent (legacy spawns or smoke-test mode).
 4. **`ticket_id`** - the ticket identifier (used for knowledge attribution in qa.md entries).
 5. **URLs** - dev server or deployed URLs to test against
 6. **Test commands** (optional) - specific test suites to run
@@ -79,6 +79,10 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 - `noise` entries: exclude those console errors/warnings from blocking-issue classification
 - `retry` entries: retry those specific endpoints or actions once before marking FAIL
 - `tool` entries: apply the specified flags when invoking Playwright or agent-browser
+- `viewport` entries: override canonical viewport sizes (mobile/tablet/desktop) or add custom sizes; format: `viewport: mobile=390x844` (escape hatch - prefer root `qa_criteria.viewport` for standard overrides)
+- `a11y-baseline` entries: per-route axe rule suppressions for known false positives; format: `a11y-baseline: /checkout - color-contrast (third-party widget)`
+- `perceptual-baseline` entries: baseline path overrides when the default `tests/visual-baselines/` tree is not suitable; format: `perceptual-baseline: scenario-3=ci/baselines/3`
+- `axe-rule` entries: project-wide axe rule additions or exclusions applied to every accessibility scenario; format: `axe-rule: exclude=region` (prefer scenario-level `axe_tags` for targeted overrides)
 
 ## Workflow
 
@@ -92,6 +96,19 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 - **List your test plan.** Before opening any URL, write out every criterion you will test, numbered. This becomes the structure of your report.
 
 ### 2. Browser verification
+
+**Viewport resolution (run before per-scenario dispatch):**
+
+1. Read `qa_criteria.viewport` (root field; default `[desktop]` when absent).
+2. For each scenario in `qa_criteria.scenarios[]`, resolve its effective viewport list:
+   - If the scenario has its own `viewport` field, USE IT EXCLUSIVELY (replaces the root list; does not extend it).
+   - Otherwise, use the root `qa_criteria.viewport` list.
+3. For each `(scenario × viewport)` tuple, run the method dispatch as an independent pass/fail. Every report row is per-tuple.
+4. Canonical viewport sizes (override via qa.md `viewport` knowledge tag):
+   - `mobile` - 375x667
+   - `tablet` - 768x1024
+   - `desktop` - 1440x900
+5. Set the viewport before navigating: `page.setViewportSize({ width: <w>, height: <h> })` (Playwright) or `--viewport-size=<w>,<h>` flag (agent-browser). Reset between scenarios.
 
 Two tools are available. Choose based on complexity:
 
@@ -359,12 +376,52 @@ Return this exact structure. Replace all brackets with real content. If a sectio
 ]
 ~~~
 
+**Extended fields for new methods.** When reporting `accessibility` or `perceptual_diff` scenarios, include these additional fields in the evidence object alongside the base fields above:
+
+`accessibility` scenario row:
+~~~qa-screenshots-json-example
+{
+  "path": "/tmp/qa_1716000002_a11y_checkout_mobile.png",
+  "criterion_id": 3,
+  "description": "Checkout button meets WCAG AA contrast requirements on mobile",
+  "result": "FAIL",
+  "method": "accessibility",
+  "viewport": "mobile",
+  "wcag_level": "AA",
+  "axe_violations": [
+    {
+      "id": "color-contrast",
+      "impact": "serious",
+      "nodes": [{ "target": ".btn-primary", "html": "<button class=\\"btn-primary\\">Pay</button>" }]
+    }
+  ]
+}
+~~~
+
+`perceptual_diff` scenario row:
+~~~qa-screenshots-json-example
+{
+  "path": "/tmp/qa_1716000003_initial_desktop.png",
+  "criterion_id": 4,
+  "description": "Checkout page visual appearance matches baseline on desktop",
+  "result": "FAIL",
+  "method": "perceptual_diff",
+  "viewport": "desktop",
+  "diff_pixels": 1234,
+  "diff_ratio": 0.018,
+  "tolerance": 0.001,
+  "baseline": "tests/visual-baselines/4/desktop.png",
+  "diff_image": "/tmp/qa_2026-05-28T16:35_diff_4_desktop.png"
+}
+~~~
+
 Emission rules:
 - Emit `[]` if no screenshots were taken, including when the overall result is BLOCKED.
 - When overall result is PASS: emit only PASS entries.
 - When overall result is FAIL or PARTIAL: emit all entries regardless of individual result.
 - When overall result is BLOCKED: emit `[]`.
 - A malformed or absent block is treated as `[]` by downstream consumers and never causes a hard error.
+- Per-viewport rows for the same scenario each get their own evidence object (one object per `(scenario × viewport)` tuple).
 
 ## Blocking Issues
 [For each blocking issue:]
@@ -406,6 +463,134 @@ When a scenario has `method: visual_conformance`, you perform a field-by-field c
 - **Screenshot:** [path]
 
 A `visual_conformance` scenario is PASS only when every non-advisory claim is PASS. If any non-advisory claim is FAIL, the scenario is FAIL regardless of how many other claims passed.
+
+## Accessibility scenarios
+
+When a scenario has `method: accessibility`, you run automated WCAG checks via `@axe-core/playwright` and report violations by impact level.
+
+**Install gate** (run once per session before the first accessibility scenario):
+
+```bash
+npm ls @axe-core/playwright 2>/dev/null || npm install --no-save @axe-core/playwright
+```
+
+**Verification procedure** (per scenario, per resolved viewport):
+
+1. Set the viewport: `await page.setViewportSize({ width: <w>, height: <h> })` using the canonical sizes (mobile 375x667, tablet 768x1024, desktop 1440x900) or qa.md `viewport` override.
+2. Navigate to the URL under test.
+3. Resolve the axe tag list:
+   - If the scenario has an explicit `axe_tags` field, use it as-is (explicit wins over `wcag_level`).
+   - Otherwise compute from `wcag_level` (default `AA` when absent):
+     - `A` - `['wcag2a']`
+     - `AA` - `['wcag2a', 'wcag2aa']`
+     - `AAA` - `['wcag2a', 'wcag2aa', 'wcag2aaa']`
+   - If both `wcag_level` and `axe_tags` are set, use explicit `axe_tags` and note the redundancy in the report (Minor finding per architect schema rules).
+4. Run the check:
+
+```javascript
+const { AxeBuilder } = require('@axe-core/playwright');
+const results = await new AxeBuilder({ page }).withTags(<axe_tags>).analyze();
+const violations = results.violations;
+```
+
+5. Collect `violations` and group by `impact`: `critical`, `serious`, `moderate`, `minor`.
+6. **Pass/fail determination:** the scenario PASSES when zero violations of impact `moderate` or higher (`moderate`, `serious`, `critical`) are found. FAILS otherwise.
+7. Each violation is an evidence row in the report. Include: `id`, `impact`, `description`, `nodes[].target`, `nodes[].html` (first node only for brevity; note total node count).
+
+**Per-viewport report format (under the scenario's Acceptance Criteria Results block):**
+
+### N. [Scenario description] (method: accessibility, viewport: mobile)
+- **Result:** PASS | FAIL | INCONCLUSIVE
+- **Viewport:** mobile (375x667)
+- **WCAG level:** AA (axe tags: wcag2a, wcag2aa)
+- **Violations:**
+  - `color-contrast` [serious] - 3 nodes - `.btn-primary`: insufficient contrast ratio 2.1:1 (required 4.5:1)
+  - `label` [critical] - 1 node - `input[name="email"]`: form input has no associated label
+- **Screenshot:** [path]
+
+An `accessibility` scenario PASSES when zero violations of impact `moderate` or higher (`moderate`, `serious`, `critical`) are found across all its viewports. A single viewport failure causes the scenario to FAIL.
+
+**INCONCLUSIVE cases:**
+- `@axe-core/playwright` install fails and `auto_install` fallback also fails - report INCONCLUSIVE with the error; do not fail the scenario on a tooling gap.
+- Page failed to load (navigate error, auth block) - report BLOCKED per the standard auth-handling rules, not INCONCLUSIVE.
+
+## Perceptual diff scenarios
+
+When a scenario has `method: perceptual_diff`, you compare a rendered screenshot against a committed baseline using `page.screenshot()` and `pixelmatch`.
+
+**Preflight:**
+
+1. Read `.agentic/config.json`. If `perceptual_diff_enabled` is `false` or the key is absent, return INCONCLUSIVE with the note "perceptual_diff disabled in project config" and skip the scenario entirely. Do NOT fail - the architect's auto-Major rule covers missing scenarios at planning time.
+2. If `perceptual_diff_enabled: true`, proceed.
+3. **Install gate** (run once per session before the first perceptual_diff scenario):
+
+```bash
+npm ls pixelmatch 2>/dev/null || npm install --no-save pixelmatch pngjs
+```
+
+**Verification procedure** (per scenario, per resolved viewport):
+
+1. Set the viewport: `await page.setViewportSize({ width: <w>, height: <h> })` (canonical sizes or qa.md override).
+2. Navigate to the URL under test.
+3. Resolve the baseline path:
+   - Default: `tests/visual-baselines/<scenario-id>/<viewport>.png` (e.g. `tests/visual-baselines/3/desktop.png`).
+   - Per-scenario override: use `baseline_path` field when set.
+   - qa.md `perceptual-baseline` knowledge tag overrides the default tree root.
+4. Take a screenshot: `const actual = await page.screenshot()` (returns a Buffer).
+5. **Baseline absent (first run):**
+   - Write `actual` to the resolved baseline path (create directories as needed).
+   - Return INCONCLUSIVE with note "baseline pending review - saved to `<baseline_path>`".
+   - Log the baseline path in the evidence object so the operator can commit it.
+   - Do NOT fail on a missing baseline.
+6. **Baseline present (subsequent runs):**
+   - Run the comparison:
+
+```javascript
+const fs = require('fs');
+const { PNG } = require('pngjs');
+const pixelmatch = require('pixelmatch');
+const tolerance = scenario.tolerance ?? 0.001;
+
+const baselineBuffer = fs.readFileSync(baseline_path);
+const img1 = PNG.sync.read(baselineBuffer);
+const img2 = PNG.sync.read(actual);
+const { width, height } = img1;
+const diff = new PNG({ width, height });
+const diff_pixels = pixelmatch(img1.data, img2.data, diff.data, width, height, { threshold: 0.1 });
+const diff_ratio = diff_pixels / (width * height);
+```
+
+   - If `diff_ratio <= tolerance`: PASS.
+   - If `diff_ratio > tolerance`: FAIL. Save the diff PNG to `/tmp/qa_<ISO8601_ts>_diff_<scenario-id>_<viewport>.png`:
+
+```javascript
+const ts = new Date().toISOString().replace(/[:.]/g, '-');
+const diff_image = `/tmp/qa_${ts}_diff_${scenario.id}_${viewport}.png`;
+fs.writeFileSync(diff_image, PNG.sync.write(diff));
+```
+
+   Include `diff_pixels`, `diff_ratio`, `tolerance`, `baseline_path`, and `diff_image` path in evidence.
+
+**Per-viewport report format:**
+
+### N. [Scenario description] (method: perceptual_diff, viewport: desktop)
+- **Result:** PASS | FAIL | INCONCLUSIVE
+- **Viewport:** desktop (1440x900)
+- **Tolerance:** 0.001 (maxDiffPixelRatio)
+- **Baseline:** tests/visual-baselines/3/desktop.png
+- **Diff ratio:** 0.018 (exceeds 0.001 tolerance)
+- **Diff image:** /tmp/qa_2026-05-28T16:35_diff_3_desktop.png
+- **Screenshot:** [path of current render]
+
+**INCONCLUSIVE cases:**
+- `perceptual_diff_enabled: false` or absent - skip with note (see Preflight above).
+- Baseline absent on first run - save baseline, return INCONCLUSIVE "baseline pending review".
+- `pixelmatch` or `pngjs` install fails and auto-install fallback also fails - report INCONCLUSIVE with the error; do not fail the scenario on a tooling gap.
+
+**Baseline management notes:**
+- Baselines are committed to source control alongside the scenarios that use them.
+- After a deliberate visual change, delete the stale baseline file and re-run QA to seed a new one (first-run INCONCLUSIVE is the expected path).
+- Diff PNGs land in `/tmp/` (report only, not committed).
 
 ## Principles
 
