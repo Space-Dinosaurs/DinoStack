@@ -159,6 +159,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/settings.json`
 - `.claude/settings.local.json`
 - `.agentic/qa.md` (only if web UI confirmed in Step 1)
+- `tests/visual-baselines/.gitkeep` (only if web UI confirmed in Step 1)
 - `.agentic/deploy.md` (only if release signals detected in Step 0)
 - `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/learnings.md` — durable fix-pattern learnings from resolved Skeptic findings; always created (committed, not gitignored)
@@ -280,7 +281,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 5. **`docs/` directories** — plan to create any missing subdirectories.
 
-6. **`.agentic/qa.md`** — if web UI was confirmed **and the user did not decline web UI in Step 1** (`no web UI` / `skip web UI`) and file does not exist (checked via resolver: `.agentic/qa.md` OR legacy `.claude/qa.md`): plan to create it at `.agentic/qa.md`. If the user declined web UI, do not create the file and do not prompt for port or command.
+6. **`.agentic/qa.md`** — if web UI was confirmed **and the user did not decline web UI in Step 1** (`no web UI` / `skip web UI`) and file does not exist (checked via resolver: `.agentic/qa.md` OR legacy `.claude/qa.md`): plan to create it at `.agentic/qa.md`. Also plan to create `tests/visual-baselines/.gitkeep` if it does not exist. If the user declined web UI, do not create either file and do not prompt for port or command.
 
 7. **`.agentic/deploy.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist (checked via resolver: `.agentic/deploy.md` OR legacy `.claude/deploy.md`): plan to create it at `.agentic/deploy.md` using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
 
@@ -486,6 +487,27 @@ staging: <!-- optional: add staging/preview URL here -->
 
 ## Preferences
 prefer: local
+
+## Viewport canonical sizes
+# mobile:  375x667
+# tablet:  768x1024
+# desktop: 1440x900
+# Override per-scenario by setting `viewport: [mobile, tablet, desktop]` in a scenario block.
+# Scenarios default to `[desktop]` when no viewport is declared.
+
+## Visual baselines
+# Perceptual diff baselines are stored at:
+#   tests/visual-baselines/<scenario-id>/<viewport>.png
+# First run with perceptual_diff_enabled: true saves baselines and returns INCONCLUSIVE.
+# Subsequent runs compare against saved baselines using Playwright toHaveScreenshot.
+# Commit baselines to source control after reviewing them.
+
+## Accessibility
+# qa-engineer runs axe-core at WCAG AA level by default for `accessibility` method scenarios.
+# Default axe tags: [wcag2a, wcag2aa]
+# To enforce AAA: set wcag_level: AAA in the scenario (adds wcag2aaa to axe tags).
+# To override axe tags directly: set axe_tags: [wcag2a, wcag2aa] in the scenario.
+# For capability requirements (axe-core/playwright install): see content/references/capability-preflight.md
 ```
 
 The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
@@ -504,6 +526,8 @@ qa-engineer: pick the track based on which one the diff touches.
 ```
 
 When `qa-engineer` runs, it reads the root first (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the root is an index, it picks the track matching the diff's file paths and reads that track's qa.md for command/port/URLs. **Per-track resolver also applies during the back-compat window**: `<track>/.agentic/qa.md` preferred, `<track>/.claude/qa.md` fallback. Step 2a item 11 plans `git mv` for per-track legacy paths on each update run.
+
+**Visual baseline directory.** When web UI is confirmed, also create `tests/visual-baselines/.gitkeep` so the baseline directory exists before the first `perceptual_diff` run. Only create if the file does not already exist. This gives Playwright a committed home to write baseline PNGs into on first run; operators review and commit baselines afterward.
 
 ### 6a. Create `.agentic/deploy.md`
 
@@ -648,7 +672,9 @@ Seed with these documented defaults exactly:
   "debugger_on_failure": false,
   "qa_default_skip": null,
   "model_profile": "default",
-  "auto_merge_on_ci_green": false
+  "auto_merge_on_ci_green": false,
+  "capability_preflight_mode": "advisory",
+  "perceptual_diff_enabled": false
 }
 ```
 
@@ -656,6 +682,8 @@ Seed with these documented defaults exactly:
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
 - `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
+- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `"advisory"`. See `content/rules/conventions.md` §Project Config for semantics.
+- `perceptual_diff_enabled` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 
 This file is committed (NOT gitignored) - the `.agentic/` umbrella ignore carves it out via `!.agentic/config.json` in `.gitignore` (added in Step 9) so the project's methodology toggles are portable and travel with the repo, the same way `qa.md` and `deploy.md` do. It is optional and graceful: if absent, every toggle takes its default and nothing breaks - seeding it here just gives the conductor a stable file to read and the operator a discoverable place to tune.
 
