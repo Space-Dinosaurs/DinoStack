@@ -25,7 +25,7 @@ From this point on, no PR can merge into `main` without a green DCO check.
 
 ## Alternative: probot/dco GitHub App
 
-GitHub also offers the [DCO GitHub App](https://github.com/apps/dco) (probot/dco) as a hosted alternative. Tradeoffs:
+GitHub also offers the [DCO GitHub App](https://github.com/apps/dco) (probot/dco) as a hosted alternative.
 
 Tradeoffs vs. the in-repo workflow:
 
