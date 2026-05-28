@@ -225,10 +225,10 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
-1. If a `## Tracker` section exists in `AGENTS.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default).
-2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`.
-3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional).
-4. Else: set `TRACKER=none`.
+1. If a `## Tracker` section exists in `AGENTS.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default). Also extract optional state-name overrides: `JIRA_STATE_IN_PROGRESS` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `JIRA_STATE_IN_REVIEW` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `JIRA_STATE_QA` → `TRACKER_STATE_QA` (default `"QA"`), `JIRA_STATE_BLOCKED` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `JIRA_STATE_DONE` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default.
+2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`. Apply the same state-name override fields as the Linear path below.
+3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional). Also extract optional state-name overrides: `State In Progress:` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `State In Review:` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `State QA:` → `TRACKER_STATE_QA` (default `"Testing"`), `State Blocked:` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `State Done:` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default. (Note: Linear `TRACKER_STATE_QA` defaults to `"Testing"` while Jira defaults to `"QA"` — reflects common workspace conventions for each tracker.)
+4. Else: set `TRACKER=none`. Set all `TRACKER_STATE_*` variables to their defaults: `TRACKER_STATE_IN_PROGRESS="In Progress"`, `TRACKER_STATE_IN_REVIEW="In Review"`, `TRACKER_STATE_QA="Testing"`, `TRACKER_STATE_BLOCKED="Blocked"`, `TRACKER_STATE_DONE="Done"`.
 
 **Dual-shape note:** Linear projects canonically store tracker config under `## Linear`; Jira projects use `## Tracker`. This is intentional — it preserves zero-migration compatibility for every existing Linear project that already has a `## Linear` section.
 
@@ -244,14 +244,63 @@ Do not continue. Do not attempt to write the migration. All config-mutation logi
 Print a summary of resolved values before Phase 1:
 
 ```
-Tracker:                [linear | jira | none]
-TICKET_PREFIX:          [value or "n/a"]
-BASE_BRANCH:            [value]
-AUTO_MERGE_ON_CI_GREEN: [true | false]
-PR_WORKFLOW_REVIEWERS:  [comma-separated usernames or "(none)"]
+Tracker:                    [linear | jira | none]
+TICKET_PREFIX:              [value or "n/a"]
+BASE_BRANCH:                [value]
+AUTO_MERGE_ON_CI_GREEN:     [true | false]
+PR_WORKFLOW_REVIEWERS:      [comma-separated usernames or "(none)"]
+TRACKER_STATE_IN_PROGRESS:  [value]
+TRACKER_STATE_IN_REVIEW:    [value]
+TRACKER_STATE_QA:           [value]
+TRACKER_STATE_BLOCKED:      [value]
+TRACKER_STATE_DONE:         [value]
 ```
 
 All work lives in `$REPO`.
+
+---
+
+## Tracker Writeback Helper
+
+Reusable subagent invocation pattern. Used by Phase 11 (existing) and 7 new sites below. Gated on `TRACKER != none`; no-op otherwise.
+
+**Invocation contract:**
+
+When the conductor reaches a writeback boundary:
+1. Skip entirely if `TRACKER == none`.
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase).
+3. Pass to the subagent:
+   - `tracker`: `linear` | `jira`
+   - `ticket_id`: from current task context
+   - `target_state`: one of the resolved `TRACKER_STATE_*` variables
+   - `forward_only_guard`: `true` for all 7 new sites; preserves existing Phase 11 behavior (which used hardcoded `Testing`)
+   - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
+
+**Subagent responsibilities (extended for `forward_only_guard`):**
+
+1. **Pre-read current state:** call `mcp__linear__get_issue` (or Jira `mcp__mcp-atlassian__jira_get_issue`) to read the ticket's current state including `state.type` (Linear: `backlog`, `unstarted`, `started`, `completed`, `cancelled`; Jira: map via status category).
+2. **Forward-only guard:** compute rank of current state and target state.
+
+   **Linear ranking** (uses `state.type` directly):
+   `backlog` < `unstarted` < `started` < `completed`; `cancelled` is terminal (never overwritten by any automatic transition).
+
+   **Jira ranking** (map via status category, available on every Jira status via `statusCategory.key`):
+   - `new` (To Do, Open, Backlog) → rank `unstarted`
+   - `indeterminate` (In Progress, In Review, Testing) → rank `started`
+   - `done` (Done, Closed, Resolved) → rank `completed`
+   - Custom categories or names matching cancellation semantics (Won't Do, Cancelled, Will Not Fix) → terminal (never overwritten)
+
+   Apply the same rank-comparison rule for both trackers: if current rank >= target rank, skip the transition.
+3. **Skip semantics:**
+   - If current state read fails (MCP/API error): skip transition silently. Do NOT assume position; do NOT proceed with the transition. Log a one-line warning to stderr.
+   - If current rank >= target rank (already there or past it): skip transition. No notification noise.
+   - If current state is `cancelled`: skip transition unconditionally.
+   - Otherwise: perform the transition via `mcp__linear__save_issue` (or Jira equivalent).
+4. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase.
+
+**Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. No block.
+
+For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block below — the brief is unchanged except for the addition of `target_state` and `forward_only_guard` parameters.
 
 ---
 
@@ -535,6 +584,7 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 2. Read the full description — specifically the **Implementation**, **Files**, and **QA** sections.
 3. Note any blocking tickets (`blockedBy`) — confirm they are done before proceeding.
 4. Note the ticket type (feature vs bug) — this drives branch naming.
+5. **Comment thread fetch.** Call `mcp__linear__list_comments` with the UUID `issueId` of the issue (graceful-skip if the tool name differs or the call fails). Collect all returned comment bodies. Scan each comment: if the body contains the string `"QA"` AND at least one of `FAIL`, `PARTIAL`, `BLOCKED`, `failed`, `re-work`, flag that comment as a prior-QA-failure comment. Accumulate flagged comments in `PRIOR_QA_COMMENTS` (array of comment bodies). Build `COMMENT_THREAD_SUMMARY` as the concatenation of all comment bodies, truncated to 2000 characters. If the call is not available or returns an error, set both to empty (graceful no-op).
 
 #### If TRACKER is `jira`
 
@@ -542,10 +592,11 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 2. Read the full description — note any **Acceptance Criteria**, **Implementation Notes**, and **QA** content in the description or sub-tasks.
 3. Note any blocking issues — confirm they are resolved before proceeding.
 4. Note the issue type (Story, Bug, Task) — this drives branch naming.
+5. **Comment thread parse.** Parse `issue.fields.comment.comments` from the EXISTING `jira_get_issue fields:*all` response fetched in step 1 above. **Do NOT make a second Jira API call.** The `comment` field is included in the default `fields=*all` response. For each comment, extract the plain-text content (collapse ADF nodes to text). Scan each comment: if the body contains the string `"QA"` AND at least one of `FAIL`, `PARTIAL`, `BLOCKED`, `failed`, `re-work`, flag that comment as a prior-QA-failure comment. Accumulate flagged comments in `PRIOR_QA_COMMENTS` (array of comment bodies). Build `COMMENT_THREAD_SUMMARY` as the concatenation of all comment bodies, truncated to 2000 characters. If the `comment` field is absent or empty, set both to empty (graceful no-op).
 
 #### If TRACKER is `none`
 
-No ticket to fetch. **Use `normalized_input.freeform_task` as the ticket content** for all downstream phases. The pre-existing operator prompt is superseded by Phase 0's freeform fast path. Set ticket type to "feature" unless the operator's description indicates otherwise.
+No ticket to fetch. **Use `normalized_input.freeform_task` as the ticket content** for all downstream phases. The pre-existing operator prompt is superseded by Phase 0's freeform fast path. Set ticket type to "feature" unless the operator's description indicates otherwise. Set `PRIOR_QA_COMMENTS=[]` and `COMMENT_THREAD_SUMMARY=""`.
 
 ---
 
@@ -604,6 +655,44 @@ The scan never blocks more than one turn. Proceed to Phase 3 after the response 
 
 ---
 
+## Phase 2c: Tracker state discovery (conditional)
+
+Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the tracker's workflow states once, cache them, and validate the configured `TRACKER_STATE_*` names so misconfigurations surface as a warning at planning time rather than as a silent no-op transition at runtime.
+
+**Cache check.** Read `.agentic/tracker-states.json` if present. Use the cache when ALL hold: file exists, `fetched_at` is within 24 hours of now, `tracker` matches the resolved `TRACKER`, and `workspace` matches the resolved workspace/base-url. Otherwise fetch fresh.
+
+**Fetch.**
+- Linear: call `mcp__linear__list_workflow_states` (filter by the resolved team when available). Collect `{id, name, type}` for each state.
+- Jira: call `mcp__mcp-atlassian__jira_get_transitions` on a probe ticket (the first unresolved ticket in the batch, or `$TICKET_PREFIX-1` as a fallback probe). On 404 or error, fall back to an empty state list and skip validation. Map each transition's target status to `{id, name, type}` where `type` derives from the status category (`new`->`unstarted`, `indeterminate`->`started`, `done`->`completed`).
+
+**Write cache** atomically (tmp + `mv`) to `.agentic/tracker-states.json`:
+
+```json
+{
+  "fetched_at": "<ISO8601 UTC>",
+  "tracker": "linear|jira",
+  "workspace": "<workspace-slug-or-base-url>",
+  "states": [{"id": "...", "name": "In Progress", "type": "started"}],
+  "warnings": []
+}
+```
+
+`.agentic/tracker-states.json` is a runtime cache, gitignored under the `.agentic/` umbrella (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
+
+**Validate.** For each of the 5 resolved `TRACKER_STATE_*` values, look for an exact (case-insensitive) name match in `states[].name`. For each miss, compute the closest match by case-insensitive Levenshtein distance and emit one operator-visible warning:
+
+```
+WARNING: configured state '<name>' not found in <tracker> workflow. Closest match: '<closest>'. Proceeding with configured name - transition may be silently skipped at runtime.
+```
+
+Append each warning to the cache's `warnings[]` array. Do NOT block execution.
+
+**Soft-fail.** Any MCP/API error during fetch is logged and the phase proceeds (no cache write on fetch failure; validation skipped). Never block planning on tracker discovery.
+
+Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses=<N>]`
+
+---
+
 ## Phase 3: Architecture plan
 
 Spawn an `architect` agent. Provide:
@@ -627,6 +716,29 @@ Ask the architect for:
 2. Which units of work can be done **in parallel** vs must be **sequential**
 3. Any risks, gotchas, or ambiguities that need resolution before coding
 4. The appropriate adversarial brief type for Skeptic review (security, logic, performance, data integrity, etc.)
+
+**Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
+
+Append the following section to the architect spawn brief when `COMMENT_THREAD_SUMMARY` is non-empty:
+
+```
+## Prior ticket context
+
+The following is a summary of comments on this ticket (up to 2000 characters):
+
+[COMMENT_THREAD_SUMMARY]
+```
+
+When `PRIOR_QA_COMMENTS` is non-empty, prepend the following callout immediately before the comment summary:
+
+```
+PRIOR QA FAILURES DETECTED. The following comments indicate prior QA failures on this ticket:
+[bullet list of each PRIOR_QA_COMMENTS entry]
+
+Factor these into the implementation plan. Ensure the plan explicitly addresses each prior QA failure point.
+```
+
+Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
 
 **Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `METHODOLOGY.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
@@ -729,12 +841,39 @@ Read the orchestration-planner's output to make the routing determination below 
 
 ### If work is a single logical unit (or units must be sequential):
 
+**Tracker writeback (W1):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the engineer spawn below.
+
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
+
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
 - The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit
 - The branch name to work on
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
+
+**Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
+
+When `COMMENT_THREAD_SUMMARY` is non-empty, append the following section to the engineer spawn brief:
+
+```
+## Prior ticket context
+
+The following is a summary of comments on this ticket (up to 2000 characters):
+
+[COMMENT_THREAD_SUMMARY]
+```
+
+When `PRIOR_QA_COMMENTS` is non-empty, prepend the following callout immediately before the comment summary:
+
+```
+PRIOR QA FAILURES DETECTED. The following comments indicate prior QA failures on this ticket:
+[bullet list of each PRIOR_QA_COMMENTS entry]
+
+Ensure your implementation addresses each prior QA failure point explicitly.
+```
+
+Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
 
 **Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: "worktree"` (see METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.
 
@@ -767,6 +906,10 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
+
+**Tracker writeback (W1 — Trivial path):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the Trivial engineer spawn.
+
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS | path: trivial]
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -879,6 +1022,10 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 ## Phase 6: Skeptic review
 
 **Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $REPO diff origin/$BASE_BRANCH..HEAD`). This is a full-picture review that catches cross-unit interactions the per-unit Skeptics could not see (emergent behaviors, combined diff scope). Phase 6 is NOT skipped for the `per-unit` strategy.
+
+**Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
+
+[phase: tracker-writeback | site: W2 | target: $TRACKER_STATE_IN_REVIEW | iter: 1]
 
 Spawn a `skeptic` agent with:
 - The adversarial brief type identified by the architect
@@ -1051,7 +1198,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 **Telemetry emit (V1):** Bracket the Engineer Task tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Emit escalation format. Stop. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
 - Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -1160,6 +1307,10 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
+**Tracker writeback (W3)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first qa-engineer spawn in Phase 6b, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_QA`, `forward_only_guard: true`. Fire-and-forget.
+
+[phase: tracker-writeback | site: W3 | target: $TRACKER_STATE_QA | iter: 1]
+
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
 **Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
@@ -1181,12 +1332,31 @@ The following failures were identified and fix attempts were made in earlier ite
 - Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
 
 **Step 3. Termination check:**
-- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Exit loop cleanly. Proceed to Phase 7.
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
 
+**QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
+
+```
+Look for a fenced block whose info string is exactly `qa-screenshots-json`, regardless of whether
+the fence character is backticks (```) or tildes (~~~). Either of the following forms is valid:
+
+  ```qa-screenshots-json
+  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
+  ```
+
+  ~~~qa-screenshots-json
+  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
+  ~~~
+
+Match by the info string `qa-screenshots-json`; do not require a specific fence character.
+```
+
+Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
+
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and hallucinates; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Escalate immediately. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
 **Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -1252,7 +1422,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 8. Verify the fix engineer's `quality_gate_results`.
    - If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
    - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.
-   - If it still fails AND cycle count == 3: set `status=stalled`. Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
+   - If it still fails AND cycle count == 3: set `status=stalled`. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
 
 **Convergence short-circuit (test runners only).** If the quality gate is a test runner (pytest, jest, vitest, cargo test, etc.) AND the set of failing test IDs in `quality_gate_results.failures[]` is identical to the set from the immediately preceding cycle (the engineer made no progress on the failing tests), escalate immediately without consuming remaining cycles. Surface the stalled test IDs and both cycle outputs to the human. This short-circuit applies ONLY to test runners with structured `failures[]` output. For lint (eslint, ruff, etc.) and typecheck (tsc, mypy, pyright, etc.) gates, rely solely on the 3-cycle limit - do not attempt a short-circuit.
 
@@ -1286,6 +1456,148 @@ git -C $REPO push -u origin [BRANCH_NAME]
 ```
 
 Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
+
+---
+
+## Phase 8.5: QA evidence (conditional)
+
+**Skip conditions (all must be false for phase to run):**
+- QA was skipped (`qa_skip != null`) or the ticket is Trivial
+- `QA_SCREENSHOT_PATHS` is empty (`()`)
+- `gh` or `jq` is unavailable (`which gh jq` fails)
+
+When any skip condition is true, set `QA_EVIDENCE_URLS=()` and proceed directly to Phase 9.
+
+**Goal:** commit PASS screenshots to a long-lived orphan `qa-evidence` branch on GitHub under the deterministic path `<TICKET_SLUG>/<BRANCH_SLUG>/<filename>`, build click-through evidence URLs, and emit them into the PR body. The branch is never merged to main; it is a parallel evidence store.
+
+**Slug derivation:**
+- `TICKET_SLUG`: `$TICKET_ID` lowercased, non-alphanum replaced with hyphens (e.g. `eng-123`)
+- `BRANCH_SLUG`: `$BRANCH_NAME` with leading `feature/`, `fix/`, `chore/` stripped; remaining slashes replaced with hyphens
+
+**Copy screenshots to a stable temp directory:**
+
+```bash
+SCREENSHOTS_SRC="/tmp/qa-evidence-$$"
+mkdir -p "$SCREENSHOTS_SRC"
+# Copy each path from QA_SCREENSHOT_PATHS into $SCREENSHOTS_SRC
+# (QA_SCREENSHOT_PATHS is a bash array; entries are JSON objects from Phase 6b parse)
+for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+  SRC_PATH=$(echo "$entry" | jq -r '.path')
+  cp "$SRC_PATH" "$SCREENSHOTS_SRC/" 2>/dev/null || true
+done
+# If nothing copied, treat as skip
+[ "$(ls -A "$SCREENSHOTS_SRC")" ] || { QA_EVIDENCE_URLS=(); rm -rf "$SCREENSHOTS_SRC"; proceed to Phase 9; }
+```
+
+**Check whether `qa-evidence` branch already exists on remote:**
+
+```bash
+REMOTE_EXISTS=$(git -C "$REPO" ls-remote --heads origin qa-evidence | wc -l)
+```
+
+**First-create path (branch does not exist on remote):**
+
+Create a scratch clone in `/tmp` to bootstrap the orphan branch. `$SCREENSHOTS_SRC` lives in `/tmp` (outside the clone) so `reset --hard` never destroys the source.
+
+```bash
+TEMP_CLONE="/tmp/qa-evidence-clone-$$"
+git clone --depth=1 "$REPO" "$TEMP_CLONE"
+git -C "$TEMP_CLONE" checkout --orphan qa-evidence
+git -C "$TEMP_CLONE" rm -rf . 2>/dev/null || true
+mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
+cp -r "$SCREENSHOTS_SRC"/. "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
+git -C "$TEMP_CLONE" add .
+git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
+
+# RACE RECOVERY LOOP: handles concurrent first-creators racing on the orphan root
+PUSH_SUCCEEDED_FIRST_CREATE=false
+for i in 1 2 3; do
+  if git -C "$TEMP_CLONE" push origin qa-evidence; then
+    PUSH_SUCCEEDED_FIRST_CREATE=true
+    break
+  fi
+  # push rejected — a concurrent creator won; adopt the landed history
+  git -C "$TEMP_CLONE" fetch origin qa-evidence
+  git -C "$TEMP_CLONE" reset --hard origin/qa-evidence   # adopts remote history; wipes worktree
+  mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"      # recreate dest dir destroyed by reset
+  cp -r "$SCREENSHOTS_SRC"/. "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
+  git -C "$TEMP_CLONE" add .
+  git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
+done
+
+rm -rf "$TEMP_CLONE"
+```
+
+After temp-clone push succeeds, fetch the updated remote-tracking ref into the main repo:
+
+```bash
+git -C "$REPO" fetch origin qa-evidence
+```
+
+**Steady-state path (branch already exists on remote):**
+
+Add a detached-HEAD worktree pointing at `origin/qa-evidence`, copy files, and push using the `HEAD:qa-evidence` refspec (mandatory because the worktree is on a detached HEAD - `push origin qa-evidence` would be a no-op in this state).
+
+```bash
+WORKTREE_PATH="$REPO/.agentic/worktrees/qa-evidence-$$"
+git -C "$REPO" fetch origin qa-evidence
+git -C "$REPO" worktree add "$WORKTREE_PATH" origin/qa-evidence   # detached HEAD
+
+mkdir -p "$WORKTREE_PATH/$TICKET_SLUG/$BRANCH_SLUG/"
+cp -r "$SCREENSHOTS_SRC"/. "$WORKTREE_PATH/$TICKET_SLUG/$BRANCH_SLUG/"
+git -C "$WORKTREE_PATH" add .
+git -C "$WORKTREE_PATH" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
+
+# CRITICAL: worktree is on a detached HEAD; must use HEAD:qa-evidence refspec
+PUSH_SUCCEEDED_STEADY=false
+for i in 1 2 3; do
+  if git -C "$WORKTREE_PATH" push origin HEAD:qa-evidence; then
+    PUSH_SUCCEEDED_STEADY=true
+    break
+  fi
+  git -C "$WORKTREE_PATH" fetch origin qa-evidence
+  git -C "$WORKTREE_PATH" rebase origin/qa-evidence
+done
+
+git -C "$REPO" worktree remove "$WORKTREE_PATH" --force 2>/dev/null || true
+git -C "$REPO" worktree prune 2>/dev/null || true
+```
+
+**Build `QA_EVIDENCE_URLS` (only after push succeeds):**
+
+Build `QA_EVIDENCE_URLS` only when the push in the active path succeeded. `$GH_REPO` is the repo slug resolved at Phase 0 setup (e.g. `org/repo-name`, same variable used throughout the command). Use `jq -n --arg` to safely interpolate description strings that may contain quotes or special characters.
+
+```bash
+# PUSH_SUCCEEDED is true only if the first-create or steady-state push loop above exited with success
+PUSH_SUCCEEDED="${PUSH_SUCCEEDED_FIRST_CREATE:-${PUSH_SUCCEEDED_STEADY:-false}}"
+
+QA_EVIDENCE_URLS=()
+if [ "$PUSH_SUCCEEDED" = "true" ]; then
+  OWNER=$(echo "$GH_REPO" | cut -d/ -f1)
+  REPO_NAME=$(echo "$GH_REPO" | cut -d/ -f2)
+  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+    FNAME=$(basename "$(echo "$entry" | jq -r '.path')")
+    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+    DESC=$(echo "$entry" | jq -r '.description')
+    RESULT=$(echo "$entry" | jq -r '.result')
+    URL="https://github.com/${OWNER}/${REPO_NAME}/blob/qa-evidence/${TICKET_SLUG}/${BRANCH_SLUG}/${FNAME}"
+    # Use jq --arg to safely encode description (handles quotes and special chars)
+    ENTRY_JSON=$(jq -n --arg url "$URL" --arg cid "$CRITERION" --arg d "$DESC" --arg r "$RESULT" \
+      '{"url":$url,"criterion_id":$cid,"description":$d,"result":$r}')
+    QA_EVIDENCE_URLS+=("$ENTRY_JSON")
+  done
+fi
+```
+
+If any step in the above sequence fails (push fails after 3 retries, worktree creation fails, copy fails), `QA_EVIDENCE_URLS` remains `()` (empty) and the phase continues. Phase 8.5 is always soft-fail - do not block Phase 9.
+
+Clean up temp dir:
+
+```bash
+rm -rf "$SCREENSHOTS_SRC" 2>/dev/null || true
+```
+
+Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]`
 
 ---
 
@@ -1341,6 +1653,44 @@ EOF
 For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
 
 Capture the PR number from the URL printed by `gh pr create`.
+
+**QA Evidence section (append to PR body after `gh pr create`).**
+
+After the PR is created, append a `## QA Evidence` section to the PR body based on the state of `QA_EVIDENCE_URLS`. Use a temp file (not stdin) to avoid shell escaping issues:
+
+```bash
+PR_BODY_APPEND_FILE="/tmp/qa-evidence-pr-body-$$"
+
+# Case 1: QA ran and evidence URLs are available
+if [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
+  printf "## QA Evidence\n\n" > "$PR_BODY_APPEND_FILE"
+  for entry in "${QA_EVIDENCE_URLS[@]}"; do
+    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+    DESC=$(echo "$entry" | jq -r '.description')
+    RESULT=$(echo "$entry" | jq -r '.result')
+    URL=$(echo "$entry" | jq -r '.url')
+    printf -- "- **%s** %s - [screenshot](%s)\n" "$CRITERION" "$RESULT" "$URL" >> "$PR_BODY_APPEND_FILE"
+  done
+
+# Case 2: QA ran (PASS) but no evidence URLs (push failed, or ran with no screenshots captured)
+# Covers: push failed after retries, AND also the case where QA passed but captured zero screenshots.
+# Does NOT fire when QA was skipped (QA_RAN_AND_PASSED is "false" in that case).
+elif [ "$QA_RAN_AND_PASSED" = "true" ]; then
+  printf "> QA ran (PASS) but no screenshot evidence is available (push failed or no screenshots were captured).\n" > "$PR_BODY_APPEND_FILE"
+
+# Case 3: QA was skipped or not configured (QA_RAN_AND_PASSED is "false")
+else
+  printf "> QA skipped or not configured for this ticket (see qa_criteria in architect plan).\n" > "$PR_BODY_APPEND_FILE"
+fi
+
+# Fetch existing body and append
+EXISTING_BODY=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+printf "%s\n\n%s" "$EXISTING_BODY" "$(cat "$PR_BODY_APPEND_FILE")" > "/tmp/qa-evidence-full-body-$$"
+gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
+rm -f "$PR_BODY_APPEND_FILE" "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
+```
+
+`QA_RAN_AND_PASSED` is set to `"true"` when Phase 6b exited cleanly (`termination_reason: clean`). Set it in Phase 6b on clean exit, alongside the `QA_SCREENSHOT_PATHS` parse. Soft-fail: if any step fails (gh pr edit, body fetch), do not block Phase 10.
 
 ---
 
@@ -1415,8 +1765,8 @@ Mirrors Phase 7's quality-gate retry loop, but targets CI failures detected post
 6. **Cap exceeded (3 cycles without all-pass):**
    - Write `last_phase: ci_loop, last_phase_action: cap_exceeded` to loop-state.
    - Print summary of failing checks + each cycle's outcome.
+   - **Tracker writeback (W6b):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6b | target: $TRACKER_STATE_BLOCKED | escalation: ci-fix-loop-cap]`
    - STOP. Human investigates.
-   - Note: PR 2 will add a tracker-status writeback to BLOCKED here. For now, just escalate to human with the failing-check summary.
 
 Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 
@@ -1474,12 +1824,16 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > - `PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`
 > - `TEST_URL`: extracted from CI (or the literal string `pending — see PR` if Phase 10 timed out)
 > - `qa_summary`: 1-2 sentences on what specifically to test and any known limitations from the Skeptic review
-> - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured); transition target `Testing` (or team equivalent)
+> - `target_state`: `$TRACKER_STATE_QA` (resolved in Setup; defaults to `"Testing"` for Linear, `"QA"` for Jira)
+> - `forward_only_guard`: `true`
+> - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured)
 > - For Jira: `JIRA_QA_TRANSITION` (optional - omit if not configured); `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional - omit if not configured)
 >
+> For the full brief shape governing this subagent (state pre-read, forward-only guard semantics, skip conditions, soft-fail), see the `## Tracker Writeback Helper` block above.
+>
 > **Behavior:**
-> - **Linear:** Call `mcp__linear__save_issue` with `state: "Testing"` (or equivalent) and `assigneeId` only when configured. Then call `mcp__linear__save_comment` with the comment body below.
-> - **Jira:** Call `mcp__mcp-atlassian__jira_get_transitions` to discover available transitions, then `mcp__mcp-atlassian__jira_transition_issue` (only if `JIRA_QA_TRANSITION` configured AND the name matches an available transition - log and skip on miss). Update assignee via `mcp__mcp-atlassian__jira_update_issue` (only if configured). Post the comment via `mcp__mcp-atlassian__jira_add_comment`. Failures on transition or assignee are logged and the spawn proceeds to the comment - the comment is higher value than the status change.
+> - **Linear:** Apply forward-only guard (pre-read current state, skip if already at or past `target_state` rank). Call `mcp__linear__save_issue` with `state: $TRACKER_STATE_QA` and `assigneeId` only when configured. Then call `mcp__linear__save_comment` with the comment body below.
+> - **Jira:** Apply forward-only guard (pre-read current status via `mcp__mcp-atlassian__jira_get_issue`, skip if already at or past `target_state`). Call `mcp__mcp-atlassian__jira_get_transitions` to discover available transitions, then `mcp__mcp-atlassian__jira_transition_issue` to `$TRACKER_STATE_QA` (only if `JIRA_QA_TRANSITION` configured AND the name matches an available transition - log and skip on miss). Update assignee via `mcp__mcp-atlassian__jira_update_issue` (only if configured). Post the comment via `mcp__mcp-atlassian__jira_add_comment`. Failures on transition or assignee are logged and the spawn proceeds to the comment - the comment is higher value than the status change.
 >
 > **Comment body template:**
 >
@@ -1496,11 +1850,47 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 >
 > **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed", errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`.
 
+**Screenshot attachment upload (Linear and Jira, opt-in).** After the main tracker comment is posted, if `screenshot_upload: true` is set in `.agentic/qa.md` AND `QA_SCREENSHOT_PATHS` is non-empty, the tracker-writeback subagent also uploads the PASS screenshots as native attachments. Pass the following additional inputs to the subagent:
+
+- `screenshot_upload: true` (flag; only when qa.md `screenshot_upload: true` AND paths non-empty)
+- `qa_screenshot_paths`: the `QA_SCREENSHOT_PATHS` array (PASS entries only)
+
+**Subagent behavior for screenshot upload:**
+
+**Linear upload (when `TRACKER=linear`):**
+1. For each screenshot in `qa_screenshot_paths`, call the `fileUpload` mutation with `contentType: "image/png"` and `filename: <basename>`. Fields requested: `uploadFile { uploadUrl assetUrl headers { key value } }`. The token is `LINEAR_API_KEY` (env var).
+2. PUT the file bytes to `uploadFile.uploadUrl` with all headers from `uploadFile.headers` (e.g. `Content-Type`).
+3. Build a comment body containing `![<description>](<uploadFile.assetUrl>)` for each screenshot - uses `assetUrl` (the permanent URL), never `uploadUrl` (which is the expiring PUT target). Post the comment via `mcp__linear__save_comment`.
+4. Graceful-skip on any `fileUpload` mutation error (the mutation is schema-confirmed but behavioral details may change). If upload fails, post a plain comment noting that screenshots were available but upload failed.
+
+**Jira upload (when `TRACKER=jira`):**
+1. For each screenshot in `qa_screenshot_paths`, `POST /rest/api/3/issue/{key}/attachments` as multipart form data. Required headers: `X-Atlassian-Token: no-check`, `Authorization: Basic base64(<JIRA_USER_EMAIL>:<JIRA_API_TOKEN>)`. The response is an array of `Attachment` objects; capture `attachment[0].content` (authenticated download URL) and `attachment[0].filename`.
+2. ADF inline embedding is NOT attempted (Atlassian Media API UUID is not available from standard Jira REST v3 credentials - see plan §Verified API facts). Instead, post an ADF comment with a plain-text paragraph for each screenshot:
+   ```json
+   {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"QA Evidence - PASS: <filename> (<content_url>)"}]}]}}
+   ```
+   The `content_url` is `attachment[0].content` (authenticated download URL, click-through for Jira users - NOT an inline image). This is the maximum fidelity achievable without a separate Media API integration.
+3. Credentials absent (`JIRA_USER_EMAIL` or `JIRA_API_TOKEN` env var missing): skip upload, post a plain comment noting skipped upload.
+
+**Gating:** upload only fires when BOTH `screenshot_upload: true` (qa.md field) AND `qa_screenshot_paths` is non-empty AND credentials/tool are available. Credentials or capability absent: skip upload, the main tracker comment still posts with a note: `"(QA screenshots available but upload skipped - set JIRA_USER_EMAIL+JIRA_API_TOKEN or LINEAR_API_KEY env vars and screenshot_upload: true in qa.md to enable attachment upload.)"`. Soft-fail throughout: upload errors never block the tracker comment.
+
 #### If TRACKER is `none`
 
-Skip Phase 11 entirely. Print: "No tracker configured — skipping ticket update. PR is open at: https://github.com/[GH_REPO]/pull/[PR_NUMBER]"
+Skip Phase 11 entirely. Print: "No tracker configured - skipping ticket update. PR is open at: https://github.com/[GH_REPO]/pull/[PR_NUMBER]"
 
 (This sub-section is conductor-direct - it is a print, not delegable.)
+
+**qa.md `screenshot_upload` field.** The `screenshot_upload: true` field in `.agentic/qa.md` opts the project in to native tracker attachment upload of QA screenshots. When absent or `false`, Phase 11 screenshot upload is skipped. Example qa.md entry:
+
+```yaml
+screenshot_upload: true
+```
+
+Required env vars for upload:
+- Linear: `LINEAR_API_KEY`
+- Jira: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
+
+These are the same credentials used for existing tracker writebacks. No new credential types are introduced.
 
 ---
 
@@ -1571,8 +1961,15 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
 
   if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
-    gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null
-    echo "[phase: auto-merged | pr=$PR_NUMBER]"
+    if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
+      echo "[phase: auto-merged | pr=$PR_NUMBER]"
+      # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
+      # with target_state: $TRACKER_STATE_DONE, forward_only_guard: true.
+      # Fire-and-forget. Fires ONLY when merge succeeded (this branch).
+      # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
+    else
+      echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
+    fi
   else
     echo "[phase: auto-merge-skipped | isDraft=$IS_DRAFT mergeable=$MERGEABLE reviewDecision=$REVIEW_DECISION]"
   fi
@@ -1582,7 +1979,11 @@ else
 fi
 ```
 
-The `Note:` line is a forward-reference to PR 4's `/ticket-status-sync` command. In PR 1 it is just a hint; PR 4 lands the actual command.
+**Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check). If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DONE`, `forward_only_guard: true`. Fire-and-forget.
+
+[phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
+
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
 
 ---
 

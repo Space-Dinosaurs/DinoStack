@@ -30,6 +30,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -121,6 +122,31 @@ overfitting edit."""
 def _format_instructions(component: str, whole_file_mode: bool) -> str:
     """Return the output-format instructions for the editor program template."""
     return _WHOLE_FILE_MODE_INSTRUCTIONS if whole_file_mode else _DIFF_MODE_INSTRUCTIONS
+
+
+_FENCE_RE = re.compile(r'^```')
+
+
+def _normalise_headings(text: str) -> str:
+    """Normalise markdown heading lines in prose sections of editor output.
+
+    Only touches lines outside fenced code blocks so diff and file content
+    are preserved verbatim. Converts ``## Foo`` and ``**Foo**`` lines to
+    plain lowercase text so downstream extractors match regardless of LLM
+    formatting choice.
+    """
+    out: list = []
+    in_fence = False
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\n\r")
+        if _FENCE_RE.match(bare.strip()):
+            in_fence = not in_fence
+            out.append(line)
+        elif not in_fence and re.match(r'^(?:#{1,6}\s|\*{1,2}\S)', bare.strip()):
+            out.append(apply_mod.normalise_heading(bare) + "\n")
+        else:
+            out.append(line)
+    return "".join(out)
 
 
 LEDGER_HEADER: tuple = (
@@ -431,7 +457,7 @@ def _one_iteration(
             "fatal": True,
         }
 
-    text = er.get("text") or ""
+    text = _normalise_headings(er.get("text") or "")
     is_whole_file = cfg.component_cfg.get("whole_file_replacement", False)
 
     if is_whole_file:

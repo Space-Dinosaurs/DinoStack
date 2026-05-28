@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic-Engineering vs. The Field: Master Comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@700&family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Aligned to agentic-engineering.html site tokens */
+    --bg-base:         #f8f4ea;
+    --bg-raised:       #f6f2ea;
+    --bg-surface:      #f3efe7;
+    --bg-overlay:      #f1ece1;
+    --bg-deep:         #f3eddc;
+
+    --border-faint:    #e0dbce;
+    --border-subtle:   #d4cebe;
+    --border-default:  #c4bdb0;
+
+    --text-bright:     #12131a;
+    --text-primary:    #1a1a1f;
+    --text-secondary:  #44474f;
+    --text-muted:      #4a4d58;
+    --text-dim:        #6b6f7a;
+
+    --gold:            #b5451f;
+    --gold-dim:        #d9c5b8;
+    --gold-glow:       rgba(181, 69, 31, 0.07);
+    --gold-glow-strong:rgba(181, 69, 31, 0.12);
+
+    --green:           #2d5a3d;
+    --violet:          #5a3d8a;
+    --cyan:            #1a5a7a;
+    --rose:            #a83a2a;
+
+    /* Pill status colors */
+    --status-yes:      #2d5a3d;
+    --status-partial:  #8a5a0f;
+    --status-no:       #9a948a;
+
+    --radius-sm:  3px;
+    --radius-md:  5px;
+    --radius-lg:  8px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  a {
+    color: var(--gold);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(181, 69, 31, 0.3);
+  }
+  a:hover { border-bottom-color: var(--gold); }
+
+  h1, h2, h3 {
+    color: var(--text-primary);
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* Back-to-site link */
+  .topbar {
+    border-bottom: 1px solid var(--border-faint);
+    background: var(--bg-deep);
+  }
+  .topbar .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+  .topbar .brand {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    border: none;
+  }
+  .topbar .back {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--text-muted);
+    border: none;
+  }
+  .topbar .back:hover { color: var(--gold); }
+
+  /* Hero */
+  .hero {
+    padding: 72px 0 52px;
+    border-bottom: 3px solid var(--gold);
+  }
+  .hero .wrap { max-width: 880px; }
+  .eyebrow {
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gold);
+    margin: 0 0 18px;
+  }
+  .hero h1 {
+    font-size: 46px;
+    margin: 0 0 28px;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+  }
+  .hero .lede {
+    font-size: 21px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    margin: 0 0 22px;
+  }
+  .hero .lede:last-of-type { margin-bottom: 0; }
+  .hero .lede strong { color: var(--text-bright); }
+
+  /* Section scaffolding */
+  section { padding: 60px 0; }
+  section.alt { background: var(--bg-surface); }
+  .section-head {
+    margin: 0 0 8px;
+    font-size: 30px;
+    letter-spacing: -0.03em;
+  }
+  .section-sub {
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    margin: 0 0 34px;
+    max-width: 760px;
+  }
+
+  /* At a glance cards */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 22px;
+  }
+  .card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-faint);
+    border-left: 4px solid var(--gold);
+    border-radius: var(--radius-lg);
+    padding: 24px 24px 22px;
+    box-shadow: 0 1px 2px rgba(26, 26, 31, 0.04);
+  }
+  .card h3 {
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+  .card .identity {
+    color: var(--text-muted);
+    font-size: 14.5px;
+    margin: 0 0 16px;
+  }
+  .card .row { margin: 0 0 12px; }
+  .card .row:last-of-type { margin-bottom: 0; }
+  .card .label {
+    display: block;
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--gold);
+    margin-bottom: 2px;
+  }
+  .card .row.win .label { color: var(--green); }
+  .card .val { font-size: 15px; line-height: 1.5; }
+
+  /* Tables */
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border-faint);
+    border-radius: var(--radius-lg);
+    background: var(--bg-raised);
+    -webkit-overflow-scrolling: touch;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 860px;
+    font-size: 14.5px;
+  }
+  caption { display: none; }
+  th, td {
+    text-align: left;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--border-faint);
+    vertical-align: top;
+    line-height: 1.45;
+  }
+  thead th {
+    background: var(--bg-overlay);
+    color: var(--text-primary);
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    position: sticky;
+    top: 0;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  /* first column = criterion labels */
+  tbody th[scope="row"] {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  /* AE anchor column = 2nd column (1st data col) */
+  th.ae, td.ae {
+    background: var(--gold-glow);
+    border-left: 3px solid var(--gold);
+    border-right: 1px solid var(--border-faint);
+  }
+  thead th.ae { background: var(--gold-glow-strong); color: var(--gold); }
+  tbody th[scope="row"] + td.ae { font-weight: 500; }
+
+  /* Pills for capability table */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+  }
+  .pill.check .dot { background: var(--status-yes); }
+  .pill.partial .dot { background: var(--status-partial); }
+  .pill.dash .dot { background: var(--status-no); }
+  .pill.dash { color: var(--text-muted); }
+  .pill .note { color: var(--text-muted); font-size: 12.5px; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin: 0 0 22px;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+  .legend .pill { font-weight: 500; color: var(--text-primary); }
+
+  /* Prose blocks */
+  .prose { max-width: 820px; }
+  .prose h3 {
+    font-size: 21px;
+    margin: 34px 0 10px;
+  }
+  .prose h3:first-child { margin-top: 0; }
+  .prose p { margin: 0 0 16px; }
+  .prose code {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg-overlay);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    font-size: 0.92em;
+  }
+  .prose .win {
+    color: var(--gold);
+    font-weight: 600;
+  }
+
+  .callout {
+    max-width: 820px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-faint);
+    border-left: 4px solid var(--cyan);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    margin: 28px 0 0;
+    font-size: 15px;
+    color: var(--text-muted);
+  }
+  .callout strong { color: var(--text-primary); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; max-width: 980px; }
+  .two-col h3 { font-size: 20px; margin: 0 0 12px; }
+  .two-col ul { margin: 0; padding-left: 20px; }
+  .two-col li { margin-bottom: 11px; line-height: 1.5; }
+  .two-col .right li::marker { color: var(--text-muted); }
+  .two-col .left li::marker { color: var(--gold); }
+  .conviction {
+    max-width: 820px;
+    margin: 36px 0 0;
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  /* Sources */
+  .sources ul { list-style: none; padding: 0; margin: 0; max-width: 900px; }
+  .sources li {
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border-faint);
+    font-size: 15px;
+  }
+  .sources li:last-child { border-bottom: none; }
+  .sources .src-title { font-weight: 500; color: var(--text-primary); }
+  .sources .desc { color: var(--text-muted); }
+
+  /* Footer */
+  footer {
+    padding: 40px 0 56px;
+    border-top: 1px solid var(--border-faint);
+    color: var(--text-muted);
+    font-size: 13.5px;
+  }
+  footer .wrap { font-family: 'DM Mono', monospace; }
+  footer code {
+    background: var(--bg-overlay);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+  }
+
+  @media (max-width: 720px) {
+    body { font-size: 16px; }
+    .hero { padding: 56px 0 40px; }
+    .hero h1 { font-size: 34px; }
+    .hero .lede { font-size: 18px; }
+    section { padding: 44px 0; }
+    .section-head { font-size: 25px; }
+    .two-col { grid-template-columns: 1fr; gap: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="agentic-engineering.html">Agentic Engineering</a>
+    <a class="back" href="agentic-engineering.html">&larr; back to overview</a>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Master Comparison &middot; Agentic-Frameworks</p>
+    <h1>Agentic-Engineering vs. The Field</h1>
+    <p class="lede">Agentic-engineering is a multi-agent orchestration methodology for Claude Code that bets <strong>correctness over speed</strong>: a conductor decomposes work, spawns named specialist subagents, and routes anything risky through an independent adversarial reviewer that never sees the implementer's reasoning. It is built as plain markdown and folders with a thin code shell, so it shares its substrate with the lighter single-agent methodologies it competes with. It is the strongest option when work is concurrent, correctness-critical, and multi-step. It is the wrong tool when the job is cheap, sequential, and reviewed by a human at every step, where a single agent with the right context wins outright.</p>
+    <p class="lede">This doc positions agentic-engineering (AE) against the alternatives already researched in this workspace and is honest about where each competitor legitimately wins. ICM/MWP is simpler for solo sequential human-reviewed work. In-context prompting beats orchestration on a single procedural task. GSD ships product faster for a solo developer. None of that is hidden here, because the positioning is only credible if the tradeoffs are real.</p>
+  </div>
+</header>
+
+<section class="alt">
+  <div class="wrap">
+    <h2 class="section-head">At a glance</h2>
+    <p class="section-sub">One card per alternative: what it is, what it is best at, and where AE wins.</p>
+    <div class="cards">
+
+      <div class="card">
+        <h3>ICM / MWP <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Van Clief)</span></h3>
+        <p class="identity">Single-agent methodology: folders + markdown one agent navigates for context</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Cheap, sequential, human-reviewed solo work; minimal infrastructure</span></div>
+        <div class="row win"><span class="label">Where AE wins</span><span class="val">Concurrency and adversarial correctness it deliberately leaves out</span></div>
+      </div>
+
+      <div class="card">
+        <h3>GSD <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(T&Acirc;CHES)</span></h3>
+        <p class="identity">Lightweight spec-driven framework for solo devs, cross-harness</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Shipping velocity, zero-config onboarding, project-level artifacts</span></div>
+        <div class="row win"><span class="label">Where AE wins</span><span class="val">Independent review, risk gates, specialist roles, audit trail</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Arize "Alex" <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Salian)</span></h3>
+        <p class="identity">Runtime context-management harness for long-running production agents</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Keeping one live agent under its token budget over long sessions</span></div>
+        <div class="row win"><span class="label">Where AE wins</span><span class="val">Build-time orchestration, risk classification, adversarial review</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Agentic OS <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Chase)</span></h3>
+        <p class="identity">Conversational skill framework: domains, Obsidian memory, button dashboard</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Approachable setup, human-navigable memory, non-technical accessibility</span></div>
+        <div class="row win"><span class="label">Where AE wins</span><span class="val">Verification, multi-agent orchestration, cost control</span></div>
+      </div>
+
+      <div class="card">
+        <h3>In-context prompting <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Melbourne paper)</span></h3>
+        <p class="identity">Put the whole procedure in the system prompt; let one model self-orchestrate</p>
+        <div class="row"><span class="label">Best at</span><span class="val">A single well-defined procedural conversational task</span></div>
+        <div class="row win"><span class="label">Where AE wins</span><span class="val">Concurrent, correctness-critical, multi-step work across files</span></div>
+      </div>
+
+      <div class="card">
+        <h3>120x architect-builder <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(ChatGPT+Codex)</span></h3>
+        <p class="identity">Solo operator's spec-and-handoff: LLM as planning architect, Codex/Claude Code as builder, folder is source of truth</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Non-coders building in-house tools via sequential human-reviewed sprints</span></div>
+        <div class="row win"><span class="label">Where AE wins</span><span class="val">Independent review, risk gates, automated parallel orchestration, audit trail</span></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 class="section-head">Table A &middot; Philosophy &amp; Approach</h2>
+    <p class="section-sub">Agentic-engineering is the anchor (first data column, tinted).</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Criterion</th>
+            <th scope="col" class="ae">Agentic-Engineering</th>
+            <th scope="col">ICM / MWP</th>
+            <th scope="col">GSD</th>
+            <th scope="col">Arize Alex</th>
+            <th scope="col">Agentic OS</th>
+            <th scope="col">In-context prompting</th>
+            <th scope="col">120x architect-builder</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Agent model</th>
+            <td class="ae">Multi-agent: conductor + ~16 named roles</td>
+            <td>Single agent</td>
+            <td>Multi-agent, phase-scoped functional roles</td>
+            <td>Main agent + sub-agents for data offload</td>
+            <td>Single agent, many skills</td>
+            <td>Single agent, self-orchestrating</td>
+            <td>Two-role, one operator: LLM architect + Codex/Claude Code builder</td>
+          </tr>
+          <tr>
+            <th scope="row">Review stance</th>
+            <td class="ae">Independent adversarial Skeptic; no self-review for Elevated work</td>
+            <td>Trusts one agent's output</td>
+            <td>Verifier in the same system (not adversarial)</td>
+            <td>Long-session evals; no per-output review</td>
+            <td>None</td>
+            <td>None</td>
+            <td>Architect sanity-checks builder, but in the chat that wrote the plan (not independent)</td>
+          </tr>
+          <tr>
+            <th scope="row">Substrate</th>
+            <td class="ae">Markdown + folders, thin code shell</td>
+            <td>Markdown + folders</td>
+            <td>Markdown artifacts + skills</td>
+            <td>Runtime memory store + truncation</td>
+            <td>Markdown + Obsidian vault</td>
+            <td>Serialized flowchart in the prompt</td>
+            <td>Markdown + folders (the 120x scaffold)</td>
+          </tr>
+          <tr>
+            <th scope="row">Infrastructure weight</th>
+            <td class="ae">None at runtime (stock Claude Code under the markdown)</td>
+            <td>None (explicitly rejects it)</td>
+            <td>Light (npx install, one config)</td>
+            <td>Memory store + retrieval tooling</td>
+            <td>Light (vault + dashboard)</td>
+            <td>None</td>
+            <td>None (folder convention + small scaffolding tool)</td>
+          </tr>
+          <tr>
+            <th scope="row">Human-in-loop assumption</th>
+            <td class="ae">Conductor directed by user; default-and-proceed elsewhere; hard stops on irreversible</td>
+            <td>Human reviews each step</td>
+            <td>Configurable: interactive or yolo</td>
+            <td>Human is the end user being served</td>
+            <td>Human triggers skills via dashboard</td>
+            <td>Human runs the conversation</td>
+            <td>Human is the orchestrator, routing every handoff and reviewing each sprint</td>
+          </tr>
+          <tr>
+            <th scope="row">Core conviction</th>
+            <td class="ae">LLMs are overconfident; correctness needs a second independent context</td>
+            <td>One good agent with the right context is enough</td>
+            <td>Put complexity in the system, not the workflow</td>
+            <td>Context decides what the model sees; memory decides what survives</td>
+            <td>Codify workflows into reusable skills</td>
+            <td>Frontier models hold the whole map; scaffolding hurts</td>
+            <td>Architect first, builder second; the folder is the handoff, never the chat</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2 class="section-head">Table B &middot; Outcomes &amp; Economics</h2>
+    <p class="section-sub">Where the methodologies pay off and what they cost.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Criterion</th>
+            <th scope="col" class="ae">Agentic-Engineering</th>
+            <th scope="col">ICM / MWP</th>
+            <th scope="col">GSD</th>
+            <th scope="col">Arize Alex</th>
+            <th scope="col">Agentic OS</th>
+            <th scope="col">In-context prompting</th>
+            <th scope="col">120x architect-builder</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Review rigor</th>
+            <td class="ae">Highest: mandatory fresh Skeptic on Elevated</td>
+            <td>Single-agent ceiling</td>
+            <td>Verifier present, not independent</td>
+            <td>Eval-driven, not per-change</td>
+            <td>None</td>
+            <td>None</td>
+            <td>Architect-reviews-builder loop, but same chat that planned it; no independent context</td>
+          </tr>
+          <tr>
+            <th scope="row">Token cost</th>
+            <td class="ae">Higher: each spawn re-hydrates a fresh context</td>
+            <td>Low: ICM cites 20-40% token reduction</td>
+            <td>Moderate: fresh subagent contexts</td>
+            <td>Reduced via truncation + offload</td>
+            <td>High: Claude API, no routing</td>
+            <td>Lowest for a single task</td>
+            <td>Moderate: architect-builder round-trips per sprint; creator concedes more tokens, fewer back-end errors</td>
+          </tr>
+          <tr>
+            <th scope="row">Speed / latency</th>
+            <td class="ae">Slower: review and orchestration tax</td>
+            <td>Fast for sequential solo work</td>
+            <td>Fast: parallel execute phase</td>
+            <td>Runtime concern, not build-time</td>
+            <td>Fast for knowledge work</td>
+            <td>Fastest: one call per turn</td>
+            <td>Slower: manual copy-paste handoffs and a spec-heavy front load</td>
+          </tr>
+          <tr>
+            <th scope="row">Parallelism</th>
+            <td class="ae">Extensive: parallel Workers, multi-dimensional review fan-out</td>
+            <td>None (single agent)</td>
+            <td>First-class in execute phase</td>
+            <td>Limited (sequential offload)</td>
+            <td>Not addressed</td>
+            <td>None</td>
+            <td>None (strictly sequential, one sprint at a time)</td>
+          </tr>
+          <tr>
+            <th scope="row">Setup overhead</th>
+            <td class="ae">Low to install (one-line bootstrap.sh + presets); deeper methodology to learn</td>
+            <td>Low: structure folders and markdown</td>
+            <td>Low: one npx command</td>
+            <td>Platform-coupled (Arize)</td>
+            <td>Low: one conversation</td>
+            <td>None</td>
+            <td>Low: small scaffolding tool generates folder + opening prompt; method is teachable in a 4-week cohort</td>
+          </tr>
+          <tr>
+            <th scope="row">Portability across harnesses</th>
+            <td class="ae">10 harness adapters (parity uneven; Claude Code fullest)</td>
+            <td>Harness-agnostic (markdown)</td>
+            <td>Claude Code, OpenCode, Gemini CLI, Cursor, Windsurf</td>
+            <td>Arize platform-coupled</td>
+            <td>Claude Code only</td>
+            <td>Any frontier model</td>
+            <td>Architect: ChatGPT or Claude; builder: Codex or Claude Code (tool-agnostic by design)</td>
+          </tr>
+          <tr>
+            <th scope="row">Determinism / resumability</th>
+            <td class="ae">Fixed phase sequences; loop-state resume across sessions</td>
+            <td>Not addressed</td>
+            <td>STATE.md project journal (not a phase cursor)</td>
+            <td>No cross-session memory yet</td>
+            <td>Not addressed</td>
+            <td>Not addressed</td>
+            <td>Folder state + named per-sprint chats; resume is manual via the updated scaffold</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 class="section-head">Table C &middot; Capabilities &amp; Features</h2>
+    <p class="section-sub">First-class capability, weaker/limited form, or absent.</p>
+    <div class="legend">
+      <span class="pill check"><span class="dot"></span>Present (first-class)</span>
+      <span class="pill partial"><span class="dot"></span>Partial (limited or weaker form)</span>
+      <span class="pill dash"><span class="dot"></span>Not present / not addressed</span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Capability</th>
+            <th scope="col" class="ae">Agentic-Engineering</th>
+            <th scope="col">ICM / MWP</th>
+            <th scope="col">GSD</th>
+            <th scope="col">Arize Alex</th>
+            <th scope="col">Agentic OS</th>
+            <th scope="col">In-context prompting</th>
+            <th scope="col">120x architect-builder</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Multi-agent orchestration</th>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(conductor + ~16 roles)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(phase-scoped functional agents)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(sub-agents for data offload)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(architect + builder split, but human-routed and sequential)</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Risk classification</th>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(Trivial/Low/Elevated, relaxed/default/strict)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(interactive/yolo session dial, not per-change)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Independent Skeptic review</th>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(fresh context, adversarial brief)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(verifier, same system)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(architect reviews builder, but in the planning chat, not independent)</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Planning artifacts</th>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(Brief/Plan, Open-Questions gate)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(decisions crystallized into files)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(PROJECT/REQUIREMENTS/ROADMAP)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(skill/domain map)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(per-sprint architect pack: requirements, blueprint, acceptance, handoff)</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Intent layer / memory</th>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(vision, requirements, AGENTS, MEMORY, decisions, glossary, manifests)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(intent crystallized into files)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(STATE/CONTEXT artifacts)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(memory store, no cross-session)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(Obsidian Raw/Wiki/Output)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(scaffold: AGENTS router, domain, decisions/house-rules, risks, questions, state)</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Worktree isolation</th>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(per-subagent git worktree)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(parallel, isolation unspecified)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Quality gates</th>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(lint/typecheck/test gate completion)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(verify step, acceptance)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(long-session evals)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(acceptance criteria + builder dry-run; no lint/typecheck/test gate)</span></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2 class="section-head">Per-alternative summaries</h2>
+    <div class="prose">
+
+      <h3>ICM / MWP (Jake Van Clief)</h3>
+      <p>Interpretable Context Methodology (the formal protocol is the Model Workspace Protocol, arXiv:2603.16021) structures plain folders and markdown that a single agent navigates for context, and rejects multi-agent frameworks, RAG, and orchestration servers as the wrong layer to automate. <span class="win">AE wins</span> on concurrency and correctness: ICM trusts one agent's output, while AE's whole reason to spawn a fresh Skeptic is that a single agent cannot review itself. ICM legitimately wins for cheap, sequential, human-reviewed solo work, where the orchestration tax buys nothing, and it reports a 20-40% token reduction. The cleanest framing is that they are complementary layers, not rivals: AE is built on the same markdown-and-folders substrate ICM preaches, with a governance layer on top that the substrate makes affordable.</p>
+
+      <h3>GSD (Get Shit Done)</h3>
+      <p>GSD is a lightweight spec-driven framework for solo developers who want to ship fast without enterprise overhead, working across Claude Code, OpenCode, Gemini CLI, Cursor, and Windsurf. It maintains a project-level roadmap and a running STATE journal that AE does not (AE has first-class vision and requirements docs but treats a roadmap and a project STATE journal as a deliberate non-goal), plus a yolo auto-approve mode and a <code>--next</code> step auto-runner. <span class="win">AE wins</span> on review independence (the Skeptic is a fresh context that cannot ratify reasoning it helped produce), per-change risk gates, specialist named roles, worktree isolation, and cross-session loop resume. The honest split: GSD is "ship my idea fast," AE is "don't ship a bug, and prove you didn't."</p>
+
+      <h3>Arize "Alex" (Salian)</h3>
+      <p>Alex is a production AI harness that solves runtime context-window limits with smart truncation (keep head and tail), an external memory store for the middle, and sub-agents that offload data-heavy work so the main conversation stays small. It operates at a different layer than AE: runtime inference management for a live agent serving users, versus AE's build-time orchestration for agents writing and reviewing code. <span class="win">AE wins</span> on risk classification before spawning and adversarial review of outputs, both of which Alex does heuristically or not at all. Alex legitimately leads on long-session evals (load 10 turns, test the 11th) and on a retrievable memory store, two patterns AE could borrow. The two are complementary, not competing.</p>
+
+      <h3>Agentic OS (Chase)</h3>
+      <p>Chase's Agentic OS is a conversational framework that turns Claude Code into a structured workspace: decompose work into domains, tasks, and skills built by voice dump, store knowledge in an Obsidian vault, and trigger skills from a button dashboard so non-technical users never touch the terminal. <span class="win">AE wins</span> on the verification gap (mandatory Skeptic, QA, sandboxed execution versus no quality control), multi-agent orchestration, and cost. Agentic OS legitimately wins on conversational onboarding, domain-level organization, and a human-navigable Obsidian memory front-end, which are real product gaps in a verification-first methodology.</p>
+
+      <h3>In-context prompting (Melbourne paper)</h3>
+      <p>A University of Melbourne paper shows that for procedural conversational tasks, a frontier model handed the entire flowchart in its system prompt outperforms the same model orchestrated through LangGraph, CrewAI, and similar frameworks across every domain and metric tested, sometimes by roughly 18x fewer failures. The diagnosis: orchestration fragments reasoning, introduces routing and handoff failure modes, and constrains the model's natural style. This is the strongest case against orchestration, but it is scoped: the result covers single procedural conversational tasks, not the concurrent, multi-file, correctness-critical work AE targets, and the authors concede scaffolding still earns its keep for weaker models, heavy real-world tool use, and safety constraints. <span class="win">AE wins</span> where the work is genuinely concurrent and correctness-critical; the paper's honest advice (try the in-context baseline first) is worth heeding before reaching for any orchestration on a single procedural task.</p>
+
+      <h3>120x architect-builder (ChatGPT+Codex)</h3>
+      <p>The 120x method (channel 120x-ai) is a solo operator's spec-and-handoff discipline: a large language model plays the planning "architect" that brainstorms, runs discovery, and emits a per-sprint "architect pack" (requirements, blueprint, acceptance criteria, handoff prompt), and Codex or Claude Code plays the "builder" that dry-runs and implements from the approved pack. The source of truth is a structured project folder of markdown, never the chat history. It shares AE's substrate (folders + markdown, a thin <code>AGENTS.md</code> router, cleaner-context-not-more) and AE's anti-vibe-coding thesis (never let the builder guess business rules), and it goes further than most solo workflows by splitting planning from building and adding an architect-reviews-builder loop. <span class="win">AE wins</span> on review independence (the 120x architect grades the builder inside the chat that authored the plan, so it catches builder drift but not spec blindness; AE's Skeptic is a fresh context that never saw the implementer's reasoning), per-change risk classification, automated parallel orchestration with worktree isolation, and a telemetry audit trail. The 120x method legitimately wins on reach and simplicity: it is teachable to non-coders in a four-week cohort, the manual human-in-the-loop sprint review is a feature for that audience, and it carries zero machinery for sequential work. Cleanest framing: 120x is what AE's spec discipline looks like before you automate the orchestration, make the reviewer independent, and gate the machinery on risk.</p>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 class="section-head">When agentic-engineering is the right choice (and when it isn't)</h2>
+    <div class="two-col">
+      <div class="left">
+        <h3 style="color:var(--gold);">AE shines when at least one holds</h3>
+        <ul>
+          <li><strong>Work is concurrent:</strong> multiple units can run in parallel and need coordination plus isolation.</li>
+          <li><strong>Correctness is non-negotiable:</strong> production systems, security or billing surfaces, irreversible operations.</li>
+          <li><strong>The change is multi-step or multi-file,</strong> where a single agent loses the thread or quietly ratifies its own mistakes.</li>
+          <li><strong>You want an audit trail:</strong> who decided what, what the Skeptic flagged, why a change was safe to ship.</li>
+        </ul>
+      </div>
+      <div class="right">
+        <h3>A lighter approach wins when cheap, sequential, solo, human-reviewed</h3>
+        <ul>
+          <li><strong>A single well-defined procedural task:</strong> use the in-context baseline; the Melbourne result says orchestration makes it worse.</li>
+          <li><strong>Solo sequential work a human checks as it goes:</strong> ICM/MWP's single-agent markdown navigation is simpler and 20-40% cheaper on tokens.</li>
+          <li><strong>Fast solo product iteration where speed beats correctness:</strong> GSD's velocity and zero-config onboarding fit better.</li>
+          <li><strong>Runtime context management for a live agent serving users:</strong> that is Arize Alex's layer, not AE's.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="conviction">The core conviction that separates AE from every single-agent option on this list: LLMs are systematically overconfident about their own output, so Elevated work has no self-review path and requires a second independent agent. If you do not believe that, or your tasks do not warrant it, one of the lighter methodologies above is the better fit, and this doc says so on purpose.</p>
+    <div class="callout">
+      <strong>Supporting context (not a head-to-head):</strong> an internal self-audit of AE against ten pillars of AI-enabled software engineering frames where AE is strong (review rigor, risk classification) and where it is thinner (cost and reviewer-quality feedback loops), and is useful background for the claims in this doc.
+    </div>
+  </div>
+</section>
+
+<section class="alt sources">
+  <div class="wrap">
+    <h2 class="section-head">Sources</h2>
+    <ul>
+      <li><span class="src-title">ICM / Model Workspace Protocol</span> <span class="desc">- Jake Van Clief</span></li>
+      <li><span class="src-title">GSD / Get Shit Done</span> <span class="desc">- T&Acirc;CHES</span></li>
+      <li><span class="src-title">Arize "Alex" runtime context management</span> <span class="desc">- Salian</span></li>
+      <li><span class="src-title">Agentic OS</span> <span class="desc">- Chase, vs Helios, which embeds AE</span></li>
+      <li><span class="src-title">In-context prompting vs orchestration</span> <span class="desc">- University of Melbourne</span></li>
+      <li><span class="src-title">120x architect-builder method</span> <span class="desc">- ChatGPT/Claude + Codex/Claude Code (channel 120x-ai)</span></li>
+      <li><span class="src-title">AE self-audit against the 10 pillars</span> <span class="desc">- supporting context, not a head-to-head</span></li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Confident but honest positioning, including every cell where a competitor legitimately wins.
+  </div>
+</footer>
+
+</body>
+</html>
