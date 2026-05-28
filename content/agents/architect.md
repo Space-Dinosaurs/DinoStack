@@ -122,6 +122,29 @@ qa_criteria:
                       # Computed axe_tags: A => [wcag2a], AA => [wcag2a, wcag2aa], AAA => [wcag2a, wcag2aa, wcag2aaa]
       # axe_tags: [wcag2a, wcag2aa]  # optional override; explicit axe_tags WINS at runtime when both set.
                                      # Skeptic raises Minor when both wcag_level and axe_tags are set (redundant).
+      # theme: both  # optional; valid on visual_conformance and accessibility only. Enum: light | dark | both.
+                     # Default "both" when .agentic/config.json theme_aware: true.
+                     # Causes qa-engineer to run the scenario twice (light pass, dark pass).
+                     # Auto-Major when theme_aware: true AND theme absent on visual_conformance/accessibility.
+                     # Setting theme on any other method is invalid - Skeptic Critical.
+                     # Ignored with operator warning when theme_aware: false.
+      # story_id: "components-button--primary"  # optional; valid on visual_conformance and accessibility only.
+                                                # Storybook 7+ story ID format.
+                                                # Requires storybook_enabled: true in .agentic/config.json (default false).
+                                                # qa-engineer navigates to <storybook_url>/iframe.html?id=<story_id>.
+                                                # Setting story_id on any other method is invalid - Skeptic Critical.
+                                                # When story_id set but storybook_enabled: false -> INCONCLUSIVE.
+    # visual_conformance with theme and story_id (both optional; valid on visual_conformance and accessibility only):
+    - id: 4b
+      description: <e.g. "Button component renders correctly in both themes via Storybook isolation">
+      method: visual_conformance
+      evidence: <screenshot path(s) plus per-claim report, one per theme>
+      source_quote: |
+        <verbatim block from ticket>
+      expected_visual_claims:
+        - claim: "<verbatim atomic assertion>"
+      theme: both                                 # runs scenario in light mode then dark mode
+      story_id: "components-button--primary"      # routes qa-engineer to storybook iframe
     # perceptual_diff scenarios - opt-in via .agentic/config.json perceptual_diff_enabled: true:
     - id: 5
       description: <one observable sentence, e.g. "Settings panel pixel diff within tolerance vs baseline">
@@ -177,6 +200,8 @@ qa_criteria:
 - **`accessibility` is required for all UI-visible Elevated units.** When the unit emits UI a human can see AND the unit is Elevated AND `qa_skip == null`, the unit's `qa_criteria.scenarios[]` MUST contain at least one scenario with `method: accessibility`. Absence is a Critical Skeptic finding. `wcag_level` defaults to `AA` - no operator action needed unless targeting `A` or `AAA`. This rule does NOT apply when `qa_skip` is set to one of the 5 valid enum values.
 - **`perceptual_diff` is required when `perceptual_diff_enabled: true` and the unit has a visual spec.** When `.agentic/config.json` has `perceptual_diff_enabled: true` AND the unit is UI-visible AND the ticket text contains a visual spec (Expected Result block, design mockup reference, explicit "matches design" criterion), the unit's `qa_criteria.scenarios[]` MUST contain at least one scenario with `method: perceptual_diff`. Absence is a Major Skeptic finding. This rule is opt-in: when `perceptual_diff_enabled` is absent or `false`, this rule does NOT fire.
 - **`viewport` matrix is required for clearly responsive units.** When the ticket is clearly responsive (mobile breakpoint changes, new Tailwind responsive prefixes touching layout, explicit "works on mobile" success criterion), the `qa_criteria.viewport` must include at minimum `[mobile, desktop]`. A viewport of `[desktop]`-only on a clearly responsive ticket is a Major Skeptic finding. This is a Skeptic judgment call, not a regex - the Skeptic reads the ticket text and architect plan holistically.
+- **`theme` is required on `visual_conformance` and `accessibility` scenarios when `theme_aware: true`.** When `.agentic/config.json` has `theme_aware: true` AND the scenario method is `visual_conformance` or `accessibility` AND the `theme` field is absent, the architect plan is missing a required field. Absence is a Major Skeptic finding. This rule is opt-in: when `theme_aware` is absent or `false`, this rule does NOT fire. Valid values: `light`, `dark`, `both`. `theme` is NOT valid on `perceptual_diff`, `browser`, `api`, or `runtime-required` - inclusion on those methods is a Critical Skeptic finding.
+- **`story_id` is restricted to `visual_conformance` and `accessibility` scenarios.** Setting `story_id` on any other method (`perceptual_diff`, `browser`, `api`, `runtime-required`) is always a Critical Skeptic finding, regardless of config state. Rationale: `perceptual_diff` has ambiguous baseline-path semantics when story vs live-app render differ; `api` and `runtime-required` have no browser surface; `browser` interaction flows do not compose with Storybook's isolated render. `story_id` is only valid when `.agentic/config.json` has `storybook_enabled: true` (default `false`); setting `story_id` without enabling config is INCONCLUSIVE at runtime but not a plan-time Skeptic finding (the gate is runtime, not schema).
 - Return your output as plain text. Do not wrap the plan in a code block.
 
 ## Variants
