@@ -6,7 +6,7 @@ Purpose: Full reference for QA gate operational details extracted from
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/05-qa-gate.md (pointer before Re-route limits),
-            content/sections/11-protocol-details.md (QA gate Protocol Details entry).
+            content/sections/12-protocol-details.md (QA gate Protocol Details entry).
 
 Upstream deps: content/sections/05-qa-gate.md (parent section; read that
                section first for the concurrent-vs-sequential flow, skip enums,

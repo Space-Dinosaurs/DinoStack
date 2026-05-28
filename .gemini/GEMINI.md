@@ -585,6 +585,16 @@ For parallel-by-worktree multi-PR fan-out commands, architect-plan-driven scenar
 
 **Convergence failure.** A convergence failure occurs when a Skeptic raises the same finding unchanged after the Engineer claimed to have addressed it. Convergence failures bypass the remaining iteration budget and escalate immediately. They indicate either a misunderstanding between the Engineer and the finding, or a design-level conflict that requires human arbitration. Within the persistence loop, one re-raise after a claimed fix is sufficient (overrides the 2-re-route rule in skeptic-protocol.md Section 5 - see that section for the override note).
 
+## Capability Preflight
+
+Before every Agent spawn, the conductor reads the target agent's `capabilities:` block (if present) and verifies that all declared tools are available in the current environment. Absent block = no-op for that agent.
+
+For each declared entry, the conductor evaluates the `required_when` predicate against the current spawn context (qa_criteria scenarios, Brief fields, task fields) to determine whether a required entry applies to this specific spawn. Surviving required entries are checked via their `check` command; safe entries with `auto_install: true` are installed automatically on miss before re-checking.
+
+**Advisory vs blocking mode** is controlled by `.agentic/config.json` `capability_preflight_mode` (default `advisory`). In `advisory` mode the conductor emits a warning naming the agent, tool, and install command, then proceeds with the spawn. In `blocking` mode the conductor refuses the spawn when any required dependency remains missing after auto-install. The default is `advisory` at P0 - flip to `blocking` is a one-line config change once every agent under `content/agents/` has a populated manifest.
+
+For the full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema, see `content/references/capability-preflight.md`.
+
 ## Cross-session loop resume
 
 Long-running `/implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`:
@@ -692,6 +702,9 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regres
 
 **Doc-sync obligation** - when a change alters a count, list, path, convention, or behavior an intent-layer doc asserts:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
+
+**Capability preflight** - before every Agent spawn:
+See METHODOLOGY.md §Capability Preflight for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
 See METHODOLOGY.md §QA Gate for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
@@ -880,6 +893,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
 - `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
+- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `advisory`. Controls what happens when the conductor finds a missing required dependency during capability preflight. `advisory` emits a warning with the install command and proceeds with the spawn. `blocking` refuses the spawn when any required dependency remains missing after auto-install. Default is `advisory` at P0; flip to `blocking` is a one-line change once every agent under `content/agents/` has a populated `capabilities:` manifest. See `content/references/capability-preflight.md` for the full preflight protocol.
 
 The file is operator-tunable but optional and graceful: if absent, every toggle takes its default and nothing breaks.
 

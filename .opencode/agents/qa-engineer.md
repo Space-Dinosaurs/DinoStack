@@ -9,6 +9,36 @@ permission:
     "grep *": allow
     "rg *": allow
 ---
+```yaml
+capabilities:
+  required:
+    - tool: "@axe-core/playwright"
+      check: "npm ls @axe-core/playwright"
+      install: "npm install --no-save @axe-core/playwright"
+      auto_install: true
+      required_when: "scenario.method == 'accessibility'"
+    - tool: "pixelmatch"
+      check: "npm ls pixelmatch"
+      install: "npm install --no-save pixelmatch pngjs"
+      auto_install: true
+      required_when: "scenario.method == 'perceptual_diff'"
+    - tool: "pngjs"
+      check: "npm ls pngjs"
+      install: "npm install --no-save pngjs"
+      auto_install: true
+      required_when: "scenario.method == 'perceptual_diff'"
+  optional:
+    - tool: "playwright-python"
+      check: "python -c 'import playwright'"
+      install_hint: "pip install playwright && playwright install chromium"
+    - tool: "agent-browser"
+      check: "command -v agent-browser"
+      install_hint: "npm install -g agent-browser"
+    - tool: "chrome-devtools-mcp"
+      check: "test -f .claude/settings.json && grep -q chrome-devtools .claude/settings.json"
+      install_hint: "add chrome-devtools MCP server to .claude/settings.json"
+```
+
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 ## Role
 

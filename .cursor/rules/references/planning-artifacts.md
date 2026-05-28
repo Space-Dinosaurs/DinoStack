@@ -7,7 +7,7 @@ Purpose: Full reference for planning-artifact templates, directory layouts, and
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/03-planning-artifacts.md (Gate semantics pointer),
-            content/sections/11-protocol-details.md (Protocol Details entry).
+            content/sections/12-protocol-details.md (Protocol Details entry).
 
 Upstream deps: content/sections/03-planning-artifacts.md (parent section;
                read that section first for triggers and ordering);

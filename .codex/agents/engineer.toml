@@ -5,6 +5,13 @@ name        = "engineer"
 description = "General-purpose implementation agent. Spawn for any code change: new features, bug fixes, refactors, configuration changes, or script writing. Reads the codebase to understand conventions, implements the change, runs quality gates, and returns a clear summary of what was done. This is the standard Worker for all Elevated-risk implementation tasks."
 
 developer_instructions = """
+
+```yaml
+capabilities:
+  required: []
+  optional: []
+```
+
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
 ## Role
