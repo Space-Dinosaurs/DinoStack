@@ -689,10 +689,12 @@ Seed with these documented defaults exactly:
   "qa_default_skip": null,
   "model_profile": "default",
   "auto_merge_on_ci_green": false,
-  "capability_preflight_mode": "advisory",
+  "capability_preflight_mode": "blocking",
   "perceptual_diff_enabled": false,
   "theme_aware": false,
-  "storybook_enabled": false
+  "storybook_enabled": false,
+  "motion_aware": false,
+  "storybook_version": 7
 }
 ```
 
@@ -700,17 +702,19 @@ Seed with these documented defaults exactly:
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
 - `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
-- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `"advisory"`. See `content/rules/conventions.md` §Project Config for semantics.
+- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `"blocking"`. See `content/rules/conventions.md` §Project Config for semantics.
 - `perceptual_diff_enabled` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `theme_aware` - boolean, default `false`. Opt-in for per-theme QA tuples on `visual_conformance` and `accessibility` scenarios. See `content/rules/conventions.md` §Project Config for semantics.
 - `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` on `visual_conformance` and `accessibility` scenarios; requires Storybook 7+. Init-project detects the installed version and configures `storybook_url` when SB7+ is present. See `content/rules/conventions.md` §Project Config for semantics.
+- `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
+- `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 
 Read `package.json` (if present) and scan all dependency fields (`dependencies`, `devDependencies`, `peerDependencies`) for Storybook framework adapter packages in this exact precedence order: `@storybook/react`, `@storybook/vue`, `@storybook/vue3`, `@storybook/angular`, `@storybook/svelte`, `@storybook/web-components`, `@storybook/html`, `@storybook/core`. Take the FIRST one found; its semver value determines the Storybook version.
 
-- **Framework adapter found, version `>= 7.0.0`**: write `"storybook_url": "http://localhost:6006"` into `.agentic/config.json` alongside the other keys, and emit info: "Storybook 7+ detected; set `storybook_enabled: true` in `.agentic/config.json` to enable story scenarios." Leave `storybook_enabled: false` in the seed (operator opts in explicitly).
-- **Framework adapter found, version `< 7.0.0`**: do NOT write `storybook_url`. Emit warning: "Storybook 6 detected; story scenarios disabled. Upgrade to SB7+ to use this feature." Leave `storybook_enabled: false`.
+- **Framework adapter found, version `>= 7.0.0`**: write `"storybook_version": 7` and `"storybook_url": "http://localhost:6006"` into `.agentic/config.json` alongside the other keys, and emit info: "Storybook 7+ detected; set `storybook_enabled: true` in `.agentic/config.json` to enable story scenarios." Leave `storybook_enabled: false` in the seed (operator opts in explicitly).
+- **Framework adapter found, version `< 7.0.0`**: write `"storybook_version": 6` and `"storybook_url": "http://localhost:6006"` into `.agentic/config.json`. Emit info: "Storybook 6 detected; storybook_url set. Enable storybook scenarios via storybook_enabled: true in .agentic/config.json." Leave `storybook_enabled: false` in the seed (operator opts in explicitly).
 - **No framework adapter found, but other `@storybook/*` packages present** (e.g. only `@storybook/addon-*`): do NOT write `storybook_url`. Emit warning: "Storybook framework adapter not detected; storybook scenarios disabled." Leave `storybook_enabled: false`.
 - **No `@storybook/*` packages at all**: silent - no warning, no `storybook_url` key added.
 
