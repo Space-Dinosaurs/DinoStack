@@ -24,6 +24,8 @@ node_modules/
 .agentic/*
 !.agentic/config.json
 !.agentic/findings.md
+!.agentic/session-log/
+!.agentic/session-log/**
 .agentic/worktrees/
 .agentic/loop-state.json
 .agentic/tasks.jsonl
@@ -78,3 +80,4 @@ evals/icl_vs_orchestration/results/
 .pi/gsd/
 .pi/git/
 .pi/npm/
+__pycache__/

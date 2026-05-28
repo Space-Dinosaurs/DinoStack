@@ -763,6 +763,87 @@ else:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Symlink bin/ scripts to ~/.local/bin (PATH-accessible location)
+# Resolution order:
+#   1. If ~/.local/bin exists AND is on PATH -> use it.
+#   2. If ~/.local/bin does NOT exist -> create it, symlink there, print PATH
+#      guidance (skipped in non-TTY contexts).
+# Never uses sudo. Never writes to /usr/local/bin.
+# Idempotent: ln -sfn refreshes existing ae symlinks; skips real non-symlinks.
+# ---------------------------------------------------------------------------
+
+ae_install_bins() {
+  local bin_src="$REPO_DIR/bin"
+  local bin_dst="$HOME/.local/bin"
+  local path_created=false
+
+  if [[ ! -d "$bin_src" ]]; then
+    echo "  [skip] bin/ source directory not found: $bin_src"
+    return
+  fi
+
+  # Resolve target directory
+  if [[ -d "$bin_dst" ]] && echo ":$PATH:" | grep -q ":$bin_dst:"; then
+    # ~/.local/bin exists and is on PATH - use it directly
+    true
+  else
+    # Create ~/.local/bin if absent
+    if [[ ! -d "$bin_dst" ]]; then
+      mkdir -p "$bin_dst"
+      path_created=true
+    fi
+  fi
+
+  # Symlink each file in bin/ (skip test directory and non-executable files)
+  local linked=0
+  local refreshed=0
+  local skipped=0
+  for src_file in "$bin_src"/agentic-*; do
+    [[ -e "$src_file" ]] || continue
+    [[ -f "$src_file" ]] || continue
+    local name
+    name="$(basename "$src_file")"
+    local dst_file="$bin_dst/$name"
+
+    if [[ -L "$dst_file" ]]; then
+      local current_target
+      current_target="$(readlink "$dst_file")"
+      if [[ "$current_target" == "$src_file" ]]; then
+        echo "  = $name (already linked)"
+      elif [[ "$current_target" == "$REPO_DIR/bin/"* ]]; then
+        # Refresh: points into our bin/ but different path (e.g. repo moved)
+        ln -sfn "$src_file" "$dst_file"
+        echo "  ~ $name (refreshed)"
+        refreshed=$((refreshed + 1))
+      else
+        echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        skipped=$((skipped + 1))
+      fi
+    elif [[ -e "$dst_file" ]]; then
+      echo "  ! $name (real file at destination - skipping to preserve)"
+      skipped=$((skipped + 1))
+    else
+      ln -sfn "$src_file" "$dst_file"
+      echo "  + $name -> $dst_file"
+      linked=$((linked + 1))
+    fi
+  done
+
+  if [[ "$path_created" == "true" ]]; then
+    if [[ -t 0 ]] || [[ -r /dev/tty ]]; then
+      echo ""
+      echo "  Created ~/.local/bin and linked agentic binaries."
+      echo "  Add this to your PATH: export PATH=\"\$HOME/.local/bin:\$PATH\""
+      echo "  (add to ~/.zshrc or ~/.bashrc to make it permanent)"
+      echo ""
+    fi
+  fi
+}
+
+echo "Linking bin/ scripts to PATH..."
+ae_install_bins
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

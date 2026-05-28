@@ -2,7 +2,8 @@
 Purpose: Full reference for the events log V1 telemetry event-type schemas and
          operational notes extracted from METHODOLOGY.md §Events log. Contains
          field-level data shapes for all 5 event types, plus append discipline,
-         atomicity, retention, and consumer notes.
+         atomicity, retention, and consumer notes. Also documents the
+         per-developer session log (.agentic/session-log/) written by the Stop hook.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/08-events-log.md (pointer after Schema block),
@@ -17,8 +18,10 @@ Upstream deps: content/sections/08-events-log.md (parent section; read that
 
 Downstream consumers: conductor (constructs spawn_start/spawn_complete/conductor_direct
                       payloads at orchestration boundaries);
-                      Stop hook (constructs session_total payload at session exit);
-                      /wrap command (reads events.jsonl for structural session skeleton).
+                      Stop hook (constructs session_total payload at session exit AND
+                      writes per-developer session log to .agentic/session-log/);
+                      /wrap command (reads events.jsonl for structural session skeleton);
+                      bin/agentic-cost team (reads .agentic/session-log/ for team rollup).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
                the actual event payloads emitted by the conductor causes
@@ -41,7 +44,7 @@ Performance: Standard.
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
 - `conductor_direct`: emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carries `wall_seconds` and a `note`; tokens are zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), and `agreement` (boolean). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
-- `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup.
+- `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (the committed per-developer surface; see "Per-developer session log" section below).
 
 ## Append discipline
 
@@ -58,3 +61,42 @@ Not auto-rotated. Manual `mv` to `events-prev.jsonl` if a file grows past concer
 ## Consumer
 
 Optional. /wrap may consult events.jsonl as supplementary signal for the structural session skeleton. Conversation-memory review remains primary. /wrap on a project with no events.jsonl works exactly as today.
+
+## Per-developer session log (`.agentic/session-log/`)
+
+The Stop hook writes a second, committed target alongside `events.jsonl`. When a developer identity is set (via `agentic-identity init <handle>`), the hook appends one JSON line per session to `.agentic/session-log/<developer_id>.jsonl`. This file IS committed (carved out via `.gitignore` negation) so team members can run `agentic-cost team` to see cross-developer aggregates.
+
+**Canonical session-log line schema:**
+
+```json
+{
+  "ts": "2026-05-28T12:00:00Z",
+  "phase": "session_end",
+  "event": "session_total",
+  "agent": null,
+  "task_id": null,
+  "developer_id": "tyson",
+  "session_uuid": "<uuid-v4>",
+  "project_slug": "agentic-engineering",
+  "branch": "main",
+  "data": {
+    "wall_seconds": 1234,
+    "tokens": {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0},
+    "spawn_count": 5,
+    "by_agent": {"engineer": {"spawns": 2, "wall_seconds": 600, "tokens_total": 50000}}
+  }
+}
+```
+
+**Fields:**
+- `developer_id`: handle from `~/.agentic/identity.yml`. Never inferred from git config.
+- `session_uuid`: the Stop hook payload `session_id` field.
+- `project_slug`: `path.basename(cwd)` - the directory name of the project root.
+- `branch`: from `git symbolic-ref --short HEAD` (best-effort; empty string on failure).
+- `data.by_agent`: keys are agent-type strings; values carry `spawns`, `wall_seconds`, `tokens_total` (sum of all token types).
+
+**PII boundary:** Only the fields above are written. Excluded: prompt content, file paths, tool I/O, user messages, finding text, task descriptions, commit messages, environment variable values.
+
+**No identity:** When `~/.agentic/identity.yml` is absent, the session-log write is skipped. The Stop hook instead appends a one-time nudge to `.agentic/context.md` directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
+
+**Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files and renders a per-developer rollup table sorted by total tokens.
