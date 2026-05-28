@@ -1627,6 +1627,8 @@ Omit the tracker reference block entirely. The PR body will have only Summary an
 
 Open as draft PR. GitHub does not request reviewers on a draft; reviewers are assigned in Phase 10b after CI passes.
 
+Authoring rule: §External Comment Discipline in `content/rules/conventions.md` applies - lead with the result, bullets over prose, cut anything the diff already shows.
+
 Run:
 
 ```bash
@@ -1823,7 +1825,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > - `TICKET_ID`: e.g. `[TICKET_PREFIX]-NNN`
 > - `PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`
 > - `TEST_URL`: extracted from CI (or the literal string `pending — see PR` if Phase 10 timed out)
-> - `qa_summary`: 1-2 sentences on what specifically to test and any known limitations from the Skeptic review
+> - `qa_summary`: Per §External Comment Discipline in `content/rules/conventions.md`: lead with status + PR link, then bullet only what the reviewer cannot see from the PR itself (QA caveats, known limitations, what to focus testing on). Omit restating the ticket.
 > - `target_state`: `$TRACKER_STATE_QA` (resolved in Setup; defaults to `"Testing"` for Linear, `"QA"` for Jira)
 > - `forward_only_guard`: `true`
 > - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured)
