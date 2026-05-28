@@ -11,6 +11,12 @@ capabilities:
     - tool: "playwright-python"
       check: "python -c 'import playwright'"
       install_hint: "pip install playwright && playwright install chromium"
+    - tool: "lighthouse"
+      check: "command -v lighthouse"
+      install_hint: "npm install -g lighthouse"
+    - tool: "k6"
+      check: "command -v k6"
+      install_hint: "see k6 install docs at https://k6.io/docs/get-started/installation/"
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
