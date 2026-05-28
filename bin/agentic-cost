@@ -5,19 +5,24 @@ Purpose: Read .agentic/events.jsonl and render per-agent / per-task /
          .agentic/session-log/*.jsonl for team-level per-developer aggregation.
          Optionally renders dollar columns when ~/.agentic/pricing.yml is present
          (opt-in, never invented). The CLI for the /agentic-cost command.
+         Also provides `retro` subcommand for pre-telemetry historical rollups
+         reconstructed from git log and gh pr list.
 
 Public API: agentic-cost session [<session_uuid>]
             agentic-cost task <task_id>
             agentic-cost project [--since <YYYY-MM-DD>]
             agentic-cost team [--json]
+            agentic-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+                               [--author <handle>] [--json]
             All subcommands print a fixed-width table to stdout. Every
             output ends with the V1 disclosure footer line per
             acceptance criterion 12.
 
-Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib).
-               Optional pyyaml soft dependency for ~/.agentic/pricing.yml
-               parsing; absent pyyaml -> token-only output with the
-               "Install pyyaml for pricing support." line.
+Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
+               subprocess, re). Optional pyyaml soft dependency for
+               ~/.agentic/pricing.yml parsing; absent pyyaml -> token-only
+               output with the "Install pyyaml for pricing support." line.
+               `retro` also shells out to git (always) and gh (optional).
 
 Downstream consumers: content/commands/agentic-cost.md (command spec);
                       developers running the command interactively.
@@ -30,9 +35,13 @@ Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
                and the missing model is listed in a footnote.
                missing/empty .agentic/session-log/ -> prints guidance message
                and exits 0.
+               `retro` not in a git repo -> exit 1, friendly message.
+               `retro` gh unavailable or unauthenticated -> git-only mode with
+               one-line warning.
 
 Performance: O(N events) single pass; <2s on a session with 50 events
-             per acceptance criterion 3.
+             per acceptance criterion 3. `retro` performance bounded by
+             git log and gh pr list response time (30s timeout each).
 """
 
 from __future__ import annotations
@@ -41,6 +50,8 @@ import argparse
 import datetime as _dt
 import json
 import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -434,6 +445,394 @@ def cmd_team(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# retro helpers
+# ---------------------------------------------------------------------------
+
+_TICKET_RE = re.compile(r"\b([A-Z]{2,10})-(\d+)\b")
+_RETRO_WARNING = (
+    "WARNING: External-source reconstruction. NOT Stage 1 telemetry.\n"
+    "         No per-agent attribution. No token counts. "
+    "Wall-time is PR-merge proxy only."
+)
+
+
+def _run(cmd: list[str], timeout: int = 30) -> tuple[str, str, int]:
+    """Run a subprocess. Returns (stdout, stderr, returncode). Never raises."""
+    try:
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return r.stdout, r.stderr, r.returncode
+    except FileNotFoundError:
+        return "", f"{cmd[0]}: command not found", 127
+    except subprocess.TimeoutExpired:
+        return "", f"{cmd[0]}: timed out after {timeout}s", 1
+
+
+def _is_git_repo() -> bool:
+    _, _, rc = _run(["git", "rev-parse", "--git-dir"])
+    return rc == 0
+
+
+def _repo_basename() -> str:
+    out, _, rc = _run(["git", "rev-parse", "--show-toplevel"])
+    if rc != 0 or not out.strip():
+        return "(unknown)"
+    return Path(out.strip()).name
+
+
+def _gh_available() -> bool:
+    """True if gh is installed and authenticated."""
+    _, _, rc = _run(["gh", "auth", "status"])
+    return rc == 0
+
+
+def _parse_iso(s: str) -> _dt.datetime | None:
+    """Parse ISO8601 datetime string, return None on failure."""
+    if not s:
+        return None
+    try:
+        return _dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _fetch_git_log(since: str, until: str, author: str | None) -> list[dict]:
+    """Fetch commit data from git log. Returns list of commit dicts."""
+    cmd = [
+        "git", "log",
+        f"--since={since}",
+        f"--until={until}",
+        "--no-color",
+        "--pretty=format:%H|%aN|%aI|%s",
+        "--shortstat",
+    ]
+    if author:
+        cmd.append(f"--author={author}")
+    out, _, rc = _run(cmd)
+    if rc != 0 or not out.strip():
+        return []
+
+    commits: list[dict] = []
+    # git --shortstat interleaves commit lines with blank lines and stat lines:
+    # <hash>|<author>|<date>|<subject>
+    # (blank)
+    #  N files changed, M insertions(+), K deletions(-)
+    lines = out.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if "|" in line and not line.startswith(" "):
+            parts = line.split("|", 3)
+            if len(parts) == 4:
+                commit_hash, author_name, date_str, subject = parts
+                files_changed = 0
+                # look ahead for the shortstat line
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines) and "changed" in lines[j]:
+                    stat_line = lines[j]
+                    m = re.search(r"(\d+) file", stat_line)
+                    if m:
+                        files_changed = int(m.group(1))
+                    i = j
+                commits.append({
+                    "hash": commit_hash.strip(),
+                    "author": author_name.strip(),
+                    "date": date_str.strip(),
+                    "subject": subject.strip(),
+                    "files_changed": files_changed,
+                })
+        i += 1
+    return commits
+
+
+def _fetch_gh_prs(
+    since: str, until: str, author_filter: str | None = None
+) -> tuple[list[dict], str | None]:
+    """Fetch PR data from gh. Returns (prs, warning_or_none).
+
+    When author_filter is set, passes --author to gh pr list so the 500-result
+    cap applies only to the filtered set, preventing silent truncation in repos
+    with >500 PRs in the date range.
+    """
+    # gh pr list search uses merged: qualifier
+    search_q = f"merged:{since}..{until}"
+    cmd = [
+        "gh", "pr", "list",
+        "--state", "all",
+        "--search", search_q,
+        "--json", "number,author,createdAt,mergedAt,additions,deletions,files",
+        "--limit", "500",
+    ]
+    if author_filter:
+        cmd += ["--author", author_filter]
+    out, _, rc = _run(cmd)
+    if rc != 0:
+        return [], "gh pr list failed; PR data omitted."
+    if not out.strip():
+        return [], None
+    try:
+        prs = json.loads(out)
+    except json.JSONDecodeError:
+        return [], "gh pr list: could not parse JSON output."
+    return prs, None
+
+
+def _aggregate_retro(
+    commits: list[dict],
+    prs: list[dict],
+    author_filter: str | None,
+) -> dict:
+    """Aggregate commit and PR data per author.
+
+    Returns {author: {commits, files_touched, prs, merged, merge_times_days,
+                      ticket_prefixes: {prefix: {count, tickets: set}}}}
+    """
+    agg: dict = {}
+
+    for c in commits:
+        a = c["author"]
+        if author_filter and a.lower() != author_filter.lower():
+            continue
+        b = agg.setdefault(a, {
+            "commits": 0, "files_touched": 0,
+            "prs": 0, "merged": 0, "merge_times_days": [],
+            "ticket_prefixes": {},
+        })
+        b["commits"] += 1
+        b["files_touched"] += c["files_changed"]
+        for m in _TICKET_RE.finditer(c["subject"]):
+            prefix = m.group(1)
+            ticket_id = m.group(0)
+            pb = b["ticket_prefixes"].setdefault(prefix, {"count": 0, "tickets": set()})
+            pb["count"] += 1
+            pb["tickets"].add(ticket_id)
+
+    for pr in prs:
+        pr_author = (pr.get("author") or {})
+        if isinstance(pr_author, dict):
+            pr_author = pr_author.get("login") or pr_author.get("name") or ""
+        if author_filter and pr_author.lower() != author_filter.lower():
+            continue
+        b = agg.setdefault(pr_author, {
+            "commits": 0, "files_touched": 0,
+            "prs": 0, "merged": 0, "merge_times_days": [],
+            "ticket_prefixes": {},
+        })
+        b["prs"] += 1
+        merged_at = pr.get("mergedAt")
+        if merged_at:
+            b["merged"] += 1
+            created_at = pr.get("createdAt")
+            dt_merged = _parse_iso(merged_at)
+            dt_created = _parse_iso(created_at)
+            if dt_merged and dt_created:
+                delta = (dt_merged - dt_created).total_seconds() / 86400
+                b["merge_times_days"].append(delta)
+        # files changed from PR
+        files_list = pr.get("files") or []
+        if isinstance(files_list, list):
+            b["files_touched"] += len(files_list)
+
+    return agg
+
+
+def _format_days(values: list[float]) -> str:
+    if not values:
+        return "    n/a"
+    avg = sum(values) / len(values)
+    return f"{avg:>6.1f} d"
+
+
+def _render_retro_table(
+    agg: dict,
+    repo: str,
+    since: str,
+    until: str,
+    warnings: list[str],
+) -> str:
+    lines: list[str] = []
+    lines.append(f"Retro rollup for {repo} ({since} -> {until})")
+    lines.append(_RETRO_WARNING)
+    if warnings:
+        for w in warnings:
+            lines.append(f"WARNING: {w}")
+    lines.append("")
+
+    if not agg:
+        lines.append("No activity in range.")
+        return "\n".join(lines) + "\n"
+
+    lines.append("Per-author:")
+    header = (
+        f"  {'AUTHOR':<20}{'COMMITS':>8}{'PRS':>6}"
+        f"{'MERGED':>8}{'AVG_MERGE_TIME':>16}{'FILES_TOUCHED':>14}"
+    )
+    lines.append(header)
+
+    total_commits = 0
+    total_prs = 0
+    total_merged = 0
+    all_merge_times: list[float] = []
+    total_files = 0
+
+    for author in sorted(agg.keys()):
+        b = agg[author]
+        avg_merge = _format_days(b["merge_times_days"])
+        lines.append(
+            f"  {author:<20}{b['commits']:>8}{b['prs']:>6}"
+            f"{b['merged']:>8}{avg_merge:>16}{b['files_touched']:>14}"
+        )
+        total_commits += b["commits"]
+        total_prs += b["prs"]
+        total_merged += b["merged"]
+        all_merge_times.extend(b["merge_times_days"])
+        total_files += b["files_touched"]
+
+    total_avg = _format_days(all_merge_times)
+    lines.append(
+        f"  {'TOTAL':<20}{total_commits:>8}{total_prs:>6}"
+        f"{total_merged:>8}{total_avg:>16}{total_files:>14}"
+    )
+    lines.append("")
+
+    # Ticket prefix summary (across all authors)
+    all_prefixes: dict = {}
+    no_prefix_count = 0
+    for b in agg.values():
+        for prefix, pd in b["ticket_prefixes"].items():
+            entry = all_prefixes.setdefault(prefix, {"count": 0, "tickets": set()})
+            entry["count"] += pd["count"]
+            entry["tickets"] |= pd["tickets"]
+        # no-prefix commits: total commits minus those matching any ticket
+        matched = sum(pd["count"] for pd in b["ticket_prefixes"].values())
+        no_prefix_count += max(0, b["commits"] - matched)
+
+    if all_prefixes or no_prefix_count:
+        lines.append("Top ticket prefixes (from commit messages):")
+        for prefix in sorted(all_prefixes.keys(),
+                             key=lambda p: all_prefixes[p]["count"],
+                             reverse=True):
+            pd = all_prefixes[prefix]
+            ticket_count = len(pd["tickets"])
+            lines.append(
+                f"  {prefix:<12}{pd['count']:>4} commits across"
+                f" {ticket_count:>3} ticket{'s' if ticket_count != 1 else ' '}"
+            )
+        if no_prefix_count:
+            lines.append(f"  {'(no prefix)':<12}{no_prefix_count:>4} commits")
+        lines.append("")
+
+    lines.append(
+        "Stage 1 telemetry: agentic-cost team for accurate per-agent breakdown"
+    )
+    lines.append(
+        "                   from sessions starting when Stage 1 was active here."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def cmd_retro(args: argparse.Namespace) -> int:
+    """Reconstruct per-author work rollup from git log and gh pr list."""
+    # Date setup
+    today = _dt.date.today()
+    default_since = (today - _dt.timedelta(days=30)).isoformat()
+    default_until = today.isoformat()
+
+    since_str = args.since or default_since
+    until_str = args.until or default_until
+
+    try:
+        _dt.date.fromisoformat(since_str)
+    except ValueError:
+        print(
+            f"agentic-cost retro: invalid --since date: {since_str!r} "
+            "(expected YYYY-MM-DD)",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        _dt.date.fromisoformat(until_str)
+    except ValueError:
+        print(
+            f"agentic-cost retro: invalid --until date: {until_str!r} "
+            "(expected YYYY-MM-DD)",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not _is_git_repo():
+        print(
+            "agentic-cost retro: not a git repository. "
+            "Run from within a git repo.",
+            file=sys.stderr,
+        )
+        return 1
+
+    repo = _repo_basename()
+    warnings: list[str] = []
+    author_filter: str | None = getattr(args, "author", None)
+
+    # Fetch git log
+    commits = _fetch_git_log(since_str, until_str, author_filter)
+
+    # Fetch PR data (optional)
+    prs: list[dict] = []
+    if _gh_available():
+        prs, pr_warn = _fetch_gh_prs(since_str, until_str, author_filter)
+        if pr_warn:
+            warnings.append(pr_warn)
+    else:
+        warnings.append("gh not available or not authenticated; PR data omitted.")
+
+    agg = _aggregate_retro(commits, prs, author_filter)
+
+    if getattr(args, "json", False):
+        # Serialize sets to sorted lists for JSON
+        json_agg: dict = {}
+        for author, b in agg.items():
+            json_agg[author] = {
+                "commits": b["commits"],
+                "files_touched": b["files_touched"],
+                "prs": b["prs"],
+                "merged": b["merged"],
+                "avg_merge_time_days": (
+                    round(sum(b["merge_times_days"]) / len(b["merge_times_days"]), 2)
+                    if b["merge_times_days"] else None
+                ),
+                "ticket_prefixes": {
+                    prefix: {
+                        "commit_count": pd["count"],
+                        "ticket_count": len(pd["tickets"]),
+                        "tickets": sorted(pd["tickets"]),
+                    }
+                    for prefix, pd in b["ticket_prefixes"].items()
+                },
+            }
+        out = {
+            "repo": repo,
+            "since": since_str,
+            "until": until_str,
+            "warning": _RETRO_WARNING,
+            "warnings": warnings,
+            "authors": json_agg,
+        }
+        sys.stdout.write(json.dumps(out, indent=2) + "\n")
+        return 0
+
+    sys.stdout.write(
+        _render_retro_table(agg, repo, since_str, until_str, warnings)
+    )
+    return 0
+
+
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="agentic-cost",
@@ -454,6 +853,30 @@ def main(argv: list[str]) -> int:
     p_team.add_argument("--json", action="store_true",
                         help="emit machine-readable JSON instead of a table")
     p_team.set_defaults(func=cmd_team)
+    p_retro = sub.add_parser(
+        "retro",
+        help=(
+            "historical rollup from git log + gh pr list "
+            "(pre-telemetry escape hatch)"
+        ),
+    )
+    p_retro.add_argument(
+        "--since", default=None,
+        help="YYYY-MM-DD lower bound (default: 30 days ago)",
+    )
+    p_retro.add_argument(
+        "--until", default=None,
+        help="YYYY-MM-DD upper bound (default: today)",
+    )
+    p_retro.add_argument(
+        "--author", default=None,
+        help="filter to a single git author name or handle",
+    )
+    p_retro.add_argument(
+        "--json", action="store_true",
+        help="emit machine-readable JSON instead of a table",
+    )
+    p_retro.set_defaults(func=cmd_retro)
     args = p.parse_args(argv[1:])
     return args.func(args)
 
