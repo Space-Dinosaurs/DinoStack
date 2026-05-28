@@ -85,11 +85,15 @@ Emit a YAML block named `qa_criteria` with the schema below. The block is consum
 qa_criteria:
   qa_skip: <one of: pure-backend-library | config-only | type-only-refactor | dep-bump-no-runtime-change | docs-only> | null
   qa_skip_rationale: <string, max 200 chars; required iff qa_skip != null>
+  viewport: [desktop]  # root-level default: applied to all scenarios. Valid values: mobile, tablet, desktop.
+                       # Canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900.
+                       # Override canonical sizes via project qa.md. Default [desktop] when omitted.
   scenarios:
     - id: 1
       description: <one observable sentence>
-      method: <browser | api | runtime-required | visual_conformance>
+      method: <browser | api | runtime-required | visual_conformance | accessibility | perceptual_diff>
       evidence: <what artifact proves the scenario passed>
+      # viewport: [mobile, desktop]  # per-scenario override REPLACES the root list, not extends it
     - id: 2
       ...
     # visual_conformance scenarios add two REQUIRED fields:
@@ -105,6 +109,22 @@ qa_criteria:
         - claim: "<verbatim atomic assertion 2>"
           advisory: true  # optional; default false. Advisory claims are reported but do not fail the scenario.
         - claim: "<verbatim atomic assertion 3>"
+    # accessibility scenarios - auto-Critical when unit is UI-visible AND Elevated AND qa_skip == null:
+    - id: 4
+      description: <one observable sentence, e.g. "Settings panel passes WCAG AA axe-core scan">
+      method: accessibility
+      evidence: <axe-core violations JSON path or "zero violations">
+      wcag_level: AA  # optional; default AA. Enum: A | AA | AAA.
+                      # Computed axe_tags: A => [wcag2a], AA => [wcag2a, wcag2aa], AAA => [wcag2a, wcag2aa, wcag2aaa]
+      # axe_tags: [wcag2a, wcag2aa]  # optional override; explicit axe_tags WINS at runtime when both set.
+                                     # Skeptic raises Minor when both wcag_level and axe_tags are set (redundant).
+    # perceptual_diff scenarios - opt-in via .agentic/config.json perceptual_diff_enabled: true:
+    - id: 5
+      description: <one observable sentence, e.g. "Settings panel pixel diff within tolerance vs baseline">
+      method: perceptual_diff
+      evidence: <diff PNG path or "within tolerance">
+      tolerance: 0.001  # optional; default 0.001. Float: max pixel ratio drift allowed.
+      baseline_path: tests/visual-baselines/5/desktop.png  # optional; default tests/visual-baselines/<id>/<viewport>.png
   manual_smoke: <single paragraph or "none">
 ```
 
@@ -117,9 +137,13 @@ qa_criteria:
   - `dep-bump-no-runtime-change` - dependency version bump verified to have no runtime impact.
   - `docs-only` - documentation file changes only.
 - `qa_skip_rationale` is required iff `qa_skip != null`. One sentence stating why this ticket has no runtime surface to verify. The rationale is reviewed by the Skeptic-on-architect-plan and the Skeptic-on-Brief.
+- `viewport` (root-level, optional): list of named viewports applied to all scenarios. Valid values: `mobile`, `tablet`, `desktop`. Default `[desktop]` when omitted. Canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900. Override canonical sizes via project `qa.md`. When a ticket is clearly responsive (mobile breakpoint changes, `sm:`/`md:`/`lg:` layout classes, "works on mobile" success criterion), include at minimum `[mobile, desktop]`.
 - `scenarios[]` is required when `qa_skip == null` and must contain at least 1 entry.
-- `method` enum: `browser` (UI verification via agent-browser or Playwright), `api` (HTTP/CLI/RPC call against a running service), `runtime-required` (the criterion fundamentally requires a running system to verify, but the specific tool depends on the qa-engineer's judgment at run time), `visual_conformance` (per-claim field-by-field comparison of rendered UI against the ticket's verbatim Expected Result or visual spec). The escape-hatch value `source-verified-acceptable` is NOT permitted - the whole point of QA is dynamic verification.
+- Per-scenario `viewport` (optional) REPLACES the root list for that scenario - it does not extend it. Use per-scenario `viewport` when one scenario needs a different viewport set than the rest.
+- `method` enum: `browser` (UI verification via agent-browser or Playwright), `api` (HTTP/CLI/RPC call against a running service), `runtime-required` (the criterion fundamentally requires a running system to verify, but the specific tool depends on the qa-engineer's judgment at run time), `visual_conformance` (per-claim field-by-field comparison of rendered UI against the ticket's verbatim Expected Result or visual spec), `accessibility` (axe-core WCAG scan of rendered UI), `perceptual_diff` (Playwright screenshot diff against a committed baseline). The escape-hatch value `source-verified-acceptable` is NOT permitted - the whole point of QA is dynamic verification.
 - `visual_conformance` REQUIRES two additional fields on the scenario: `source_quote` (verbatim copy of the ticket's Expected Result / visual-spec block; paraphrase is not permitted) and `expected_visual_claims[]` (min 1 entry; each entry is `{claim: <verbatim atomic assertion>, advisory?: <bool, default false>}`). Each claim must be a single atomic check (one color, one position, one element presence, one typography attribute); compound claims like "blue, centered, and bold" must be split into 3 entries. `advisory: true` opts a claim out of auto-fail and out of Skeptic auto-Critical enforcement but the opt-out is visible in the Skeptic review surface so it remains auditable. Method choice between `browser` and `visual_conformance` is not exclusive: use `visual_conformance` when the criterion is the visual spec itself; use `browser` for behavioral UI flows (clicks, state transitions, form submissions).
+- `accessibility` adds two per-scenario fields: `wcag_level` (default `AA`; enum: `A`, `AA`, `AAA`) and optional `axe_tags` (array of axe-core rule tag strings). When `axe_tags` is absent, it is computed from `wcag_level` at runtime: `A` => `[wcag2a]`, `AA` => `[wcag2a, wcag2aa]`, `AAA` => `[wcag2a, wcag2aa, wcag2aaa]`. When both `wcag_level` and `axe_tags` are set explicitly, `axe_tags` wins at runtime; Skeptic raises Minor (redundant declaration - remove one). `accessibility` is REQUIRED (auto-Critical) when the unit is UI-visible AND Elevated AND `qa_skip == null` - absence is a Critical Skeptic finding.
+- `perceptual_diff` adds two per-scenario fields: `tolerance` (float, default `0.001`) and `baseline_path` (string, default `tests/visual-baselines/<scenario-id>/<viewport>.png`). Opt-in: only include `perceptual_diff` scenarios when `.agentic/config.json` has `perceptual_diff_enabled: true` (default `false`). First run with absent baseline saves the baseline and returns INCONCLUSIVE with "baseline pending review" note; subsequent runs compare with `toHaveScreenshot({ maxDiffPixelRatio: tolerance })`. Auto-Major when `perceptual_diff_enabled: true` AND the unit is UI-visible AND the ticket has a visual spec AND no `perceptual_diff` scenario is present.
 - `manual_smoke` is the human-eyeball check the qa-engineer will perform after automated scenarios pass. Write "none" only when no manual check is meaningful.
 
 **Validation handling at Phase 6b entry:** an invalid `qa_skip` value (not in the 5-enum set and not null) is normalized to null at Phase 6b entry with a Major operator warning, and QA fires. The Skeptic-on-architect-plan flags an invalid enum as a Major finding upstream as defense-in-depth - the normalization is a backstop, not a license to be sloppy.
@@ -146,6 +170,9 @@ qa_criteria:
 - **If the codebase is large**, focus reading on: entry points, data models, API layer, test conventions, and files named in the task description or directly adjacent to the change area.
 - **Emit `qa_criteria` for Elevated tickets.** The QA criteria section above is mandatory on every Elevated plan. Absence is a Critical Skeptic finding. Do not omit the block; do not write "n/a" - if the ticket genuinely has no runtime surface, set `qa_skip` to one of the 5 valid enum values and supply `qa_skip_rationale`. If the ticket has runtime surface, populate `scenarios[]` with at least 1 entry.
 - **`visual_conformance` is required for UI-visible Elevated units with an Expected Result.** When the unit emits UI a human can see AND the ticket text contains an "Expected Result" block, a "Visual spec" block, or an equivalent enumeration of visible properties (colors, positions, copy, typography, element presence), the unit's `qa_criteria.scenarios[]` MUST contain at least one scenario with `method: visual_conformance`. The `source_quote` field must quote the ticket block verbatim. The `expected_visual_claims[]` array must contain one entry per atomic visual assertion in that block. Absence is a Critical Skeptic finding. This rule does NOT apply when `qa_skip` is set to one of the 5 valid enum values - the existing skip semantics are preserved.
+- **`accessibility` is required for all UI-visible Elevated units.** When the unit emits UI a human can see AND the unit is Elevated AND `qa_skip == null`, the unit's `qa_criteria.scenarios[]` MUST contain at least one scenario with `method: accessibility`. Absence is a Critical Skeptic finding. `wcag_level` defaults to `AA` - no operator action needed unless targeting `A` or `AAA`. This rule does NOT apply when `qa_skip` is set to one of the 5 valid enum values.
+- **`perceptual_diff` is required when `perceptual_diff_enabled: true` and the unit has a visual spec.** When `.agentic/config.json` has `perceptual_diff_enabled: true` AND the unit is UI-visible AND the ticket text contains a visual spec (Expected Result block, design mockup reference, explicit "matches design" criterion), the unit's `qa_criteria.scenarios[]` MUST contain at least one scenario with `method: perceptual_diff`. Absence is a Major Skeptic finding. This rule is opt-in: when `perceptual_diff_enabled` is absent or `false`, this rule does NOT fire.
+- **`viewport` matrix is required for clearly responsive units.** When the ticket is clearly responsive (mobile breakpoint changes, new Tailwind responsive prefixes touching layout, explicit "works on mobile" success criterion), the `qa_criteria.viewport` must include at minimum `[mobile, desktop]`. A viewport of `[desktop]`-only on a clearly responsive ticket is a Major Skeptic finding. This is a Skeptic judgment call, not a regex - the Skeptic reads the ticket text and architect plan holistically.
 - Return your output as plain text. Do not wrap the plan in a code block.
 
 ## Variants
