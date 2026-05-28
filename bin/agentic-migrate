@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+# Purpose: Apply additive project scaffolding migrations from a manifest.
+#          Reads content/project-scaffolding.yml (or adapter-replicated copy),
+#          compares against the current project state, and applies missing
+#          gitignore patterns and seed files without overwriting existing content.
+# Public API: check / apply / diff subcommands
+#   agentic-migrate check  [--manifest PATH]
+#   agentic-migrate apply  [--manifest PATH] [--project-root PATH] [--dry-run]
+#   agentic-migrate diff   [--manifest PATH] [--project-root PATH]
+# Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy
+# Downstream: invoked by Activation preflight Step 6 and /migrate-project command
+# Failure modes: silent-fail discipline; never throws to caller; exit codes signal status
+#   0 = success / no-op
+#   1 = drift detected (check subcommand only)
+#   2 = manifest not found / parse error
+#   3 = partial apply (some rules errored)
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import shutil
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Manifest resolution
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _find_manifest() -> Path | None:
+    """Return the first manifest path that exists, or None."""
+    candidates = [
+        os.environ.get("AGENTIC_MANIFEST_PATH"),
+        os.path.expanduser("~/.claude/skills/agentic-engineering/project-scaffolding.yml"),
+        str(SCRIPT_DIR.parent / "content" / "project-scaffolding.yml"),
+    ]
+    for c in candidates:
+        if c and Path(c).is_file():
+            return Path(c)
+    return None
+
+
+def _load_manifest(path: Path) -> dict | None:
+    """Parse YAML manifest using stdlib only. Returns None on error."""
+    try:
+        import re
+
+        text = path.read_text(encoding="utf-8")
+
+        # Minimal YAML parser for the known manifest shape.
+        # We extract: scaffolding_version (int), gitignore list, files list.
+        result: dict = {}
+
+        # scaffolding_version
+        m = re.search(r'^scaffolding_version:\s*(\d+)', text, re.MULTILINE)
+        if not m:
+            return None
+        result["scaffolding_version"] = int(m.group(1))
+
+        # Parse gitignore patterns
+        gitignore_items = []
+        in_gitignore = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped == "gitignore:":
+                in_gitignore = True
+                continue
+            if in_gitignore:
+                if stripped.startswith("- pattern:"):
+                    pat = stripped[len("- pattern:"):].strip().strip('"').strip("'")
+                    gitignore_items.append({"pattern": pat})
+                elif stripped.startswith("purpose:") and gitignore_items:
+                    gitignore_items[-1]["purpose"] = stripped[len("purpose:"):].strip().strip('"').strip("'")
+                elif stripped and not stripped.startswith("#") and not stripped.startswith("-"):
+                    # new top-level key
+                    in_gitignore = False
+        result["gitignore"] = gitignore_items
+
+        # Parse files
+        files_items = []
+        in_files = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped == "files:":
+                in_files = True
+                continue
+            if in_files:
+                if stripped.startswith("- path:"):
+                    p = stripped[len("- path:"):].strip().strip('"').strip("'")
+                    files_items.append({"path": p})
+                elif stripped.startswith("seed:") and files_items:
+                    s = stripped[len("seed:"):].strip().strip('"').strip("'")
+                    files_items[-1]["seed"] = s
+                elif stripped.startswith("purpose:") and files_items:
+                    files_items[-1]["purpose"] = stripped[len("purpose:"):].strip().strip('"').strip("'")
+                elif stripped and not stripped.startswith("#") and not stripped.startswith("-"):
+                    in_files = False
+        result["files"] = files_items
+
+        # markers key is deliberately ignored in the apply path
+        result["markers"] = []
+
+        return result
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Gitignore helpers
+# ---------------------------------------------------------------------------
+
+def _gitignore_lines(gitignore_path: Path) -> list[str]:
+    """Return stripped lines from .gitignore, or []."""
+    if not gitignore_path.is_file():
+        return []
+    return gitignore_path.read_text(encoding="utf-8").splitlines()
+
+
+def _pattern_present(lines: list[str], pattern: str) -> bool:
+    """Exact-line match after rstrip() on both sides."""
+    needle = pattern.rstrip()
+    return any(line.rstrip() == needle for line in lines)
+
+
+def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
+    """Append a pattern line to .gitignore atomically."""
+    with open(gitignore_path, "a", encoding="utf-8") as f:
+        f.write(pattern + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Lock helpers
+# ---------------------------------------------------------------------------
+
+LOCK_PATH = Path(os.path.expanduser("~/.agentic/.scaffolding-apply.lock"))
+LOCK_STALE_SECONDS = 60
+
+
+def _acquire_lock() -> int | None:
+    """
+    Acquire the exclusive apply lock. Returns file descriptor on success,
+    None if another session holds the lock (caller should exit silently).
+    Handles stale lock by force-unlinking and retrying once.
+    """
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    for attempt in range(2):
+        try:
+            fd = os.open(str(LOCK_PATH), os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (BlockingIOError, OSError):
+                os.close(fd)
+                return None
+
+            # Write lock body
+            lock_body = json.dumps({"pid": os.getpid(), "ts": _now_iso()})
+            os.ftruncate(fd, 0)
+            os.lseek(fd, 0, os.SEEK_SET)
+            os.write(fd, lock_body.encode())
+            return fd
+
+        except Exception:
+            if attempt == 0:
+                # Check for stale lock
+                if _is_stale_lock():
+                    try:
+                        LOCK_PATH.unlink()
+                    except Exception:
+                        pass
+                    continue
+            return None
+
+    return None
+
+
+def _is_stale_lock() -> bool:
+    """Return True if the lock file is stale (old ts + dead pid)."""
+    try:
+        body = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+        ts = datetime.fromisoformat(body["ts"].replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - ts).total_seconds()
+        if age < LOCK_STALE_SECONDS:
+            return False
+        pid = int(body["pid"])
+        try:
+            os.kill(pid, 0)
+            return False  # process still alive
+        except ProcessLookupError:
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
+def _release_lock(fd: int) -> None:
+    """Release and close the lock file descriptor."""
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _read_project_version(project_root: Path) -> int:
+    """Return scaffolding_version from .agentic/config.json, or 0."""
+    config_path = project_root / ".agentic" / "config.json"
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        return int(data.get("scaffolding_version", 0))
+    except Exception:
+        return 0
+
+
+def _stamp_project_version(project_root: Path, version: int) -> None:
+    """Write scaffolding_version into .agentic/config.json atomically."""
+    config_path = project_root / ".agentic" / "config.json"
+    if not config_path.exists():
+        return
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        data["scaffolding_version"] = version
+        tmp = config_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        tmp.rename(config_path)
+    except Exception:
+        pass
+
+
+def _append_context_line(project_root: Path, line: str) -> None:
+    """Append a one-line audit entry to .agentic/context.md."""
+    try:
+        ctx_path = project_root / ".agentic" / "context.md"
+        ctx_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(ctx_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def _warn_manifest_not_found(project_root: Path) -> None:
+    """Append manifest-not-found warning to context.md, gated by sentinel."""
+    try:
+        sentinel = project_root / ".agentic" / ".manifest-not-found-warned"
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(str(sentinel), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            os.close(fd)
+        except FileExistsError:
+            return
+        _append_context_line(
+            project_root,
+            "[scaffolding-sync] WARNING: manifest not found, sync skipped. "
+            "Set AGENTIC_MANIFEST_PATH to enable.",
+        )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Core apply logic
+# ---------------------------------------------------------------------------
+
+def _compute_diff(manifest: dict, project_root: Path) -> dict:
+    """
+    Return a diff dict describing what apply would do.
+    {
+      "gitignore_missing": [pattern, ...],
+      "files_missing": [{"path": ..., "seed": ...}, ...],
+    }
+    """
+    gitignore_path = project_root / ".gitignore"
+    existing_lines = _gitignore_lines(gitignore_path)
+
+    gitignore_missing = []
+    for entry in manifest.get("gitignore", []):
+        pat = entry["pattern"]
+        if not _pattern_present(existing_lines, pat):
+            gitignore_missing.append(pat)
+
+    files_missing = []
+    for entry in manifest.get("files", []):
+        target = project_root / entry["path"]
+        if not target.exists():
+            files_missing.append(entry)
+
+    return {"gitignore_missing": gitignore_missing, "files_missing": files_missing}
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """
+    Exit 0 if project is at-or-ahead of manifest version.
+    Exit 1 if drift.
+    Exit 2 on error.
+    """
+    if args.manifest:
+        candidate = Path(args.manifest)
+        manifest_path = candidate if candidate.is_file() else None
+    else:
+        manifest_path = _find_manifest()
+    if not manifest_path:
+        print(json.dumps({"status": "error", "reason": "manifest not found"}))
+        return 2
+
+    manifest = _load_manifest(manifest_path)
+    if manifest is None:
+        print(json.dumps({"status": "error", "reason": "manifest parse error"}))
+        return 2
+
+    # For check, project_root defaults to cwd
+    project_root = Path(args.project_root) if hasattr(args, "project_root") and args.project_root else Path.cwd()
+    project_version = _read_project_version(project_root)
+    manifest_version = manifest["scaffolding_version"]
+
+    if project_version >= manifest_version:
+        print(json.dumps({"status": "ok", "project_version": project_version, "manifest_version": manifest_version}))
+        return 0
+    else:
+        print(json.dumps({"status": "drift", "project_version": project_version, "manifest_version": manifest_version}))
+        return 1
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Print human-readable diff of what apply would do. Read-only."""
+    if args.manifest:
+        candidate = Path(args.manifest)
+        manifest_path = candidate if candidate.is_file() else None
+    else:
+        manifest_path = _find_manifest()
+    if not manifest_path:
+        print("[scaffolding-migrate] manifest not found")
+        return 2
+
+    manifest = _load_manifest(manifest_path)
+    if manifest is None:
+        print("[scaffolding-migrate] manifest parse error")
+        return 2
+
+    project_root = Path(args.project_root) if args.project_root else Path.cwd()
+    diff = _compute_diff(manifest, project_root)
+
+    project_version = _read_project_version(project_root)
+    manifest_version = manifest["scaffolding_version"]
+
+    print(f"Manifest version: {manifest_version}")
+    print(f"Project version:  {project_version}")
+
+    if not diff["gitignore_missing"] and not diff["files_missing"]:
+        print("Status: up to date")
+        return 0
+
+    if diff["gitignore_missing"]:
+        print("\n.gitignore patterns to add:")
+        for pat in diff["gitignore_missing"]:
+            print(f"  + {pat}")
+
+    if diff["files_missing"]:
+        print("\nFiles to seed:")
+        for entry in diff["files_missing"]:
+            print(f"  + {entry['path']} (from {entry['seed']})")
+
+    return 0
+
+
+def cmd_apply(args: argparse.Namespace) -> int:
+    """Apply additive migration rules. Acquires lock; silent-fail."""
+    if args.manifest:
+        candidate = Path(args.manifest)
+        manifest_path = candidate if candidate.is_file() else None
+    else:
+        manifest_path = _find_manifest()
+    project_root = Path(args.project_root) if args.project_root else Path.cwd()
+
+    if not manifest_path:
+        _warn_manifest_not_found(project_root)
+        return 0
+
+    manifest = _load_manifest(manifest_path)
+    if manifest is None:
+        return 2
+
+    manifest_dir = manifest_path.parent
+    manifest_version = manifest["scaffolding_version"]
+    dry_run = getattr(args, "dry_run", False)
+
+    if dry_run:
+        return cmd_diff(args)
+
+    # Acquire lock
+    lock_fd = _acquire_lock()
+    if lock_fd is None:
+        # Another session is applying - exit silently
+        return 0
+
+    errored = False
+    wrote_anything = False
+
+    try:
+        project_version = _read_project_version(project_root)
+
+        # --- gitignore rules ---
+        gitignore_path = project_root / ".gitignore"
+        existing_lines = _gitignore_lines(gitignore_path)
+
+        for entry in manifest.get("gitignore", []):
+            try:
+                pat = entry["pattern"]
+                if not _pattern_present(existing_lines, pat):
+                    _append_gitignore(gitignore_path, pat)
+                    existing_lines.append(pat)
+                    wrote_anything = True
+            except Exception:
+                errored = True
+
+        # --- file rules ---
+        for entry in manifest.get("files", []):
+            try:
+                target = project_root / entry["path"]
+                if not target.exists():
+                    seed_path = manifest_dir / entry["seed"]
+                    if seed_path.is_file():
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(seed_path), str(target))
+                        wrote_anything = True
+                    else:
+                        errored = True
+            except Exception:
+                errored = True
+
+        # --- stamp ---
+        all_rules_ok = not errored
+        # Recompute diff to check all satisfied
+        diff = _compute_diff(manifest, project_root)
+        all_satisfied = not diff["gitignore_missing"] and not diff["files_missing"]
+
+        if all_satisfied:
+            _stamp_project_version(project_root, manifest_version)
+            if wrote_anything:
+                _append_context_line(
+                    project_root,
+                    f"[scaffolding-sync] Applied v{project_version} -> v{manifest_version} migration at {_now_iso()}.",
+                )
+
+    finally:
+        _release_lock(lock_fd)
+
+    if errored:
+        return 3
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="agentic-migrate",
+        description="Apply additive project scaffolding migrations from a manifest.",
+    )
+    parser.add_argument("--manifest", default=None, help="Path to manifest YAML file.")
+
+    sub = parser.add_subparsers(dest="subcommand")
+
+    # check
+    p_check = sub.add_parser("check", help="Exit 0 if current, 1 if drift, 2 if error.")
+    p_check.add_argument("--manifest", default=None)
+    p_check.add_argument("--project-root", dest="project_root", default=None)
+
+    # apply
+    p_apply = sub.add_parser("apply", help="Apply additive rules.")
+    p_apply.add_argument("--manifest", default=None)
+    p_apply.add_argument("--project-root", dest="project_root", default=None)
+    p_apply.add_argument("--dry-run", action="store_true")
+
+    # diff
+    p_diff = sub.add_parser("diff", help="Show what apply would do (read-only).")
+    p_diff.add_argument("--manifest", default=None)
+    p_diff.add_argument("--project-root", dest="project_root", default=None)
+
+    args = parser.parse_args()
+
+    if not args.subcommand:
+        parser.print_help()
+        return 0
+
+    try:
+        if args.subcommand == "check":
+            return cmd_check(args)
+        elif args.subcommand == "apply":
+            return cmd_apply(args)
+        elif args.subcommand == "diff":
+            return cmd_diff(args)
+    except Exception:
+        return 2
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -105,6 +105,20 @@ symlink_dir "../../../content/references" "$SKILL_DST/references"
 symlink_dir "../../../content/sections"  "$SKILL_DST/sections"
 symlink_dir "../../../content/commands"  "$SKILL_DST/commands"
 symlink_dir "../../../content/agents"    "$SKILL_DST/agents"
+symlink_dir "../../../content/templates" "$SKILL_DST/templates"
+
+# project-scaffolding.yml: hardlink (not a dir symlink - single file)
+SCAFFOLDING_SRC="$REPO_DIR/content/project-scaffolding.yml"
+SCAFFOLDING_DST="$SKILL_DST/project-scaffolding.yml"
+if [[ -L "$SCAFFOLDING_DST" ]]; then
+  rm "$SCAFFOLDING_DST"
+fi
+if [[ -e "$SCAFFOLDING_DST" ]]; then
+  : # already a real file (hardlink or copy) - leave it
+else
+  ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST" 2>/dev/null || cp "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
+fi
+echo "  + project-scaffolding.yml"
 
 # ---------------------------------------------------------------------------
 # Create per-command skill directories

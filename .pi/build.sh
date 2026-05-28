@@ -80,6 +80,25 @@ link_dir "../../../content/commands" "$SKILL_DST/commands"
 link_dir "../../../content/references" "$SKILL_DST/references"
 link_dir "../../../content/rules" "$SKILL_DST/rules"
 link_dir "../../../content/agents" "$SKILL_DST/agents"
+link_dir "../../../content/templates" "$SKILL_DST/templates"
+
+# project-scaffolding.yml: hardlink (single file, not a dir)
+SCAFFOLDING_SRC="$REPO_DIR/content/project-scaffolding.yml"
+SCAFFOLDING_DST="$SKILL_DST/project-scaffolding.yml"
+if [[ -L "$SCAFFOLDING_DST" ]]; then
+  rm "$SCAFFOLDING_DST"
+  SCAFFOLDING_DST_NEED_LINK=1
+elif [[ ! -e "$SCAFFOLDING_DST" ]]; then
+  SCAFFOLDING_DST_NEED_LINK=1
+else
+  SCAFFOLDING_DST_NEED_LINK=0
+fi
+if [[ "${SCAFFOLDING_DST_NEED_LINK:-0}" == "1" ]]; then
+  ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST" 2>/dev/null || cp "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
+  echo "  + project-scaffolding.yml"
+else
+  echo "  = project-scaffolding.yml (already linked)"
+fi
 
 # Pi prompt templates are project-local slash-command equivalents. They expand
 # into instructions that load the skill and then read the canonical command doc.

@@ -667,6 +667,7 @@ Seed with these documented defaults exactly:
 
 ```json
 {
+  "scaffolding_version": 1,
   "debugger_on_failure": false,
   "qa_default_skip": null,
   "model_profile": "default",
