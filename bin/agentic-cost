@@ -552,8 +552,15 @@ def _fetch_git_log(since: str, until: str, author: str | None) -> list[dict]:
     return commits
 
 
-def _fetch_gh_prs(since: str, until: str) -> tuple[list[dict], str | None]:
-    """Fetch PR data from gh. Returns (prs, warning_or_none)."""
+def _fetch_gh_prs(
+    since: str, until: str, author_filter: str | None = None
+) -> tuple[list[dict], str | None]:
+    """Fetch PR data from gh. Returns (prs, warning_or_none).
+
+    When author_filter is set, passes --author to gh pr list so the 500-result
+    cap applies only to the filtered set, preventing silent truncation in repos
+    with >500 PRs in the date range.
+    """
     # gh pr list search uses merged: qualifier
     search_q = f"merged:{since}..{until}"
     cmd = [
@@ -563,6 +570,8 @@ def _fetch_gh_prs(since: str, until: str) -> tuple[list[dict], str | None]:
         "--json", "number,author,createdAt,mergedAt,additions,deletions,files",
         "--limit", "500",
     ]
+    if author_filter:
+        cmd += ["--author", author_filter]
     out, _, rc = _run(cmd)
     if rc != 0:
         return [], "gh pr list failed; PR data omitted."
@@ -777,17 +786,13 @@ def cmd_retro(args: argparse.Namespace) -> int:
     # Fetch PR data (optional)
     prs: list[dict] = []
     if _gh_available():
-        prs, pr_warn = _fetch_gh_prs(since_str, until_str)
+        prs, pr_warn = _fetch_gh_prs(since_str, until_str, author_filter)
         if pr_warn:
             warnings.append(pr_warn)
     else:
         warnings.append("gh not available or not authenticated; PR data omitted.")
 
     agg = _aggregate_retro(commits, prs, author_filter)
-
-    if not agg:
-        print("No activity in range.")
-        return 0
 
     if getattr(args, "json", False):
         # Serialize sets to sorted lists for JSON

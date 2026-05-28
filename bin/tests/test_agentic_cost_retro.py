@@ -238,6 +238,83 @@ def run_tests():
         )
         print("Test 10 (malformed date -> exit 1): PASS")
 
+        # ------------------------------------------------------------------
+        # Test 11: empty-range warning - table mode includes WARNING header
+        # (regression: early-return used to skip the WARNING header)
+        # ------------------------------------------------------------------
+        rc11, out11 = _capture_retro(
+            _make_args(since="2020-01-01", until="2020-01-31"), repo
+        )
+        assert rc11 == 0, f"Test 11: expected rc=0, got {rc11}"
+        assert "WARNING" in out11, (
+            f"Test 11: WARNING header missing in empty-range table output:\n{out11}"
+        )
+        assert "No activity in range." in out11, (
+            f"Test 11: 'No activity in range.' missing in empty-range output:\n{out11}"
+        )
+        print("Test 11 (empty-range table has WARNING header): PASS")
+
+        # ------------------------------------------------------------------
+        # Test 12: empty-range JSON mode includes metadata keys
+        # (regression: early-return used to bypass JSON branch entirely)
+        # ------------------------------------------------------------------
+        rc12, out12 = _capture_retro(
+            _make_args(since="2020-01-01", until="2020-01-31", **{"json": True}), repo
+        )
+        assert rc12 == 0, f"Test 12: expected rc=0, got {rc12}"
+        try:
+            data12 = json.loads(out12)
+        except json.JSONDecodeError as exc:
+            assert False, f"Test 12: JSON output invalid: {exc}\n{out12}"
+        for key in ("warning", "repo", "since", "until", "authors"):
+            assert key in data12, (
+                f"Test 12: '{key}' missing from empty-range JSON output:\n{out12}"
+            )
+        assert data12["authors"] == {}, (
+            f"Test 12: 'authors' should be empty dict, got: {data12['authors']}"
+        )
+        assert data12["since"] == "2020-01-01", (
+            f"Test 12: 'since' incorrect in JSON: {data12.get('since')}"
+        )
+        assert data12["until"] == "2020-01-31", (
+            f"Test 12: 'until' incorrect in JSON: {data12.get('until')}"
+        )
+        print("Test 12 (empty-range JSON has metadata keys): PASS")
+
+        # ------------------------------------------------------------------
+        # Test 13: _fetch_gh_prs passes --author flag when author_filter set
+        # (regression: gh --limit 500 could silently truncate busy repos)
+        # ------------------------------------------------------------------
+        captured_cmds: list[list[str]] = []
+        orig_run = _mod._run
+
+        def _mock_run(cmd: list[str], **kwargs):
+            captured_cmds.append(cmd)
+            # Simulate gh returning empty list (no real gh needed in CI)
+            return "[]", "", 0
+
+        _mod._run = _mock_run
+        orig_gh = _mod._gh_available
+        _mod._gh_available = lambda: True
+        try:
+            rc13, _ = _capture_retro(_make_args(author="alice"), repo)
+        finally:
+            _mod._run = orig_run
+            _mod._gh_available = orig_gh
+
+        assert rc13 == 0, f"Test 13: expected rc=0, got {rc13}"
+        gh_calls = [c for c in captured_cmds if c and c[0] == "gh"]
+        assert gh_calls, "Test 13: no gh calls captured"
+        gh_cmd = gh_calls[0]
+        assert "--author" in gh_cmd, (
+            f"Test 13: --author flag not passed to gh pr list:\n{gh_cmd}"
+        )
+        author_idx = gh_cmd.index("--author")
+        assert gh_cmd[author_idx + 1] == "alice", (
+            f"Test 13: --author value wrong, got: {gh_cmd[author_idx + 1]}"
+        )
+        print("Test 13 (gh --author flag passed when author_filter set): PASS")
+
         print("\nAll retro tests passed.")
 
 
