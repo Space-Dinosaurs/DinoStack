@@ -7,6 +7,7 @@ from evals.auto.apply import (
     count_changed_loc_for_whole_file,
     extract_diff,
     extract_whole_file,
+    normalise_heading,
     validate_paths,
     validate_single_path,
 )
@@ -190,3 +191,34 @@ def test_extract_whole_file_heading_not_path():
     text = "```markdown\n# Introduction\nBody text\n```"
     r = extract_whole_file(text)
     assert r == ("", "# Introduction\nBody text")
+
+
+# ---------------------------------------------------------------------------
+# normalise_heading
+# ---------------------------------------------------------------------------
+
+def test_normalise_heading_hash_markers():
+    assert normalise_heading("## Diff") == "diff"
+    assert normalise_heading("# Foo Bar") == "foo bar"
+    assert normalise_heading("### SECTION") == "section"
+
+
+def test_normalise_heading_bold_markers():
+    assert normalise_heading("**Overfitting Rule:**") == "overfitting rule"
+    assert normalise_heading("**Diff**") == "diff"
+    assert normalise_heading("**Foo Bar**:") == "foo bar"
+
+
+def test_normalise_heading_trailing_colon_only():
+    assert normalise_heading("Verdict:") == "verdict"
+    assert normalise_heading("## Result:") == "result"
+
+
+def test_normalise_heading_plain_text():
+    assert normalise_heading("just text") == "just text"
+    assert normalise_heading("  spaced  ") == "spaced"
+
+
+def test_normalise_heading_empty():
+    assert normalise_heading("") == ""
+    assert normalise_heading("   ") == ""
