@@ -30,6 +30,8 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 
 **Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
+**Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - committed per-developer session rollup for team telemetry (Stop hook writer; see `content/references/events-log.md` "Per-developer session log"). Requires `agentic-identity init <handle>` to activate. Aggregated via `agentic-cost team`.
+
 **MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
 - Remove entries that are no longer true

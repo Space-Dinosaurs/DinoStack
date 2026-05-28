@@ -4,24 +4,32 @@
  * Purpose: Reads the Claude Code Stop hook JSON payload from stdin and writes
  *          session context to disk so the next session's Workers have lightweight
  *          context about what was happening. Also marks any active orchestration
- *          loop as interrupted so the next session can offer to resume.
+ *          loop as interrupted so the next session can offer to resume. Additionally
+ *          writes a per-developer session rollup to .agentic/session-log/ when a
+ *          developer identity is set, or appends a one-time nudge to context.md.
  *
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
  *             Claude Code Stop hook. Internal helpers: writeLoopState(cwd),
- *             writeBatchState(cwd, sessionId), writeSessionTotal(cwd, sessionId).
+ *             writeBatchState(cwd, sessionId), writeSessionTotal(cwd, sessionId),
+ *             getIdentity(), writeSessionLog(cwd, identity, totals),
+ *             appendIdentityNudgeToContextMd(repoRoot).
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
  *                dependencies. Reads from stdin (fd 0). Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
- *                [cwd]/.agentic/loop-state.json, and
- *                [cwd]/.agentic/batch-state.json.
+ *                [cwd]/.agentic/loop-state.json,
+ *                [cwd]/.agentic/batch-state.json,
+ *                [cwd]/.agentic/session-log/<developer_id>.jsonl, and
+ *                ~/.agentic/identity.yml (read-only).
  *
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
  *                        Output files are read by Worker agents at session start.
+ *                        bin/agentic-cost team reads .agentic/session-log/ for
+ *                        team-level aggregation.
  *
- * Failure modes: All failures are silent (process.exit(0)). Four independent
+ * Failure modes: All failures are silent (process.exit(0)). Six independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -34,7 +42,11 @@
  *                session_id mismatch with the file's owner, on missing file, or
  *                on parse error. Best-effort silent-fail; failure of
  *                writeBatchState does not block writeSessionTotal.
- *                All four paths are independent - a failure in one does not
+ *                (5) writeSessionLog appends to .agentic/session-log/<dev>.jsonl;
+ *                any fs error is swallowed independently of all other paths.
+ *                (6) appendIdentityNudgeToContextMd appends to context.md; any
+ *                fs error is swallowed independently.
+ *                All six paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
  *                traversal components are rejected for the loop-state and
@@ -256,6 +268,160 @@ function removeLearningsAgentSession(cwd, sessionId) {
     }
   } catch (_) {
     // Silent failure
+  }
+}
+
+/**
+ * Read ~/.agentic/identity.yml and return {developer_id} or null.
+ * Silent on ENOENT or any parse error.
+ *
+ * @returns {{developer_id: string}|null}
+ */
+function getIdentity() {
+  try {
+    const identityPath = path.join(os.homedir(), '.agentic', 'identity.yml');
+    if (!fs.existsSync(identityPath)) return null;
+    const raw = fs.readFileSync(identityPath, 'utf8');
+    const m = raw.match(/^developer_id:\s*(\S+)\s*$/m);
+    if (!m) return null;
+    return { developer_id: m[1] };
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Append a one-time identity nudge to .agentic/context.md.
+ * Silent on any fs error. Idempotent via sentinel at ~/.agentic/.identity-nudged.
+ *
+ * @param {string} repoRoot - Verified project directory.
+ */
+function appendIdentityNudgeToContextMd(repoRoot) {
+  try {
+    const contextPath = path.join(repoRoot, '.agentic', 'context.md');
+    const nudge = [
+      '',
+      '---',
+      '[agentic-engineering] No developer identity set. Session telemetry is local-only.',
+      'To enable team telemetry: agentic-identity init <handle>',
+      'Sentinel: ~/.agentic/.identity-nudged (delete to re-nudge)',
+    ].join('\n') + '\n';
+    fs.appendFileSync(contextPath, nudge, 'utf8');
+  } catch (_) {
+    // Silent failure
+  }
+}
+
+/**
+ * Compute session totals by re-reading events.jsonl for the current session.
+ * Returns {wall_seconds, tokens, spawn_count, by_agent} or null on failure.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string|null} sessionId - Current session uuid.
+ * @returns {{wall_seconds: number, tokens: object, spawn_count: number, by_agent: object}|null}
+ */
+function computeSessionTotals(cwd, sessionId) {
+  try {
+    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+    if (!fs.existsSync(eventsPath)) return null;
+    const raw = fs.readFileSync(eventsPath, 'utf8');
+    if (!raw.trim()) return null;
+
+    const lines = raw.split('\n');
+    let totalWall = 0;
+    let spawnCount = 0;
+    const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
+    const byAgent = {};
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let obj;
+      try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+      const ev = obj && obj.event;
+      if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
+      const data = (obj && obj.data) || {};
+      if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
+      const wall = Number(data.wall_seconds) || 0;
+      totalWall += wall;
+      const tokens = data.tokens || {};
+      for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
+        totalTokens[k] += Number(tokens[k]) || 0;
+      }
+      if (ev === 'spawn_complete') {
+        spawnCount += 1;
+        const agentName = obj.agent || 'unknown';
+        if (!byAgent[agentName]) {
+          byAgent[agentName] = { spawns: 0, wall_seconds: 0, tokens_total: 0 };
+        }
+        byAgent[agentName].spawns += 1;
+        byAgent[agentName].wall_seconds += wall;
+        const tokSum = (Number(tokens.input) || 0) + (Number(tokens.output) || 0)
+          + (Number(tokens.cache_creation) || 0) + (Number(tokens.cache_read) || 0);
+        byAgent[agentName].tokens_total += tokSum;
+      }
+    }
+
+    return {
+      wall_seconds: Number(totalWall.toFixed(3)),
+      tokens: totalTokens,
+      spawn_count: spawnCount,
+      by_agent: byAgent,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Write a session-log line to .agentic/session-log/<developer_id>.jsonl.
+ * Creates the directory if needed. Silent failure on any fs error.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {{developer_id: string}} identity - Identity from getIdentity().
+ * @param {string|null} sessionId - Current session uuid.
+ */
+function writeSessionLog(cwd, identity, sessionId) {
+  try {
+    // Resolve project slug and branch best-effort
+    const projectSlug = path.basename(cwd);
+    let branch = '';
+    try {
+      const { execSync: _exec } = require('child_process');
+      branch = _exec('git symbolic-ref --short HEAD', {
+        cwd, timeout: 3000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch (_) {
+      // Not a git repo or detached HEAD - leave branch as empty string
+    }
+
+    const totals = computeSessionTotals(cwd, sessionId);
+    const data = totals || {
+      wall_seconds: 0,
+      tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+      spawn_count: 0,
+      by_agent: {},
+    };
+
+    const logLine = JSON.stringify({
+      ts: new Date().toISOString(),
+      phase: 'session_end',
+      event: 'session_total',
+      agent: null,
+      task_id: null,
+      developer_id: identity.developer_id,
+      session_uuid: sessionId || null,
+      project_slug: projectSlug,
+      branch,
+      data,
+    });
+
+    const sessionLogDir = path.join(cwd, '.agentic', 'session-log');
+    fs.mkdirSync(sessionLogDir, { recursive: true });
+    const logFile = path.join(sessionLogDir, `${identity.developer_id}.jsonl`);
+    fs.appendFileSync(logFile, logLine + '\n', 'utf8');
+  } catch (_) {
+    // Silent failure - consistent with all other write paths
   }
 }
 
@@ -483,6 +649,25 @@ ${toolsLine}
       writeBatchState(cwd, sessionId);
       // Write session_total to events.jsonl on this exit path too.
       writeSessionTotal(cwd, sessionId);
+      // Write per-developer session log or nudge (independent of all other paths).
+      try {
+        const identity = getIdentity();
+        if (identity) {
+          writeSessionLog(cwd, identity, sessionId);
+        } else {
+          const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
+          try {
+            fs.mkdirSync(path.join(os.homedir(), '.agentic'), { recursive: true });
+            fs.writeFileSync(sentinelPath, '', { flag: 'wx' });
+            // Write succeeded - sentinel did not exist, so nudge once
+            appendIdentityNudgeToContextMd(cwd);
+          } catch (_nudgeErr) {
+            // EEXIST means sentinel already written - skip nudge silently
+          }
+        }
+      } catch (_) {
+        // Silent failure - never block session exit
+      }
       removeLearningsAgentSession(cwd, sessionId);
       process.exit(0);
     }
@@ -512,7 +697,28 @@ ${toolsLine}
   // Independent best-effort write; any failure swallowed.
   writeSessionTotal(cwd, sessionId);
 
-  // --- 13. Remove learnings-agent session marker if owned by this session ---
+  // --- 13. Write per-developer session log or identity nudge ---
+  // Independent best-effort write; any failure swallowed. Never blocks exit.
+  try {
+    const identity = getIdentity();
+    if (identity) {
+      writeSessionLog(cwd, identity, sessionId);
+    } else {
+      const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
+      try {
+        fs.mkdirSync(path.join(os.homedir(), '.agentic'), { recursive: true });
+        fs.writeFileSync(sentinelPath, '', { flag: 'wx' });
+        // Sentinel did not exist - nudge once
+        appendIdentityNudgeToContextMd(cwd);
+      } catch (_nudgeErr) {
+        // EEXIST: sentinel already written, skip nudge
+      }
+    }
+  } catch (_) {
+    // Silent failure
+  }
+
+  // --- 14. Remove learnings-agent session marker if owned by this session ---
   removeLearningsAgentSession(cwd, sessionId);
 
   process.exit(0);

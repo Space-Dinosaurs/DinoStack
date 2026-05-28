@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 Purpose: Read .agentic/events.jsonl and render per-agent / per-task /
-         per-project token and wall-time rollups. Optionally renders dollar
-         columns when ~/.agentic/pricing.yml is present (opt-in, never
-         invented). The CLI for the /agentic-cost command.
+         per-project token and wall-time rollups. Also reads
+         .agentic/session-log/*.jsonl for team-level per-developer aggregation.
+         Optionally renders dollar columns when ~/.agentic/pricing.yml is present
+         (opt-in, never invented). The CLI for the /agentic-cost command.
 
 Public API: agentic-cost session [<session_uuid>]
             agentic-cost task <task_id>
             agentic-cost project [--since <YYYY-MM-DD>]
+            agentic-cost team [--json]
             All subcommands print a fixed-width table to stdout. Every
             output ends with the V1 disclosure footer line per
             acceptance criterion 12.
@@ -26,6 +28,8 @@ Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
                a "N events skipped due to malformed lines." footnote.
                Missing pricing for a model -> dollar columns render as '?'
                and the missing model is listed in a footnote.
+               missing/empty .agentic/session-log/ -> prints guidance message
+               and exits 0.
 
 Performance: O(N events) single pass; <2s on a session with 50 events
              per acceptance criterion 3.
@@ -46,6 +50,7 @@ V1_FOOTER = (
 )
 
 EVENTS_PATH = Path(".agentic/events.jsonl")
+SESSION_LOG_DIR = Path(".agentic/session-log")
 PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
 
 
@@ -319,6 +324,116 @@ def cmd_project(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_session_logs() -> tuple[list[dict], int]:
+    """Load all JSONL lines from .agentic/session-log/*.jsonl.
+
+    Returns (records, skipped_count). Each record is the parsed JSON object
+    from a single session-log line. Malformed lines are skipped and counted.
+    """
+    if not SESSION_LOG_DIR.is_dir():
+        return [], 0
+    records: list[dict] = []
+    skipped = 0
+    for jsonl_file in sorted(SESSION_LOG_DIR.glob("*.jsonl")):
+        try:
+            with jsonl_file.open("r", encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        records.append(json.loads(raw))
+                    except json.JSONDecodeError:
+                        skipped += 1
+        except OSError:
+            pass
+    return records, skipped
+
+
+def _aggregate_team(records: list[dict]) -> dict:
+    """Aggregate session-log records by developer_id.
+
+    Returns:
+      {developer_id: {sessions, wall_seconds, tokens: {in,out,cache_cr,cache_rd},
+                      by_agent: {agent: {spawns, wall_seconds, tokens_total}}}}
+    """
+    agg: dict = {}
+    for rec in records:
+        dev = rec.get("developer_id")
+        if not dev:
+            continue
+        data = rec.get("data") or {}
+        bucket = agg.setdefault(dev, {
+            "sessions": 0,
+            "wall_seconds": 0.0,
+            "tokens": {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0},
+            "by_agent": {},
+        })
+        bucket["sessions"] += 1
+        bucket["wall_seconds"] += float(data.get("wall_seconds") or 0)
+        toks = data.get("tokens") or {}
+        for k in ("input", "output", "cache_creation", "cache_read"):
+            bucket["tokens"][k] += int(toks.get(k) or 0)
+        for agent, agent_data in (data.get("by_agent") or {}).items():
+            ab = bucket["by_agent"].setdefault(agent, {
+                "spawns": 0, "wall_seconds": 0.0, "tokens_total": 0,
+            })
+            ab["spawns"] += int(agent_data.get("spawns") or 0)
+            ab["wall_seconds"] += float(agent_data.get("wall_seconds") or 0)
+            ab["tokens_total"] += int(agent_data.get("tokens_total") or 0)
+    return agg
+
+
+def _render_team_table(agg: dict) -> str:
+    """Render fixed-width table of team telemetry sorted by total tokens desc."""
+    lines: list[str] = []
+    header = (
+        f"{'developer':<20}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
+        f"{'cache_cr':>10}{'cache_rd':>10}{'wall(s)':>10}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    def _tok_total(b: dict) -> int:
+        t = b["tokens"]
+        return t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
+
+    sorted_devs = sorted(agg.keys(), key=lambda d: _tok_total(agg[d]), reverse=True)
+    for dev in sorted_devs:
+        b = agg[dev]
+        t = b["tokens"]
+        lines.append(
+            f"{dev:<20}{b['sessions']:>9}{t['input']:>10}{t['output']:>10}"
+            f"{t['cache_creation']:>10}{t['cache_read']:>10}{b['wall_seconds']:>10.1f}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def cmd_team(args: argparse.Namespace) -> int:
+    records, skipped = _load_session_logs()
+    if not records and not SESSION_LOG_DIR.is_dir():
+        print(
+            "No team telemetry yet. Developers run: agentic-identity init <handle>"
+        )
+        return 0
+    if not records:
+        print(
+            "No team telemetry yet. Developers run: agentic-identity init <handle>"
+        )
+        return 0
+
+    agg = _aggregate_team(records)
+
+    if getattr(args, "json", False):
+        sys.stdout.write(json.dumps(agg, indent=2) + "\n")
+        return 0
+
+    sys.stdout.write(_render_team_table(agg))
+    if skipped:
+        print(f"{skipped} lines skipped due to malformed JSONL.")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="agentic-cost",
@@ -335,6 +450,10 @@ def main(argv: list[str]) -> int:
     p_p.add_argument("--since", default=None,
                      help="YYYY-MM-DD lower bound on event timestamp")
     p_p.set_defaults(func=cmd_project)
+    p_team = sub.add_parser("team", help="per-developer rollup from .agentic/session-log/")
+    p_team.add_argument("--json", action="store_true",
+                        help="emit machine-readable JSON instead of a table")
+    p_team.set_defaults(func=cmd_team)
     args = p.parse_args(argv[1:])
     return args.func(args)
 

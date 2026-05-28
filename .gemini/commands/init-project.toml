@@ -744,11 +744,13 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 # tracker-states.json is an intentionally-ignored runtime cache (24h TTL,
 # machine-local; stale on fresh checkout is acceptable - Phase 2c refetches).
 # Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
-# .agentic/tracking.md - these are tool-agnostic agent config and belong in
-# source control.
+# .agentic/tracking.md, .agentic/session-log/ - these are tool-agnostic agent
+# config and belong in source control.
+!.agentic/session-log/
+!.agentic/session-log/**
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/session-log/` is also NOT ignored - it is the committed per-developer session-telemetry surface written by the Stop hook.
 
 ### 10. Create `docs/` structure
 
