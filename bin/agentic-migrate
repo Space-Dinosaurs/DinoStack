@@ -130,9 +130,20 @@ def _pattern_present(lines: list[str], pattern: str) -> bool:
 
 
 def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
-    """Append a pattern line to .gitignore atomically."""
-    with open(gitignore_path, "a", encoding="utf-8") as f:
-        f.write(pattern + "\n")
+    """Append a pattern line to .gitignore, inserting a leading newline if the
+    file has content but does not end with one (prevents pattern fusion)."""
+    try:
+        needs_leading_newline = False
+        if gitignore_path.exists():
+            content = gitignore_path.read_bytes()
+            if content and not content.endswith(b"\n"):
+                needs_leading_newline = True
+        with open(gitignore_path, "a", encoding="utf-8") as f:
+            if needs_leading_newline:
+                f.write("\n")
+            f.write(pattern + "\n")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -255,22 +266,56 @@ def _append_context_line(project_root: Path, line: str) -> None:
 
 
 def _warn_manifest_not_found(project_root: Path) -> None:
-    """Append manifest-not-found warning to context.md, gated by sentinel."""
+    """Append manifest-not-found warning to context.md, gated by per-session sentinel.
+
+    The sentinel is per-session: if AGENTIC_SESSION_ID or CLAUDE_SESSION_UUID is
+    set, the sentinel file includes that value so a new session sees a fresh warning.
+    If neither env var is available, falls back to a persistent sentinel (once-ever)
+    and documents that behavior in the warning text.
+    """
     try:
-        sentinel = project_root / ".agentic" / ".manifest-not-found-warned"
-        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        session_id = (
+            os.environ.get("AGENTIC_SESSION_ID")
+            or os.environ.get("CLAUDE_SESSION_UUID")
+        )
+        agentic_dir = project_root / ".agentic"
+        agentic_dir.mkdir(parents=True, exist_ok=True)
+
+        if session_id:
+            # Per-session sentinel: name includes session UUID so each new
+            # session gets its own file and sees the warning once.
+            sentinel = agentic_dir / f".manifest-not-found-warned-{session_id}"
+        else:
+            # No session UUID available - fall back to a persistent sentinel.
+            # Warning fires once-per-project-ever in this mode.
+            sentinel = agentic_dir / ".manifest-not-found-warned"
+
         try:
             fd = os.open(str(sentinel), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
             os.close(fd)
         except FileExistsError:
             return
+
+        suffix = "" if session_id else " Run /migrate-project to re-attempt."
         _append_context_line(
             project_root,
             "[scaffolding-sync] WARNING: manifest not found, sync skipped. "
-            "Set AGENTIC_MANIFEST_PATH to enable.",
+            f"Set AGENTIC_MANIFEST_PATH to enable.{suffix}",
         )
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Manifest resolution helper
+# ---------------------------------------------------------------------------
+
+def _resolve_manifest_path(args: argparse.Namespace) -> Path | None:
+    """Return the resolved manifest Path from --manifest arg or auto-discovery."""
+    if getattr(args, "manifest", None):
+        candidate = Path(args.manifest)
+        return candidate if candidate.is_file() else None
+    return _find_manifest()
 
 
 # ---------------------------------------------------------------------------
@@ -309,11 +354,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     Exit 1 if drift.
     Exit 2 on error.
     """
-    if args.manifest:
-        candidate = Path(args.manifest)
-        manifest_path = candidate if candidate.is_file() else None
-    else:
-        manifest_path = _find_manifest()
+    manifest_path = _resolve_manifest_path(args)
     if not manifest_path:
         print(json.dumps({"status": "error", "reason": "manifest not found"}))
         return 2
@@ -338,11 +379,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_diff(args: argparse.Namespace) -> int:
     """Print human-readable diff of what apply would do. Read-only."""
-    if args.manifest:
-        candidate = Path(args.manifest)
-        manifest_path = candidate if candidate.is_file() else None
-    else:
-        manifest_path = _find_manifest()
+    manifest_path = _resolve_manifest_path(args)
     if not manifest_path:
         print("[scaffolding-migrate] manifest not found")
         return 2
@@ -380,11 +417,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
 
 def cmd_apply(args: argparse.Namespace) -> int:
     """Apply additive migration rules. Acquires lock; silent-fail."""
-    if args.manifest:
-        candidate = Path(args.manifest)
-        manifest_path = candidate if candidate.is_file() else None
-    else:
-        manifest_path = _find_manifest()
+    manifest_path = _resolve_manifest_path(args)
     project_root = Path(args.project_root) if args.project_root else Path.cwd()
 
     if not manifest_path:

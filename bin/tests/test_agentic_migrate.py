@@ -299,5 +299,117 @@ markers:
         self.assertEqual(agents_md.read_text(), "# My project\n")
 
 
+class TestGitignoreNoTrailingNewline(unittest.TestCase):
+    """Regression: .gitignore with no trailing newline must not fuse new pattern onto last line."""
+
+    def test_no_trailing_newline_corruption(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"debugger_on_failure": False}) + "\n")
+
+        # Write .gitignore WITHOUT a trailing newline - raw bytes to guarantee no \n at end
+        gitignore_path = project / ".gitignore"
+        gitignore_path.write_bytes(b"node_modules")
+
+        result = run(
+            ["apply", "--manifest", MANIFEST, "--project-root", str(project)],
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        content = gitignore_path.read_text(encoding="utf-8")
+
+        # Original line must be intact on its own line
+        lines = content.splitlines()
+        self.assertIn("node_modules", lines, "node_modules line must survive intact")
+
+        # New pattern must appear on its own line (not fused onto node_modules)
+        self.assertIn(".agentic/*", lines, ".agentic/* must be on its own line")
+
+        # Sanity: the fused form must NOT exist
+        self.assertNotIn("node_modules.agentic", content, "pattern fusion detected")
+        self.assertNotIn("node_modules!", content, "pattern fusion detected")
+
+        # File must end with a newline (proper hygiene)
+        self.assertTrue(
+            gitignore_path.read_bytes().endswith(b"\n"),
+            ".gitignore must end with a newline after apply",
+        )
+
+
+class TestMalformedConfigJson(unittest.TestCase):
+    """Malformed .agentic/config.json: apply must not crash or clobber the file."""
+
+    def test_malformed_config_json_not_touched(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+
+        bad_json = "{ not valid json"
+        (agentic / "config.json").write_text(bad_json)
+        (project / ".gitignore").write_text("")
+
+        result = run(
+            ["apply", "--manifest", MANIFEST, "--project-root", str(project)],
+        )
+        # Must not crash (exit codes 0 or 3 are both acceptable; 2 would mean manifest error)
+        self.assertIn(result.returncode, (0, 3), msg=f"Unexpected exit code: {result.returncode}\n{result.stderr}")
+
+        # The malformed config.json must be left alone (not clobbered with valid JSON)
+        actual = (agentic / "config.json").read_text()
+        self.assertEqual(actual, bad_json, "Malformed config.json must not be overwritten")
+
+
+class TestPartialApplyExitCode(unittest.TestCase):
+    """Missing seed file -> exit 3 (partial apply); gitignore patterns still applied;
+    scaffolding_version NOT stamped."""
+
+    def test_partial_apply_exit_code(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"debugger_on_failure": False}) + "\n")
+        (project / ".gitignore").write_text("")
+
+        # Manifest with a gitignore rule (will succeed) and a file rule pointing
+        # to a non-existent seed (will fail).
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: ".agentic/*"
+    purpose: "umbrella ignore"
+files:
+  - path: ".agentic/missing-seed-target.json"
+    seed: "templates/does-not-exist.json"
+    purpose: "intentionally missing seed"
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+
+        result = run(
+            ["apply", "--manifest", str(manifest_path), "--project-root", str(project)],
+        )
+
+        # 1. Exit code must be 3 (partial apply)
+        self.assertEqual(result.returncode, 3, msg=f"Expected exit 3, got {result.returncode}\n{result.stderr}")
+
+        # 2. The gitignore pattern was still applied
+        gi = (project / ".gitignore").read_text()
+        self.assertIn(".agentic/*", gi, "Gitignore pattern must be applied even on partial apply")
+
+        # 3. scaffolding_version must NOT be stamped (not all rules satisfied)
+        data = json.loads((agentic / "config.json").read_text())
+        self.assertNotEqual(
+            data.get("scaffolding_version"), 1,
+            "scaffolding_version must not be stamped on partial apply",
+        )
+
+        # 4. No crash (result.returncode already checked above)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
