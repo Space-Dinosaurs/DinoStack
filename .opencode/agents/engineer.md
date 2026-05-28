@@ -159,3 +159,17 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
+
+## Front-end discipline
+
+When your diff touches FE files matching the glob `**/*.{tsx,jsx,vue,svelte,astro,css,scss,html,mdx}` - excluding `content/**`, `docs/**/*.{mdx,html}`, `**/docs/**/*.{mdx,html}`, `**/*.stories.{tsx,jsx,ts,js}`, `**/*.test.{tsx,jsx,ts,js}`, and `**/*.spec.{tsx,jsx,ts,js}` - apply the rules in `content/references/frontend-discipline.md` before declaring done.
+
+- **Semantic HTML** - use native elements with correct semantics; `button` for actions, `a` for navigation.
+- **ARIA** - ARIA is an escape hatch; no ARIA on elements that already have native semantics.
+- **Keyboard** - all interactive elements keyboard-reachable with visible focus indicator and `onKeyDown` handler.
+- **Focus management** - modals/drawers trap focus on open and return focus to trigger on close.
+- **Reduced motion** - wrap all animations/transitions in a `prefers-reduced-motion: reduce` media query.
+- **Design tokens** - no hardcoded color/spacing/font values when a token system is detected.
+- **Responsive** - no fixed-width containers without responsive override on multi-breakpoint surfaces.
+
+See `content/references/frontend-discipline.md` for full rules and canonical violation examples.

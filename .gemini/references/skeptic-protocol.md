@@ -347,6 +347,30 @@ When reviewing a Brief or architect plan where `.agentic/config.json` has `theme
 
 When reviewing a Brief or architect plan where any scenario has `story_id` set AND that scenario's method is NOT `visual_conformance` or `accessibility` (i.e., the method is `perceptual_diff`, `browser`, `api`, or `runtime-required`), the Skeptic raises a **Critical** finding regardless of config state. Rationale: `perceptual_diff` would have ambiguous baseline-path semantics when the story render and live-app render differ; `api` and `runtime-required` have no browser surface; `browser` interaction flows do not compose with Storybook's isolated component render. `story_id` on a config-disabled project (`storybook_enabled: false` or absent) while using a compatible method (`visual_conformance` or `accessibility`) is NOT a plan-time finding - the runtime gate (INCONCLUSIVE with operator message) handles that case. The canonical statement of the schema, field rules, and trigger predicate lives in `content/references/planning-artifacts.md` (Field guidance, QA criteria entry) - this section mirrors only enough to ensure a Skeptic reviewer cannot miss the rule.
 
+### FE-discipline findings (auto-apply on FE diffs)
+
+**Trigger:** the diff touches one or more files matching
+`**/*.{tsx,jsx,vue,svelte,astro,css,scss,html,mdx}` AND the file is NOT in the
+exclusion set: `content/**`, `docs/**/*.{mdx,html}`,
+`**/docs/**/*.{mdx,html}`, `**/*.stories.{tsx,jsx,ts,js}`,
+`**/*.test.{tsx,jsx,ts,js}`, `**/*.spec.{tsx,jsx,ts,js}`.
+
+When the trigger fires, the Skeptic applies the findings table below. Every
+finding MUST cite (a) the file:line and (b) the matching section in
+`content/references/frontend-discipline.md`. Findings missing either citation
+are invalid.
+
+| Finding ID | Severity | Trigger condition |
+|---|---|---|
+| `semantic-html-misuse` | Major | non-semantic element used where a native semantic element exists (e.g., `div onClick` instead of `button`) |
+| `aria-needs-no-aria` | Major | ARIA attribute added to an element that already has native semantics (e.g., `<button role="button">`) |
+| `missing-focus-management` | Major | modal/drawer/popover-style component lacks focus trap or focus restore to trigger |
+| `hardcoded-token-instead-of-design-token` | Major | hardcoded color/spacing/font value in a codebase where a token system is detected (heuristics in `content/references/frontend-discipline.md` §6); the finding MUST cite which heuristic triggered detection |
+| `missing-keyboard-support` | Major | element with `onClick` handler is not a native interactive element and lacks both `onKeyDown` handler and `tabIndex` |
+| `motion-not-reduced-motion-aware` | Major | CSS animation or transition present without a `prefers-reduced-motion: reduce` media query guard |
+| `outline-none-without-replacement` | Major | `outline: none` or `outline: 0` applied without a `:focus-visible` replacement focus indicator |
+| `missing-responsive-class` | Minor | fixed-width or single-breakpoint sizing on a surface that is otherwise responsive (often intentional on desktop-only surfaces; Skeptic judgment required) |
+
 ---
 
 ## 5. Escalation Protocol
