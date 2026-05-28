@@ -3,6 +3,13 @@ name: release-orchestrator
 description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Hands failures to the debugger.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
+
+```yaml
+capabilities:
+  required: []
+  optional: []
+```
+
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.

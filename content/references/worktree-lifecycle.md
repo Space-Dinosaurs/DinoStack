@@ -5,12 +5,12 @@ Purpose: Full reference for worktree lifecycle command blocks extracted from
          session-start prune script.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/10-worktree-lifecycle.md (inline pointers replacing
+            content/sections/11-worktree-lifecycle.md (inline pointers replacing
             each bash block),
-            content/sections/11-protocol-details.md (Worktree lifecycle Protocol
+            content/sections/12-protocol-details.md (Worktree lifecycle Protocol
             Details entry).
 
-Upstream deps: content/sections/10-worktree-lifecycle.md (parent section; read
+Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
                and session-start prune rule).
 

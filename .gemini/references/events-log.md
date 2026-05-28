@@ -6,10 +6,10 @@ Purpose: Full reference for the events log V1 telemetry event-type schemas and
          per-developer session log (.agentic/session-log/) written by the Stop hook.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/08-events-log.md (pointer after Schema block),
-            content/sections/11-protocol-details.md (Events log Protocol Details entry).
+            content/sections/09-events-log.md (pointer after Schema block),
+            content/sections/12-protocol-details.md (Events log Protocol Details entry).
 
-Upstream deps: content/sections/08-events-log.md (parent section; read that
+Upstream deps: content/sections/09-events-log.md (parent section; read that
                section first for writer scope and base schema);
                bin/agentic-emit, bin/agentic-parse-subagent-usage, bin/agentic-cost
                (the consumers of these event schemas);
