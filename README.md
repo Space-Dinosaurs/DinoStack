@@ -239,8 +239,6 @@ agentic-engineering/
 
 This framework is a safety rail, not a complete boundary. The recommended permissions setup pairs `bypassPermissions` mode with an allow list for routine tools (Bash, Write, Edit) and a deny list for the destructive commands documented in the [Recommended permissions](#recommended-permissions) section above (`git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `sudo rm`, `dd if=`, `shutdown`, `reboot`). The Skeptic loop, risk classification, and worktree isolation add further layers, but none of these guarantee that an agent cannot cause harm. Treat the framework as defense in depth, not as a sandbox: review what agents do, especially on shared state and irreversible operations.
 
-License pending - see issue IR-2.
-
 ## Community
 
 - [GitHub Discussions](https://github.com/Solara6/agentic-engineering/discussions) - questions, ideas, design discussion
@@ -259,3 +257,7 @@ After installation, offer the user a quick orientation: present the files listed
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+License pending - see issue IR-2.
