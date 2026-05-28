@@ -127,6 +127,8 @@ Include:
 
 Do not editorialize. Copy the commit messages faithfully. Do not add entries for commits outside the changeset boundary.
 
+External comments follow §External Comment Discipline in `content/rules/conventions.md`.
+
 ### Phase 4 - Version bump
 
 Locate the version source (e.g., `package.json`, `pyproject.toml`, `version.txt`, or project-specific convention). Bump the version field to match the decision from Phase 2. Write the file. Verify the write:
