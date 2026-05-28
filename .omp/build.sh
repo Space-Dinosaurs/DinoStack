@@ -34,6 +34,18 @@ symlink_dir "../../../content/references" "$SKILL_DST/references"
 symlink_dir "../../../content/rules"     "$SKILL_DST/rules"
 symlink_dir "../../../content/commands"  "$SKILL_DST/commands"
 symlink_dir "../../../content/agents"    "$SKILL_DST/agents"
+symlink_dir "../../../content/templates" "$SKILL_DST/templates"
+
+# project-scaffolding.yml: hardlink (single file, not a dir)
+SCAFFOLDING_SRC="$REPO_DIR/content/project-scaffolding.yml"
+SCAFFOLDING_DST="$SKILL_DST/project-scaffolding.yml"
+if [[ -L "$SCAFFOLDING_DST" ]]; then
+  rm "$SCAFFOLDING_DST"
+fi
+if [[ ! -e "$SCAFFOLDING_DST" ]]; then
+  ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST" 2>/dev/null || cp "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
+  echo "  + project-scaffolding.yml"
+fi
 
 # ---------------------------------------------------------------------------
 # Make scripts executable

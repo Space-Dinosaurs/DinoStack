@@ -2,8 +2,10 @@
 # Purpose: Build the Claude Code adapter outputs from canonical content/.
 # Public API: invoked as `bash .claude/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/sections/, content/SKILL.md,
+#               content/project-scaffolding.yml, content/templates/,
 #               scripts/build-methodology.sh, .claude/skills/agentic-engineering/SKILL.frontmatter.yaml.
-# Downstream consumers: .claude/commands/, .claude/skills/agentic-engineering/{SKILL.md,METHODOLOGY.md,references/}.
+# Downstream consumers: .claude/commands/, .claude/skills/agentic-engineering/{SKILL.md,METHODOLOGY.md,references/,
+#                       project-scaffolding.yml,templates/}.
 # Failure modes: exits non-zero on missing inputs, broken hardlinks, or assembly script failure.
 # Performance: standard.
 
@@ -65,5 +67,26 @@ for src in "$CONTENT/references/"*.md; do
   rm -f "$dst"
   ln "$src" "$dst"
 done
+
+# project-scaffolding.yml: hardlink from content/ so it stays in sync
+SCAFFOLDING_SRC="$CONTENT/project-scaffolding.yml"
+SCAFFOLDING_DST="$SKILL_DST/project-scaffolding.yml"
+if [[ -e "$SCAFFOLDING_DST" ]] && [[ "$(get_inode "$SCAFFOLDING_SRC")" == "$(get_inode "$SCAFFOLDING_DST")" ]]; then
+  :
+else
+  rm -f "$SCAFFOLDING_DST"
+  ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
+fi
+
+# templates/: hardlink .agentic/config.json seed
+mkdir -p "$SKILL_DST/templates/.agentic"
+TMPL_SRC="$CONTENT/templates/.agentic/config.json"
+TMPL_DST="$SKILL_DST/templates/.agentic/config.json"
+if [[ -e "$TMPL_DST" ]] && [[ "$(get_inode "$TMPL_SRC")" == "$(get_inode "$TMPL_DST")" ]]; then
+  :
+else
+  rm -f "$TMPL_DST"
+  ln "$TMPL_SRC" "$TMPL_DST"
+fi
 
 echo "Claude adapter build complete."

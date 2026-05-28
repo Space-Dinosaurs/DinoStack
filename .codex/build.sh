@@ -147,6 +147,12 @@ fi
 
 echo "Rebuilt references/ hardlinks"
 
+# project-scaffolding.yml and templates/: hardlink into .codex/skill/ so agentic-migrate can find them
+hardlink_from_content "$CONTENT/project-scaffolding.yml" "$SKILL_DST/project-scaffolding.yml"
+mkdir -p "$SKILL_DST/templates/.agentic"
+hardlink_from_content "$CONTENT/templates/.agentic/config.json" "$SKILL_DST/templates/.agentic/config.json"
+echo "Rebuilt skill/project-scaffolding.yml and templates/"
+
 # ---------------------------------------------------------------------------
 # Build .codex/commands/ (hardlinks from content/commands/, no transforms)
 #
