@@ -439,6 +439,8 @@ The Skeptic must classify every finding. Unclassified findings are treated as Ma
 
 When reviewing, check spec compliance first - does the implementation do what was asked? Then check code quality. Surface spec compliance issues before stylistic concerns in the findings list. Spec compliance gaps at the Critical or Major level make code quality moot.
 
+**QA-fix iteration regression verification.** When the Skeptic runs in parallel with a re-spawned qa-engineer (QA-fix iteration in the concurrent QA flow, or Phase 6b sequential QA fix engineer), the verification additionally checks the `qa-regression-obligation.md` contract: the engineer added a unit/integration/e2e test for the failing scenario (id, description), OR documented an exception in `.agentic/qa-regressions.md` with a reason. This is symmetric to the Skeptic-finding regression rule in `content/references/regression-test-obligation.md`. Missing test without explanation and without a curated-index entry is a Major finding. Canonical statement in `content/references/qa-regression-obligation.md`.
+
 ### Review depth
 
 Adversarial review applies whenever risk is classified as Elevated. The main agent always uses a fresh independent Skeptic — there is no degraded self-review path for Elevated work. The exchange log is mandatory for all Elevated tasks. The escalation protocol is active for all Elevated tasks.

@@ -165,6 +165,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.agentic/deploy.md` (only if release signals detected in Step 0)
 - `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/learnings.md` — durable fix-pattern learnings from resolved Skeptic findings; always created (committed, not gitignored)
+- `.agentic/qa-regressions.md` — curated cross-ticket index of QA-found behavioral regressions; always created with header and `## Entries` heading only; only-if-absent / never-overwrite (committed, not gitignored)
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
 - `.agentic/config.json` - committed (NOT gitignored) project-level methodology toggles; always created with documented defaults so the conductor has a stable file to read
 - `glossary.md` (root) - the project's Ubiquitous Language; seeded with a header and TODO bullet so the team and agents have a place to record domain terms
@@ -299,13 +300,25 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
    Always created (unconditional). This file is committed, not gitignored.
 
+8a. **`.agentic/qa-regressions.md`** — if the file does not exist (resolver check: neither `.agentic/qa-regressions.md` nor legacy `.claude/qa-regressions.md`): plan to create it at `.agentic/qa-regressions.md` with the following stub (header and `## Entries` heading, no entries):
+
+   ```markdown
+   # QA Regressions
+
+   Curated index of QA-found behavioral regressions. Architects read this when authoring qa_criteria.scenarios[] on any ticket touching a listed surface.
+
+   ## Entries
+   ```
+
+   Always created (unconditional). Only-if-absent / never-overwrite discipline. This file is committed, not gitignored. See `content/references/qa-regression-obligation.md` for the canonical entry schema and dedupe rules.
+
 9. **Auto-memory directory** — if the user declined auto-memory in Step 1 (`no auto-memory` / `skip auto-memory pin`): skip entirely. If `.claude/settings.local.json` already has `autoMemoryDirectory` set (to any value): leave it alone (idempotent — user's existing preference wins, even if it differs from the Step 0 selection). If the file exists but lacks the `autoMemoryDirectory` key: plan to merge it in using the selected path from Step 0 (do not overwrite other keys in the file). If the file does not exist: Step 7 handles creation with the key present. If auto-memory was declined but the key is already set on disk: leave it (do not remove — user's existing preference wins).
 
 10. **`.agentic/preferences.json`** — if the file does not exist: plan to create it with `{}` as content.
 
 10a. **`.agentic/config.json`** — if the file does not exist: plan to create it with the documented defaults (see Step 6f). Never overwrite an existing `.agentic/config.json` — it is operator-tunable and the user's existing values win.
 
-11. **Legacy path migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`, `learnings.md`:
+11. **Legacy path migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`, `learnings.md`, `qa-regressions.md`:
     - **Both paths exist** (e.g. `.claude/findings.md` AND `.agentic/findings.md` both on disk): refuse to migrate. Emit a **Major warning** in the diff preview block listing each conflicting pair: `WARNING (Major): both .claude/<name>.md and .agentic/<name>.md exist for <name>. Cannot decide which is canonical. Resolve manually (remove or merge one) before re-running /init-project.` Do NOT proceed to apply any changes — block the "Proceed? [y/N]" confirmation until the conflict is resolved.
     - **Only legacy `.claude/<name>.md` exists**: plan to migrate via `git mv .claude/<name>.md .agentic/<name>.md`. Before planning the `git mv`, run `git status --porcelain` to verify the working tree is clean of staged or unstaged changes. If dirty, block with: `Cannot migrate legacy .claude/ config while the working tree is dirty. Commit or stash first, then re-run /init-project.` Do NOT stash or commit on behalf of the user.
     - **Only `.agentic/<name>.md` exists** (the normal post-migration state): no action needed.
