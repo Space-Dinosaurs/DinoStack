@@ -32,6 +32,9 @@ capabilities:
     - tool: "chrome-devtools-mcp"
       check: "test -f .claude/settings.json && grep -q chrome-devtools .claude/settings.json"
       install_hint: "add chrome-devtools MCP server to .claude/settings.json"
+    - tool: "storybook-dev-server"
+      check: "test -f .agentic/config.json && grep -q '\"storybook_enabled\": true' .agentic/config.json && curl -sf -o /dev/null -w '%{http_code}' \"$(jq -r '.storybook_url // \"http://localhost:6006\"' .agentic/config.json 2>/dev/null || echo http://localhost:6006)/iframe.html\" | grep -q '^200$'"
+      install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -576,9 +579,7 @@ For each `(scenario × viewport × theme)` tuple:
 
    **Fallback chain - try in order, stop at first success:**
 
-   a. **qa.md override** (highest priority): if qa.md has a `theme` knowledge tag (see Knowledge tags section), execute the specified selector or action recipe instead of the defaults. Log `theme_toggle_mechanism: "qa-md-override"` in evidence.
-
-   b. **Class-based toggle** (first default): apply via Playwright:
+   a. **Class-based toggle** (first default): apply via Playwright:
       ```javascript
       await page.evaluate((isDark) => {
         document.documentElement.classList.toggle('dark', isDark);
@@ -586,7 +587,7 @@ For each `(scenario × viewport × theme)` tuple:
       ```
       Capture a pixel sample (e.g. `page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } })`) before and after. If at least one pixel value changed, the mechanism worked. Log `theme_toggle_mechanism: "class"` in evidence.
 
-   c. **Data-attribute toggle** (second default): if the class toggle produced no visible change, try:
+   b. **Data-attribute toggle** (second default): if the class toggle produced no visible change, try:
       ```javascript
       await page.evaluate((theme) => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -594,7 +595,9 @@ For each `(scenario × viewport × theme)` tuple:
       ```
       Apply the same pixel-sample check. If a change is detected, log `theme_toggle_mechanism: "data-attribute"` in evidence.
 
-   d. **Neither default works and no qa.md override**: return INCONCLUSIVE for this tuple with operator message "default theme toggle failed; set `theme:` tag in qa.md with custom selector or action". Do NOT fail the scenario - this is a precondition gap, not a code bug.
+   c. **qa.md override** (escape hatch): if both (a) and (b) failed AND qa.md has a `theme` knowledge tag (see Knowledge tags section), execute the specified selector or action recipe. Log `theme_toggle_mechanism: "qa-md-override"` in evidence.
+
+   d. **All three failed**: return INCONCLUSIVE for this tuple with operator message "default theme toggle failed; set `theme:` tag in qa.md with custom selector or action". Do NOT fail the scenario - this is a precondition gap, not a code bug.
 
 4. After the theme state is confirmed, run the scenario's method (`visual_conformance` claim comparison or `accessibility` axe run) against the themed state.
 5. Reset theme state between tuples (reload or reapply the neutral state) to prevent cross-tuple contamination.
