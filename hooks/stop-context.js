@@ -11,8 +11,9 @@
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
  *             Claude Code Stop hook. Internal helpers: writeLoopState(cwd),
- *             writeBatchState(cwd, sessionId), writeSessionTotal(cwd, sessionId),
- *             getIdentity(), writeSessionLog(cwd, identity, totals),
+ *             writeBatchState(cwd, sessionId), scanSessionAggregate(eventsPath, sessionId),
+ *             writeSessionTotal(cwd, sessionId), computeSessionTotals(cwd, sessionId),
+ *             getIdentity(), writeSessionLog(cwd, identity, sessionId),
  *             appendIdentityNudgeToContextMd(repoRoot).
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
@@ -167,6 +168,74 @@ function writeBatchState(cwd, sessionId) {
 }
 
 /**
+ * Scan events.jsonl and return aggregate totals for the current session.
+ * Returns null if the file is absent, empty, or unreadable.
+ *
+ * The returned by_agent map uses the rich token structure (4 bands) needed by
+ * writeSessionTotal. writeSessionLog re-shapes it to its own output format.
+ *
+ * @param {string} eventsPath - Absolute path to events.jsonl.
+ * @param {string|null} sessionId - Current session uuid (null = include all).
+ * @returns {{wall_seconds: number, tokens: object, spawn_count: number,
+ *            by_agent: object}|null}
+ */
+function scanSessionAggregate(eventsPath, sessionId) {
+  if (!fs.existsSync(eventsPath)) return null;
+  const raw = fs.readFileSync(eventsPath, 'utf8');
+  if (!raw.trim()) return null;
+
+  const lines = raw.split('\n');
+  let totalWall = 0;
+  let spawnCount = 0;
+  const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
+  const byAgent = {};
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+    const ev = obj && obj.event;
+    if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
+    const data = (obj && obj.data) || {};
+    // Filter to current session when session_uuid is present on the
+    // event payload. Events without session_uuid are included
+    // unconditionally (tolerant of pre-instrumentation events).
+    if (sessionId && data.session_uuid && data.session_uuid !== sessionId) {
+      continue;
+    }
+    const wall = Number(data.wall_seconds) || 0;
+    totalWall += wall;
+    const tokens = data.tokens || {};
+    for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
+      totalTokens[k] += Number(tokens[k]) || 0;
+    }
+    if (ev === 'spawn_complete') {
+      spawnCount += 1;
+      const agentName = obj.agent || 'unknown';
+      if (!byAgent[agentName]) {
+        byAgent[agentName] = {
+          spawns: 0, wall_seconds: 0,
+          tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+        };
+      }
+      byAgent[agentName].spawns += 1;
+      byAgent[agentName].wall_seconds += wall;
+      for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
+        byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
+      }
+    }
+  }
+
+  return {
+    wall_seconds: Number(totalWall.toFixed(3)),
+    tokens: totalTokens,
+    spawn_count: spawnCount,
+    by_agent: byAgent,
+  };
+}
+
+/**
  * Append a single session_total event to .agentic/events.jsonl summing
  * spawn_complete + conductor_direct events for the current session.
  * Best-effort: any fs / parse failure is swallowed silently.
@@ -177,52 +246,8 @@ function writeBatchState(cwd, sessionId) {
 function writeSessionTotal(cwd, sessionId) {
   try {
     const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
-    if (!fs.existsSync(eventsPath)) return;
-    const raw = fs.readFileSync(eventsPath, 'utf8');
-    if (!raw.trim()) return;
-
-    const lines = raw.split('\n');
-    let totalWall = 0;
-    let spawnCount = 0;
-    const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
-    const byAgent = {};
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let obj;
-      try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-      const ev = obj && obj.event;
-      if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
-      const data = (obj && obj.data) || {};
-      // Filter to current session when session_uuid is present on the
-      // event payload. Events without session_uuid are included
-      // unconditionally (tolerant of pre-instrumentation events).
-      if (sessionId && data.session_uuid && data.session_uuid !== sessionId) {
-        continue;
-      }
-      const wall = Number(data.wall_seconds) || 0;
-      totalWall += wall;
-      const tokens = data.tokens || {};
-      for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
-        totalTokens[k] += Number(tokens[k]) || 0;
-      }
-      if (ev === 'spawn_complete') {
-        spawnCount += 1;
-        const agentName = obj.agent || 'unknown';
-        if (!byAgent[agentName]) {
-          byAgent[agentName] = {
-            spawns: 0, wall_seconds: 0,
-            tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-          };
-        }
-        byAgent[agentName].spawns += 1;
-        byAgent[agentName].wall_seconds += wall;
-        for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
-          byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
-        }
-      }
-    }
+    const agg = scanSessionAggregate(eventsPath, sessionId);
+    if (!agg) return;
 
     const totalLine = JSON.stringify({
       ts: new Date().toISOString(),
@@ -231,10 +256,10 @@ function writeSessionTotal(cwd, sessionId) {
       agent: null,
       task_id: null,
       data: {
-        wall_seconds: Number(totalWall.toFixed(3)),
-        tokens: totalTokens,
-        spawn_count: spawnCount,
-        by_agent: byAgent,
+        wall_seconds: agg.wall_seconds,
+        tokens: agg.tokens,
+        spawn_count: agg.spawn_count,
+        by_agent: agg.by_agent,
         session_uuid: sessionId || null,
       },
     });
@@ -313,8 +338,10 @@ function appendIdentityNudgeToContextMd(repoRoot) {
 }
 
 /**
- * Compute session totals by re-reading events.jsonl for the current session.
- * Returns {wall_seconds, tokens, spawn_count, by_agent} or null on failure.
+ * Compute session totals by scanning events.jsonl, shaped for writeSessionLog.
+ * The by_agent map uses a flat tokens_total (sum of 4 bands) for the session-log
+ * format, distinct from the 4-band structure used in writeSessionTotal.
+ * Returns null on failure.
  *
  * @param {string} cwd - Verified project directory.
  * @param {string|null} sessionId - Current session uuid.
@@ -323,50 +350,27 @@ function appendIdentityNudgeToContextMd(repoRoot) {
 function computeSessionTotals(cwd, sessionId) {
   try {
     const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
-    if (!fs.existsSync(eventsPath)) return null;
-    const raw = fs.readFileSync(eventsPath, 'utf8');
-    if (!raw.trim()) return null;
+    const agg = scanSessionAggregate(eventsPath, sessionId);
+    if (!agg) return null;
 
-    const lines = raw.split('\n');
-    let totalWall = 0;
-    let spawnCount = 0;
-    const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
-    const byAgent = {};
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let obj;
-      try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-      const ev = obj && obj.event;
-      if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
-      const data = (obj && obj.data) || {};
-      if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
-      const wall = Number(data.wall_seconds) || 0;
-      totalWall += wall;
-      const tokens = data.tokens || {};
-      for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
-        totalTokens[k] += Number(tokens[k]) || 0;
-      }
-      if (ev === 'spawn_complete') {
-        spawnCount += 1;
-        const agentName = obj.agent || 'unknown';
-        if (!byAgent[agentName]) {
-          byAgent[agentName] = { spawns: 0, wall_seconds: 0, tokens_total: 0 };
-        }
-        byAgent[agentName].spawns += 1;
-        byAgent[agentName].wall_seconds += wall;
-        const tokSum = (Number(tokens.input) || 0) + (Number(tokens.output) || 0)
-          + (Number(tokens.cache_creation) || 0) + (Number(tokens.cache_read) || 0);
-        byAgent[agentName].tokens_total += tokSum;
-      }
+    // Re-shape by_agent: flatten 4-band tokens to a single tokens_total for the
+    // session-log format consumed by agentic-cost team.
+    const byAgentFlat = {};
+    for (const [name, entry] of Object.entries(agg.by_agent)) {
+      const t = entry.tokens || {};
+      byAgentFlat[name] = {
+        spawns: entry.spawns,
+        wall_seconds: entry.wall_seconds,
+        tokens_total: (Number(t.input) || 0) + (Number(t.output) || 0)
+          + (Number(t.cache_creation) || 0) + (Number(t.cache_read) || 0),
+      };
     }
 
     return {
-      wall_seconds: Number(totalWall.toFixed(3)),
-      tokens: totalTokens,
-      spawn_count: spawnCount,
-      by_agent: byAgent,
+      wall_seconds: agg.wall_seconds,
+      tokens: agg.tokens,
+      spawn_count: agg.spawn_count,
+      by_agent: byAgentFlat,
     };
   } catch (_) {
     return null;
