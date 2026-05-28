@@ -57,6 +57,7 @@ Phase 6b reads `qa_criteria.scenarios[]` directly from the architect plan or Bri
 - `visual_conformance` - field-by-field comparison against `expected_visual_claims[]` (see `content/agents/qa-engineer.md` §Visual conformance scenarios).
 - `accessibility` - WCAG conformance check via `@axe-core/playwright`; iterates per viewport; reports violations by impact level (see `content/agents/qa-engineer.md` §Accessibility scenarios).
 - `perceptual_diff` - pixel-level regression against committed baselines via `page.screenshot()` + pixelmatch comparison; opt-in via `.agentic/config.json` `perceptual_diff_enabled: true` (see `content/agents/qa-engineer.md` §Perceptual diff scenarios).
+- `motion` - Runtime verification that animations respect `prefers-reduced-motion: reduce`. qa-engineer uses CDP `Emulation.setEmulatedMedia` and computed-style diffs. See `content/agents/qa-engineer.md` `## Motion scenarios` section.
 
 **Viewport iteration.** When `qa_criteria.viewport` is set (default `[desktop]`), qa-engineer runs each scenario against every viewport in the resolved list. A per-scenario `viewport` field replaces the root list (does not extend it). Report rows are per `(scenario × viewport)` tuple. Canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900. Override via qa.md `viewport` knowledge tag. Full procedure in `content/agents/qa-engineer.md` §2 Browser verification (viewport resolution step).
 
