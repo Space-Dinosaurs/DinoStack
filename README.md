@@ -235,6 +235,21 @@ agentic-engineering/
 - `~/agentic-engineering/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/agentic-engineering/docs/slides/contributing-slides.html` - how to contribute to the repo
 
+## Safety model
+
+This framework is a safety rail, not a complete boundary. The recommended permissions setup pairs `bypassPermissions` mode with an allow list for routine tools (Bash, Write, Edit) and a deny list for the destructive commands documented in the [Recommended permissions](#recommended-permissions) section above (`git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `sudo rm`, `dd if=`, `shutdown`, `reboot`). The Skeptic loop, risk classification, and worktree isolation add further layers, but none of these guarantee that an agent cannot cause harm. Treat the framework as defense in depth, not as a sandbox: review what agents do, especially on shared state and irreversible operations.
+
+License pending - see issue IR-2.
+
+## Community
+
+- [GitHub Discussions](https://github.com/Solara6/agentic-engineering/discussions) - questions, ideas, design discussion
+- [GitHub Issues](https://github.com/Solara6/agentic-engineering/issues) - bug reports, feature requests, protocol-change RFCs, adapter requests
+- Discord: TBD (link will be added once the server is live)
+- [SUPPORT.md](SUPPORT.md) - where to ask what
+- [GOVERNANCE.md](GOVERNANCE.md) - how decisions get made
+- [ROADMAP.md](ROADMAP.md) - what's in flight
+
 ## For agents working in this repo
 
 Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR.

@@ -1,0 +1,47 @@
+name: Adapter request
+description: Request support for a new tool, or improvements to an existing adapter.
+title: "[adapter] "
+labels: ["adapter-request"]
+body:
+  - type: dropdown
+    id: target_adapter
+    attributes:
+      label: Target adapter
+      description: Which tool would this adapter target?
+      options:
+        - Claude Code
+        - Cursor
+        - Codex CLI
+        - Gemini CLI
+        - Kimi Code
+        - OpenCode
+        - Pi coding agent
+        - Pi oh-my-pi
+        - Hermes
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What do you want to do with this adapter? What's the workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Known constraints
+      description: Tool-specific limitations, missing features, or quirks the adapter would need to work around.
+    validations:
+      required: false
+  - type: dropdown
+    id: willing_to_contribute
+    attributes:
+      label: Willing to contribute
+      description: Would you be willing to help build or maintain this adapter?
+      options:
+        - "yes"
+        - "no"
+        - "maybe"
+    validations:
+      required: true

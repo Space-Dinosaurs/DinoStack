@@ -1,0 +1,63 @@
+name: Protocol change
+description: Propose a change to the methodology - conductor rules, Skeptic protocol, risk classification, memory persistence, worktree lifecycle, slash commands, or agent definitions.
+title: "[protocol] "
+labels: ["protocol-change"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Protocol changes are reviewed before a PR is opened. Describe the motivation and tradeoffs here; the lead maintainer will approve, request revisions, or decline before implementation work begins. See [GOVERNANCE.md](../../GOVERNANCE.md) for the full flow.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph on what would change.
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol_area
+    attributes:
+      label: Protocol area
+      options:
+        - conductor rules
+        - Skeptic protocol
+        - risk classification
+        - memory persistence
+        - worktree lifecycle
+        - slash commands
+        - agent definition
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this solve? What is the current pain?
+    validations:
+      required: true
+  - type: textarea
+    id: backward_compatibility
+    attributes:
+      label: Backward-compatibility impact
+      description: Will existing projects, adapters, or workflows need to change? Migration path?
+    validations:
+      required: true
+  - type: checkboxes
+    id: affected_adapters
+    attributes:
+      label: Affected adapters
+      description: Tick all that apply.
+      options:
+        - label: Claude Code
+        - label: Cursor
+        - label: Codex CLI
+        - label: Gemini CLI
+        - label: Kimi Code
+        - label: OpenCode
+        - label: Pi coding agent
+        - label: Pi oh-my-pi
+        - label: Hermes
+        - label: None (methodology / docs only)
+    validations:
+      required: false
