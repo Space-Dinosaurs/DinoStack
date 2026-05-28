@@ -341,7 +341,7 @@ When reviewing a Brief or architect plan whose unit is clearly responsive - mobi
 
 ### `theme` enforcement (auto-Major rule)
 
-When reviewing a Brief or architect plan where `.agentic/config.json` has `theme_aware: true` AND a scenario's method is `visual_conformance` or `accessibility` AND the `theme` field is absent on that scenario, the Skeptic raises a **Major** finding. This rule is opt-in: when `theme_aware` is absent or `false`, this rule does NOT fire. When `theme` is present on any scenario whose method is NOT `visual_conformance` or `accessibility` (i.e., `perceptual_diff`, `browser`, `api`, or `runtime-required`), the Skeptic raises a **Critical** finding - `theme` is restricted to these two methods only. Valid `theme` values are `light`, `dark`, and `both`; any other value is a Major finding. The canonical statement of the schema, field rules, and trigger predicate lives in `content/references/planning-artifacts.md` (Field guidance, QA criteria entry) - this section mirrors only enough to ensure a Skeptic reviewer cannot miss the rule.
+When reviewing a Brief or architect plan where `.agentic/config.json` has `theme_aware: true` AND a scenario's method is `visual_conformance`, `accessibility`, or `motion` AND the `theme` field is absent on that scenario, the Skeptic raises a **Major** finding. This rule is opt-in: when `theme_aware` is absent or `false`, this rule does NOT fire. When `theme` is present on any scenario whose method is NOT in `{visual_conformance, accessibility, motion}` (i.e., `perceptual_diff`, `browser`, `api`, or `runtime-required`), the Skeptic raises a **Critical** finding - `theme` is restricted to these three methods only. Valid `theme` values are `light`, `dark`, and `both`; any other value is a Major finding. The canonical statement of the schema, field rules, and trigger predicate lives in `content/references/planning-artifacts.md` (Field guidance, QA criteria entry) - this section mirrors only enough to ensure a Skeptic reviewer cannot miss the rule.
 
 ### `story_id` enforcement (auto-Critical for compatibility)
 
@@ -370,6 +370,16 @@ are invalid.
 | `motion-not-reduced-motion-aware` | Major | CSS animation or transition present without a `prefers-reduced-motion: reduce` media query guard |
 | `outline-none-without-replacement` | Major | `outline: none` or `outline: 0` applied without a `:focus-visible` replacement focus indicator |
 | `missing-responsive-class` | Minor | fixed-width or single-breakpoint sizing on a surface that is otherwise responsive (often intentional on desktop-only surfaces; Skeptic judgment required) |
+
+### motion enforcement (auto-Major)
+
+**Trigger:** `.agentic/config.json` has `motion_aware: true` AND the unit is UI-visible AND risk is Elevated AND `qa_skip == null` AND no scenario with `method: motion` is present in `qa_criteria.scenarios`.
+
+When all trigger conditions hold, the Skeptic raises a **Major** finding. Rationale: a motion-aware project has declared that reduced-motion behavior is a testable concern; omitting a `motion` scenario from an Elevated UI-visible change leaves the `prefers-reduced-motion: reduce` path unverified. The finding must cite `content/references/frontend-discipline.md` §5 (Reduced motion).
+
+This rule is opt-in: when `motion_aware` is absent or `false`, this rule does NOT fire. When the unit is not UI-visible (e.g., `qa_skip: pure-backend-library`), this rule does NOT fire.
+
+Note: P2 motion scenarios do not support `story_id`; see `content/references/planning-artifacts.md` per-method table.
 
 ---
 
