@@ -24,6 +24,7 @@ node_modules/
 .agentic/*
 !.agentic/config.json
 !.agentic/findings.md
+!.agentic/qa-regressions.md
 !.agentic/session-log/
 !.agentic/session-log/**
 .agentic/worktrees/

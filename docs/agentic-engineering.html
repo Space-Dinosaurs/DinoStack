@@ -975,7 +975,7 @@
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, doc-sync-obligation.md)<br>
+    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
     <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), and Pi/oh-my-pi (<code>.omp/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
@@ -1042,6 +1042,7 @@
       <div class="node node-protocol">agent-team.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">design-goals.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">regression-test-obligation.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">qa-regression-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">doc-sync-obligation.md <span class="load-badge on-demand">on demand</span></div>
     </div>
     <p class="desc">Not auto-loaded. Read on-demand when protocols are triggered (e.g., Elevated risk declared, Skeptic review needed).</p>
@@ -1198,7 +1199,7 @@
           <h4 style="color: #5a3d8a;">New Skeptic Obligations</h4>
           <ul>
             <li><strong>Module manifest check</strong> - tiered enforcement on non-trivial modules (exports a public symbol, ~50+ LOC, or side-effecting): missing manifests are <strong>Minor</strong> (comprehension hygiene, non-blocking); <strong>stale</strong> manifests (no longer reflect purpose, public API, dependencies, or failure modes) are <strong style="color: var(--gold);">Major</strong> (blocks sign-off absent a compelling documented reason to defer); stale manifests whose inaccuracy could mislead a caller on a correctness or security path are <strong style="color: #c0392b;">Critical</strong>.</li>
-            <li><strong>Regression test verification</strong> - before granting sign-off when a Critical/Major finding was fixed, verifies a regression test was added (or a documented exception given). Missing test without explanation is a <strong style="color: var(--gold);">Major</strong> finding.</li>
+            <li><strong>Regression test verification</strong> - before granting sign-off when a Critical/Major finding was fixed, verifies a regression test was added (or a documented exception given). Missing test without explanation is a <strong style="color: var(--gold);">Major</strong> finding. The same verification applies to QA-fix iterations: a fix engineer addressing a qa-engineer FAIL must add a regression test or append a documented exception to <code>.agentic/qa-regressions.md</code> (see <code>qa-regression-obligation.md</code>).</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(90,61,138,0.2); margin-top: 10px;">
@@ -1228,6 +1229,9 @@
     </div>
     <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
       <strong>Regression Test Obligation:</strong> Every Critical or Major finding that gets fixed without a regression test is a latent regression. The Worker adds a test that would have caught the failure; the Skeptic verifies it exists before sign-off. The test lives in the project's normal test suite, alongside existing tests for the affected module, so the same bug cannot silently reappear in a future change.
+    </div>
+    <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
+      <strong>QA Regression Test Obligation:</strong> The symmetric rule for qa-engineer FAILs. When a fix engineer addresses a QA failure, it adds a unit/integration/e2e test that would have caught the failing scenario; the parallel Skeptic on the QA-fix iteration verifies it exists before sign-off. When a regression test is genuinely infeasible (visual conformance failure with no headless-testable observable, etc.), the engineer appends a curated entry to <code>.agentic/qa-regressions.md</code> so architects re-check the surface on future tickets via <code>qa_criteria.scenarios[]</code>. Canonical statement in <code>qa-regression-obligation.md</code>.
     </div>
   </div>
 

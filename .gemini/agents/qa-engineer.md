@@ -299,7 +299,15 @@ Keep entries factual and one line. Prefer concrete details over vague descriptio
 - Good: `- [2026-03-30] timing: Wait 2s after navigation to /dashboard - React Query refetch completes async`
 - Bad: `- [2026-03-30] timing: Page needs time to load`
 
-Append at most 3 new entries per run. Prioritize by recurring impact.
+There is no numeric cap. Apply the quality gates already stated above: the entry must not already exist in `## Knowledge`, must be a recurring (not one-off) impact, and must be one factual line with a specific tag. Skeptic-side findings have no numeric cap; quality gates do the filtering, and the same discipline applies here.
+
+## Regression curation
+
+When QA reports FAIL on a runtime criterion (any scenario, not just `visual_conformance`), emit a draft entry block in the FAIL report under a heading `## Regression draft (for .agentic/qa-regressions.md)` using the schema in `content/references/qa-regression-obligation.md`. The conductor (or fix engineer) commits the entry to `.agentic/qa-regressions.md` after the fix lands - qa-engineer does NOT write to that file directly.
+
+Every `visual_conformance` FAIL automatically produces a draft entry; the broken claim text is verbatim-copyable into the `What broke` field. For other scenario methods, populate `Surface`, `Scenario that failed`, and `What broke` from the FAIL evidence; leave `Regression test` blank (the fix engineer fills it) and `Architect note` blank or with a short hint if obvious.
+
+Cross-reference: `content/references/qa-regression-obligation.md` for the canonical schema, dedupe rules, and the fix engineer's regression-test obligation.
 
 ## Auth handling
 

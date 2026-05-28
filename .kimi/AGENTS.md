@@ -546,7 +546,7 @@ Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fi
 3. Wait for both to return.
 4. If both pass: unit is complete.
 5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
-6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only.
+6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`.
 
 **QA gate flow (non-UI - post-sign-off):**
 1. Skeptic grants sign-off (minor fixes applied if any)
@@ -554,7 +554,7 @@ Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fi
 3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
 4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
 5. On PASS: unit is complete.
-6. On FAIL: spawn fix engineer for each bug, then re-run QA.
+6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/implement-ticket` Phase 6b §"QA regressions curator").
 
 **Phase breadcrumb:** `[phase: qa-review]`
 
@@ -710,6 +710,9 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-
 
 **Regression test obligation** - when a Worker fixes a Critical or Major Skeptic finding:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test, the Worker obligation to add one, and the Skeptic verification rule.
+
+**QA regression-test obligation** - when a Worker fixes a qa-engineer FAIL:
+Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the engineer's regression-test obligation, the documented-exception path via `.agentic/qa-regressions.md`, and the Skeptic verification rule. Symmetric to the Skeptic-side `regression-test-obligation.md`.
 
 **Doc-sync obligation** - when a change alters a count, list, path, convention, or behavior an intent-layer doc asserts:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
