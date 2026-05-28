@@ -721,6 +721,7 @@ For each `(scenario × viewport × theme)` tuple:
 3. If the scenario has a `theme` field and `theme_aware: true`, apply the theme-aware loop (see Theme-aware scenarios section) before emulating the media feature.
 4. Emulate `prefers-reduced-motion: reduce` via CDP:
    ```python
+   page.emulate_media(color_scheme=None)
    cdp = page.context.new_cdp_session(page)
    cdp.send("Emulation.setEmulatedMedia", {
        "features": [{"name": "prefers-reduced-motion", "value": "reduce"}]
@@ -776,12 +777,10 @@ Each per-tuple evidence object gains these additional fields alongside the stand
 
 A motion scenario PASSES when zero non-excluded elements have active motion after CDP `prefers-reduced-motion: reduce` emulation across all its viewports and themes. A single viewport/theme failure causes the scenario to FAIL.
 
-**FAIL cases:**
-- `route` field contains a `story:<story_id>` form: return FAIL with "story_id is not valid on motion scenarios (P2 constraint). Use the `route` field with a direct URL or page path."
-
 **INCONCLUSIVE cases:**
 - `playwright-python` not installed - return INCONCLUSIVE with install message (see Preflight).
 - Only SVG/SMIL or vendor-prefixed-without-unprefixed motion detected in auto mode - no standard-property violation, return INCONCLUSIVE.
+- `route` field contains a `story:<story_id>` form: return FAIL with "story_id is not valid on motion scenarios (P2 constraint). Use the `route` field with a direct URL or page path."
 - Page failed to load (navigate error, auth block) - report BLOCKED per the standard auth-handling rules.
 
 ## Perceptual diff scenarios
