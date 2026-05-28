@@ -8,8 +8,15 @@ developer_instructions = """
 
 ```yaml
 capabilities:
-  required: []
-  optional: []
+  required:
+    - tool: "node"
+      check: "command -v node"
+    - tool: "git"
+      check: "command -v git"
+  optional:
+    - tool: "context7"
+      check: "test -f .claude/settings.json && grep -q 'context7' .claude/settings.json"
+      install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.

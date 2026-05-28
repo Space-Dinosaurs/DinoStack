@@ -7,8 +7,13 @@ kind: local
 
 ```yaml
 capabilities:
-  required: []
-  optional: []
+  required:
+    - tool: "git"
+      check: "command -v git"
+  optional:
+    - tool: "semgrep"
+      check: "command -v semgrep"
+      install_hint: "pip install semgrep"
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
