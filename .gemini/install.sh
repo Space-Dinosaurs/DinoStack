@@ -429,6 +429,57 @@ print("  settings.json written.")
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Symlink bin/ scripts to ~/.local/bin
+# ---------------------------------------------------------------------------
+
+ae_install_bins() {
+  local bin_src="$REPO_DIR/bin"
+  local bin_dst="$HOME/.local/bin"
+  local path_created=false
+  if [[ ! -d "$bin_src" ]]; then
+    echo "  [skip] bin/ source directory not found: $bin_src"
+    return
+  fi
+  if [[ ! -d "$bin_dst" ]]; then
+    mkdir -p "$bin_dst"
+    path_created=true
+  fi
+  for src_file in "$bin_src"/agentic-*; do
+    [[ -f "$src_file" ]] || continue
+    local name
+    name="$(basename "$src_file")"
+    local dst_file="$bin_dst/$name"
+    if [[ -L "$dst_file" ]]; then
+      local current_target
+      current_target="$(readlink "$dst_file")"
+      if [[ "$current_target" == "$src_file" ]]; then
+        echo "  = $name (already linked)"
+      elif [[ "$current_target" == "$REPO_DIR/bin/"* ]]; then
+        ln -sfn "$src_file" "$dst_file"
+        echo "  ~ $name (refreshed)"
+      else
+        echo "  ! $name (symlink points elsewhere - skipping)"
+      fi
+    elif [[ -e "$dst_file" ]]; then
+      echo "  ! $name (real file at destination - skipping)"
+    else
+      ln -sfn "$src_file" "$dst_file"
+      echo "  + $name"
+    fi
+  done
+  if [[ "$path_created" == "true" ]]; then
+    if [[ -t 0 ]] || [[ -r /dev/tty ]]; then
+      echo ""
+      echo "  Created ~/.local/bin and linked agentic binaries."
+      echo "  Add this to your PATH: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+  fi
+}
+
+echo "Linking bin/ scripts to PATH..."
+ae_install_bins
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

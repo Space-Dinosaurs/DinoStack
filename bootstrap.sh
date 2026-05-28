@@ -163,3 +163,11 @@ echo "agentic-engineering installed to: $AE_DEST_DIR"
 echo "Update anytime via either:"
 echo "  cd $AE_DEST_DIR && ./update.sh"
 echo "  or the /update-agentic-engineering command inside Claude Code (location-aware)"
+echo ""
+# Remind about PATH if ~/.local/bin is not already on it
+if ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:"; then
+  echo "NOTE: agentic binaries were linked to ~/.local/bin, which is not yet on your PATH."
+  echo "Add to your shell profile (~/.zshrc or ~/.bashrc):"
+  echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+  echo "Then open a new shell or run: source ~/.zshrc"
+fi

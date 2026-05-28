@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI for managing the per-developer identity file (~/.agentic/identity.yml)
+         used by the Stop hook to write per-developer session telemetry.
+
+Public API:
+  agentic-identity init <handle> [--display-name "<name>"] [--force]
+  agentic-identity show
+  agentic-identity --help
+
+Upstream deps: Python 3 stdlib only (argparse, os, re, sys, datetime, pathlib).
+
+Downstream consumers: hooks/stop-context.js (reads ~/.agentic/identity.yml);
+                      bin/agentic-cost team (reads .agentic/session-log/ written
+                      after identity is set).
+
+Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
+               Never writes partial files (write to temp, rename).
+
+Performance: Standard. File I/O only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+IDENTITY_PATH = Path(os.path.expanduser("~/.agentic/identity.yml"))
+HANDLE_RE = re.compile(r'^[a-z0-9._-]{1,64}$')
+
+
+def _read_identity() -> dict | None:
+    """Return parsed identity dict or None if absent/malformed."""
+    if not IDENTITY_PATH.is_file():
+        return None
+    raw = IDENTITY_PATH.read_text(encoding="utf-8")
+    m = re.search(r'^developer_id:\s*(\S+)\s*$', raw, re.MULTILINE)
+    if not m:
+        return None
+    result: dict = {"developer_id": m.group(1)}
+    dn = re.search(r'^display_name:\s*(.+?)\s*$', raw, re.MULTILINE)
+    if dn:
+        result["display_name"] = dn.group(1)
+    ca = re.search(r'^created_at:\s*(\S+)\s*$', raw, re.MULTILINE)
+    if ca:
+        result["created_at"] = ca.group(1)
+    return result
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    handle = args.handle
+    if not HANDLE_RE.match(handle):
+        print(
+            f"agentic-identity: invalid handle '{handle}'. "
+            "Must match ^[a-z0-9._-]{{1,64}}$.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if IDENTITY_PATH.is_file() and not args.force:
+        existing = _read_identity()
+        current = existing.get("developer_id", "?") if existing else "?"
+        print(
+            f"agentic-identity: identity already set to '{current}'. "
+            "Use --force to overwrite.",
+            file=sys.stderr,
+        )
+        return 2
+
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [
+        f"developer_id: {handle}",
+    ]
+    if args.display_name:
+        lines.append(f"display_name: {args.display_name}")
+    lines.append(f"created_at: {created_at}")
+    content = "\n".join(lines) + "\n"
+
+    IDENTITY_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp = IDENTITY_PATH.with_suffix(".yml.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.rename(IDENTITY_PATH)
+    except Exception as exc:
+        print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
+        tmp.unlink(missing_ok=True)
+        return 1
+
+    print(f"Identity set: developer_id={handle}, created_at={created_at}")
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    identity = _read_identity()
+    if identity is None:
+        print("No identity set. Run: agentic-identity init <handle>")
+        return 0
+    print(f"developer_id:  {identity.get('developer_id', '?')}")
+    if "display_name" in identity:
+        print(f"display_name:  {identity['display_name']}")
+    if "created_at" in identity:
+        print(f"created_at:    {identity['created_at']}")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="agentic-identity",
+        description="Manage per-developer identity for session telemetry.",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_init = sub.add_parser("init", help="Create or overwrite identity file")
+    p_init.add_argument("handle", help="Developer handle [a-z0-9._-], max 64 chars")
+    p_init.add_argument("--display-name", default=None,
+                        help="Optional human-readable display name")
+    p_init.add_argument("--force", action="store_true",
+                        help="Overwrite existing identity without prompting")
+    p_init.set_defaults(func=cmd_init)
+
+    p_show = sub.add_parser("show", help="Print current identity")
+    p_show.set_defaults(func=cmd_show)
+
+    args = p.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
