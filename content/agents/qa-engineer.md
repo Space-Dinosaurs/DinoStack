@@ -114,6 +114,8 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 - `a11y-baseline` entries: per-route axe rule suppressions for known false positives; format: `a11y-baseline: /checkout - color-contrast (third-party widget)`
 - `perceptual-baseline` entries: baseline path overrides when the default `tests/visual-baselines/` tree is not suitable; format: `perceptual-baseline: scenario-3=ci/baselines/3`
 - `axe-rule` entries: project-wide axe rule additions or exclusions applied to every accessibility scenario; format: `axe-rule: exclude=region` (prefer scenario-level `axe_tags` for targeted overrides)
+- `theme` entries: selector or custom action recipe for the project's theme toggle mechanism; used by the Theme-aware scenarios section when neither the class-based nor data-attribute defaults produce a visible state change. Format examples: `theme: selector=button[data-theme-toggle]` or `theme: action=localStorage.setItem('theme','dark');location.reload()`
+- `story-url` entries: override the Storybook base URL for this project; used by the Storybook scenarios section. Format: `story-url: http://localhost:9009`
 
 ## Workflow
 
@@ -544,6 +546,124 @@ An `accessibility` scenario PASSES when zero violations of impact `moderate` or 
 **INCONCLUSIVE cases:**
 - `@axe-core/playwright` install fails and `auto_install` fallback also fails - report INCONCLUSIVE with the error; do not fail the scenario on a tooling gap.
 - Page failed to load (navigate error, auth block) - report BLOCKED per the standard auth-handling rules, not INCONCLUSIVE.
+
+## Theme-aware scenarios
+
+When `.agentic/config.json` has `theme_aware: true`, `visual_conformance` and `accessibility` scenarios that carry a `theme` field run once per theme. The iteration nests inside the existing viewport loop, producing one report row per `(scenario × viewport × theme)` tuple.
+
+**Preflight:**
+
+1. Read `.agentic/config.json`.
+   - If `theme_aware` is `false` or the key is absent AND the scenario has a `theme` field set: log a one-line operator warning "theme field set but theme_aware is false - treating scenario as light only" and run a single light-mode pass. Do NOT fail.
+   - If `theme_aware: true`, proceed to effective-theme resolution.
+
+**Effective-theme resolution (when `theme_aware: true`):**
+
+| `theme` field value | Effective theme list |
+|---|---|
+| `light` | `[light]` |
+| `dark` | `[dark]` |
+| `both` | `[light, dark]` |
+| absent | `[light, dark]` (default when `theme_aware: true`) |
+
+**Verification procedure (per scenario, per resolved viewport, per effective theme):**
+
+For each `(scenario × viewport × theme)` tuple:
+
+1. Navigate to the URL (or Storybook iframe for storybook scenarios - see below).
+2. Set the viewport using the canonical sizes or qa.md override.
+3. Apply the theme via the fallback chain:
+
+   **Fallback chain - try in order, stop at first success:**
+
+   a. **qa.md override** (highest priority): if qa.md has a `theme` knowledge tag (see Knowledge tags section), execute the specified selector or action recipe instead of the defaults. Log `theme_toggle_mechanism: "qa-md-override"` in evidence.
+
+   b. **Class-based toggle** (first default): apply via Playwright:
+      ```javascript
+      await page.evaluate((isDark) => {
+        document.documentElement.classList.toggle('dark', isDark);
+      }, theme === 'dark');
+      ```
+      Capture a pixel sample (e.g. `page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } })`) before and after. If at least one pixel value changed, the mechanism worked. Log `theme_toggle_mechanism: "class"` in evidence.
+
+   c. **Data-attribute toggle** (second default): if the class toggle produced no visible change, try:
+      ```javascript
+      await page.evaluate((theme) => {
+        document.documentElement.setAttribute('data-theme', theme);
+      }, theme);
+      ```
+      Apply the same pixel-sample check. If a change is detected, log `theme_toggle_mechanism: "data-attribute"` in evidence.
+
+   d. **Neither default works and no qa.md override**: return INCONCLUSIVE for this tuple with operator message "default theme toggle failed; set `theme:` tag in qa.md with custom selector or action". Do NOT fail the scenario - this is a precondition gap, not a code bug.
+
+4. After the theme state is confirmed, run the scenario's method (`visual_conformance` claim comparison or `accessibility` axe run) against the themed state.
+5. Reset theme state between tuples (reload or reapply the neutral state) to prevent cross-tuple contamination.
+
+**Evidence JSON extensions for theme tuples:**
+
+Each per-tuple evidence object gains two additional fields alongside the standard fields:
+
+```json
+{
+  "theme": "dark",
+  "theme_toggle_mechanism": "class"
+}
+```
+
+**Per-tuple report format:**
+
+### N. [Scenario description] (method: visual_conformance | accessibility, viewport: desktop, theme: dark)
+- **Result:** PASS | FAIL | INCONCLUSIVE
+- **Viewport:** desktop (1440x900)
+- **Theme:** dark
+- **Theme toggle mechanism:** class | data-attribute | qa-md-override
+- **[method-specific fields as per Visual conformance / Accessibility sections above]**
+
+## Storybook scenarios
+
+When `.agentic/config.json` has `storybook_enabled: true` AND a scenario has a `story_id` field, qa-engineer navigates to the Storybook iframe and runs the scenario's method against the isolated component render.
+
+**`story_id` is restricted to `method ∈ {visual_conformance, accessibility}` only.** Setting `story_id` on any other method is invalid (Skeptic raises Critical per schema rules).
+
+**Preflight:**
+
+1. Read `.agentic/config.json`.
+   - If `storybook_enabled` is `false` or the key is absent AND the scenario has `story_id`: return INCONCLUSIVE with operator message "story_id set but storybook_enabled is false - enable in .agentic/config.json to run storybook scenarios". Do NOT fail.
+   - If `storybook_enabled: true`, proceed.
+
+2. **Resolve the storybook URL** (first match wins):
+   a. qa.md `story-url` knowledge tag (per-run override)
+   b. `.agentic/config.json` `storybook_url` key (per-project default)
+   c. Fallback: `http://localhost:6006`
+
+3. **Capability gate** - verify the Storybook dev server is reachable:
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}' <storybook_url>/iframe.html
+   ```
+   A non-200 response returns INCONCLUSIVE with operator message "Storybook dev server not reachable at `<url>`. Start it with `npm run storybook` or set storybook_url." Do NOT return FAIL or clean-skip - CI must surface the unmet precondition.
+
+**Verification procedure:**
+
+1. Navigate to `<storybook_url>/iframe.html?id=<story_id>` (Storybook 7+ URL format).
+2. Set the viewport using the canonical sizes or qa.md override.
+3. If the scenario also has a `theme` field and `theme_aware: true` in config, apply the theme-aware loop (see Theme-aware scenarios section). The full iteration is `(scenario × viewport × theme)`.
+4. Run the scenario's method against the iframe content:
+   - `visual_conformance`: verify `expected_visual_claims[]` against the isolated component render.
+   - `accessibility`: run the axe-core check against the iframe DOM.
+5. Return INCONCLUSIVE if the story renders a blank iframe or a "story not found" error - log the story ID and URL in evidence.
+
+**Evidence JSON extensions for storybook tuples:**
+
+Each per-tuple evidence object gains two additional fields:
+
+```json
+{
+  "story_id": "button--primary",
+  "storybook_url": "http://localhost:6006"
+}
+```
+
+**Storybook scenario composition note:** storybook scenarios compose with viewport iteration (each `story × viewport` pair) and with theme (each `story × viewport × theme` triple when `theme_aware: true`). Each tuple is an independent pass/fail row.
 
 ## Perceptual diff scenarios
 
