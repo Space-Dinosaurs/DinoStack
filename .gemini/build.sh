@@ -353,4 +353,10 @@ done
 
 echo "Built ${#generated_agents[@]} agent files in .gemini/agents/"
 
+# project-scaffolding.yml and templates/: hardlink so agentic-migrate can resolve from adapter
+hardlink_from_content "$CONTENT/project-scaffolding.yml" "$GEMINI_DIR/project-scaffolding.yml"
+mkdir -p "$GEMINI_DIR/templates/.agentic"
+hardlink_from_content "$CONTENT/templates/.agentic/config.json" "$GEMINI_DIR/templates/.agentic/config.json"
+echo "Rebuilt project-scaffolding.yml and templates/"
+
 echo "Gemini adapter build complete."

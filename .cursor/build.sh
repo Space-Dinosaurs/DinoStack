@@ -74,4 +74,10 @@ for src in "$CONTENT/commands/"*.md; do
   hardlink_from_content "$src" "$COMMANDS_DST/$(basename "$src")"
 done
 
+# project-scaffolding.yml and templates/: hardlink so agentic-migrate can resolve from adapter
+CURSOR_DIR="$REPO_DIR/.cursor"
+hardlink_from_content "$CONTENT/project-scaffolding.yml" "$CURSOR_DIR/project-scaffolding.yml"
+mkdir -p "$CURSOR_DIR/templates/.agentic"
+hardlink_from_content "$CONTENT/templates/.agentic/config.json" "$CURSOR_DIR/templates/.agentic/config.json"
+
 echo "Cursor adapter build complete."

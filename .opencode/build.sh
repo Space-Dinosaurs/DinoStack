@@ -145,7 +145,7 @@ echo "  + METHODOLOGY.md"
 # References: ensure symlinks in skill dir
 # ---------------------------------------------------------------------------
 
-for target in references rules; do
+for target in references rules templates; do
   link="$SKILL_DST/$target"
   expected="../../../content/$target"
   if [[ -L "$link" ]]; then
@@ -161,5 +161,16 @@ for target in references rules; do
     echo "  + $target"
   fi
 done
+
+# project-scaffolding.yml: hardlink into skill dir
+SCAFFOLDING_SRC="$REPO_DIR/content/project-scaffolding.yml"
+SCAFFOLDING_DST="$SKILL_DST/project-scaffolding.yml"
+if [[ ! -e "$SCAFFOLDING_DST" ]] || [[ "$(python3 -c "import os; print(os.stat('$SCAFFOLDING_SRC').st_ino)" 2>/dev/null)" != "$(python3 -c "import os; print(os.stat('$SCAFFOLDING_DST').st_ino)" 2>/dev/null)" ]]; then
+  rm -f "$SCAFFOLDING_DST"
+  ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST" 2>/dev/null || cp "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
+  echo "  + project-scaffolding.yml"
+else
+  echo "  = project-scaffolding.yml (already linked)"
+fi
 
 echo "OpenCode adapter build complete."
