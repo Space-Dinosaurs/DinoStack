@@ -323,6 +323,10 @@ Fields may be omitted without triggering any block. The `n/a` enum does not appl
 
 **Heading distinction:** `## Global-context inputs` is the correctness-Skeptic heading (Step-0 enforced). `## Supplemental context` is the supplemental-reviewer heading (no enforcement). These headings are lexically distinct by design; a future reviewer class that requires a third contract receives its own heading rather than reusing either existing one.
 
+### `visual_conformance` enforcement (auto-Critical rule)
+
+When reviewing a Brief or architect plan whose unit is UI-visible AND the ticket text contains an "Expected Result" block, a "Visual spec" block, or an equivalent enumeration of visible properties (colors, positions, copy, typography, element presence), the Skeptic raises a **Critical** finding if `qa_criteria.scenarios[]` does not contain at least one scenario with `method: visual_conformance`, a verbatim `source_quote`, and at least one `expected_visual_claims[]` entry. Individual claims marked `advisory: true` are opted out of auto-fail and auto-Critical enforcement but remain auditable in the review surface. This rule does NOT fire when `qa_skip` is set to one of the 5 valid enum values. The canonical statement of the schema, field rules, and trigger predicate lives in `content/references/planning-artifacts.md` (Field guidance, QA criteria entry) - this section mirrors only enough to ensure a Skeptic reviewer cannot miss the rule.
+
 ---
 
 ## 5. Escalation Protocol

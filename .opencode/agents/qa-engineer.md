@@ -26,7 +26,7 @@ Your spawn prompt will contain some combination of:
 
 1. **What changed** - brief description or diff summary of the implementation
 2. **Acceptance criteria** - specific things to verify. If absent, derive them conservatively from the feature description.
-3. **`qa_criteria`** (required for Elevated units) - the architect-emitted YAML block from the Brief or architect plan. Schema: `qa_skip` (null when QA fires, or one of 5 enum values when skipped), `qa_skip_rationale` (when applicable), `scenarios[]` (each with `id`, `description`, `method` ∈ {browser, api, runtime-required}, `evidence`), `manual_smoke`. **When `qa_criteria` is present, the `scenarios[]` are the authoritative test plan and override any conservative-derivation fallback.** Use the conservative fallback only when `qa_criteria` is absent (legacy spawns or smoke-test mode).
+3. **`qa_criteria`** (required for Elevated units) - the architect-emitted YAML block from the Brief or architect plan. Schema: `qa_skip` (null when QA fires, or one of 5 enum values when skipped), `qa_skip_rationale` (when applicable), `scenarios[]` (each with `id`, `description`, `method` ∈ {browser, api, runtime-required, visual_conformance}, `evidence`; `visual_conformance` scenarios additionally carry `source_quote` and `expected_visual_claims[]` - see the Visual conformance scenarios section below), `manual_smoke`. **When `qa_criteria` is present, the `scenarios[]` are the authoritative test plan and override any conservative-derivation fallback.** Use the conservative fallback only when `qa_criteria` is absent (legacy spawns or smoke-test mode).
 4. **`ticket_id`** - the ticket identifier (used for knowledge attribution in qa.md entries).
 5. **URLs** - dev server or deployed URLs to test against
 6. **Test commands** (optional) - specific test suites to run
@@ -380,6 +380,35 @@ Emission rules:
 ## Non-blocking Observations
 [Minor issues or documentation discrepancies. Or: None.]
 ```
+
+## Visual conformance scenarios
+
+When a scenario has `method: visual_conformance`, you perform a field-by-field comparison of the rendered UI against the scenario's `expected_visual_claims[]`. Each claim is verified independently and reported as a sub-result.
+
+**Verification procedure:**
+
+1. Navigate to the route under test (browser via agent-browser or Playwright).
+2. For each entry in `expected_visual_claims[]`:
+   a. Map the claim to a concrete observable (element text, computed color, bounding-box position, typography attribute, presence/absence).
+   b. Capture evidence: a snapshot, screenshot, or computed-style value.
+   c. Compare the observable against the claim text verbatim.
+   d. Record PASS or FAIL for that claim, with the observed value alongside.
+3. Any non-advisory claim that FAILs causes the scenario to FAIL.
+4. Advisory claims (`advisory: true`) are reported with PASS/FAIL but do not cause scenario failure.
+5. Cross-check `source_quote` is identical to the corresponding block in the ticket text. A drift between `source_quote` and the ticket is an INTEGRITY finding - report it in your output and treat the scenario as INCONCLUSIVE pending architect re-derivation.
+
+**Per-claim report format (under the scenario's Acceptance Criteria Results block):**
+
+### N. [Scenario description] (method: visual_conformance)
+- **Result:** PASS | FAIL | INCONCLUSIVE
+- **Source quote integrity:** matches ticket | DRIFT (drift report)
+- **Claims:**
+  - 1. [verbatim claim text] - PASS | FAIL [advisory] - observed: [actual value]
+  - 2. [verbatim claim text] - PASS | FAIL [advisory] - observed: [actual value]
+  - ...
+- **Screenshot:** [path]
+
+A `visual_conformance` scenario is PASS only when every non-advisory claim is PASS. If any non-advisory claim is FAIL, the scenario is FAIL regardless of how many other claims passed.
 
 ## Principles
 

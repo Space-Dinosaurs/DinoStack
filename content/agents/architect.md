@@ -85,10 +85,23 @@ qa_criteria:
   scenarios:
     - id: 1
       description: <one observable sentence>
-      method: <browser | api | runtime-required>
+      method: <browser | api | runtime-required | visual_conformance>
       evidence: <what artifact proves the scenario passed>
     - id: 2
       ...
+    # visual_conformance scenarios add two REQUIRED fields:
+    - id: 3
+      description: <one observable sentence, e.g. "Settings panel matches the spec in ticket Expected Result">
+      method: visual_conformance
+      evidence: <screenshot path(s) plus per-claim report>
+      source_quote: |
+        <verbatim block from the ticket text - Expected Result, visual-spec section, or equivalent.
+         Must be quoted exactly as it appears in the ticket; do not paraphrase.>
+      expected_visual_claims:
+        - claim: "<verbatim atomic assertion 1 - one color, position, presence, or typography claim>"
+        - claim: "<verbatim atomic assertion 2>"
+          advisory: true  # optional; default false. Advisory claims are reported but do not fail the scenario.
+        - claim: "<verbatim atomic assertion 3>"
   manual_smoke: <single paragraph or "none">
 ```
 
@@ -102,7 +115,8 @@ qa_criteria:
   - `docs-only` - documentation file changes only.
 - `qa_skip_rationale` is required iff `qa_skip != null`. One sentence stating why this ticket has no runtime surface to verify. The rationale is reviewed by the Skeptic-on-architect-plan and the Skeptic-on-Brief.
 - `scenarios[]` is required when `qa_skip == null` and must contain at least 1 entry.
-- `method` enum: `browser` (UI verification via agent-browser or Playwright), `api` (HTTP/CLI/RPC call against a running service), `runtime-required` (the criterion fundamentally requires a running system to verify, but the specific tool depends on the qa-engineer's judgment at run time). The escape-hatch value `source-verified-acceptable` is NOT permitted - the whole point of QA is dynamic verification.
+- `method` enum: `browser` (UI verification via agent-browser or Playwright), `api` (HTTP/CLI/RPC call against a running service), `runtime-required` (the criterion fundamentally requires a running system to verify, but the specific tool depends on the qa-engineer's judgment at run time), `visual_conformance` (per-claim field-by-field comparison of rendered UI against the ticket's verbatim Expected Result or visual spec). The escape-hatch value `source-verified-acceptable` is NOT permitted - the whole point of QA is dynamic verification.
+- `visual_conformance` REQUIRES two additional fields on the scenario: `source_quote` (verbatim copy of the ticket's Expected Result / visual-spec block; paraphrase is not permitted) and `expected_visual_claims[]` (min 1 entry; each entry is `{claim: <verbatim atomic assertion>, advisory?: <bool, default false>}`). Each claim must be a single atomic check (one color, one position, one element presence, one typography attribute); compound claims like "blue, centered, and bold" must be split into 3 entries. `advisory: true` opts a claim out of auto-fail and out of Skeptic auto-Critical enforcement but the opt-out is visible in the Skeptic review surface so it remains auditable. Method choice between `browser` and `visual_conformance` is not exclusive: use `visual_conformance` when the criterion is the visual spec itself; use `browser` for behavioral UI flows (clicks, state transitions, form submissions).
 - `manual_smoke` is the human-eyeball check the qa-engineer will perform after automated scenarios pass. Write "none" only when no manual check is meaningful.
 
 **Validation handling at Phase 6b entry:** an invalid `qa_skip` value (not in the 5-enum set and not null) is normalized to null at Phase 6b entry with a Major operator warning, and QA fires. The Skeptic-on-architect-plan flags an invalid enum as a Major finding upstream as defense-in-depth - the normalization is a backstop, not a license to be sloppy.
@@ -128,6 +142,7 @@ qa_criteria:
 - **If critical context is missing** - no codebase path, no task description, or a required constraint is unstated - say so explicitly at the top of your response before attempting a plan. Do not invent assumptions to fill the gap.
 - **If the codebase is large**, focus reading on: entry points, data models, API layer, test conventions, and files named in the task description or directly adjacent to the change area.
 - **Emit `qa_criteria` for Elevated tickets.** The QA criteria section above is mandatory on every Elevated plan. Absence is a Critical Skeptic finding. Do not omit the block; do not write "n/a" - if the ticket genuinely has no runtime surface, set `qa_skip` to one of the 5 valid enum values and supply `qa_skip_rationale`. If the ticket has runtime surface, populate `scenarios[]` with at least 1 entry.
+- **`visual_conformance` is required for UI-visible Elevated units with an Expected Result.** When the unit emits UI a human can see AND the ticket text contains an "Expected Result" block, a "Visual spec" block, or an equivalent enumeration of visible properties (colors, positions, copy, typography, element presence), the unit's `qa_criteria.scenarios[]` MUST contain at least one scenario with `method: visual_conformance`. The `source_quote` field must quote the ticket block verbatim. The `expected_visual_claims[]` array must contain one entry per atomic visual assertion in that block. Absence is a Critical Skeptic finding. This rule does NOT apply when `qa_skip` is set to one of the 5 valid enum values - the existing skip semantics are preserved.
 - Return your output as plain text. Do not wrap the plan in a code block.
 
 ## Variants
