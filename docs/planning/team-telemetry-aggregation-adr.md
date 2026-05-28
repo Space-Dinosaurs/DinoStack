@@ -27,7 +27,48 @@ There is no shipper, no central store, and no dashboard. Codex and Gemini sessio
 
 ## Decision
 
-Build a thin team-telemetry pipeline in three layers, scoped to the smallest thing that delivers cross-engineer visibility.
+Adopt a two-stage rollout. Stage 1 delivers team and per-developer visibility with a one-day change committed to git. Stage 2 adds the full pipeline for richer dashboarding when needed.
+
+### Stage 1: Committed per-developer session log (MVP)
+
+A new committed directory `.agentic/session-log/<developer-handle>.jsonl`. The Stop hook (which already emits `session_total`) also appends one line per session to the current developer's file:
+
+```
+.agentic/
+  events.jsonl              # gitignored, full per-spawn detail (unchanged)
+  session-log/
+    alice.jsonl             # committed, one line per session
+    bob.jsonl               # committed, one line per session
+```
+
+**Schema (one JSON object per line, append-only):**
+
+- `ts` - session end ISO8601 UTC
+- `developer_id` - GitHub handle from `~/.agentic/identity.yml` (operator-set once)
+- `session_uuid` - matches the local events.jsonl session
+- `wall_seconds` - session total
+- `tokens` - `{input, output, cache_creation, cache_read}`
+- `spawn_count` - total subagent spawns
+- `by_agent` - `{agent_name: {spawns, wall_seconds, tokens_total}}` rollup
+- `project_slug` - repo name (for cross-project queries later)
+- `branch` - git branch the session ran on (best-effort)
+
+**Why this works:**
+- **No merge conflicts.** Each developer appends only to their own file.
+- **Low churn.** One line per session (~500 bytes) vs ~50 per-spawn events; weeks of work add KBs, not MBs.
+- **Per-developer attribution built in.** Every line carries `developer_id`; aggregations slice both ways (team-wide and per-developer) trivially.
+- **No infrastructure.** Lives in the repo; survives machine loss; visible in PR diffs if anyone wants to spot-check.
+- **Identity is explicit.** `~/.agentic/identity.yml` is set once per developer; never auto-inferred from git config (avoids leaking personal email).
+
+**New CLI:** `/agentic-cost team` reads the `session-log/` directory and renders a per-developer + per-project rollup. Existing `/agentic-cost session|project|agent` continue to read the local `events.jsonl` for drill-down.
+
+**Gitignore carve-out:** The umbrella `.agentic/` ignore must carve out `session-log/` (similar to how `config.json`, `qa.md`, `deploy.md` are carved out today).
+
+**Privacy note:** the committed log captures session_uuid, agent names, model tiers, token counts, branch names. It does NOT capture: prompts, tool inputs/outputs, file contents, task descriptions, or findings detail. Teams that need stricter scoping can configure the Stop hook to redact `branch` or omit `by_agent`.
+
+### Stage 2: Shipper + central store + dashboard (deferred)
+
+Build the pipeline below when Stage 1's rollup tables stop being enough - typically when the team wants timeseries charts, drill-down to per-spawn detail across machines, or alerts on cost spikes.
 
 ### Layer 1: Shipper (per developer)
 
@@ -67,7 +108,7 @@ Auth: GitHub OAuth restricted to a configured org. No PII beyond developer handl
 ## Alternatives considered
 
 1. **Do nothing; rely on per-developer `/agentic-cost`.** Rejected: cannot answer team-level questions; cost overruns surface only after someone manually reports them.
-2. **Sync `events.jsonl` via git.** Rejected: the file is append-only and high-churn; git history would balloon; merge conflicts on every push.
+2. **Sync full `events.jsonl` via git (single shared file).** Rejected: the file is append-only and high-churn; git history would balloon; concurrent sessions cause merge conflicts on the trailing line every push. Stage 1 sidesteps this by committing only per-developer session rollups (one line per session, never shared between developers).
 3. **Push directly from conductor (no shipper daemon).** Rejected: adds network failure surface to the hot path; violates "never block the conductor on telemetry" invariant. The Stop hook is also too narrow - it fires only at clean session exit, which misses crashed sessions.
 4. **Anthropic Console / native usage dashboard.** Rejected: only shows API-key-level spend, not per-agent / per-task attribution. Useful as a sanity check but does not answer the questions above.
 5. **Adopt an existing observability tool (Honeycomb, Datadog, etc.).** Deferred. Possible later for richer querying, but the schema is small and the volume is low. Native first.
@@ -98,6 +139,16 @@ Auth: GitHub OAuth restricted to a configured org. No PII beyond developer handl
 6. **PR / merge correlation.** Worth joining telemetry to git history (which session produced which PR) for cost-per-merged-PR metrics? Deferred to v2.
 
 ## Implementation sketch
+
+### Stage 1 (MVP, ~1 day)
+
+Three units:
+
+1. **Stop hook addition** (`hooks/stop-context.js`): after computing `session_total`, append a one-line rollup to `.agentic/session-log/<developer_id>.jsonl`. Create directory if absent. Identity read from `~/.agentic/identity.yml`; if missing, skip silently with a one-time stderr nudge. Tier 1-2 engineer task.
+2. **`/agentic-cost team` command** (`content/commands/agentic-cost.md`): read all files under `.agentic/session-log/`, group by developer + project + time window, render table. Tier 1.
+3. **Gitignore + docs** (`.gitignore`, `docs/technical/team-telemetry.md`): carve `session-log/` out of the `.agentic/` umbrella ignore; document the opt-in identity file. Tier 1.
+
+### Stage 2 (deferred, multi-week)
 
 Five units, each independently shippable:
 
