@@ -30,6 +30,9 @@ Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/agent-
 **Regression test obligation** - when a Worker fixes a Critical or Major Skeptic finding:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test, the Worker obligation to add one, and the Skeptic verification rule.
 
+**QA regression-test obligation** - when a Worker fixes a qa-engineer FAIL:
+Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the engineer's regression-test obligation, the documented-exception path via `.agentic/qa-regressions.md`, and the Skeptic verification rule. Symmetric to the Skeptic-side `regression-test-obligation.md`.
+
 **Doc-sync obligation** - when a change alters a count, list, path, convention, or behavior an intent-layer doc asserts:
 Read `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
 
