@@ -50,6 +50,16 @@ Serial multi-PR QA is reserved for cases where the parallel path is structurally
 
 Phase 6b reads `qa_criteria.scenarios[]` directly from the architect plan or Brief - that block is the authoritative test plan. The architect plan template MUST include the `qa_criteria` YAML block on every Elevated unit (Critical Skeptic finding if absent; see `content/agents/architect.md`). The qa-engineer brief is a thin wrapper supplying the URL, the dev-server boot recipe, the diff, and the `ticket_id`; it does NOT re-author scenarios. Conductor MUST NOT hand-author scenarios at spawn time - that recreates the failure mode where verification drifts from what the architect committed to.
 
+**Scenario method dispatch.** Each scenario's `method` field determines the qa-engineer procedure:
+- `browser` - standard browser interaction via agent-browser or Playwright (see `content/agents/qa-engineer.md` §2 Browser verification).
+- `api` - curl or Playwright network call against the endpoint under test.
+- `runtime-required` - runtime execution required; cannot fall back to source review.
+- `visual_conformance` - field-by-field comparison against `expected_visual_claims[]` (see `content/agents/qa-engineer.md` §Visual conformance scenarios).
+- `accessibility` - WCAG conformance check via `@axe-core/playwright`; iterates per viewport; reports violations by impact level (see `content/agents/qa-engineer.md` §Accessibility scenarios).
+- `perceptual_diff` - pixel-level regression against committed baselines via Playwright `toHaveScreenshot`; opt-in via `.agentic/config.json` `perceptual_diff_enabled: true` (see `content/agents/qa-engineer.md` §Perceptual diff scenarios).
+
+**Viewport iteration.** When `qa_criteria.viewport` is set (default `[desktop]`), qa-engineer runs each scenario against every viewport in the resolved list. A per-scenario `viewport` field replaces the root list (does not extend it). Report rows are per `(scenario × viewport)` tuple. Canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900. Override via qa.md `viewport` knowledge tag. Full procedure in `content/agents/qa-engineer.md` §2 Browser verification (viewport resolution step).
+
 ## qa-engineer dev-server boot pattern
 
 When the qa-engineer needs to start a local dev server, it resolves the boot command in this order:
