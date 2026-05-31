@@ -55,7 +55,7 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 2. **Classify risk.** Apply the conductor's risk classification rules. Any code change, new file, multi-file change, security concern, or architecture decision is Elevated and requires a Skeptic. Low risk (reads, research with no artifact) permits a lighter flow. Trivial risk (single-file cosmetic or copy change - or one file plus its colocated test/snapshot - with no logic impact, all qualifying signals must hold) bypasses Skeptic entirely: a worktree-isolated `engineer` performs the shippable edit (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). If classifying Trivial, return a short-circuit plan - do not build out a full agent roster or multi-phase sequence. When in doubt between Trivial and Elevated, choose Elevated.
 
-3. **Select agents.** Only include agents whose specific capability is needed. Do not add agents defensively - each one adds latency and cost. Use the decision rules below.
+3. **Select agents.** Only include agents whose specific capability is needed. Do not add agents defensively. Use the decision rules below.
 
 4. **Sequence and parallelize.** Identify dependencies (architect must precede engineer; debugger precedes engineer on bugs; investigator output feeds architect or engineer). Identify safe parallelization: independent workstreams with no shared state can run concurrently.
 
@@ -133,7 +133,7 @@ If any of these are missing and material to the plan, call them out in Open ques
 - Required after every Elevated-risk engineer output.
 - For interdependent multi-file changes, one Skeptic reviews the combined diff - not per-file Skeptics stacked on top of each other.
 - For independent elevated units, each gets its own Skeptic.
-- **Pre-implementation architecture Skeptic (rare):** A Skeptic reviewing the architect's *design* before implementation is only warranted for genuinely irreversible decisions - payment systems where a wrong abstraction locks in years of tech debt, schema migrations that cannot be rolled back, or security architecture where a design flaw would be exploitable. For standard features and refactors, skip it. The integration Skeptic reviewing the final diff will catch design mistakes. Adding an architecture Skeptic by default inflates the plan and adds latency without proportional value.
+- **Pre-implementation architecture Skeptic (rare):** A Skeptic reviewing the architect's *design* before implementation is only warranted for genuinely irreversible decisions - payment systems where a wrong abstraction locks in years of tech debt, schema migrations that cannot be rolled back, or security architecture where a design flaw would be exploitable. For standard features and refactors, skip it. The integration Skeptic reviewing the final diff will catch design mistakes. Adding an architecture Skeptic by default inflates the plan and adds orchestration overhead without proportional review signal.
 
 ## Output format
 

@@ -192,7 +192,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 **Primary agent context accumulation:** The primary agent maintains the exchange log across rounds. When spawning each new Worker, it passes: the original task, the current Skeptic findings, the prior implementation output (or file paths to it), and the accumulated exchange log. Workers must not be expected to maintain state across invocations — the primary agent is the stateful coordinator.
 
-**Worker output management:** For implementations producing large outputs, Workers should write results to files and return file paths rather than inline content. This keeps spawn prompts manageable and prevents context degradation from accumulating full implementation text in the exchange log.
+**Worker output management:** For implementations producing large outputs, Workers should write results to files and return file paths rather than inline content. This keeps spawn prompts readable and auditable - a brief that embeds full implementation text is harder to review, increases copy-paste error risk when portions are excerpted for the Skeptic, and grows the exchange log past a useful size.
 
 ### Exchange log compression
 
@@ -219,7 +219,7 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
    - For each finding that was escalated or re-routed, the round number(s) in which it appeared
    - The total re-route count for each finding
 
-4. **When to compress:** The conductor SHOULD apply compression after Round 3 sign-off, or earlier if the exchange log exceeds ~500 tokens.
+4. **When to compress:** The conductor SHOULD apply compression after Round 3 sign-off, or earlier if the compressed log would exceed a single screenful or the preflight list can no longer fit in a single spawn prompt.
 
 5. **Fresh Skeptic invariant:** Compression affects ONLY the conductor's internal exchange log. The Skeptic remains a fresh invocation for every round. The Skeptic never sees the compressed log — it receives only the current round's adversarial brief, preflight list, and artifact.
 
@@ -302,7 +302,7 @@ Cleanup: after Phase 6 loop terminates with sign-off, run `rm -f .agentic/.spawn
 
 ### Plan-tier second-pass overflow fallback
 
-When the combined Global-context input set for a Plan-tier second-pass Skeptic exceeds 60K input tokens, the conductor switches to per-unit second-pass mode: one Skeptic per unit (each with that unit's Global-context subset) plus one lightweight integration Skeptic receiving the combined findings list only (not the full Global-context). Documented in `content/sections/03-planning-artifacts.md`.
+When the combined Global-context input set for a Plan-tier second-pass Skeptic exceeds 60K input tokens, the conductor switches to per-unit second-pass mode: one Skeptic per unit (each with that unit's Global-context subset) plus one lightweight integration Skeptic receiving the combined findings list only (not the full Global-context). Documented in `content/sections/03-planning-artifacts.md`. The 60K limit is a prompt-assembly threshold for review focus, not a model context constraint; it applies regardless of the underlying model's window size, because adversarial review signal degrades as the assembled prompt grows.
 
 ### Supplemental-context block for multi-dimensional supplemental reviewers
 
