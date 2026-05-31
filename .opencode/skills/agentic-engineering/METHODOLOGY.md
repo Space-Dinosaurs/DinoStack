@@ -69,7 +69,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 ## Delegation
 
-**The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays lightweight, available, and responsive to the user at all times.
+**The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
 **All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification. On Claude Code this rule is enforced by a `PreToolUse` hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that denies any `Task` spawn lacking `run_in_background: true` (except documented foreground-exempt agents like `wrap-ticket`, which must block on `wrap.lock` before Phase 12 cleanup proceeds) and feeds the reason back so the conductor re-issues the call correctly; other adapters rely on the prose rule until equivalent enforcement lands.
 
@@ -378,7 +378,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 
 **Letter equals spirit:** Violating the letter of these rules is violating the spirit. "I followed the intent" after skipping a required step is not a defense.
 
-**Context preservation - apply risk to the task, not the tool call.** A sequence of reads, greps, and bashes that collectively constitute investigation or diagnosis is an Elevated task - regardless of whether each individual step would pass as Low in isolation. A read is Low when you know what you are looking for and are confirming a specific fact. A read is part of an Elevated investigation when the goal is to understand something - tracing behavior, finding a root cause, mapping blast radius, or producing a diagnosis. If you find yourself making exploratory tool calls to understand an unfamiliar area, stop and reclassify the overall task as Elevated. Delegation is not just a safety mechanism - it is mandatory context hygiene. A conductor that fills its own context with investigation work cannot orchestrate. When in doubt, spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
+**Context preservation - apply risk to the task, not the tool call.** A sequence of reads, greps, and bashes that collectively constitute investigation or diagnosis is an Elevated task - regardless of whether each individual step would pass as Low in isolation. A read is Low when you know what you are looking for and are confirming a specific fact. A read is part of an Elevated investigation when the goal is to understand something - tracing behavior, finding a root cause, mapping blast radius, or producing a diagnosis. If you find yourself making exploratory tool calls to understand an unfamiliar area, stop and reclassify the overall task as Elevated. Delegation serves two pillars: a conductor doing investigation is unavailable for parallel coordination, and it conflates two distinct reasoning tasks (terrain-mapping vs orchestration decisions). Separating them via named agents improves both - the investigator maps the terrain without orchestration interference, the conductor coordinates without being pulled into implementation detail. (Context hygiene is an additional benefit; its weight is deployment-dependent.) When in doubt, spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
 
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
@@ -485,16 +485,16 @@ Applying adversarial review.
 
 ### Tier declaration
 
-Conductors declare the model tier at spawn time to route lightweight tasks to faster models and critical reviews to max-capability models. Tier is declared in the same block as Risk, immediately below the Risk line.
+Conductors declare the model tier at spawn time to route lightweight tasks to lower-depth models and critical reviews to maximum-reasoning-depth models. Tier is declared in the same block as Risk, immediately below the Risk line.
 
 **Declaration format:**
 ```
 Risk: Elevated - security adversarial brief
-Tier: 3  (max capability - security audit needs Opus)
+Tier: 3  (max reasoning depth - security audit; Tier 3)
 Spawning security-auditor.
 ```
 
-**Default:** Tier 2. When no tier is declared, the agent uses Sonnet. Most spawns are Tier 2 - omit the declaration entirely.
+**Default:** Tier 2. When no tier is declared, the agent uses the Tier 2 model for the active harness. Most spawns are Tier 2 - omit the declaration entirely.
 
 **Model param mapping (Claude Code):**
 
@@ -508,7 +508,7 @@ Spawning security-auditor.
 
 **When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
 
-**When to declare Tier 3:** task demands maximum capability - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Tier 3 costs significantly more; include a justification parenthetical.
+**When to declare Tier 3:** task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Tier 3 demands maximum reasoning depth; include a justification parenthetical.
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
 
@@ -648,7 +648,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 ## Task Decomposition
 
-**One agent, one task, one prompt.** The conductor breaks work into atomic units before spawning Workers. A focused agent is a correct agent - Workers should not do epics alone.
+**One agent, one task, one prompt.** The conductor breaks work into atomic units before spawning Workers. A focused agent is a correct agent - Workers should not do epics alone. Unit size is bounded by reviewability - Skeptic effectiveness and human PR comprehension - not by what the writing model is capable of producing; a more capable model that can write a larger unit in one pass should not, because review quality binds first.
 
 **Decompose implementation, not review.** Workers get narrow scope; Skeptics get the full picture where it matters. The orchestration-planner identifies unit boundaries and dependencies; the conductor applies the following rules to the planner's output:
 - **Independent elevated units (planner-identified):** each gets its own Skeptic (small diff, high signal)

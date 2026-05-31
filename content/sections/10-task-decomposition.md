@@ -1,6 +1,6 @@
 ## Task Decomposition
 
-**One agent, one task, one prompt.** The conductor breaks work into atomic units before spawning Workers. A focused agent is a correct agent - Workers should not do epics alone.
+**One agent, one task, one prompt.** The conductor breaks work into atomic units before spawning Workers. A focused agent is a correct agent - Workers should not do epics alone. Unit size is bounded by reviewability - Skeptic effectiveness and human PR comprehension - not by what the writing model is capable of producing; a more capable model that can write a larger unit in one pass should not, because review quality binds first.
 
 **Decompose implementation, not review.** Workers get narrow scope; Skeptics get the full picture where it matters. The orchestration-planner identifies unit boundaries and dependencies; the conductor applies the following rules to the planner's output:
 - **Independent elevated units (planner-identified):** each gets its own Skeptic (small diff, high signal)

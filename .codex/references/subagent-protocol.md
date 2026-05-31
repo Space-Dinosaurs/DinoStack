@@ -388,7 +388,7 @@ The Subagent Protocol does not replace The Skeptic Protocol — it provides the 
 
 When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `METHODOLOGY.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
 
-For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (`haiku` for Tier 1, `opus` for Tier 3). This param is omitted for Tier 2 (default). Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
+For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (Claude Code: `haiku` for Tier 1, `opus` for Tier 3; other harnesses resolve from tier-map or omit). This param is omitted for Tier 2 (default). Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
@@ -431,7 +431,7 @@ When this document changes:
 
 ## 13. Conductor context budget
 
-The conductor's own context window is a finite resource. Long-running sessions degrade reasoning quality, increase the risk of context-window exhaustion, and make recovery expensive. The Subagent Protocol therefore defines context-budget rules for the main conductor session.
+Long-running conductor sessions accumulate stale state that degrades reliability: phase decisions made 20 turns ago may contradict current findings, crash-recovery artifacts (context.md, loop-state.json) diverge from actual session progress, and cross-phase drift makes it harder for operators to audit what happened. The Subagent Protocol therefore defines session-budget rules for the main conductor session to keep session state reliable and operator oversight tractable.
 
 ### 13.1 Soft limit (recommended: 15–20 conductor turns)
 
@@ -459,7 +459,7 @@ AE's structural delegation (subagents, worktrees) offloads most implementation w
 - Missing critical details from earlier turns
 - Re-introducing bugs that were already fixed
 - Making inconsistent decisions
-- Hitting the underlying model's context-window ceiling
+- Producing stale crash-recovery artifacts (context.md, loop-state.json) that no longer reflect actual session state
 
 The `/wrap` + restart flow already handles session handoff. The context budget simply makes the handoff proactive rather than reactive.
 
