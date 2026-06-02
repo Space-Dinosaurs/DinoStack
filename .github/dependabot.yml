@@ -1,0 +1,23 @@
+# Scopes Dependabot version-update PRs to real project manifests.
+# evals/fixtures/** is deliberately excluded - those are intentional
+# vulnerable test fixtures used by the dependency-auditor / init-project evals.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/scripts"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "pip"
+    directory: "/evals"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    exclude-paths:
+      - "fixtures/**"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
