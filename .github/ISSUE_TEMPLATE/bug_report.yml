@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a reproducible defect in the methodology, an adapter, or a script.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please confirm the issue reproduces against the latest `main` and search existing issues before submitting.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What went wrong? Be specific.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to reproduce. Include commands, prompts, or configs.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Adapter
+      description: Which adapter is affected?
+      options:
+        - Claude Code
+        - Cursor
+        - Codex CLI
+        - Gemini CLI
+        - Kimi Code
+        - OpenCode
+        - Pi coding agent
+        - Pi oh-my-pi
+        - Hermes
+        - multiple
+        - n/a
+    validations:
+      required: true
+  - type: input
+    id: adapter_version
+    attributes:
+      label: Adapter version
+      description: Version or commit SHA of the adapter / tool in use.
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. macOS 14.5, Ubuntu 22.04, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant logs, transcripts, or error output. Redact secrets.
+      render: shell
+    validations:
+      required: false

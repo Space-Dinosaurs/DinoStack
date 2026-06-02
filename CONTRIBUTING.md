@@ -19,11 +19,27 @@
 - New adapters for other tools (see [ADAPTERS.md](ADAPTERS.md))
 - Documentation improvements
 
+### What's not welcome
+
+- Customer-specific or branded workflows
+- Private credentials, internal paths, or client names
+- Bypasses of the project's safety conventions presented as features
+- Automation that weakens the deny-list
+- Wholesale rewrites of methodology rules without a protocol-change issue first
+
+## Protocol-change process
+
+Changes to the methodology itself - conductor rules, the Skeptic protocol, risk classification, memory persistence, worktree lifecycle, slash commands, or agent definitions - go through the protocol-change RFC flow before a PR is opened. Open an issue using the [Protocol change template](.github/ISSUE_TEMPLATE/protocol_change.yml) describing the motivation, the proposed change, backward-compatibility impact, and affected adapters. The lead maintainer approves the direction, requests revisions, or declines. Once approved, open a PR referencing the issue. See [GOVERNANCE.md](GOVERNANCE.md) for the full flow.
+
 ## PR guidelines
 
 - One concern per PR — don't bundle unrelated changes
 - Describe the *why* in the PR body, not just the *what*
 - Test locally before opening: re-run `install.sh`, open a Claude Code session, verify the change works as expected
+
+### Adapter compatibility declaration
+
+Every PR must declare which adapters it affects. The PR template includes a checklist - tick all that apply (Claude Code, Cursor, Codex CLI, Gemini CLI, Kimi Code, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, or "None" for methodology / docs-only changes). For changes that touch `content/` (the single source of truth), assume all adapters are affected unless the change is scoped to adapter-specific files. For agent-behavior changes, include a short before/after transcript in the PR body so reviewers can see the effect without re-running the scenario locally.
 
 ## Before editing
 
@@ -50,6 +66,29 @@ A third build script, `scripts/build-slides.sh`, regenerates `docs/slides/*.html
 ## Architecture guardrails
 
 **Methodology vs. adapters.** Rules and references live in `content/rules/` and `content/references/`. Adapters (`.claude/`, `.cursor/`) translate those into tool-specific formats. Content changes go in `content/` - never edit generated adapter files directly.
+
+## Developer Certificate of Origin (DCO)
+
+This project uses the [Developer Certificate of Origin](https://developercertificate.org) as a lightweight alternative to a CLA. By adding a `Signed-off-by` line to your commits, you certify that you wrote the contribution or otherwise have the right to submit it under the project's license.
+
+### How to sign a commit
+
+```bash
+git commit -s -m "your message"
+```
+
+The `-s` flag appends a line like `Signed-off-by: Your Name <you@example.com>` using the name and email from your local git config.
+
+### Fixing missing sign-offs
+
+- Last commit only: `git commit --amend --signoff` then `git push --force-with-lease`
+- Multiple commits in a PR: `git rebase --signoff <base-branch>` then force-push
+
+### AI-assisted contributions
+
+If you used AI assistance to author your contribution, certify in the PR description that you reviewed the AI-generated content and have the right to submit it under the project license. The DCO sign-off applies regardless of how the contribution was authored.
+
+PRs without a signed-off commit on every commit will be blocked by the DCO check (configured by `.github/workflows/dco.yml`).
 
 ## Style
 
