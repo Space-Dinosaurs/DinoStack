@@ -8,6 +8,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # @marp-team/* is pinned to exact versions and upgraded only as a coordinated
+    # same-PR action (bump all three packages + lockfile + rebuild slides). Single-
+    # package automated bumps break the slides-sync CI gate.
+    ignore:
+      - dependency-name: "@marp-team/*"
 
   - package-ecosystem: "pip"
     directory: "/evals"
