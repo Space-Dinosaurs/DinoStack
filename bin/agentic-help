@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""
+Purpose: Static, zero-token command reference for the agentic-engineering
+         skill. Prints a fixed inventory of every slash command with a
+         one-line description plus usage patterns, so a developer can
+         discover and recall commands without spending model tokens.
+         The CLI for the /agentic-help command. Writes nothing.
+
+Public API: agentic-help
+            Prints a fixed HELP_TEXT block to stdout. No subcommands,
+            no flags. Always exits 0.
+
+Upstream deps: Python 3 stdlib only (sys). No file I/O for content;
+               the help text is a compile-time constant.
+
+Downstream consumers: content/commands/agentic-help.md (command spec);
+                      developers running the command interactively to
+                      list available commands.
+
+Failure modes: none. The content is a static constant with no inputs to
+               validate; the script does not read or modify any file and
+               cannot fail on environment state. Always exits 0.
+
+Performance: O(1). One write to stdout; constant time, no I/O beyond the
+             print. <10 ms.
+"""
+
+from __future__ import annotations
+
+import sys
+
+HELP_TEXT = """\
+agentic-engineering - command reference
+
+Inspect & configure
+  /agentic-status              Show resolved config (mode, profile, preset, marker) with provenance and a plain-English explainer. Run this first when unsure what the skill is doing.
+  /agentic-help                This list.
+  /agentic-disable             Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out.
+  /agentic-cost                Token and wall-time rollups per agent/session/task from .agentic/events.jsonl.
+
+Plan & build
+  /brief                       Interactive planning dialogue that produces a Brief artifact before architects and engineers are spawned. /brief --from <path> extracts a Brief from an existing PRD.
+  /implement-ticket            Drive a ticket from spec to a merged PR through the full risk-classified workflow (architect, skeptic, engineer, QA gate).
+  /init-project                Scaffold a project: AGENTS.md hierarchy, CLI config, gitignore, .agentic/ seeds. Asks up front how you want work done.
+  /skeptic                     Run the adversarial review loop on a diff or artifact (findings classified Critical/Major/Minor).
+
+Maintain & curate
+  /memory-update               Capture a stable project fact or decision into MEMORY.md.
+  /wrap                        Summarize the current session into .agentic/context.md.
+  /migrate-project             Apply scaffolding migrations to bring a project up to the current manifest version.
+  /cleanup-worktrees           Remove stale subagent and feature worktrees.
+  /ticket-status-sync          Reconcile a tracker column with the real PR/branch state.
+
+Audit & improve the methodology
+  /prune-harness               Propose deletions of rules that are not earning their keep.
+  /representation-audit        Propose prose rewrites where the methodology is unclear or bloated.
+  /test-suite-comprehension    Produce a test-gap map for a codebase.
+  /update-agentic-engineering  Edit, sync, build, and commit changes to the methodology itself.
+
+Usage patterns
+
+  Check what the skill is doing right now:
+    /agentic-status            Shows the resolved mode/profile/preset, WHERE each value comes from, what behavior it produces, and how to change it.
+
+  Use the skill deliberately when it is globally disabled or in opt-in mode:
+    By default the skill auto-loads only when it is in opt-out mode AND the project has not opted out.
+    If it is globally opt-in (or you opted this project out) it will NOT pick up automatically. To use it on purpose:
+      - Load the methodology on demand: invoke the agentic-engineering skill by name for the session.
+      - Or run any command directly - the per-command slash commands above work whether or not the skill auto-loaded.
+      - To make a project always pick it up: add 'agentic-engineering: opt-in' to that project's AGENTS.md (or remove an 'opt-out' line).
+
+  Change how strict the workflow is:
+    Per project:  add 'agentic-engineering-profile: relaxed' (or default / strict) to that project's AGENTS.md.
+    Globally:     edit ~/.claude/agentic-engineering.json ("profile": "relaxed" | "default" | "strict").
+    Run /agentic-status afterward to confirm the change took effect and see what it now does.
+
+  Turn the skill off:
+    This project only:  /agentic-disable
+    Everywhere:         /agentic-disable --global   (or set "mode": "opt-in" in ~/.claude/agentic-engineering.json)
+
+  Most-used, one line each:
+    /agentic-status - see and understand current config   |   /implement-ticket - ticket to merged PR
+    /brief - plan before building                          |   /init-project - set up a new project
+"""
+
+
+def main(_argv: list[str]) -> int:
+    sys.stdout.write(HELP_TEXT)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
