@@ -2,12 +2,19 @@
 """
 Purpose: Read-only inspection of the agentic-engineering activation
          resolver. Dumps the resolved global config, project marker,
-         profile/preset, and first-activation sentinel state to stdout.
-         The CLI for the /agentic-status command. Writes nothing.
+         profile/preset, and first-activation sentinel state to stdout,
+         each value annotated with its provenance, followed by a
+         plain-English "What this means" behavior explainer and a
+         "How to adjust" block. The CLI for the /agentic-status command.
+         Writes nothing.
 
 Public API: agentic-status
-            Prints a fixed-format multi-line report. No subcommands,
-            no flags. Always exits 0.
+            Prints a fixed-format multi-line report (status lines with
+            provenance, a profile-behavior explainer, and a how-to-adjust
+            block). No subcommands, no flags. Always exits 0.
+            _profile_behavior_block(profile) and _how_to_adjust_block(resolved)
+            are the single rendering surface for the explainer text and are
+            reused by callers (e.g. init-project shells out to this binary).
 
 Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, re).
                Reads ~/.claude/agentic-engineering.json, the project
@@ -127,10 +134,15 @@ def _scan_agents_md(path: Path | None) -> dict:
     return out
 
 
-def _resolve(config: dict, scan: dict) -> dict:
+def _resolve(config: dict, scan: dict, config_status: str = "found") -> dict:
     """Resolve effective profile, preset, and active state."""
     raw_mode = str(config.get("mode") or "opt-out").lower()
     mode = "opt-in" if raw_mode == "opt-in" else "opt-out"
+    mode_source = (
+        "global config"
+        if config_status == "found"
+        else "global config (default; file missing)"
+    )
 
     raw_profile = str(config.get("profile") or "default").lower()
     if raw_profile not in ("relaxed", "default", "strict"):
@@ -168,13 +180,31 @@ def _resolve(config: dict, scan: dict) -> dict:
     marker = scan["marker"]
     if mode == "opt-out" and marker == "opt-out":
         active = False
+        active_reason = (
+            "mode=opt-out + marker=opt-out -> inactive: this project opted out"
+        )
     elif mode == "opt-in" and marker != "opt-in":
         active = False
+        active_reason = (
+            f"mode=opt-in + marker={marker} -> inactive: opt-in mode requires "
+            "an 'agentic-engineering: opt-in' line in AGENTS.md"
+        )
+    elif mode == "opt-in" and marker == "opt-in":
+        active = True
+        active_reason = (
+            "mode=opt-in + marker=opt-in -> active: this project explicitly "
+            "opted in"
+        )
     else:
         active = True
+        active_reason = (
+            f"mode=opt-out + marker={marker} -> active: opt-out activates "
+            "everywhere unless a project opts out"
+        )
 
     return {
         "mode": mode,
+        "mode_source": mode_source,
         "profile": effective_profile,
         "profile_source": profile_source,
         "preset": effective_preset,
@@ -182,24 +212,117 @@ def _resolve(config: dict, scan: dict) -> dict:
         "set_at": config.get("set_at") or "unset",
         "marker": marker,
         "active": active,
+        "active_reason": active_reason,
     }
+
+
+# Source of truth for profile-behavior wording: content/sections/04-risk-classification.md (profile deltas). Keep in sync.
+def _profile_behavior_block(profile: str) -> list[str]:
+    """Return the profile-behavior explainer lines.
+
+    The profile matching `profile` is rendered as the headline (un-parenthesized)
+    paragraph; the other two profiles render as parenthetical contrast lines.
+    Single rendering surface for this wording - callers reuse it rather than
+    duplicating the text.
+    """
+    # Each value: [first_line, *continuation_lines]. The first line is the
+    # un-parenthesized headline when this profile matches; continuation lines
+    # are indented two extra spaces relative to the headline.
+    descriptions = {
+        "default": [
+            "Profile 'default': single-file behavioral edits run directly with a self-check;",
+            "multi-file changes, new files, shared utilities, config, and anything risky",
+            "spawn a Worker plus an independent Skeptic review.",
+        ],
+        "relaxed": [
+            "Profile 'relaxed': single-file behavioral edits AND small pure-UI multi-file",
+            "changes run directly - lighter review, faster iteration.",
+        ],
+        "strict": [
+            "Profile 'strict': UI-copy tweaks, file renames, and targeted wording fixes are",
+            "all treated as Elevated and get Worker + Skeptic - broadest review coverage.",
+        ],
+    }
+    # Parenthetical contrast variants drop the "Profile '<name>': " prefix.
+    contrasts = {
+        "default": [
+            "default: single-file behavioral edits run directly with a self-check;",
+            "multi-file changes, new files, shared utilities, config, and anything risky",
+            "spawn a Worker plus an independent Skeptic review.",
+        ],
+        "relaxed": [
+            "relaxed: single-file behavioral edits AND small pure-UI multi-file changes run",
+            "directly - lighter review, faster iteration.",
+        ],
+        "strict": [
+            "strict: UI-copy tweaks, file renames, and targeted wording fixes are all treated",
+            "as Elevated and get Worker + Skeptic - broadest review coverage.",
+        ],
+    }
+    if profile not in descriptions:
+        profile = "default"
+    order = ["default", "relaxed", "strict"]
+    lines: list[str] = []
+    # Matched profile: headline (un-parenthesized). 2-space headline indent,
+    # 4-space continuation indent.
+    matched = descriptions[profile]
+    lines.append(f"  {matched[0]}")
+    for ln in matched[1:]:
+        lines.append(f"    {ln}")
+    # Other two profiles: parenthetical contrast lines.
+    for other in order:
+        if other == profile:
+            continue
+        block = contrasts[other]
+        if len(block) == 1:
+            lines.append(f"  ({block[0]})")
+            continue
+        lines.append(f"  ({block[0]}")
+        for ln in block[1:-1]:
+            lines.append(f"    {ln}")
+        lines.append(f"    {block[-1]})")
+    return lines
+
+
+def _how_to_adjust_block(resolved: dict) -> list[str]:
+    """Return the 'How to adjust' explainer lines.
+
+    Single rendering surface for this wording - callers reuse it rather than
+    duplicating the text. Substitutes the resolved AGENTS.md path and config
+    path so the instructions point at real files.
+    """
+    agents_display = resolved.get("marker_path_display", "AGENTS.md")
+    config_display = str(CONFIG_PATH)
+    return [
+        "  Change the profile for THIS project:",
+        f"    add a line to {agents_display}:  agentic-engineering-profile: relaxed   (or default / strict)",
+        "  Change the profile GLOBALLY:",
+        f'    edit {config_display}  ->  "profile": "relaxed" | "default" | "strict"',
+        "  Turn the skill OFF for this project:        /agentic-disable",
+        "  Turn it off EVERYWHERE:                      /agentic-disable --global",
+        "  Use a preset instead of a raw profile:",
+        "    project: agentic-engineering-preset: lean|standard|strict in AGENTS.md",
+        '    global:  "preset": "lean" | "standard" | "strict" in the JSON config',
+        "  See every command:                           /agentic-help",
+    ]
 
 
 def main(_argv: list[str]) -> int:
     config, config_status = _load_config()
     agents_path = _resolve_agents_md()
     scan = _scan_agents_md(agents_path)
-    res = _resolve(config, scan)
+    res = _resolve(config, scan, config_status)
 
     sentinel_status = "present" if SENTINEL_PATH.is_file() else "absent"
     marker_path_display = str(agents_path) if agents_path else "none"
+    res["marker_path_display"] = marker_path_display
     preset_display = res["preset"] if res["preset"] else "none"
     active_display = "yes" if res["active"] else "no"
 
     out = []
     out.append("agentic-engineering status")
     out.append(f"  global config: {CONFIG_PATH} ({config_status})")
-    out.append(f"  mode: {res['mode']}")
+    out.append(f"  mode: {res['mode']} (source: {res['mode_source']})")
     out.append(
         f"  profile: {res['profile']} (source: {res['profile_source']})"
     )
@@ -209,8 +332,20 @@ def main(_argv: list[str]) -> int:
     out.append(f"  set_at: {res['set_at']}")
     out.append(f"  project marker file: {marker_path_display}")
     out.append(f"  marker: {res['marker']}")
-    out.append(f"  active: {active_display}")
+    out.append(f"  active: {active_display} ({res['active_reason']})")
     out.append(f"  sentinel: {SENTINEL_PATH} ({sentinel_status})")
+    out.append("")
+    out.append("What this means")
+    active_sentence = (
+        "Active here: yes. The methodology governs how work gets done in this project."
+        if res["active"]
+        else "Active here: no. The methodology does not govern work in this project."
+    )
+    out.append(f"  {active_sentence}")
+    out.extend(_profile_behavior_block(res["profile"]))
+    out.append("")
+    out.append("How to adjust")
+    out.extend(_how_to_adjust_block(res))
     out.append("")
     out.append(
         "Note: deleting the sentinel re-arms the first-activation notice only."

@@ -25,22 +25,121 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
   Accept `y` / `yes` / `1` / empty (Enter) as **yes**. Accept `n` / `no` / `2` as **no**.
 
-  - On **yes**: ensure the `AGENTS.md` scaffolded below contains an `agentic-engineering: opt-in` marker. If the template already has an `## Activation` section, use it. Otherwise add one line near the top of `AGENTS.md`:
+  - On **yes**: the scaffolded `AGENTS.md` `## Activation` section (always emitted by Step 3) carries the active `agentic-engineering: opt-in` line at the top of the section - this is the "opt-in activation case" of the section's conditional assembly (see the Step 3 template). Do not add a second bare `agentic-engineering: opt-in` line elsewhere; the `## Activation` section is the single source of placement truth.
 
-    ```markdown
-    ## Activation
-    agentic-engineering: opt-in
-    ```
-
-  - After the activation marker, optionally add `agentic-engineering-profile: <relaxed|default|strict>`. Only add this if the user explicitly requests a profile during Step 1 or if a global profile is set in `~/.claude/agentic-engineering.json`. If the user does not mention a profile, do not add the marker (the global default will apply).
+  - The profile line is handled by the same `## Activation` section per its profile sub-block: an active `agentic-engineering-profile: <relaxed|strict>` line is woven in only when INIT_PROFILE (captured in the 0a-profile dialogue) is `relaxed` or `strict`, the user explicitly requests a profile during Step 1, or a global non-default profile is set in `~/.claude/agentic-engineering.json`. If INIT_PROFILE is null/`default` and the user does not mention a profile, the section emits the commented profile helper instead of an active line (the global default applies).
 
   - On **no**: stop `/init-project` here. Print: "Skipped - no scaffolding written. Rerun `/init-project` to activate later, or set `--mode=opt-out` via a reinstall." Exit.
 
-- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use agentic-engineering by default. Add `agentic-engineering: opt-out` to `AGENTS.md` to disable it in this project."
+- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use agentic-engineering by default. To disable it in this project, uncomment the pre-staged `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment)."
 
 - **If the config file is missing or malformed**: treat as `mode=opt-out` and proceed without prompting (back-compat with pre-feature installs).
 
 This step runs before Step 0 discovery below because an opt-in decline should short-circuit the entire command.
+
+**Up-front configuration (additive; Enter keeps today's defaults at every step).**
+
+Before scaffolding, walk through a short set of questions that explain how this
+project will be configured and let you change the few settings that most affect how
+work gets done. Each question has a plain-English explanation, the options, and an
+"Enter to keep the current default" line. Pressing Enter through all of them lands
+you on exactly the standard defaults - nothing is written that you do not choose.
+
+**0a-mode. How this project activates (explanation; reconciles with the 0a prompt above).**
+
+The resolved global mode was determined in 0a from `~/.claude/agentic-engineering.json`.
+Explain it in plain English; do NOT add a second prompt and do NOT write the global
+config file from here.
+
+- If global mode = opt-out (the default): print, as information only (no prompt):
+
+  > This project will use agentic-engineering automatically (global mode is "opt-out":
+  > active everywhere unless a project opts out). To turn it OFF for THIS project only,
+  > uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of
+  > AGENTS.md (the scaffolding writes that section with the marker pre-staged as a comment).
+  > To change the GLOBAL default for all projects, run `/agentic-disable --global` (this
+  > command will not change global settings for you).
+
+  Write no marker line here - the `## Activation` section emitted by Step 3 already carries
+  the commented opt-out marker (inert until uncommented). The Step 12 reminder carries the
+  same pointer.
+
+- If global mode = opt-in: print this explanation IMMEDIATELY BEFORE the existing 0a
+  "[Y/n]" activation prompt (do not duplicate that prompt - it stays as the single mode
+  decision):
+
+  > Global mode is "opt-in": agentic-engineering activates only in projects that
+  > explicitly opt in. The next question asks whether to opt THIS project in (it writes
+  > `agentic-engineering: opt-in` to AGENTS.md if you say yes). To change the global
+  > default instead, run `/agentic-disable --global` after setup.
+
+  Then proceed to the existing 0a `[Y/n]` prompt unchanged.
+
+**0a-profile. Risk profile (additive; Enter keeps current defaults).**
+
+Explain and offer the risk profile. This controls how much independent review each
+change gets. Present:
+
+  > How strict should the review workflow be in this project? This sets the risk profile.
+  >
+  >   relaxed - Single-file behavioral edits and small UI-only changes run directly with a
+  >             self-check. Lighter review, faster iteration. Good for solo/early projects.
+  >   default - Single-file behavioral edits run directly; multi-file, new-file, shared, or
+  >             risky changes get a Worker + independent Skeptic. (This is the default.)
+  >   strict  - The broadest review coverage: even UI-copy tweaks, renames, and wording fixes
+  >             get Worker + Skeptic. Use when correctness matters most.
+  >
+  > Press Enter to keep the current default (no project override - the global setting applies).
+  > Or type relaxed / default / strict.
+
+Capture the answer as INIT_PROFILE. Empty (Enter) = "keep current default": INIT_PROFILE
+= null, write NOTHING. Typing 'default' is also a no-op write (do not pin default
+explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE to that value.
+
+**0a-config. Three project settings that change how work gets done (additive; Enter keeps each default).**
+
+These map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
+captured into a variable substituted into that single seed write - there is no separate
+config write. Empty input keeps the documented default exactly.
+
+Q1 - Auto-merge on green CI?
+
+  > After a pull request's CI checks all pass and no reviewer has requested changes,
+  > should the workflow squash-merge it automatically? "No" keeps the usual flow where a
+  > human merges (draft -> CI -> ready -> review -> you merge). "Yes" merges for you the
+  > moment CI is green and the PR is ready.
+  >
+  > Press Enter to keep the default (No). Or type y to enable auto-merge.
+
+  Capture as INIT_AUTOMERGE. Enter / n / no -> false (default). y / yes -> true.
+
+Q2 - Model profile for spawned agents: default or budget?
+
+  > When the workflow spawns helper agents (architects, engineers, reviewers), "default"
+  > picks the right-capability model per task. "budget" routes eligible spawns to a
+  > cheaper, faster tier to cut cost - at some capability cost on harder tasks. Security
+  > reviews always use the strongest model regardless of this setting.
+  >
+  > Press Enter to keep the default ("default"). Or type budget.
+
+  Capture as INIT_MODELPROFILE. Enter / default -> "default". budget -> "budget". Any
+  other input: re-prompt once, then fall back to "default".
+
+Q3 - Diagnose failures with a debugger pass?
+
+  > When an automated quality gate fails (a test or check breaks during an Elevated-risk
+  > change), should the workflow run a focused Debugger diagnosis before each fix attempt?
+  > "Yes" tends to produce better-targeted fixes at the cost of an extra step per failure.
+  > "No" goes straight to the fix attempt (today's behavior).
+  >
+  > Press Enter to keep the default (No). Or type y to enable debugger-on-failure.
+
+  Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
+
+Note: the other config keys (capability preflight, the QA-method toggles, Storybook,
+theme) are left at their safe defaults and detected automatically where relevant. They
+live in `.agentic/config.json` and are explained by `/agentic-status` (How to adjust) and
+re-runnable via `/init-project`. They are intentionally not asked here to keep setup short.
 
 **0b. Project discovery** — once activation is resolved, silently scan the project to derive as many configuration values as possible.
 
@@ -357,6 +456,8 @@ After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 thro
 
 **If `AGENTS.md` does not exist:** create from scratch using the template below. No curation needed - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
 
+**Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator pressed Enter) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
+
 **If `AGENTS.md` exists:** perform intelligent curation with Worker + Skeptic review:
 
 **Main agent pre-work (inline, before spawning Worker):**
@@ -375,6 +476,7 @@ Read the existing `AGENTS.md` and identify two groups of content:
 **Target `AGENTS.md` structure (under 45 lines):**
 - H1: project name
 - One-paragraph description
+- `## Activation` - always emitted; see the template below for the base block and conditional assembly. When curating an existing `AGENTS.md` that lacks this section, add it (preserving any active `agentic-engineering: opt-in` or `agentic-engineering-profile:` line already present by folding it into the section per the conditional-assembly rules). The explanatory HTML-comment lines inside the `## Activation` base block are guidance, not content - they do not count against the under-45-line budget.
 - `## Decisions` - resolved architecture decisions as brief bullets, no rationale paragraphs
 - Repo structure map listing each track with a one-line description (omit if no tracks)
 - `## Tools`
@@ -384,7 +486,7 @@ Read the existing `AGENTS.md` and identify two groups of content:
 - `## Session start` (tool-agnostic session-agent scaffolding check; see template block below)
 
 **Spawn a fresh Skeptic** after the Worker returns with this adversarial brief:
-> "Is the curated AGENTS.md under 45 lines? Does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
+> "Is the curated AGENTS.md under 45 lines? Does it have all required sections (H1, overview paragraph, Activation, Decisions, Tools, Docs, Conventions, Session start)? Is the `## Activation` section present with resolver-safe markers (commented unless an active opt-in / profile line was carried over), and free of contradictory duplicate markers (e.g. both an active profile line and a commented `default` helper)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
 
 Require sign-off format:
 ```
@@ -399,6 +501,58 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
 **`AGENTS.md` template (use for new files, and as the structural target for curation):**
 - H1: project name
 - One-paragraph description. If no description was provided, use `<!-- TODO: Add one-paragraph description -->` as the placeholder.
+- `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that agentic-engineering governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
+
+  **Base block (emitted verbatim in the common case - global mode `opt-out`, no project profile override):**
+  ```markdown
+  ## Activation
+  <!--
+    agentic-engineering governs how work is done in this project.
+    Run /agentic-status to see the resolved mode, profile, and whether it is active here.
+
+    This project is ACTIVE by default. To turn it off for this project only,
+    uncomment the marker line just below this block.
+  -->
+  <!-- agentic-engineering: opt-out -->
+
+  <!--
+    Optional review strictness: relaxed | default | strict.
+    Uncomment the line below to override the global setting for this project.
+  -->
+  <!-- agentic-engineering-profile: default -->
+  ```
+
+  **Conditional assembly** - the section is always emitted, but two facts can change which lines are active vs. commented. Resolve both before writing:
+
+  1. **Opt-in activation case** (global mode `opt-in` AND the user said yes in Step 0a). The section leads with an *active* (uncommented) `agentic-engineering: opt-in` line at the top, above the explanatory comments. Reword the first comment block so it reads correctly for an opted-in project (it is no longer "ACTIVE by default"). KEEP the commented opt-out helper - it documents the reverse toggle. Emit:
+     ```markdown
+     ## Activation
+     agentic-engineering: opt-in
+     <!--
+       agentic-engineering governs how work is done in this project.
+       Run /agentic-status to see the resolved mode, profile, and whether it is active here.
+
+       This project is opted in (global mode is opt-in). To turn it off for this
+       project only, remove the opt-in line above, or uncomment the marker line below.
+     -->
+     <!-- agentic-engineering: opt-out -->
+     ```
+     Follow it with the same profile sub-block described in rule 2.
+
+  2. **Profile sub-block** (governs the profile lines in BOTH the base and opt-in cases):
+     - If `INIT_PROFILE` is null (operator pressed Enter, or typed `default`): emit the commented profile helper from the base block verbatim (the `<!-- agentic-engineering-profile: default -->` line and its explanatory comment). The global profile applies; nothing is pinned.
+     - If `INIT_PROFILE` is `relaxed` or `strict`: emit an *active* (uncommented) `agentic-engineering-profile: <value>` line in place of the commented helper, and DO NOT also emit the commented `<!-- agentic-engineering-profile: default -->` helper (that would contradict the active line). Keep the short explanatory comment that introduces the profile line, but reword it so it does not reference a `default` value that is no longer chosen, e.g.:
+       ```markdown
+       <!--
+         Review strictness for this project (relaxed | default | strict).
+         Change the value below or remove the line to fall back to the global setting.
+       -->
+       agentic-engineering-profile: strict
+       ```
+
+  **Resolver safety (do not break this).** The activation marker scan (`content/sections/01-activation-preflight.md`, marker-scan step) is a case-insensitive whole-line match that tolerates only leading/trailing whitespace and an optional `- ` list prefix. A line wrapped in `<!-- ... -->` does NOT match (the `<!-- ` prefix and ` -->` suffix are not whitespace), so commented marker lines are inert until the operator uncomments them. Only the *active* (uncommented) lines emitted by the conditional assembly above are resolver-visible.
+
+  **HTML-comment gotcha (do not introduce).** An HTML comment body cannot contain the literal two-hyphen sequence or the comment terminator - either ends the comment early. None of the comment prose above uses it; preserve that property if you reword any comment.
 - `## Decisions` - resolved architecture decisions as brief bullets - fill in as the project takes shape. Use a single TODO bullet placeholder if no decisions are known yet. Label it clearly: "Resolved architecture decisions as brief bullets - fill in as the project takes shape."
 - Repo structure map listing each track directory with a one-line description (omit if no tracks were named)
 - Note: "Each track directory has its own `AGENTS.md` with deeper context." (omit if no tracks were named)
@@ -696,6 +850,8 @@ Seed with these documented defaults exactly:
 }
 ```
 
+**Substitute the up-front dialogue answers into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE, `model_profile` <- INIT_MODELPROFILE, `debugger_on_failure` <- INIT_DEBUGGER. When a variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
+
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
 - `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
@@ -973,6 +1129,36 @@ After all files are processed, print a short summary with three sections:
 **Curated:** list `AGENTS.md` if it was reorganized in place (with a note: "reorganized to target structure; extracted facts moved to MEMORY.md").
 **Skipped (already existed):** list every file that was left untouched and why (auto-skipped `.claude/settings.local.json`, or existing track `AGENTS.md`, or other existing files left untouched).
 
+**Config readout.** Print the resolved configuration in two blocks, then the pointers.
+
+Block 1 - activation state (reuse the binary; do NOT re-derive resolution):
+  Resolve `agentic-status` from PATH first, then the adapter `bin/` install dir; if
+  neither resolves, skip Block 1 SILENTLY (do not error). When resolvable, run it and
+  echo its full output verbatim.
+
+Block 2 - project config toggles (read directly from the just-written file; separate
+data agentic-status does not own). Read `.agentic/config.json` and print:
+
+```
+Project config (.agentic/config.json)
+  auto_merge_on_ci_green: <value>   (auto-merge PRs once CI is green)
+  model_profile: <value>            (default = right model per task; budget = cheaper tier)
+  debugger_on_failure: <value>      (run a Debugger diagnosis before each fix on a gate failure)
+  (other keys at defaults - see the file or /agentic-status to adjust)
+```
+
+  If `.agentic/config.json` is absent, print "Project config: using built-in defaults (no .agentic/config.json)."
+
+Pointers:
+```
+----
+Your project is set up. To understand or change any of this later:
+  /agentic-status   - see the resolved activation config, what it means, and how to adjust it
+  /agentic-help     - the full list of commands
+Project toggles live in .agentic/config.json; re-run /init-project or edit that file to change them.
+----
+```
+
 Then remind the user to (**omit any reminder for a feature the user declined in Step 1**, per "Negative answers are sticky"):
 1. Update the `## Tools` section in root `AGENTS.md` as new CLI tools are added to the project over time
 2. Fill in the `## Conventions` section in root `AGENTS.md` as the project takes shape
@@ -987,4 +1173,4 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
 13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context.
-14. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, add `agentic-engineering: opt-out` to `AGENTS.md` (under `## Activation` or as a bare line near the top). *(If global mode was `opt-in` and the user activated)* This project has `agentic-engineering: opt-in` in `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, add `agentic-engineering-profile: relaxed` (or `default` or `strict`) to `AGENTS.md`.
+14. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/agentic-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/init-project` to change them. Run `/agentic-help` for the full command list.
