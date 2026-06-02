@@ -11,6 +11,14 @@ This project uses the [Developer Certificate of Origin](https://developercertifi
 
 If any commit in the PR is missing a signoff, the check fails. There is no custom regex: the check delegates entirely to the DCO action.
 
+## Bot exemption (Dependabot and other bots)
+
+The DCO steps are skipped when `github.actor == 'dependabot[bot]'`. The job itself always runs and always produces a conclusion (so a required branch-protection status check never hangs in "pending"). For bot PRs, a skip step logs that DCO is exempt; the job exits green. Human PRs are still fully enforced.
+
+This design avoids placing the `if` at the job level — a skipped job does not report a conclusion and will permanently block merge if it is listed as a required check.
+
+If other bots need similar exemption, extend the condition (e.g. `github.actor != 'some-other-bot'`) on the same two steps.
+
 ## Requiring the check via branch protection
 
 The workflow alone does not block merges — GitHub branch protection does. To make `DCO Signed-off-by check` a required status check:
