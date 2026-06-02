@@ -45,7 +45,11 @@ files on every session and the reference docs on the triggers described in agent
 
 ## Commands (invoke by name)
 
+- `/agentic-help` - static, zero-token command reference; lists every slash command with a one-line description.
+- `/agentic-status` - read-only resolver dump; shows the resolved mode, profile, preset, and marker with provenance plus a plain-English explainer of what they do and how to change them.
 - `/brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/brief --from <path>` to extract a Brief from an existing PRD.
+
+Run `/agentic-help` for the full command inventory.
 
 ## Reference Docs (read on trigger - see Protocol Details in agent-methodology.md)
 
