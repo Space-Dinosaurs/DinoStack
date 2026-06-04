@@ -71,30 +71,6 @@ function saveConfig(selectedAdapters) {
   }
 }
 
-// Reset the SessionStart version-check cache to behind_count: 0 after a
-// successful pull, so the "newer version available" notice clears immediately
-// instead of lingering until the next TTL-gated refresh. Atomic write (tmp + mv)
-// to match the core's write discipline. Best-effort: failures are warned, never
-// fatal - the cache self-heals on the next background refresh.
-function resetVersionCheckCache() {
-  const home = process.env.HOME || process.env.USERPROFILE || '.';
-  const cacheDir = path.join(home, '.agentic');
-  const cachePath = path.join(cacheDir, 'version-check-cache.json');
-  const tmpPath = `${cachePath}.tmp.${process.pid}`;
-  const payload = JSON.stringify({
-    behind_count: 0,
-    last_fetch_epoch: Math.floor(Date.now() / 1000)
-  }) + '\n';
-  try {
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(tmpPath, payload, 'utf8');
-    fs.renameSync(tmpPath, cachePath);
-  } catch (err) {
-    try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
-    console.warn(`Warning: failed to reset version-check cache: ${err.message}`);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Adapter discovery
 // ---------------------------------------------------------------------------
@@ -578,11 +554,6 @@ async function main() {
     const countResult = git(resolvedRepoDir, 'rev-list', '--count', `${oldHead}..${newHead}`);
     commitsPulled = countResult.success ? parseInt(countResult.stdout, 10) : 0;
   }
-
-  // Pull succeeded: clear the version-check cache so the SessionStart "newer
-  // version available" notice disappears on the next session immediately,
-  // rather than waiting for the next TTL-gated background refresh.
-  resetVersionCheckCache();
 
   // Run install scripts (fail-fast: stop on first failure)
   const successes = [];

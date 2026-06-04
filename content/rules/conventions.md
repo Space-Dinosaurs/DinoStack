@@ -30,7 +30,24 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 
 **Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
-**Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - committed per-developer session rollup for team telemetry (Stop hook writer; see `content/references/events-log.md` "Per-developer session log"). Requires `agentic-identity init <handle>` to activate. Aggregated via `agentic-cost team`.
+**Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - committed per-developer session rollup for team telemetry (Stop hook writer; see `content/references/events-log.md` "Per-developer session log"). Aggregated via `agentic-cost team`.
+
+**Identity setup - auto-derive + confirm-once.** Run `agentic-identity auto` once to derive a provisional handle from your GitHub login (`gh api user`). The identity is written to `~/.agentic/identity.yml` with `provisional: true`. Manual setup remains available via `agentic-identity init <handle>`.
+
+**Conductor first-user-turn provisional-confirm.** When the preflight reads `provisional: true` from `~/.agentic/identity.yml` (Step 1 in `content/sections/01-activation-preflight.md`), the conductor surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
+
+```
+IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
+Telemetry is buffered (not lost) until confirmed.
+  Confirm: agentic-identity confirm
+  Correct: agentic-identity init <handle> --force
+```
+
+The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
+
+**Telemetry is BUFFERED, not lost.** While identity is unconfirmed (provisional or absent), the Stop hook writes session telemetry to a pending buffer (`~/.agentic/session-log/.pending/<uuid>.json`) rather than directly to the session log. Pending sessions are flushed and attributed when `agentic-identity confirm` (or `init --force`) runs. No session is silently dropped.
+
+**TEAM dimension.** Per-developer session-log files are committed to the repo, so teammates receive them via `git pull`. The TEAM dimension is enabled - committed per-dev `<dev>.jsonl` files aggregate via `agentic-cost team`. The auto-commit/distribution mechanism is a fast-follow not shipped in the current version; auto-distribution is not yet active.
 
 **MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)

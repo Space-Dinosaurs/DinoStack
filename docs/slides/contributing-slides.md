@@ -228,4 +228,4 @@ Adapters translate format, not substance. If a rule doesn't apply to your tool, 
 
 One source of truth, many delivery formats.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Solara6/agentic-engineering

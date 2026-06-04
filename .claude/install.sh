@@ -439,39 +439,6 @@ else:
     })
     print("  + Added PreToolUse background-spawn enforcement hook")
 
-# ---- SessionStart newer-version-available notice hook -----------------------
-VERSION_CHECK_CMD = f"bash {repo_dir}/hooks/session-start-version-check.sh"
-
-ss_list = hooks.setdefault("SessionStart", [])
-
-# Find or create a matcher "startup" block
-ss_startup = None
-for block in ss_list:
-    if block.get("matcher") == "startup":
-        ss_startup = block
-        break
-
-if ss_startup is None:
-    ss_startup = {"matcher": "startup", "hooks": []}
-    ss_list.append(ss_startup)
-
-ss_startup.setdefault("hooks", [])
-
-already_has_version_check = any(
-    "session-start-version-check.sh" in entry.get("command", "")
-    for entry in ss_startup["hooks"]
-)
-
-if already_has_version_check:
-    print("  = SessionStart version-check hook already present")
-else:
-    ss_startup["hooks"].append({
-        "type": "command",
-        "command": VERSION_CHECK_CMD,
-        "timeout": 5
-    })
-    print("  + Added SessionStart version-check hook")
-
 # ---- Write back -------------------------------------------------------------
 with open(settings_path, "w") as f:
     json.dump(settings, f, indent=2)

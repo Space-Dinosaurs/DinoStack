@@ -322,4 +322,4 @@ Manual invocation is an override, not the default interface. Trust the protocol 
 
 Named agents do the work. You review the output and decide.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Solara6/agentic-engineering

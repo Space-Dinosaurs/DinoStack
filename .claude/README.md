@@ -5,14 +5,14 @@
 - **Skill** (`/agentic-engineering`) - loads the full engineering methodology on demand
 - **Agents** (11) - architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer, learnings-agent
 - **Commands** (5) - skeptic, memory-update, wrap, init-project, implement
-- **Hooks** - UserPromptSubmit risk-classification reminder, PreToolUse background-spawn enforcement, Stop context saver, SessionStart newer-version-available notice
+- **Hooks** - UserPromptSubmit risk-classification reminder, Stop context saver
 
 ## Installation
 
 Clone the repo to `~/agentic-engineering/` (this path is expected by the skill):
 
 ```bash
-git clone git@github.com:Space-Dinosaurs/agentic-engineering.git ~/agentic-engineering
+git clone git@github.com:Solara6/agentic-engineering.git ~/agentic-engineering
 ```
 
 Then open Claude Code and ask your agent:
