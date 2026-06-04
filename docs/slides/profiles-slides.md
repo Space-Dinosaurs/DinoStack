@@ -222,4 +222,4 @@ Per-project override takes precedence over the global config. Set a global defau
 
 relaxed for fast-moving UI work. strict when a mistake costs time or data.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Solara6/agentic-engineering

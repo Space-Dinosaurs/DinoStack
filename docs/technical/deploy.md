@@ -102,5 +102,5 @@ Expect HTTP 200 and a body containing `<title>Agentic Engineering</title>`. The 
 ## Notes
 
 - `.vercel/project.json` is gitignored by default (the Vercel CLI added `.vercel` to `.gitignore`). Each fresh checkout must re-link. To skip linking, either commit `.vercel/project.json` (un-ignore it) or set env vars `VERCEL_ORG_ID=team_WtGhZ3kSxiYdIFHJQdEx9riE` and `VERCEL_PROJECT_ID=prj_8xV8CAdosPuAwPmz3GTcMwxcGTOQ`.
-- The repo has two git remotes (`origin` to fullmetalblanket, `upstream` to Space-Dinosaurs). On first link the CLI may interactively prompt to pick a remote. The prompt fires AFTER `.vercel/project.json` is written, so the link itself succeeds either way.
+- The repo has two git remotes (`origin` to fullmetalblanket, `upstream` to Solara6). On first link the CLI may interactively prompt to pick a remote. The prompt fires AFTER `.vercel/project.json` is written, so the link itself succeeds either way.
 - `.claude/build.sh` and `.cursor/build.sh` are unrelated to docs. They build the skill adapters for Claude Code and Cursor.
