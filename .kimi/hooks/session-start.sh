@@ -77,4 +77,16 @@ if [[ "$skill_auto_load" == "true" ]]; then
   echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
 fi
 
+# Newer-version-available notice (shared core; Kimi cannot use systemMessage,
+# so the message is printed to stderr like the activation reminder above).
+# The core resolves the clone dir + cache and prints the notice only when the
+# local clone is behind upstream. AGENTIC_QUIET=1 suppresses it.
+version_core="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/hooks/lib/version-check-core.sh"
+if [[ "${AGENTIC_QUIET:-}" != "1" && -f "$version_core" ]]; then
+  version_msg="$(bash "$version_core" 2>/dev/null || echo "")"
+  if [[ -n "$version_msg" ]]; then
+    >&2 echo "$version_msg"
+  fi
+fi
+
 exit 0
