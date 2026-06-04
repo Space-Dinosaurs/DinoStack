@@ -1,0 +1,14 @@
+# .mailmap - Consolidates the maintainer's historical git aliases to a single canonical identity.
+# Prepared ahead of open-sourcing so git log, git shortlog, and GitHub's contributor view
+# all attribute work to one person.
+#
+# Canonical identity: Tyson Hummel <tyhummel@gmail.com>
+#
+# Format: Canonical Name <canonical@email> <old@email>
+# (email-only match on the right catches all name variants for that old address)
+
+Tyson Hummel <tyhummel@gmail.com> <admin@fullmetalblanket.com>
+Tyson Hummel <tyhummel@gmail.com> <tyson@solara6.com>
+Tyson Hummel <tyhummel@gmail.com> <thummel@crocs.com>
+Tyson Hummel <tyhummel@gmail.com> <thummelbiz@gmail.com>
+Tyson Hummel <tyhummel@gmail.com> tysonhummel <tyhummel@gmail.com>

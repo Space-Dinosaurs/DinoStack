@@ -3,20 +3,24 @@
 Purpose: Read .agentic/events.jsonl and render per-agent / per-task /
          per-project token and wall-time rollups. Also reads
          .agentic/session-log/*.jsonl for team-level per-developer aggregation.
-         Optionally renders dollar columns when ~/.agentic/pricing.yml is present
-         (opt-in, never invented). The CLI for the /agentic-cost command.
-         Also provides `retro` subcommand for pre-telemetry historical rollups
-         reconstructed from git log and gh pr list.
+         Reads ~/.agentic/session-log/*.jsonl for operator-level cross-project
+         rollup. Optionally renders dollar columns when ~/.agentic/pricing.yml
+         is present (opt-in, never invented). The CLI for the /agentic-cost
+         command. Also provides `retro` subcommand for pre-telemetry historical
+         rollups reconstructed from git log and gh pr list.
 
 Public API: agentic-cost session [<session_uuid>]
             agentic-cost task <task_id>
             agentic-cost project [--since <YYYY-MM-DD>]
             agentic-cost team [--json]
+            agentic-cost operator [--since YYYY-MM-DD] [--json]
             agentic-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD]
                                [--author <handle>] [--json]
             All subcommands print a fixed-width table to stdout. Every
             output ends with the V1 disclosure footer line per
             acceptance criterion 12.
+            `operator` reads the global mirror ~/.agentic/session-log/*.jsonl
+            and aggregates by developer_id + project_slug across all projects.
 
 Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
                subprocess, re). Optional pyyaml soft dependency for
@@ -35,6 +39,8 @@ Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
                and the missing model is listed in a footnote.
                missing/empty .agentic/session-log/ -> prints guidance message
                and exits 0.
+               missing/empty ~/.agentic/session-log/ -> prints empty-data
+               message and exits 0.
                `retro` not in a git repo -> exit 1, friendly message.
                `retro` gh unavailable or unauthenticated -> git-only mode with
                one-line warning.
@@ -62,6 +68,7 @@ V1_FOOTER = (
 
 EVENTS_PATH = Path(".agentic/events.jsonl")
 SESSION_LOG_DIR = Path(".agentic/session-log")
+GLOBAL_SESSION_LOG_DIR = Path(os.path.expanduser("~/.agentic/session-log"))
 PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
 
 
@@ -335,17 +342,18 @@ def cmd_project(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_session_logs() -> tuple[list[dict], int]:
-    """Load all JSONL lines from .agentic/session-log/*.jsonl.
+def _load_jsonl_dir(log_dir: Path) -> tuple[list[dict], int]:
+    """Load all JSONL lines from <log_dir>/*.jsonl (non-recursive).
 
     Returns (records, skipped_count). Each record is the parsed JSON object
     from a single session-log line. Malformed lines are skipped and counted.
+    The caller is responsible for ensuring log_dir exists before calling.
     """
-    if not SESSION_LOG_DIR.is_dir():
+    if not log_dir.is_dir():
         return [], 0
     records: list[dict] = []
     skipped = 0
-    for jsonl_file in sorted(SESSION_LOG_DIR.glob("*.jsonl")):
+    for jsonl_file in sorted(log_dir.glob("*.jsonl")):
         try:
             with jsonl_file.open("r", encoding="utf-8", errors="replace") as fh:
                 for raw in fh:
@@ -359,6 +367,15 @@ def _load_session_logs() -> tuple[list[dict], int]:
         except OSError:
             pass
     return records, skipped
+
+
+def _load_session_logs() -> tuple[list[dict], int]:
+    """Load all JSONL lines from .agentic/session-log/*.jsonl.
+
+    Returns (records, skipped_count). Each record is the parsed JSON object
+    from a single session-log line. Malformed lines are skipped and counted.
+    """
+    return _load_jsonl_dir(SESSION_LOG_DIR)
 
 
 def _aggregate_team(records: list[dict]) -> dict:
@@ -440,6 +457,134 @@ def cmd_team(args: argparse.Namespace) -> int:
         return 0
 
     sys.stdout.write(_render_team_table(agg))
+    if skipped:
+        print(f"{skipped} lines skipped due to malformed JSONL.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# operator helpers
+# ---------------------------------------------------------------------------
+
+
+def _aggregate_operator(records: list[dict]) -> dict:
+    """Aggregate global session-log records by (developer_id, project_slug).
+
+    Returns:
+      {(developer_id, project_slug): {sessions, wall_seconds,
+                                       tokens: {input, output,
+                                                cache_creation, cache_read}}}
+    """
+    agg: dict = {}
+    for rec in records:
+        dev = rec.get("developer_id")
+        if not dev:
+            continue
+        project = rec.get("project_slug") or "(unknown)"
+        data = rec.get("data") or {}
+        key = (dev, project)
+        bucket = agg.setdefault(key, {
+            "sessions": 0,
+            "wall_seconds": 0.0,
+            "tokens": {"input": 0, "output": 0,
+                       "cache_creation": 0, "cache_read": 0},
+        })
+        bucket["sessions"] += 1
+        bucket["wall_seconds"] += float(data.get("wall_seconds") or 0)
+        toks = data.get("tokens") or {}
+        for k in ("input", "output", "cache_creation", "cache_read"):
+            bucket["tokens"][k] += int(toks.get(k) or 0)
+    return agg
+
+
+def _render_operator_table(agg: dict) -> str:
+    """Render fixed-width operator rollup table sorted by total tokens desc."""
+    lines: list[str] = []
+    lines.append("Operator rollup (all projects)")
+    header = (
+        f"{'developer/project':<24}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
+        f"{'cache_cr':>10}{'cache_rd':>10}{'wall(s)':>10}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    def _tok_total(b: dict) -> int:
+        t = b["tokens"]
+        return t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
+
+    sorted_keys = sorted(
+        agg.keys(),
+        key=lambda k: _tok_total(agg[k]),
+        reverse=True,
+    )
+    for (dev, project) in sorted_keys:
+        b = agg[(dev, project)]
+        t = b["tokens"]
+        label = f"{dev}/{project}"
+        lines.append(
+            f"{label:<24}{b['sessions']:>9}{t['input']:>10}{t['output']:>10}"
+            f"{t['cache_creation']:>10}{t['cache_read']:>10}"
+            f"{b['wall_seconds']:>10.1f}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _filter_records_since(records: list[dict], since: str) -> list[dict]:
+    """Return records whose ts >= since (YYYY-MM-DD). Drops records without ts."""
+    try:
+        cutoff = _dt.date.fromisoformat(since)
+    except ValueError:
+        return records
+    filtered = []
+    for rec in records:
+        ts = rec.get("ts") or ""
+        try:
+            d = _dt.datetime.fromisoformat(
+                ts.replace("Z", "+00:00")
+            ).date()
+        except ValueError:
+            continue
+        if d >= cutoff:
+            filtered.append(rec)
+    return filtered
+
+
+def cmd_operator(args: argparse.Namespace) -> int:
+    """Cross-project rollup from ~/.agentic/session-log/*.jsonl."""
+    GLOBAL_SESSION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    records, skipped = _load_jsonl_dir(GLOBAL_SESSION_LOG_DIR)
+
+    if not records:
+        print(
+            "No operator session data. "
+            "Run sessions with a confirmed identity to populate."
+        )
+        return 0
+
+    since = getattr(args, "since", None)
+    if since:
+        records = _filter_records_since(records, since)
+        if not records:
+            print(
+                "No operator session data. "
+                "Run sessions with a confirmed identity to populate."
+            )
+            return 0
+
+    agg = _aggregate_operator(records)
+
+    if getattr(args, "json", False):
+        json_out: dict = {}
+        for (dev, project), b in agg.items():
+            json_out.setdefault(dev, {})[project] = {
+                "sessions": b["sessions"],
+                "wall_seconds": b["wall_seconds"],
+                "tokens": b["tokens"],
+            }
+        sys.stdout.write(json.dumps(json_out, indent=2) + "\n")
+        return 0
+
+    sys.stdout.write(_render_operator_table(agg))
     if skipped:
         print(f"{skipped} lines skipped due to malformed JSONL.")
     return 0
@@ -853,6 +998,19 @@ def main(argv: list[str]) -> int:
     p_team.add_argument("--json", action="store_true",
                         help="emit machine-readable JSON instead of a table")
     p_team.set_defaults(func=cmd_team)
+    p_operator = sub.add_parser(
+        "operator",
+        help="cross-project rollup from ~/.agentic/session-log/ (all projects)",
+    )
+    p_operator.add_argument(
+        "--since", default=None,
+        help="YYYY-MM-DD lower bound on session timestamp",
+    )
+    p_operator.add_argument(
+        "--json", action="store_true",
+        help="emit machine-readable JSON instead of a table",
+    )
+    p_operator.set_defaults(func=cmd_operator)
     p_retro = sub.add_parser(
         "retro",
         help=(
