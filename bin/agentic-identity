@@ -168,10 +168,22 @@ def flushPendingBuffer(confirmed_dev_id: str) -> int:
                     pass
                 continue
 
-            # Build attributed line.
-            attributed = dict(record)
-            attributed["developer_id"] = confirmed_dev_id
-            # Preserve original ts from pending record.
+            # Build attributed line in canonical session-total shape to match
+            # writeSessionLog / writeSessionLogGlobal in hooks/stop-context.js.
+            # Fields NOT in canonical shape (schema_version, repo_root) are used
+            # only for routing/bookkeeping above and must NOT appear in the line.
+            attributed = {
+                "ts": record.get("ts"),
+                "phase": "session_end",
+                "event": "session_total",
+                "agent": None,
+                "task_id": None,
+                "developer_id": confirmed_dev_id,
+                "session_uuid": record.get("session_uuid"),
+                "project_slug": record.get("project_slug"),
+                "branch": record.get("branch", ""),
+                "data": record.get("data", {}),
+            }
             attributed_line = json.dumps(attributed, separators=(",", ":"))
 
             # Repo root validation.
