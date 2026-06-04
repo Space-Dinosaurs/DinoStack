@@ -224,4 +224,4 @@ The bar is not "it works once." The bar is: it passes assertions, wins blind com
 
 Structured evaluation. Blind comparison. Measurable improvement.
 
-github.com/Solara6/agentic-engineering
+github.com/Space-Dinosaurs/agentic-engineering
