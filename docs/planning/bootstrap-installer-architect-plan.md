@@ -1,7 +1,7 @@
 # Architect Plan: bootstrap.sh + location-aware /update-agentic-engineering
 
 > Source: architect agent (revision 2). Persisted by conductor for Skeptic review and audit.
-> Canonical repo: `Solara6/agentic-engineering` (HTTPS `https://github.com/Solara6/agentic-engineering.git`, SSH `git@github.com:Solara6/agentic-engineering.git`, raw `https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh`).
+> Canonical repo: `Space-Dinosaurs/agentic-engineering` (HTTPS `https://github.com/Space-Dinosaurs/agentic-engineering.git`, SSH `git@github.com:Space-Dinosaurs/agentic-engineering.git`, raw `https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh`).
 
 ## Approach
 
@@ -58,7 +58,7 @@ Step 0 -> `cd "$AE_REPO_DIR" && git fetch origin`. Step 3 -> `bash "$AE_REPO_DIR
 ## Interface
 
 `bootstrap.sh`:
-- `curl -fsSL https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh | bash`
+- `curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash`
 - `AE_DEST_DIR` env override; default `$(pwd)/agentic-engineering`; normalized to absolute.
 - **SKEPTIC-CRITICAL fix - clone branch MUST be written so the SSH fallback is reachable under `set -euo pipefail`.** A bare sequential `git clone https://...` followed by `git clone git@...` aborts on the first failure because `set -e` traps the non-zero exit before the fallback line. The engineer MUST use an explicit conditional so the HTTPS failure is caught, not fatal:
   ```bash
@@ -70,7 +70,7 @@ Step 0 -> `cd "$AE_REPO_DIR" && git fetch origin`. Step 3 -> `bash "$AE_REPO_DIR
     fi
   fi
   ```
-  `HTTPS_URL=https://github.com/Solara6/agentic-engineering.git`, `SSH_URL=git@github.com:Solara6/agentic-engineering.git`. The `if ! cmd` form is the canonical `set -e`-safe trap. A `cmd || fallback` form is also acceptable but the `if !` form is mandated here for clarity in the spec; engineer may use either as long as the HTTPS failure is demonstrably non-fatal and the SSH path is reached (verified by test scenario 6).
+  `HTTPS_URL=https://github.com/Space-Dinosaurs/agentic-engineering.git`, `SSH_URL=git@github.com:Space-Dinosaurs/agentic-engineering.git`. The `if ! cmd` form is the canonical `set -e`-safe trap. A `cmd || fallback` form is also acceptable but the `if !` form is mandated here for clarity in the spec; engineer may use either as long as the HTTPS failure is demonstrably non-fatal and the SSH path is reached (verified by test scenario 6).
 - **SKEPTIC-MINOR-3 fix - parent-dir precreation.** Before clone, `mkdir -p "$(dirname "$AE_DEST_DIR")"` so a multi-level `AE_DEST_DIR` (e.g. `/tmp/new/deep/agentic-engineering`) does not fail with "parent does not exist". If `mkdir -p` itself fails (unwritable), exit 1 with an actionable message naming the unwritable parent.
 - Delegate `bash "$DEST/.claude/install.sh" "$@"` (positional passthrough; `"$@"` is `set -u`-safe with zero args - Skeptic-confirmed, do NOT introduce an `INSTALL_ARGS` array).
 - Dirty-tree (existing dest): warn, continue.

@@ -10,7 +10,7 @@
 
 ## Decisions
 
-- **2026-05-18: Adapter-drift CI gate is advisory-only (descoped from hard block).** `adapter-sync.yml` makes content/adapter drift CI-visible (red X) on every PR but is NOT a required status check - Solara6/agentic-engineering is a private repo on a free GitHub plan, which does not support required status checks / branch protection (`gh api repos/.../branches/main/protection` returns 403). Drift is therefore CI-visible but not hard-blocked at merge. To upgrade to a hard merge block: make the repo public OR upgrade to GitHub Pro/Team, then add the `check-adapter-sync` job as a required status check on `main`. Accepted by operator 2026-05-18.
+- **2026-05-18: Adapter-drift CI gate is advisory-only (descoped from hard block).** `adapter-sync.yml` makes content/adapter drift CI-visible (red X) on every PR but is NOT a required status check - Space-Dinosaurs/agentic-engineering is a private repo on a free GitHub plan, which does not support required status checks / branch protection (`gh api repos/.../branches/main/protection` returns 403). Drift is therefore CI-visible but not hard-blocked at merge. To upgrade to a hard merge block: make the repo public OR upgrade to GitHub Pro/Team, then add the `check-adapter-sync` job as a required status check on `main`. Accepted by operator 2026-05-18.
 
 ## Active migrations
 

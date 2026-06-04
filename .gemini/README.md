@@ -20,7 +20,7 @@
 Clone the repo to `~/agentic-engineering/` (this path is expected by references):
 
 ```bash
-git clone git@github.com:Solara6/agentic-engineering.git ~/agentic-engineering
+git clone git@github.com:Space-Dinosaurs/agentic-engineering.git ~/agentic-engineering
 ```
 
 Run the installer:

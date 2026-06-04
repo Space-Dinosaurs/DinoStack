@@ -31,7 +31,7 @@ Use `git filter-repo --mailmap` to rewrite author and committer fields on Tyson'
 
 Option A — moving each existing email to the new personal GitHub account — is fragile:
 
-- It requires keeping `tyson@solara6.com` attached to a personal GitHub account even after Tyson leaves Solara6. Solara6 owns the domain and can reclaim/disable the address, at which point those 131 commits silently un-attribute.
+- It requires keeping `tyson@solara6.com` attached to a personal GitHub account even after Tyson leaves Space Dinosaurs. Space Dinosaurs owns the domain and can reclaim/disable the address, at which point those 131 commits silently un-attribute.
 - Similar concern for `thummel@crocs.com` (defunct client domain).
 - GitHub enforces one-email-one-account; the email has to be removable from the existing accounts to add it to the new one.
 
