@@ -13,6 +13,8 @@ agentic-cost session [<session-uuid>]   # default: current project, all sessions
 agentic-cost task <task_id>             # rollup for one task_id
 agentic-cost project [--since YYYY-MM-DD]  # rollup across all sessions in this project
 agentic-cost team [--json]              # per-developer rollup from .agentic/session-log/
+agentic-cost operator [--since YYYY-MM-DD] [--json]
+                                        # cross-project rollup from ~/.agentic/session-log/
 agentic-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--author <handle>] [--json]
                                         # historical rollup from git log + gh pr list
 ```
@@ -73,6 +75,46 @@ models:
     cache_creation: 18.75
     cache_read: 1.50
 ```
+
+## operator subcommand
+
+`agentic-cost operator` reads the **global** mirror at `~/.agentic/session-log/*.jsonl`
+and produces a cross-project rollup aggregated by `developer_id` and `project_slug`.
+It is the third dimension in the cost-visibility hierarchy:
+
+| Subcommand | Scope | Source |
+|---|---|---|
+| `team` | One project, all developers | `.agentic/session-log/*.jsonl` (project-local, committed) |
+| `operator` | All projects, all developers | `~/.agentic/session-log/*.jsonl` (global mirror) |
+| `project` | One project, all sessions | `.agentic/events.jsonl` (local telemetry) |
+
+The `.pending/` staging directory is never globbed - only committed, fully-attributed
+lines from `*.jsonl` files are included. If no global logs exist (directory absent or
+all files empty), the command prints "No operator-level session logs found." and exits 0.
+
+**Options:**
+
+- `--since YYYY-MM-DD` - filter to sessions whose `ts` is on or after the given date
+- `--json` - emit machine-readable JSON instead of the fixed-width table
+
+**Example output (pricing absent):**
+
+```
+Operator rollup (all projects)
+
+developer_id          project_slug          sessions   in       out      wall(s)
+fullmetalblanket      agentic-engineering         12   84210    37440   4812.1
+fullmetalblanket      helios                       4   21004     9310   1204.3
+alice                 helios                       7   31022    14200   2100.0
+TOTAL                                             23  136236    60950   8116.4
+
+Note: V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
+Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
+```
+
+When `~/.agentic/pricing.yml` is present, dollar columns appear following the same
+rules as `team` and `project` (rates, 90-day staleness warning, missing-rate `?`
+cells).
 
 ## retro subcommand
 
