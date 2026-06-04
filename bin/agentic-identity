@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 """
 Purpose: CLI for managing the per-developer identity file (~/.agentic/identity.yml)
-         used by the Stop hook to write per-developer session telemetry.
+         used by the Stop hook to write per-developer session telemetry. Supports
+         automatic identity derivation from gh CLI (provisional) and confirmation
+         which flushes the pending session-log buffer.
 
 Public API:
   agentic-identity init <handle> [--display-name "<name>"] [--force]
   agentic-identity show
+  agentic-identity auto [--force]
+  agentic-identity confirm
   agentic-identity --help
 
-Upstream deps: Python 3 stdlib only (argparse, os, re, sys, datetime, pathlib).
+Data model:
+  ~/.agentic/identity.yml fields: developer_id, display_name (optional),
+    created_at, provisional (optional, absent=confirmed), derived_from (optional).
+  ~/.agentic/session-log/.pending/<uuid>.json: pre-attribution session records;
+    flushed to global + per-project logs on confirm/init.
+
+Upstream deps: Python 3 stdlib only (argparse, fcntl, glob, json, os, re, signal,
+               subprocess, sys, datetime, pathlib, time).
 
 Downstream consumers: hooks/stop-context.js (reads ~/.agentic/identity.yml);
                       bin/agentic-cost team (reads .agentic/session-log/ written
@@ -16,25 +27,40 @@ Downstream consumers: hooks/stop-context.js (reads ~/.agentic/identity.yml);
 
 Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
                Never writes partial files (write to temp, rename).
+               flushPendingBuffer: serialized via fcntl.flock on .flush.lock;
+               30s timeout via LOCK_NB+sleep loop (SIGALRM avoided for portability);
+               on timeout prints stderr warning and returns without data loss.
 
-Performance: Standard. File I/O only.
+Performance: Standard. File I/O only; subprocess for gh CLI in auto subcommand.
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
+import glob
+import json
 import os
 import re
+import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 IDENTITY_PATH = Path(os.path.expanduser("~/.agentic/identity.yml"))
+PENDING_DIR = Path(os.path.expanduser("~/.agentic/session-log/.pending"))
+GLOBAL_SESSION_LOG_DIR = Path(os.path.expanduser("~/.agentic/session-log"))
+FLUSH_LOCK_PATH = Path(os.path.expanduser("~/.agentic/session-log/.flush.lock"))
 HANDLE_RE = re.compile(r'^[a-z0-9._-]{1,64}$')
 
 
 def _read_identity() -> dict | None:
-    """Return parsed identity dict or None if absent/malformed."""
+    """Return parsed identity dict or None if absent/malformed.
+
+    Fields returned: developer_id (required), display_name, created_at,
+    provisional (absent => False), derived_from.
+    """
     if not IDENTITY_PATH.is_file():
         return None
     raw = IDENTITY_PATH.read_text(encoding="utf-8")
@@ -48,7 +74,170 @@ def _read_identity() -> dict | None:
     ca = re.search(r'^created_at:\s*(\S+)\s*$', raw, re.MULTILINE)
     if ca:
         result["created_at"] = ca.group(1)
+    prov = re.search(r'^provisional:\s*(true|false)\s*$', raw, re.MULTILINE)
+    if prov:
+        result["provisional"] = prov.group(1) == "true"
+    df = re.search(r'^derived_from:\s*(\S+)\s*$', raw, re.MULTILINE)
+    if df:
+        result["derived_from"] = df.group(1)
     return result
+
+
+def _write_identity(lines: list[str]) -> int:
+    """Atomically write identity file from lines list. Returns 0 on success, 1 on error."""
+    content = "\n".join(lines) + "\n"
+    IDENTITY_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp = IDENTITY_PATH.with_suffix(".yml.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.rename(IDENTITY_PATH)
+    except Exception as exc:
+        print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
+        tmp.unlink(missing_ok=True)
+        return 1
+    return 0
+
+
+def flushPendingBuffer(confirmed_dev_id: str) -> int:
+    """Flush ~/.agentic/session-log/.pending/*.json to global + per-project logs.
+
+    Race-safe via fcntl.flock exclusive lock on .flush.lock for the whole loop.
+    Uses LOCK_NB + sleep loop (30s timeout) for portability over SIGALRM.
+    Returns number of records flushed (0 on no pending or timeout).
+    """
+    # Ensure lock file and parent dirs exist.
+    FLUSH_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    FLUSH_LOCK_PATH.touch(exist_ok=True)
+
+    try:
+        fd = open(FLUSH_LOCK_PATH, 'r')
+    except OSError as exc:
+        print(f"agentic-identity confirm: cannot open lock file: {exc}", file=sys.stderr)
+        return 0
+
+    # LOCK_NB + sleep loop, 30s total.
+    deadline = time.monotonic() + 30.0
+    acquired = False
+    while time.monotonic() < deadline:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+            break
+        except BlockingIOError:
+            time.sleep(0.1)
+
+    if not acquired:
+        fd.close()
+        print(
+            "agentic-identity confirm: lock timeout after 30s; retry.",
+            file=sys.stderr,
+        )
+        return 0
+
+    try:
+        pending_pattern = str(PENDING_DIR / "*.json")
+        pending_files = sorted(glob.glob(pending_pattern))
+        flushed = 0
+
+        for pending_path in pending_files:
+            # Parse pending record.
+            try:
+                with open(pending_path, encoding="utf-8") as f:
+                    record = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                # Skip malformed records silently.
+                continue
+
+            session_uuid = record.get("session_uuid", "")
+
+            # Dedup: scan global log for this session_uuid.
+            global_log = GLOBAL_SESSION_LOG_DIR / f"{confirmed_dev_id}.jsonl"
+            already_flushed = False
+            if session_uuid and global_log.is_file():
+                try:
+                    if session_uuid in global_log.read_text(encoding="utf-8"):
+                        already_flushed = True
+                except OSError:
+                    pass
+
+            if already_flushed:
+                try:
+                    os.unlink(pending_path)
+                except OSError:
+                    pass
+                continue
+
+            # Build attributed line.
+            attributed = dict(record)
+            attributed["developer_id"] = confirmed_dev_id
+            # Preserve original ts from pending record.
+            attributed_line = json.dumps(attributed, separators=(",", ":"))
+
+            # Repo root validation.
+            repo_root = record.get("repo_root", "")
+            project_slug = record.get("project_slug", "")
+            wrote_per_project = False
+            if repo_root and project_slug:
+                try:
+                    result = subprocess.check_output(
+                        ["git", "-C", repo_root, "rev-parse", "--show-toplevel"],
+                        timeout=3,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    toplevel = result.decode().strip()
+                    if os.path.basename(toplevel) == project_slug:
+                        per_project_log_dir = Path(toplevel) / ".agentic" / "session-log"
+                        per_project_log_dir.mkdir(parents=True, exist_ok=True)
+                        per_project_log = per_project_log_dir / f"{confirmed_dev_id}.jsonl"
+                        with open(per_project_log, "a", encoding="utf-8") as pf:
+                            pf.write(attributed_line + "\n")
+                        wrote_per_project = True
+                    else:
+                        print(
+                            f"agentic-identity: repo_root '{repo_root}' basename "
+                            f"'{os.path.basename(toplevel)}' != project_slug "
+                            f"'{project_slug}'; skipping per-project write.",
+                            file=sys.stderr,
+                        )
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError,
+                        OSError, FileNotFoundError):
+                    print(
+                        f"agentic-identity: repo_root '{repo_root}' unreachable; "
+                        "skipping per-project write.",
+                        file=sys.stderr,
+                    )
+
+            # Always append to global log.
+            global_append_ok = False
+            try:
+                GLOBAL_SESSION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+                with open(global_log, "a", encoding="utf-8") as gf:
+                    gf.write(attributed_line + "\n")
+                global_append_ok = True
+            except OSError as exc:
+                print(
+                    f"agentic-identity: global log write failed: {exc}; "
+                    "leaving pending file for retry.",
+                    file=sys.stderr,
+                )
+
+            # Unlink pending file only after all attempted appends succeeded.
+            # Per-project write failure is non-blocking; global failure leaves file.
+            if global_append_ok:
+                try:
+                    os.unlink(pending_path)
+                except OSError:
+                    pass
+                flushed += 1
+
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        fd.close()
+
+    if flushed > 0:
+        print(f"Flushed {flushed} pending session(s).")
+    return flushed
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -61,8 +250,11 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
         return 1
 
+    existing = _read_identity() if IDENTITY_PATH.is_file() else None
+    is_overwriting_provisional = existing is not None and existing.get("provisional", False)
+    is_fresh = existing is None
+
     if IDENTITY_PATH.is_file() and not args.force:
-        existing = _read_identity()
         current = existing.get("developer_id", "?") if existing else "?"
         print(
             f"agentic-identity: identity already set to '{current}'. "
@@ -72,26 +264,118 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 2
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    lines = [
-        f"developer_id: {handle}",
-    ]
+    lines = [f"developer_id: {handle}"]
     if args.display_name:
         lines.append(f"display_name: {args.display_name}")
     lines.append(f"created_at: {created_at}")
-    content = "\n".join(lines) + "\n"
 
-    IDENTITY_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = IDENTITY_PATH.with_suffix(".yml.tmp")
-    try:
-        tmp.write_text(content, encoding="utf-8")
-        os.chmod(tmp, 0o600)
-        tmp.rename(IDENTITY_PATH)
-    except Exception as exc:
-        print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
-        tmp.unlink(missing_ok=True)
-        return 1
+    rc = _write_identity(lines)
+    if rc != 0:
+        return rc
 
     print(f"Identity set: developer_id={handle}, created_at={created_at}")
+
+    # Flush pending buffer when writing over a provisional identity or writing fresh.
+    if is_overwriting_provisional or is_fresh:
+        flushPendingBuffer(handle)
+
+    return 0
+
+
+def cmd_auto(args: argparse.Namespace) -> int:
+    """Derive identity from gh CLI (writes provisional)."""
+    # Run gh api user --jq .login with 5s timeout.
+    try:
+        result = subprocess.run(
+            ["gh", "api", "user", "--jq", ".login"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        print(
+            "agentic-identity: gh CLI unavailable or unauthenticated. "
+            "Run 'gh auth login' first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if result.returncode != 0:
+        print(
+            "agentic-identity: gh CLI unavailable or unauthenticated. "
+            "Run 'gh auth login' first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    login = result.stdout.strip().lower()
+    if not HANDLE_RE.match(login):
+        print(
+            f"agentic-identity: derived handle '{login}' is not a valid agentic handle. "
+            "Run 'agentic-identity init <handle>' manually.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Check existing identity.
+    existing = _read_identity()
+    if existing is not None:
+        is_provisional = existing.get("provisional", False)
+        current_handle = existing.get("developer_id", "?")
+        if not is_provisional and not args.force:
+            print(
+                f"agentic-identity: confirmed identity already set to '{current_handle}'. "
+                "Use --force to overwrite.",
+                file=sys.stderr,
+            )
+            return 2
+        # Provisional + no --force: overwrite silently (fall through).
+
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [
+        f"developer_id: {login}",
+        f"created_at: {created_at}",
+        "provisional: true",
+        "derived_from: gh",
+    ]
+
+    rc = _write_identity(lines)
+    if rc != 0:
+        return rc
+
+    print(
+        f"Identity derived (provisional): developer_id={login}. "
+        "Confirm at next session start."
+    )
+    return 0
+
+
+def cmd_confirm(args: argparse.Namespace) -> int:
+    """Confirm provisional identity: strip provisional/derived_from, flush pending buffer."""
+    identity = _read_identity()
+    if identity is None:
+        print(
+            "agentic-identity: no identity set. Run 'agentic-identity init <handle>' first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    dev_id = identity["developer_id"]
+
+    # Rewrite identity file with provisional: and derived_from: stripped.
+    lines = [f"developer_id: {dev_id}"]
+    if "display_name" in identity:
+        lines.append(f"display_name: {identity['display_name']}")
+    if "created_at" in identity:
+        lines.append(f"created_at: {identity['created_at']}")
+    # Intentionally omit provisional and derived_from.
+
+    rc = _write_identity(lines)
+    if rc != 0:
+        return rc
+
+    flushPendingBuffer(dev_id)
+    print(f"Identity confirmed: developer_id={dev_id}")
     return 0
 
 
@@ -105,6 +389,8 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"display_name:  {identity['display_name']}")
     if "created_at" in identity:
         print(f"created_at:    {identity['created_at']}")
+    if identity.get("provisional", False):
+        print("provisional:   true")
     return 0
 
 
@@ -125,6 +411,23 @@ def main(argv: list[str]) -> int:
 
     p_show = sub.add_parser("show", help="Print current identity")
     p_show.set_defaults(func=cmd_show)
+
+    p_auto = sub.add_parser(
+        "auto",
+        help="Derive identity automatically from gh CLI (writes provisional)",
+    )
+    p_auto.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing confirmed identity",
+    )
+    p_auto.set_defaults(func=cmd_auto)
+
+    p_confirm = sub.add_parser(
+        "confirm",
+        help="Confirm provisional identity and flush pending session buffer",
+    )
+    p_confirm.set_defaults(func=cmd_confirm)
 
     args = p.parse_args(argv[1:])
     return args.func(args)
