@@ -502,7 +502,7 @@ def _render_operator_table(agg: dict) -> str:
     lines: list[str] = []
     lines.append("Operator rollup (all projects)")
     header = (
-        f"{'project':<24}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
+        f"{'developer/project':<24}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
         f"{'cache_cr':>10}{'cache_rd':>10}{'wall(s)':>10}"
     )
     lines.append(header)
