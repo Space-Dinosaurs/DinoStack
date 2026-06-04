@@ -4,7 +4,7 @@ This file is a light scaffold. The detailed, current roadmap is tracked on GitHu
 
 ## Where to look
 
-- **Active and planned work:** [GitHub Issues](https://github.com/Space-Dinosaurs/agentic-engineering/issues) and the project board (TBD - link will be added once the public board is set up).
+- **Active and planned work:** [GitHub Issues](https://github.com/Solara6/agentic-engineering/issues) and the project board (TBD - link will be added once the public board is set up).
 - **Released changes:** [CHANGELOG.md](CHANGELOG.md)
 - **Design artifacts for in-flight work:** `docs/planning/`
 

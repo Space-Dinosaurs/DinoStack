@@ -234,4 +234,4 @@ One file, one reader, one job: give the planner project-specific tracker instruc
 
 Tracker flexibility without protocol bloat.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Solara6/agentic-engineering

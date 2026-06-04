@@ -300,4 +300,4 @@ Piecemeal questions past the threshold paper over a structural gap and burn oper
 
 Act within authority. Stop only for irreversible state or genuine unknowns.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Solara6/agentic-engineering

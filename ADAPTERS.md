@@ -21,7 +21,6 @@ Each tool has its own mechanisms for the same core concepts:
 | Lifecycle hooks | `settings.json` hooks | `.cursor/hooks.json` | `~/.codex/hooks.json` | `~/.gemini/settings.json` | `[[hooks]]` in `~/.kimi/config.toml` | Not available | Extension events available but not required for this adapter | Not available | Not available |
 | Risk reminder | UserPromptSubmit hook | beforeSubmitPrompt hook | UserPromptSubmit hook | BeforeAgent hook | `PreToolUse` hook | Embedded in skill content | Embedded in skill content; future extension can inject `before_agent_start` reminders | Embedded in skill content | Embedded in skill content |
 | Session context save | Stop hook | stop hook | Stop hook | SessionEnd hook | `Stop` hook | Not available | Future extension can use `session_shutdown`; not implemented in this adapter | Not available | Not available |
-| Version-update notice | SessionStart hook (`systemMessage`) | Not available | Not available | Not available | SessionStart hook (stderr) | Not available | Not available | Not available | Not available |
 
 ## Checklist for a new adapter
 
