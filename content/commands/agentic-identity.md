@@ -44,32 +44,31 @@ Exit codes: `0` success; `1` invalid handle, missing handle, or flush error;
 agentic-identity show
 ```
 
-Print the current identity. No writes, always exits `0` when an identity
-exists.
+Print the current identity. No writes, always exits `0` (prints a message
+whether or not an identity file exists).
 
 Example output (provisional):
 
 ```
-developer_id: tyson.hummel
-display_name: Tyson Hummel
-provisional: true
-derived_from: gh
-created_at: 2026-06-04T10:00:00Z
+developer_id:  tyson.hummel
+display_name:  Tyson Hummel
+created_at:    2026-06-04T10:00:00Z
+provisional:   true
 ```
 
 Example output (confirmed):
 
 ```
-developer_id: tyson.hummel
-display_name: Tyson Hummel
-created_at: 2026-06-04T10:00:00Z
+developer_id:  tyson.hummel
+display_name:  Tyson Hummel
+created_at:    2026-06-04T10:00:00Z
 ```
 
 `provisional: true` appears only when the identity is auto-derived and not
-yet confirmed. The commit template greps this line to suppress the
-`Developer:` trailer while provisional.
+yet confirmed.
 
-Exit codes: `0` identity found; `1` no identity file.
+Exit codes: `0` always (prints "No identity set. Run: agentic-identity init
+<handle>" when no file exists).
 
 ### auto
 
@@ -97,10 +96,9 @@ Behavior on edge cases:
 
 `--force` bypasses the exit-`2` guard for confirmed identities.
 
-A provisional identity does NOT activate telemetry writes or the `Developer:`
-commit trailer. Session data is instead buffered at
-`~/.agentic/session-log/.pending/` until confirmed (see "Provisional model"
-below).
+A provisional identity does NOT activate telemetry writes. Session data is
+instead buffered at `~/.agentic/session-log/.pending/` until confirmed (see
+"Provisional model" below).
 
 Exit codes: `0` success; `1` gh unavailable or invalid handle; `2` confirmed
 identity exists without `--force`.
