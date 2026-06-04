@@ -11,7 +11,7 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 ### One-liner install (quickest)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash
 ```
 
 This clones the repo into `agentic-engineering/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
@@ -22,25 +22,25 @@ This clones the repo into `agentic-engineering/` inside your current directory, 
 
 ```bash
 # Install to ~/tools/agentic-engineering instead of the current directory
-AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh | bash
+AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash
 ```
 
 **Pass flags through to the installer** (e.g. to set activation mode without prompts):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Solara6/agentic-engineering/main/bootstrap.sh | bash -s -- --mode=opt-in
+curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash -s -- --mode=opt-in
 ```
 
 ### Manual / SSH install
 
 ```bash
-git clone git@github.com:Solara6/agentic-engineering.git && cd agentic-engineering && bash bootstrap.sh
+git clone git@github.com:Space-Dinosaurs/agentic-engineering.git && cd agentic-engineering && bash bootstrap.sh
 ```
 
 Or clone, cd in, and start Claude Code to let the agent run the installer interactively:
 
 ```bash
-git clone git@github.com:Solara6/agentic-engineering.git
+git clone git@github.com:Space-Dinosaurs/agentic-engineering.git
 cd agentic-engineering
 claude
 ```
@@ -73,7 +73,7 @@ If you see none of this, the task was classified as a small, reversible direct a
 **Or install manually via install.sh directly:**
 
 ```bash
-git clone git@github.com:Solara6/agentic-engineering.git
+git clone git@github.com:Space-Dinosaurs/agentic-engineering.git
 cd agentic-engineering
 bash .claude/install.sh
 ```
@@ -241,8 +241,8 @@ This framework is a safety rail, not a complete boundary. The recommended permis
 
 ## Community
 
-- [GitHub Discussions](https://github.com/Solara6/agentic-engineering/discussions) - questions, ideas, design discussion
-- [GitHub Issues](https://github.com/Solara6/agentic-engineering/issues) - bug reports, feature requests, protocol-change RFCs, adapter requests
+- [GitHub Discussions](https://github.com/Space-Dinosaurs/agentic-engineering/discussions) - questions, ideas, design discussion
+- [GitHub Issues](https://github.com/Space-Dinosaurs/agentic-engineering/issues) - bug reports, feature requests, protocol-change RFCs, adapter requests
 - Discord: TBD (link will be added once the server is live)
 - [SUPPORT.md](SUPPORT.md) - where to ask what
 - [GOVERNANCE.md](GOVERNANCE.md) - how decisions get made

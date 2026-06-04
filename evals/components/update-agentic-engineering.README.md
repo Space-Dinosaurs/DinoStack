@@ -22,7 +22,7 @@ STOP still scores well.
 
 ## Proxy caveats
 
-- **Fake origin.** The runner does not touch Solara6. The prompt-layer
+- **Fake origin.** The runner does not touch Space-Dinosaurs. The prompt-layer
   setup hook (`evals.runner.prompt`) initializes the seeded repo as a
   local git repo and creates a sibling bare repo as `origin`. All
   `git fetch/pull/push` traffic stays on the local filesystem inside
