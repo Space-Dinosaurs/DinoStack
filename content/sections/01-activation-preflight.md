@@ -4,6 +4,8 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 1. **Read the global mode, profile, and preset.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`. The `preset` field is optional; when present and non-null, it RESOLVES to a profile via the preset table below and overrides the direct `profile` field. When `preset` is null or missing, the direct `profile` field is used (back-compat).
 
+   Also read `~/.agentic/identity.yml` (if present). Record the `developer_id` and `provisional` fields for the session. Absent file or absent `provisional` field = confirmed identity (Python `.get('provisional', False)`; JS `provisional === true`). **This is a read-only field parse - no prompt, no shell-out, no LLM reasoning. The "fast, silent" preflight invariant is preserved.** When `provisional: true` is recorded, the conductor surfaces a non-blocking confirmation notice at its first user-facing turn (see §Session Context and Memory in `content/rules/conventions.md`).
+
    **Preset table (session-wide risk profile preset):**
 
    | Preset    | Resolves to profile |
