@@ -895,7 +895,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 - `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
-- `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path.
+- `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
@@ -1454,17 +1454,31 @@ Stage specific files - never `git add -A` or `git add .`:
 ```bash
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
 git -C $REPO add [specific files]
-git -C $REPO commit -m "$(cat <<'EOF'
-type(scope): short imperative description
 
-More detail on what changed and why if needed.
-Closes [TICKET_PREFIX]-NNN
+# Resolve developer identity for trailer (soft-fail throughout; agentic-identity may not be installed).
+DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
+# Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
+if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-EOF
-)"
+# Resolve DCO Signed-off-by fields (git config inherits from global; check project-local first).
+SO_NAME=$(git -C $REPO config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
+SO_EMAIL=$(git -C $REPO config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
+
+if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
+  echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
+else
+  # NL assigned before the string (not inside a heredoc) so variable expansion works.
+  NL=$'
+'
+  COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
+  git -C $REPO commit -m "$COMMIT_MSG"
+fi
+
 git -C $REPO push -u origin [BRANCH_NAME]
 ```
+
+`Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
 Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
@@ -1643,13 +1657,13 @@ Authoring rule: §External Comment Discipline in `content/rules/conventions.md` 
 Run:
 
 ```bash
-gh pr create \
-  --repo [GH_REPO] \
-  --base [BASE_BRANCH] \
-  --head [BRANCH_NAME] \
-  --draft \
-  --title "[TICKET_PREFIX]-NNN: [ticket title]" \
-  --body "$(cat <<'EOF'
+# Resolve identity for PR Developer: field (may already be set from Phase 8).
+# Re-derive here if Phase 8 was skipped (e.g., parallel path with no fixup files).
+DEVELOPER=${DEVELOPER:-$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
+if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+
+PR_BODY_FILE="/tmp/pr-body-$$"
+cat > "$PR_BODY_FILE" <<PRBODY
 ## Summary
 - [bullet 1]
 - [bullet 2]
@@ -1659,8 +1673,18 @@ gh pr create \
 ## Test plan
 - [ ] [step 1]
 - [ ] [step 2]
-EOF
-)"
+PRBODY
+# Append Developer: line when identity is confirmed (survives --squash via PR body).
+[ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+
+gh pr create \
+  --repo [GH_REPO] \
+  --base [BASE_BRANCH] \
+  --head [BRANCH_NAME] \
+  --draft \
+  --title "[TICKET_PREFIX]-NNN: [ticket title]" \
+  --body-file "$PR_BODY_FILE"
+rm -f "$PR_BODY_FILE"
 ```
 
 For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
