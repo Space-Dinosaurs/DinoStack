@@ -44,7 +44,7 @@ Performance: Standard.
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
 - `conductor_direct`: emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carries `wall_seconds` and a `note`; tokens are zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), and `agreement` (boolean). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
-- `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (the committed per-developer surface; see "Per-developer session log" section below).
+- `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (local-only per-developer surface; see "Per-developer session log" section below).
 
 ## Append discipline
 
@@ -64,7 +64,7 @@ Optional. /wrap may consult events.jsonl as supplementary signal for the structu
 
 ## Per-developer session log (`.agentic/session-log/`)
 
-The Stop hook writes a second, committed target alongside `events.jsonl`. When a developer identity is set (via `agentic-identity init <handle>`), the hook appends one JSON line per session to `.agentic/session-log/<developer_id>.jsonl`. This file IS committed (carved out via `.gitignore` negation) so team members can run `agentic-cost team` to see cross-developer aggregates.
+The Stop hook writes a second target alongside `events.jsonl`. When a developer identity is set (via `agentic-identity init <handle>`), the hook appends one JSON line per session to `.agentic/session-log/<developer_id>.jsonl`. This file is LOCAL-ONLY - NOT committed to git (it falls under the `.agentic/*` umbrella gitignore). Run `agentic-cost team` to aggregate all session-log files present on the local checkout.
 
 **Canonical session-log line schema:**
 
@@ -99,4 +99,4 @@ The Stop hook writes a second, committed target alongside `events.jsonl`. When a
 
 **No identity:** When `~/.agentic/identity.yml` is absent, the session-log write is skipped. The Stop hook instead appends a one-time nudge to `.agentic/context.md` directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
 
-**Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files and renders a per-developer rollup table sorted by total tokens.
+**Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are local-only, the rollup reflects sessions from this developer's machine only (not teammates' sessions).

@@ -88,11 +88,11 @@ It is the third dimension in the cost-visibility hierarchy:
 
 | Subcommand | Scope | Source |
 |---|---|---|
-| `team` | One project, all developers | `.agentic/session-log/*.jsonl` (project-local, committed) |
+| `team` | One project, all developers | `.agentic/session-log/*.jsonl` (project-local, local-only) |
 | `operator` | All projects, all developers | `~/.agentic/session-log/*.jsonl` (global mirror) |
 | `project` | One project, all sessions | `.agentic/events.jsonl` (local telemetry) |
 
-The `.pending/` staging directory is never globbed - only committed, fully-attributed
+The `.pending/` staging directory is never globbed - only fully-attributed
 lines from `*.jsonl` files are included. If no global logs exist (directory absent or
 all files empty), the command prints "No operator-level session logs found." and exits 0.
 
