@@ -439,6 +439,37 @@ else:
     })
     print("  + Added PreToolUse background-spawn enforcement hook")
 
+# ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
+ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
+
+# Find or create a SEPARATE matcher "AskUserQuestion" block (not the Task block).
+ptu_auq = None
+for block in ptu_list:
+    if block.get("matcher") == "AskUserQuestion":
+        ptu_auq = block
+        break
+
+if ptu_auq is None:
+    ptu_auq = {"matcher": "AskUserQuestion", "hooks": []}
+    ptu_list.append(ptu_auq)
+
+ptu_auq.setdefault("hooks", [])
+
+already_has_enforce_auq = any(
+    "enforce-askuserquestion-default" in entry.get("command", "")
+    for entry in ptu_auq["hooks"]
+)
+
+if already_has_enforce_auq:
+    print("  = PreToolUse AskUserQuestion default-enforcement hook already present")
+else:
+    ptu_auq["hooks"].append({
+        "type": "command",
+        "command": ENFORCE_AUQ_CMD,
+        "timeout": 5
+    })
+    print("  + Added PreToolUse AskUserQuestion default-enforcement hook")
+
 # ---- Write back -------------------------------------------------------------
 with open(settings_path, "w") as f:
     json.dump(settings, f, indent=2)
