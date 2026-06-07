@@ -992,6 +992,8 @@ git branch -d <branch-name>
 
 **Commit each fix immediately during testing.** Never accumulate uncommitted changes during live testing sessions. After each validated fix: commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes.
 
+**DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The agentic-engineering repo itself enforces a DCO check, so commits to it require `-s`.
+
 **Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. No worktree coordination is needed between sessions at the conductor level.
 
 ## Context Economy
