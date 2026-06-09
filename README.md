@@ -1,4 +1,4 @@
-# agentic-engineering
+# DinoStack
 
 A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
 
@@ -48,7 +48,7 @@ claude
 Then ask your agent:
 
 ```
-Install agentic-engineering
+Install DinoStack
 ```
 
 The agent runs the installer, walks you through optional tool setup, and keeps existing customizations intact.
@@ -82,7 +82,7 @@ For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, 
 
 ## Installation modes
 
-agentic-engineering supports two global activation modes, chosen at install time and persisted in `~/.claude/agentic-engineering.json`:
+DinoStack supports two global activation modes, chosen at install time and persisted in `~/.claude/agentic-engineering.json`:
 
 - **`opt-out` (default)** - the methodology is active in every project unless the project's root `AGENTS.md` contains the line `agentic-engineering: opt-out`. Best for most users: the protocol runs everywhere, and individual projects can opt out.
 - **`opt-in`** - the methodology is installed but dormant; it only runs in projects whose root `AGENTS.md` contains the line `agentic-engineering: opt-in`. Best for trying the protocol in one project before rolling it out everywhere.
@@ -146,7 +146,7 @@ bash .claude/install.sh
 You can also ask your coding agent:
 
 ```
-Pull the latest changes to agentic-engineering and re-run the installer
+Pull the latest changes to DinoStack and re-run the installer
 ```
 
 The agent handles the git pull and runs the installer. It's idempotent - existing symlinks and settings are preserved, new ones are added, and build artifacts are regenerated.
@@ -154,7 +154,7 @@ The agent handles the git pull and runs the installer. It's idempotent - existin
 For a clean refresh that also prunes stale symlinks for files removed upstream, ask:
 
 ```
-Do a clean refresh of agentic-engineering - uninstall, pull, then reinstall
+Do a clean refresh of DinoStack - uninstall, pull, then reinstall
 ```
 
 ## Adapters
@@ -224,7 +224,7 @@ agentic-engineering/
 ## Documentation
 
 - `~/agentic-engineering/docs/agentic-engineering.html` - visual reference document describing the full system architecture
-- `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what agentic-engineering is and how it works
+- `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what DinoStack is and how it works
 - `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
 - `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
 - `~/agentic-engineering/docs/slides/agent-team-slides.html` - the agent team and how they compose
