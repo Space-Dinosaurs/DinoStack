@@ -4,13 +4,13 @@ The docs site (hub page at `docs/index.html` plus slide decks under `docs/slides
 
 ## Project facts
 
-- Vercel account: `thummelbiz`
-- Team scope: `tysons-projects-3e917e3c`
-- Project name: `agentic-engineering-tyhummel`
-- Project ID: `prj_8xV8CAdosPuAwPmz3GTcMwxcGTOQ`
-- Org ID: `team_WtGhZ3kSxiYdIFHJQdEx9riE`
-- Production URL: https://agentic-engineering-deploy.vercel.app
-- Dashboard: https://vercel.com/tysons-projects-3e917e3c/agentic-engineering-tyhummel
+- Vercel account / team: `space-dinos-sandbox` (Space Dinos Sandbox)
+- Team scope: `space-dinos-sandbox`
+- Project name: `dinostack-docs`
+- Project ID: `prj_Q98dtCkRgpAXO9qGj9uqjTVwaOiP`
+- Org ID: `team_1gGVVf56h8U9jAMKoTtrfYJG`
+- Production URL: https://docs.dinostack.ai/
+- Dashboard: https://vercel.com/space-dinos-sandbox/dinostack-docs
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ The docs site (hub page at `docs/index.html` plus slide decks under `docs/slides
 vercel whoami
 ```
 
-Must print `thummelbiz`. If it prints anything else (for example `thummel-6350`), run `vercel logout` then `vercel login` and pick the email tied to `thummelbiz`. Deploying from the wrong account will silently create an orphan project (see Footgun below).
+`vercel whoami` prints the authenticated user, not the team. The logged-in user must have access to the `space-dinos-sandbox` team — confirm with `vercel teams ls` and check the list includes `space-dinos-sandbox`. If it does not, run `vercel logout` then `vercel login` and pick the account with access to Space Dinos Sandbox. Deploying from an account that cannot see the `space-dinos-sandbox` scope will silently create an orphan project (see Footgun below).
 
 ### 2. Rebuild slides ONLY if .md content changed
 
@@ -58,7 +58,7 @@ Verify the output with `git status docs/slides/` before committing - only the ch
 ### 3. Link to the existing project
 
 ```bash
-vercel link --yes --project agentic-engineering-tyhummel --scope tysons-projects-3e917e3c
+vercel link --yes --project dinostack-docs --scope space-dinos-sandbox
 ```
 
 ### 4. Verify the link points to the correct project (critical)
@@ -67,13 +67,13 @@ vercel link --yes --project agentic-engineering-tyhummel --scope tysons-projects
 cat .vercel/project.json
 ```
 
-The `projectId` field MUST equal `prj_8xV8CAdosPuAwPmz3GTcMwxcGTOQ`. If it shows any other ID, STOP. You are linked to a wrongly-auto-created orphan on the wrong Vercel account. Recover with:
+The `projectId` field MUST equal `prj_Q98dtCkRgpAXO9qGj9uqjTVwaOiP` and `orgId` MUST equal `team_1gGVVf56h8U9jAMKoTtrfYJG`. If either shows any other ID, STOP. You are linked to a wrongly-auto-created orphan on the wrong Vercel account. Recover with:
 
 ```bash
-vercel project rm agentic-engineering-tyhummel
+vercel project rm dinostack-docs   # only if an orphan was created on the wrong account
 rm -rf .vercel
 vercel logout
-vercel login   # pick the thummelbiz email
+vercel login   # pick the account with access to space-dinos-sandbox
 ```
 
 then restart from step 1.
@@ -89,18 +89,18 @@ Upload + alias takes 30-90 seconds. Do not interrupt.
 ### 6. Smoke test
 
 ```bash
-curl -sSI https://agentic-engineering-deploy.vercel.app/
-curl -sS https://agentic-engineering-deploy.vercel.app/ | head -c 300
+curl -sSI https://docs.dinostack.ai/
+curl -sS https://docs.dinostack.ai/ | head -c 300
 ```
 
-Expect HTTP 200 and a body containing `<title>Agentic Engineering</title>`. The custom alias may take 10-30 seconds to flip after the deploy returns.
+Expect HTTP 200 and a body containing `<title>DinoStack</title>`. The custom domain may take 10-30 seconds to flip after the deploy returns.
 
 ## Footgun: silent auto-create on the wrong account
 
-`vercel link --yes --project NAME --scope SCOPE` does NOT error if the scope is invisible to the current account or the named project does not exist. It silently creates a NEW project under whatever scope the current account uses. Always run step 4 to verify the project ID before deploying. A previous incident on 2026-04-12 deployed an orphan project to a separate `thummel-6350` Vercel account because that account cannot see the `tysons-projects-3e917e3c` scope; the orphan had to be deleted with `vercel project rm` before recovery.
+`vercel link --yes --project NAME --scope SCOPE` does NOT error if the scope is invisible to the current account or the named project does not exist. It silently creates a NEW project under whatever scope the current account uses. Always run step 4 to verify the project ID before deploying. (A prior incident deployed an orphan project to a separate Vercel account that could not see the team scope; the orphan had to be deleted with `vercel project rm` before recovery.)
 
 ## Notes
 
-- `.vercel/project.json` is gitignored by default (the Vercel CLI added `.vercel` to `.gitignore`). Each fresh checkout must re-link. To skip linking, either commit `.vercel/project.json` (un-ignore it) or set env vars `VERCEL_ORG_ID=team_WtGhZ3kSxiYdIFHJQdEx9riE` and `VERCEL_PROJECT_ID=prj_8xV8CAdosPuAwPmz3GTcMwxcGTOQ`.
+- `.vercel/project.json` is gitignored by default (the Vercel CLI added `.vercel` to `.gitignore`). Each fresh checkout must re-link. To skip linking, either commit `.vercel/project.json` (un-ignore it) or set env vars `VERCEL_ORG_ID=team_1gGVVf56h8U9jAMKoTtrfYJG` and `VERCEL_PROJECT_ID=prj_Q98dtCkRgpAXO9qGj9uqjTVwaOiP`.
 - The repo has two git remotes (`origin` to fullmetalblanket, `upstream` to Space-Dinosaurs). On first link the CLI may interactively prompt to pick a remote. The prompt fires AFTER `.vercel/project.json` is written, so the link itself succeeds either way.
 - `.claude/build.sh` and `.cursor/build.sh` are unrelated to docs. They build the skill adapters for Claude Code and Cursor.
