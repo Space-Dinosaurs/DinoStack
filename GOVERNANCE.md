@@ -2,7 +2,7 @@
 
 ## Current model
 
-agentic-engineering is led by a single lead maintainer (the project creator) with informal community input. This model is expected to evolve toward a small maintainer group as the contributor base grows.
+DinoStack is led by a single lead maintainer (the project creator) with informal community input. This model is expected to evolve toward a small maintainer group as the contributor base grows.
 
 - **Lead maintainer:** `<lead maintainer handle TBD>`
 - **Decision authority:** the lead maintainer has final say on protocol direction, releases, and contributor access. Day-to-day PR review may be delegated as the contributor base grows.

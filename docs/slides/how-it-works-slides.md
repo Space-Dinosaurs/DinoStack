@@ -73,7 +73,7 @@ style: |
 
 <!-- _class: lead -->
 
-# Agentic Engineering
+# DinoStack
 
 A protocol for shipping software with AI agents
 
