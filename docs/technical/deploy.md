@@ -1,6 +1,6 @@
 # Deploying the docs site
 
-The docs site (hub page at `docs/agentic-engineering.html` plus slide decks under `docs/slides/`) is a static Vercel deploy of the `docs/` directory. There is no Vercel build step - whatever is in `docs/` at deploy time is what ships. This file is the canonical procedure. Follow it exactly.
+The docs site (hub page at `docs/index.html` plus slide decks under `docs/slides/`) is a static Vercel deploy of the `docs/` directory. There is no Vercel build step - whatever is in `docs/` at deploy time is what ships. This file is the canonical procedure. Follow it exactly.
 
 ## Project facts
 
@@ -16,7 +16,7 @@ The docs site (hub page at `docs/agentic-engineering.html` plus slide decks unde
 
 - Vercel CLI installed (`vercel --version`)
 - Marp CLI installed (`marp --version`, expects v4.x)
-- `vercel.json` at repo root sets `outputDirectory: "docs"` and rewrites `/` to `/agentic-engineering.html`
+- `vercel.json` at repo root sets `outputDirectory: "docs"` and rewrites `/` to `/index.html`
 
 ## Procedure
 
