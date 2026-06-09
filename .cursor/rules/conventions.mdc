@@ -124,7 +124,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 
 **Shippable/exempt classifier (4-rule precedence, first match wins):**
 1. `.agentic/**` -> EXEMPT (conductor sole-writer).
-2. begins `docs/planning/` -> EXEMPT (Briefs/Plans/ADRs/planning subdirs). ALL other docs SHIPPABLE, by name: `docs/research/`, `docs/_archive/`, `docs/overview/`, `docs/technical/`, `docs/images/`, `docs/slides/`, file `docs/agentic-engineering.html` (Vercel `outputDirectory: docs`).
+2. begins `docs/planning/` -> EXEMPT (Briefs/Plans/ADRs/planning subdirs). ALL other docs SHIPPABLE, by name: `docs/research/`, `docs/_archive/`, `docs/overview/`, `docs/technical/`, `docs/images/`, `docs/slides/`, file `docs/index.html` (Vercel `outputDirectory: docs`).
 3. conductor-direct PRINT/DECISION/RESOLVER-EXECUTION -> EXEMPT.
 4. any other tracked-file write -> SHIPPABLE -> delegate to worktree-isolated engineer (Trivial: no Skeptic/no brief; Elevated: full Worker+Skeptic).
 
