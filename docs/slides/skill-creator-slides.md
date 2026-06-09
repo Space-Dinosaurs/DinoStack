@@ -75,7 +75,7 @@ style: |
 
 # The Skill Creator
 
-How agentic-engineering's agents and skills were built - and how you can build your own
+How DinoStack's agents and skills were built - and how you can build your own
 
 ---
 
@@ -91,7 +91,7 @@ How agentic-engineering's agents and skills were built - and how you can build y
 - Drives an iterative loop: draft a skill, test it, evaluate the output, improve, repeat
 - Uses **subagents** for grading, blind comparison, and analysis - not just vibes
 - Outputs a complete skill directory: `SKILL.md`, eval cases, bundled scripts, references
-- The same tool that built the agentic-engineering agents is available to everyone
+- The same tool that built the DinoStack agents is available to everyone
 
 <div class="callout">
 This is the tool that was used to build the agents in this protocol. It is not a template - it is a development framework with built-in evaluation and iteration.
@@ -173,7 +173,7 @@ The grader catches regressions. The comparator catches bias. The analyzer tells 
 
 ---
 
-## How agentic-engineering used it
+## How DinoStack used it
 
 <style scoped>
   ul { font-size: 0.9em; }

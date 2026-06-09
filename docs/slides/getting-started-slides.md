@@ -75,7 +75,7 @@ style: |
 
 # Getting Started
 
-Install agentic-engineering and ship your first focused session
+Install DinoStack and ship your first focused session
 
 ---
 

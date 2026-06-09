@@ -93,7 +93,7 @@ style: |
 
 <!-- _class: lead -->
 
-# Contributing to Agentic Engineering
+# Contributing to DinoStack
 
 How the repo is structured and how to make changes safely
 
