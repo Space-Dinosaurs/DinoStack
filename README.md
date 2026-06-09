@@ -223,7 +223,7 @@ agentic-engineering/
 
 ## Documentation
 
-- `~/agentic-engineering/docs/agentic-engineering.html` - visual reference document describing the full system architecture
+- `~/agentic-engineering/docs/index.html` - visual reference document describing the full system architecture
 - `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what DinoStack is and how it works
 - `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
 - `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
