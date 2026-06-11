@@ -18,7 +18,11 @@
  *             getIdentity(), writeSessionLog(cwd, identity, sessionId),
  *             writeSessionLogGlobal(identity, sessionId, data),
  *             writePendingBuffer(cwd, sessionId),
- *             appendIdentityNudgeToContextMd(repoRoot).
+ *             appendIdentityNudgeToContextMd(repoRoot),
+ *             wrapLockHeld(cwd), appendSpilloverRecord(cwd, record),
+ *             writeContextMdOrSpill(cwd, outputPath, projectDir, body, record),
+ *             readLastWrap(cwd), liveMarkerExists(cwd),
+ *             stageWrapPending(cwd, sessionId, scan).
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
  *                dependencies. Reads from stdin (fd 0). Reads/writes
@@ -40,7 +44,7 @@
  *                        globbed by agentic-cost (operator or team) - it is consumed
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
- * Failure modes: All failures are silent (process.exit(0)). Eight independent
+ * Failure modes: All failures are silent (process.exit(0)). Nine independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -56,7 +60,11 @@
  *                (5) writeSessionLog appends to .agentic/session-log/<dev>.jsonl;
  *                any fs error is swallowed independently of all other paths.
  *                (6) appendIdentityNudgeToContextMd appends to context.md; any
- *                fs error is swallowed independently.
+ *                fs error is swallowed independently. Because the nudge is a
+ *                context.md writer, it is deferred while wrapLockHeld(cwd) is
+ *                true (the sentinel is consumed atomically with the nudge, so
+ *                deferring both fires the one-time nudge on a later unlocked
+ *                session rather than losing it).
  *                (7) writeSessionLogGlobal appends to ~/.agentic/session-log/<dev>.jsonl;
  *                any fs error is swallowed independently of the per-project write
  *                (path 5) - a global failure never affects the per-project write.
@@ -64,11 +72,30 @@
  *                ~/.agentic/session-log/.pending/<uuid>.json; enforces cap-100
  *                (drops oldest by ts with one stderr notice); any fs error swallowed
  *                independently of all other paths.
- *                All eight paths are independent - a failure in one does not
+ *                (9) appendSpilloverRecord appends one JSONL record to
+ *                .agentic/.stop-deferred-activity.jsonl when wrapLockHeld(cwd) is
+ *                true (a /wrap holds .agentic/wrap.lock); in that case BOTH
+ *                context.md write paths (path 1) are skipped so the background
+ *                enrichment's locked Part-A merge is not clobbered, and the
+ *                skipped activity is spilled instead for the enrichment to drain.
+ *                Append-only, fail-open.
+ *                All nine paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
  *                traversal components are rejected for the loop-state and
  *                batch-state writes (defence in depth).
+ *
+ *                Lock-aware interactions: wrapLockHeld(cwd) (a single fail-open
+ *                fs.existsSync on .agentic/wrap.lock, a DIRECTORY created by
+ *                /wrap) gates path 1; it is re-checked immediately before each
+ *                context.md writeFileSync to minimize TOCTOU. stageWrapPending
+ *                stages a .agentic/wrap-pending.json marker (atomic tmp+rename,
+ *                NORMATIVE schema in content/commands/wrap.md) so the next session
+ *                can complete enrichment for an un-wrapped session; staging is
+ *                suppressed when the current session_id equals .agentic/.last-wrap
+ *                (this session already wrapped), when a live marker already exists
+ *                (status pending/in_progress), or when the session had no
+ *                substantive activity. Staging is fail-open and never blocks exit.
  *
  * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout).
  *              Synchronous I/O throughout; runs as a short-lived CLI process.
@@ -597,6 +624,175 @@ function writePendingBuffer(cwd, sessionId) {
   }
 }
 
+// keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+/**
+ * Return true when a /wrap holds the lock at .agentic/wrap.lock.
+ * Note: .agentic/wrap.lock is a DIRECTORY (atomic `mkdir` lock); fs.existsSync
+ * resolves directories, so this works for the directory lock.
+ * Fail-open: any error (unreadable path, permission) is treated as not-held so
+ * the hook never crashes and never wrongly suppresses its own writes.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @returns {boolean} true if the lock is present, false otherwise.
+ */
+function wrapLockHeld(cwd) {
+  try { return fs.existsSync(path.join(cwd, '.agentic', 'wrap.lock')); }
+  catch (_) { return false; } // fail-open: treat unreadable as not-held
+}
+
+/**
+ * Append one spillover record to .agentic/.stop-deferred-activity.jsonl.
+ * Called only when wrapLockHeld(cwd) is true and a context.md write was therefore
+ * skipped; the background enrichment drains this file into the context.md activity
+ * block when it next writes (inside the held Part-A lock). Append-only, fail-open.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {object} record - Spillover record (NORMATIVE schema in wrap.md).
+ */
+function appendSpilloverRecord(cwd, record) {
+  try {
+    const agenticDir = path.join(cwd, '.agentic');
+    fs.mkdirSync(agenticDir, { recursive: true });
+    const spilloverPath = path.join(agenticDir, '.stop-deferred-activity.jsonl');
+    fs.appendFileSync(spilloverPath, JSON.stringify(record) + '\n', 'utf8');
+  } catch (_) {
+    // Silent failure - spillover is best-effort; a missed record is tolerated.
+  }
+}
+
+/**
+ * Read the single-line session_id from .agentic/.last-wrap, or null when absent
+ * or unreadable. Used to suppress marker staging for a session that already
+ * wrapped (its own /wrap wrote .last-wrap). Fully replaces header-date parsing.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @returns {string|null} The last-wrap session_id, or null.
+ */
+function readLastWrap(cwd) {
+  try {
+    const lastWrapPath = path.join(cwd, '.agentic', '.last-wrap');
+    if (!fs.existsSync(lastWrapPath)) return null;
+    const raw = fs.readFileSync(lastWrapPath, 'utf8').trim();
+    return raw || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Return true when a LIVE enrichment marker exists at .agentic/wrap-pending.json.
+ * A marker counts as live when its status is "pending" or "in_progress"; a
+ * "done" or "gave_up" marker (or an absent/unreadable/malformed file) is NOT
+ * live, so staging may proceed. Fail-open: on any read/parse error, returns
+ * false (treat as no live marker) so staging is not wrongly blocked.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @returns {boolean} true if a live marker exists.
+ */
+function liveMarkerExists(cwd) {
+  try {
+    const markerPath = path.join(cwd, '.agentic', 'wrap-pending.json');
+    if (!fs.existsSync(markerPath)) return false;
+    const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+    const status = marker && marker.status;
+    return status === 'pending' || status === 'in_progress';
+  } catch (_) {
+    return false; // fail-open: unreadable/malformed marker is not "live"
+  }
+}
+
+/**
+ * Write context.md, OR spill the activity when a /wrap holds the lock.
+ * Lock-aware: if wrapLockHeld(cwd) is true, the context.md write is skipped and
+ * one spillover record is appended instead (so the enrichment's locked Part-A
+ * merge is not clobbered). The lock is re-checked immediately before the
+ * writeFileSync to minimize the TOCTOU window. Silent-fail on any fs error.
+ * Shared by both context.md write paths (the /wrap-coexistence append and the
+ * normal write) so the lock-gate logic lives in exactly one place.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string} outputPath - Absolute path to context.md.
+ * @param {string} projectDir - Absolute path to the .agentic/ directory.
+ * @param {string} body - The full context.md content to write.
+ * @param {object} spilloverRecord - Record to spill when the lock is held.
+ */
+function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecord) {
+  // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+  if (wrapLockHeld(cwd)) {
+    appendSpilloverRecord(cwd, spilloverRecord);
+    return;
+  }
+  try {
+    fs.mkdirSync(projectDir, { recursive: true });
+    // Re-check immediately before the write to minimize the TOCTOU window.
+    if (wrapLockHeld(cwd)) {
+      appendSpilloverRecord(cwd, spilloverRecord);
+    } else {
+      fs.writeFileSync(outputPath, body, 'utf8');
+    }
+  } catch (_) {
+    // Silent failure
+  }
+}
+
+/**
+ * Stage a .agentic/wrap-pending.json enrichment marker (atomic tmp+rename) so
+ * the next session in this project can complete enrichment for a session that
+ * exited un-wrapped. NORMATIVE marker schema lives in content/commands/wrap.md.
+ *
+ * Staging predicate (all must hold): (a) no live marker already exists, AND
+ * (b) the current session_id does NOT match .agentic/.last-wrap (this session
+ * has not already wrapped), AND (c) the session had substantive activity
+ * (>=1 uncommitted tracked file OR >=1 non-read file path referenced OR a
+ * non-empty recent-focus). Uses only already-computed scan vars - no new git
+ * or subprocess calls. Fail-open and never blocks process.exit(0).
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string|null} sessionId - Current session uuid from the Stop payload.
+ * @param {{uncommittedCount: number, pathsReferencedCount: number,
+ *          recentFocusCount: number}} scan - Already-computed activity counts.
+ */
+function stageWrapPending(cwd, sessionId, scan) {
+  try {
+    // M3 parity: reject traversal cwd before any path join.
+    const resolvedCwd = path.resolve(cwd);
+    if (resolvedCwd !== cwd) return;
+
+    // Predicate (b): suppress if this session already wrapped.
+    if (sessionId && readLastWrap(cwd) === sessionId) return;
+
+    // Predicate (a): suppress if a live marker already exists.
+    if (liveMarkerExists(cwd)) return;
+
+    // Predicate (c): require substantive activity.
+    const substantive = scan.uncommittedCount >= 1
+      || scan.pathsReferencedCount >= 1
+      || scan.recentFocusCount >= 1;
+    if (!substantive) return;
+
+    const marker = {
+      schema_version: 1,
+      session_id: sessionId,
+      staged_at: new Date().toISOString(),
+      status: 'pending',
+      claimed_by: null,
+      claimed_at: null,
+      attempts: 0,
+      project_root: cwd,
+      last_error: null,
+    };
+
+    const agenticDir = path.join(cwd, '.agentic');
+    fs.mkdirSync(agenticDir, { recursive: true });
+    const markerPath = path.join(agenticDir, 'wrap-pending.json');
+    const tmpPath = markerPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(marker, null, 2), 'utf8');
+    fs.renameSync(tmpPath, markerPath);
+  } catch (_) {
+    // Silent failure - staging is best-effort; never blocks exit.
+  }
+}
+
 function run() {
   // --- 1. Read stdin ---
   let raw = '';
@@ -758,6 +954,32 @@ function run() {
     ? uncommittedFilesLimited.map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`).join('\n')
     : '(working tree clean)';
 
+  // --- 8b. Deferred-wrap inputs (lock-aware skip + marker staging) ---
+  // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+  // The spillover record (NORMATIVE schema in content/commands/wrap.md) is built
+  // from the already-computed scan vars - no new git/subprocess calls. It is
+  // appended only when wrapLockHeld(cwd) is true and the context.md write is
+  // therefore skipped. spilloverScan carries the substantive-activity counts the
+  // marker-staging predicate needs.
+  const pathsReferencedArr = [...filePaths].sort();
+  const uncommittedArr = uncommittedFilesLimited.map(
+    ({ statusCode, filePath }) => `${statusCode} ${filePath}`
+  );
+  const spilloverRecord = {
+    schema_version: 1,
+    ts: new Date().toISOString(),
+    session_id: sessionId,
+    recent_focus: recentUserMessages,
+    paths_referenced: pathsReferencedArr,
+    uncommitted: uncommittedArr,
+    tools_used: uniqueTools,
+  };
+  const spilloverScan = {
+    uncommittedCount: uncommittedFiles.length,
+    pathsReferencedCount: filePaths.size,
+    recentFocusCount: recentUserMessages.length,
+  };
+
   const content = `# Session Context
 *Auto-updated by Stop hook — ${dateStr}. Overwritten each turn. Not committed to git.*
 *Project: ${cwd}*
@@ -808,12 +1030,8 @@ ${uncommittedChangesLines}
 ### Tools Used
 ${toolsLine}
 `;
-      try {
-        fs.mkdirSync(projectDir, { recursive: true });
-        fs.writeFileSync(outputPath, wrapContent + activityBlock, 'utf8');
-      } catch (_) {
-        // Silent failure
-      }
+      // Lock-aware context.md write: skip + spill while a /wrap holds the lock.
+      writeContextMdOrSpill(cwd, outputPath, projectDir, wrapContent + activityBlock, spilloverRecord);
       // M1: write loop-state on ALL exit paths, including the wrap-coexistence path.
       writeLoopState(cwd);
       // Mirror to batch-state.json (sibling envelope; ordered after loop-state
@@ -848,7 +1066,13 @@ ${toolsLine}
         } else {
           // Provisional or no identity: pending buffer
           writePendingBuffer(cwd, sessionId);
-          if (!identity) {
+          // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+          // The identity nudge is a context.md writer; defer it while a /wrap
+          // holds the lock so the locked Part-A merge is not clobbered. The
+          // sentinel is consumed atomically with the nudge, so skipping both
+          // here means the one-time nudge fires on a later unlocked session
+          // rather than being lost.
+          if (!identity && !wrapLockHeld(cwd)) {
             // No identity at all: also nudge once
             const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
             try {
@@ -865,6 +1089,9 @@ ${toolsLine}
         // Silent failure - never block session exit
       }
       removeLearningsAgentSession(cwd, sessionId);
+      // Stage the wrap-pending marker (after the context.md decision, on every
+      // exit path). Fail-open; never blocks exit.
+      stageWrapPending(cwd, sessionId, spilloverScan);
       process.exit(0);
     }
   } catch (_) {
@@ -872,12 +1099,8 @@ ${toolsLine}
   }
 
   // --- 10. Write file (silent failure on any error) ---
-  try {
-    fs.mkdirSync(projectDir, { recursive: true });
-    fs.writeFileSync(outputPath, content, 'utf8');
-  } catch (_) {
-    // Silent failure
-  }
+  // Lock-aware context.md write: skip + spill while a /wrap holds the lock.
+  writeContextMdOrSpill(cwd, outputPath, projectDir, content, spilloverRecord);
 
   // --- 11. Write interrupted status to loop-state.json if an active loop exists ---
   // Delegated to writeLoopState() which is also called from the wrap-coexistence
@@ -921,7 +1144,11 @@ ${toolsLine}
     } else {
       // Provisional or no identity: pending buffer
       writePendingBuffer(cwd, sessionId);
-      if (!identity) {
+      // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+      // Defer the identity nudge (a context.md writer) while a /wrap holds the
+      // lock; the sentinel is consumed atomically with the nudge, so skipping
+      // both defers the one-time nudge to a later unlocked session.
+      if (!identity && !wrapLockHeld(cwd)) {
         // No identity at all: also nudge once
         const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
         try {
@@ -940,6 +1167,12 @@ ${toolsLine}
 
   // --- 14. Remove learnings-agent session marker if owned by this session ---
   removeLearningsAgentSession(cwd, sessionId);
+
+  // --- 15. Stage the wrap-pending marker (deferred-wrap safety-net) ---
+  // Runs after the context.md decision, on this exit path. Fail-open; never
+  // blocks exit. Staged only when no live marker exists, this session has not
+  // already wrapped (.last-wrap), and the session had substantive activity.
+  stageWrapPending(cwd, sessionId, spilloverScan);
 
   process.exit(0);
 }
