@@ -10,6 +10,28 @@ The Stop hook auto-writes `<cwd>/.agentic/context.md` after every turn with raw 
 
 **Relationship to `wrap-ticket`.** `/wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/context.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `/implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/context.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, context.md) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `/wrap` MUST NOT run concurrently — both acquire `.agentic/wrap.lock`. If `/wrap` is invoked while `wrap-ticket` holds the lock, `/wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `/wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
 
+## SessionStart auto-enrichment (conductor protocol)
+
+This is a conductor protocol that runs at session start, not a step in the on-demand `/wrap` flow and not a separate agent. It completes the deferred enrichment that a prior session staged but did not finish. (A one-line pointer belongs in METHODOLOGY.md §Session Context and Memory: "On session start, after reading `.agentic/context.md`, run the SessionStart auto-enrichment + drain sweep in `content/commands/wrap.md`.")
+
+**On session start, after reading `.agentic/context.md`:**
+
+1. **Drain-temp sweep (fail-open).** Run `rm -f .agentic/.stop-deferred-activity.jsonl.draining.*` to clean any spillover-drain temp file leaked by a crash between the rename and unlink steps of a prior Part A drain. This is best-effort; ignore any error and continue.
+
+2. **Marker check + claim.** Read `.agentic/wrap-pending.json`. Claim and run enrichment when EITHER:
+   - `status: pending`, OR
+   - `status: in_progress` AND `claimed_at` is older than the staleness window AND `.agentic/wrap.lock` is absent (the prior claimant crashed or stalled).
+
+   To claim, atomically (tmp + rename) set `status: in_progress`, `claimed_by: <this session_id>`, `claimed_at: <now, ISO8601 UTC>`, and increment `attempts` by 1. `attempts` increments at claim time (before enrichment begins) so a crash mid-enrichment still counts toward the give-up budget. If `attempts` would reach 3 or more, do NOT claim for a normal run: set `status: gave_up`, `last_error: <short reason>`, retain the marker, and surface the manual-`/wrap` notice (see Step 6 give-up branch). Do NOT claim a marker already `status: done`/`gave_up`.
+
+3. **Run the Enrichment Pipeline in the background.** Dispatch the same Enrichment Pipeline that `/wrap` runs (draft Worker -> conductor arranges Skeptic -> inline Part A/B/C writes -> Part E compression -> Step 6 terminal transition), all with `run_in_background: true`. Stay responsive to the user's prompts while it runs - the conductor does not block on it.
+
+4. **Terminal transition** is handled by the pipeline's Step 6 (marker `status: done` then unlink on full success; `gave_up` retained on `attempts >= 3`).
+
+**Staleness window: 60 minutes (advisory).** A claim of an `in_progress` marker is allowed only when `claimed_at` is older than 60 minutes AND `wrap.lock` is absent. This is intentionally WIDER than the 30-minute `wrap.lock` staleness heuristic above, because a background enrichment can legitimately run longer than a single lock-held window (the lock is held only in the brief Part A window; the rest of the pipeline runs unlocked and may take minutes). The window is advisory, not a correctness invariant: a too-eager reclaim only causes a duplicate run, which idempotency makes wasteful-not-corrupting.
+
+**Idempotency is the correctness guarantee.** Two sessions racing to claim the same marker is tolerated - the loser also runs, and idempotency (context.md merge dedups via the Recent-Focus `session_id`+`staged_at` dedup rule; `.agentic/memory.md`/`AGENTS.md` are single-writer and their dedup passes are idempotent; root `MEMORY.md`/`.agentic/learnings.md` are append-dedup) makes the double-run wasteful but never corrupting. `claimed_at` + the staleness window exist only to make that race rare.
+
 ## Your job (main agent)
 
 **Pre-flight scaffold-accuracy check** (runs BEFORE Step 0). `/init-project` is the canonical scaffolding spec; /wrap uses it as the reference for "what this project should look like." Check for drift and auto-migrate the critical items inline:
@@ -64,17 +86,99 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 
 The 30-minute staleness heuristic exists because a crashed or force-killed /wrap may leave the lock dir behind. The timestamp backstop is the reliable signal; PID checks are omitted because Claude Code process hierarchies make `ps -p` results unreliable.
 
-**Lock release is mandatory on every exit path.** The lock dir MUST be removed (`rm -rf <cwd>/.agentic/wrap.lock`) before /wrap returns control to the user, on ALL of:
-- successful completion at Step 6;
-- escalation to the user at Step 3 (format re-invocation limit or contested finding);
-- compression failure or escalation at Part E;
-- any user-abort path (e.g. drift requiring input, Skeptic scope bail).
+**Lock release is mandatory on every exit path.** Because the lock is now held only around the narrow Part A `context.md` window (see the Enrichment Pipeline "Lock strategy"), in the common case it is acquired and released entirely within Part A. The lock dir MUST be removed (`rm -rf <cwd>/.agentic/wrap.lock`) before any path that holds it returns or exits, on ALL of:
+- completion of the Part A `context.md` write (the lock's normal release point, immediately after writing `.agentic/.last-wrap`);
+- successful completion at Step 6 (defensive release - a no-op if Part A already released);
+- escalation to the user at Step 3 (format re-invocation limit or contested finding) - release only if the lock is currently held;
+- compression failure or escalation at Part E - Part E holds no lock, but release defensively if held from a prior Part A;
+- any user-abort path (e.g. drift requiring input, Skeptic scope bail) - release only if held.
 
-If /wrap aborts before the lock is acquired (e.g. at the active-Workers check above, or because a live or stale lock was detected and the command aborted without acquiring), no lock was acquired and no release is needed.
+If /wrap aborts before the lock is acquired (e.g. at the active-Workers check above, before Part A, or because a live or stale lock was detected and the command aborted without acquiring), no lock was acquired and no release is needed.
 
 **Pre-flight path check:** Confirm `<cwd>/.agentic/` exists or can be created. The /wrap skill now writes project-local under `<cwd>/.agentic/` instead of the legacy `~/.claude/projects/[hash]/` hashed directories. No disambiguation needed - one canonical location per project.
 
+## Deferred-enrichment data model
+
+This section is the single source of truth for the on-disk artifacts that drive async-by-default `/wrap` and SessionStart auto-enrichment. Every other unit (the Stop hook `hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the conductor's SessionStart auto-enrichment protocol below) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename) and umbrella-ignored by `.agentic/*`.
+
+**1. `.agentic/wrap-pending.json` (the enrichment marker).** Staged when a session has substantive un-wrapped work, so the next session in that project completes enrichment idempotently. Schema:
+
+    {
+      "schema_version": 1,
+      "session_id": "<uuid of the session that staged the marker>",
+      "staged_at": "<ISO8601 UTC, immutable>",
+      "status": "pending | in_progress | done | gave_up",
+      "claimed_by": "<uuid of the session currently running enrichment, or null>",
+      "claimed_at": "<ISO8601 UTC of last claim, or null>",
+      "attempts": "<int, 0..3>",
+      "project_root": "<absolute cwd>",
+      "last_error": "<short string or null>"
+    }
+
+- `status` lifecycle: `pending` (staged, unclaimed) -> `in_progress` (claimed, enrichment running) -> `done` (completed; marker then unlinked) | `gave_up` (`attempts >= 3`; marker retained with a manual-`/wrap` notice).
+- `staged_at` is immutable. `claimed_at` plus a staleness window are a wastefulness reducer, not a correctness invariant (see Lock strategy in the Enrichment Pipeline below) - they make a double-claim rare, never impossible; idempotency is what makes a double-run safe.
+- `attempts` increments at claim time, before enrichment begins, so a crash mid-enrichment still counts toward the give-up budget.
+
+**2. `.agentic/.last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `/wrap` (sync or background enrichment) last successfully wrote `context.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `.last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).
+
+**3. `.agentic/.stop-deferred-activity.jsonl` (the spillover log).** Append-only JSONL, one record per Stop-hook (or OpenCode-idle) invocation that found `wrap.lock` held and therefore skipped its `context.md` write. Drained into the `context.md` activity block by the enrichment flow during its Part A write (atomic three-step drain, see the Enrichment Pipeline below). Record schema:
+
+    {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
+
+**Pinned header prefix (NORMATIVE).** Exactly one byte-exact prefix is the contract between writer and matcher:
+
+    # Session Context\n*Written by /wrap
+
+This is what `hooks/stop-context.js:788` and `.opencode/plugins/session-context.ts:449` test via `startsWith`, and what every `/wrap` Output-1 / merge write must emit as its first two lines. The on-disk header date is a UTC calendar date (`date -u +%Y-%m-%d`); the header STRING does NOT contain the "UTC" literal - it stays `*Written by /wrap on YYYY-MM-DD. ...` exactly as the Output-1 template (Step 1) reads. The matcher only tests the pinned prefix (which stops before the date), so the date format and the absence of the "UTC" literal are both compatible. The Part A merge rule (the "(merged context)" header rewrite) appends after the date and is outside the pinned prefix - it stays. The rolling-session-label merge (Part A) is preserved unchanged.
+
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
+
+**Step 0a — Stage the resume safety-net** (runs BEFORE Step 0; default and `--sync` paths both run it).
+
+`/wrap` is async by default: it returns control within seconds and finishes enrichment in the background. Because an async run can exit before its Part A `context.md` write completes, stage a recovery marker first so the next session in this project can complete enrichment idempotently if this one is interrupted.
+
+Stage `<cwd>/.agentic/wrap-pending.json` (atomic tmp + rename) per the schema in the Deferred-enrichment data model section, with:
+
+- `schema_version: 1`, `session_id: <this session_id>`, `staged_at: <now, ISO8601 UTC>`, `status: "pending"`, `claimed_by: null`, `claimed_at: null`, `attempts: 0`, `project_root: <absolute cwd>`, `last_error: null`.
+
+If a live marker already exists for this project (status `pending` or `in_progress`), do NOT overwrite it - this session will claim and run it via the Enrichment Pipeline rather than staging a second one. A marker with `status: done`/`gave_up` is not live; overwrite it.
+
+**Step 0a does NOT write `.agentic/.last-wrap`.** `.last-wrap` is written only after a successful Part A `context.md` write (see the Enrichment Pipeline, Part A). Writing it here would suppress this very session's own recovery marker on the next Stop-hook fire.
+
+**Step 0b — Route early (light / zero-substance run inline; standard goes async).**
+
+Run the Step 0.5 routing decision now, before any async dispatch, using the raw data the conductor already holds in context (compile a quick survey per Step 0 if needed to make the call). Routing is unchanged from today - only its position moved earlier so the dispatch decision in Step 0c can use it:
+
+- **Zero-substance** or **light** path: run INLINE and synchronously per their procedures in Step 0.5 (they are already cheap - no draft Worker, no Skeptic, or a single inline draft). Do NOT defer these. On a zero-substance run there is nothing to enrich, so unlink the Step 0a marker (`status: done` then unlink) as part of the zero-substance procedure. On a light run, after the inline Part A `context.md` write completes and `.last-wrap` is updated, unlink the Step 0a marker.
+- **Standard** path: proceed to Step 0c (async dispatch). Only the standard path runs the full draft -> Skeptic -> Part B/C/E Enrichment Pipeline, and only it benefits from running in the background.
+
+**Step 0c — Async dispatch (default) or synchronous fallback (`--sync`).**
+
+**Default (async).** The Step 0a marker is already staged. Dispatch the Enrichment Pipeline (below) to run in the background within the conductor's session: spawn each pipeline agent with `run_in_background: true`, return control to the user immediately with a one-line staging confirmation ("Session context staging started; enrichment is running in the background and will finish shortly. Marker: `.agentic/wrap-pending.json`."), and stay responsive to further prompts. The pipeline drives itself to completion and performs the terminal marker transition (Step 6).
+
+**`--sync`.** When the user invokes `/wrap --sync`, skip async dispatch and run the Enrichment Pipeline inline and blocking - today's fully-synchronous behavior, byte-for-byte. The same narrow Part-A lock window applies; the only difference from the default is that the conductor does not return control until Step 6 completes.
+
+**Same-session coalesce.** If a background enrichment is already in-flight for THIS session (the conductor knows it dispatched one in Step 0c that has not yet reached its Step 6 terminal transition), a fresh manual `/wrap` (default or `--sync`) does NOT launch a second pipeline. It coalesces with a one-line notice: "Background enrichment already running for this session; it will complete shortly." This is safe because the narrow Part-A-only lock means a second run would in nearly all cases find the lock free and race the first run's context.md merge; coalescing avoids the wasted double-run entirely. (A duplicate run across DIFFERENT sessions is still tolerated by idempotency - see the Enrichment Pipeline.)
+
+**Enrichment Pipeline** (invoked by `--sync`, by the default async dispatch in Step 0c, and by the next-session auto-trigger in the SessionStart auto-enrichment protocol).
+
+The pipeline is the body formerly numbered Steps 1-4 + Part E. It runs as: draft Worker (Step 1) -> conductor arranges a fresh Skeptic (Steps 2-3) -> inline writes (Step 4 Parts A-C) -> compression (Part E) -> terminal marker transition (Step 6). Each agent spawn in the pipeline sets `run_in_background: true`. When the pipeline is dispatched async, the conductor orchestrates these background spawns while staying responsive; when invoked via `--sync` it runs the same spawns and blocks until Step 6.
+
+**Lock strategy (CRITICAL - narrow Part-A-only hold).** Acquire `<cwd>/.agentic/wrap.lock` (per the Pre-flight lock acquisition protocol above) ONLY around the Part A `context.md` read-merge-write window - NOT around the whole flow. The draft Worker, the Skeptic, Part B (`.agentic/memory.md`), Part C (`AGENTS.md`), and Part E compression all run with NO lock held, because those files are single-writer (`/wrap` only) and cannot be clobbered by another actor. `context.md` is the sole genuinely-contended document (the Stop hook and the OpenCode plugin also write it); the narrow lock serializes only the enrichment's `context.md` write against those two hooks, which are lock-aware (they skip + spill while the lock is held). Correctness everywhere else rests on idempotency, not on holding the lock.
+
+Inside the Part A locked window, in this exact order:
+
+1. **Atomic spillover drain** (three steps; rename-first prevents loss of a record a hook appended just before the lock was observed):
+   - `rename(.agentic/.stop-deferred-activity.jsonl -> .agentic/.stop-deferred-activity.jsonl.draining.<pid>)`. Atomic. Any hook append after this rename creates a fresh `.stop-deferred-activity.jsonl` belonging to the next drain - not lost.
+   - Read the renamed copy's records and fold them into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance; the block header reflects the enrichment session).
+   - `unlink(.agentic/.stop-deferred-activity.jsonl.draining.<pid>)`.
+2. **Rolling-session-label merge write** of `.agentic/context.md` (the existing Part A logic, unchanged - see Part A below).
+3. **Write `.agentic/.last-wrap`** = this session's `session_id` (atomic).
+4. **Release the lock** (`rm -rf .agentic/wrap.lock`) as the last action of the window.
+
+**Recent-Focus dedup rule (idempotency for a duplicate claim).** Key the folded Recent-Focus draft by the marker's `session_id` + `staged_at`. Before appending the new draft under a fresh session label in the rolling-label merge (Part A), check whether a draft for this same `session_id`+`staged_at` has already been folded under an existing label. If it has (a re-run of the same marker, e.g. two sessions both claimed it), SKIP the append rather than adding a duplicate label. This makes the rolling-label merge idempotent on a duplicate claim - a second enrichment of the same marker produces no second label - satisfying the idempotency guarantee (a duplicate run is wasteful, not corrupting).
+
+**Part E invariant (explicit).** Part E compresses ONLY `.agentic/memory.md` (the Part B target) and `[cwd]/CLAUDE.md`. Part E NEVER touches `context.md` - `context.md` is written exclusively by Part A and is never a compression target.
 
 **Step 0 — Compile session data** (inline, no subagent needed).
 
@@ -111,7 +215,7 @@ This raw data is what the draft Worker will format. The Worker is a fresh agent 
 
 **Step 0.5 - Route to light, zero-substance, or standard path.**
 
-Inspect what Outputs 2 and 3 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet.
+This is the routing decision invoked early by Step 0b (the procedures below are unchanged; only their invocation point moved earlier so async dispatch in Step 0c can use the routing result). Inspect what Outputs 2 and 3 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet. The standard path is the only path that goes async (Step 0c); light and zero-substance run inline per Step 0b.
 
 **Zero-substance path** - triggers when ALL of the following hold:
 - Output 2 (memory entries) would be "None"
@@ -313,6 +417,8 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 **Part A — Write context.md**
 
+**Lock window (NORMATIVE).** Part A is the ONLY part of the flow that holds `wrap.lock`. Acquire the lock immediately before step 1 below, perform the atomic spillover drain (Enrichment Pipeline, step 1) -> the read-merge-write below -> write `.agentic/.last-wrap` = this `session_id`, then release the lock as the last action. Parts B, C, and E run with no lock held. See the Enrichment Pipeline "Lock strategy" above for the full ordering. The merged write below always begins with the pinned header prefix `# Session Context\n*Written by /wrap` (the matcher contract); no site parses the header date.
+
 1. Use the Read tool to attempt to read the file at the output path computed above.
 
 2. **If the file does not exist** (Read returns a file-not-found error): write the new draft content directly to the output path. Return: "Wrote fresh context to [path] (no existing file)."
@@ -324,6 +430,8 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 Note: "second line" means the literal second line of the file. A `/wrap`-produced file always starts with `# Session Context` on line 1 and `*Written by /wrap on ...` on line 2.
 
 **Merge step:**
+
+**Duplicate-claim dedup (idempotency).** Before assigning a new session label below, apply the Recent-Focus dedup rule from the Enrichment Pipeline: key the new draft by the marker's `session_id` + `staged_at`; if a draft for this same `session_id`+`staged_at` has already been folded under an existing label (a re-run of the same marker across two sessions), SKIP the append entirely - do not add a new label, do not roll the window. The rest of Part A (Part B/C/E gating, `.last-wrap` write) still proceeds. This makes a duplicate enrichment of the same marker wasteful but non-corrupting.
 
 First, check how many session labels are already present in the existing file's Recent Focus section.
 
@@ -390,9 +498,11 @@ Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file wri
 
 Skip Part E entirely if Parts B and C both reported no changes (no new memory entries, no AGENTS.md updates). Nothing changed this session - no need to recompress. Part A always writes context.md and is not a signal of session-meaningful change.
 
-**Targets:**
+**Targets (INVARIANT):**
 - The `memory.md` file written by Part B (same absolute path computed in Step 4).
 - `[cwd]/CLAUDE.md` if it exists at the project root.
+
+Part E compresses ONLY these two targets. Part E NEVER touches `.agentic/context.md` - context.md is written exclusively by Part A (under the narrow lock) and is never a compression input or output. Part E runs with no lock held (both targets are single-writer `/wrap`).
 
 Skip any target that does not exist.
 
@@ -461,11 +571,20 @@ Otherwise skip that target silently.
 
 If the project is a git repository with a `/cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
 
-**Step 6 — Confirm completion.**
+**Step 6 — Terminal marker transition + confirm completion.**
 
-Release the pre-flight lock: `rm -rf <cwd>/.agentic/wrap.lock`. This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
+**Lock release (defensive).** `rm -rf <cwd>/.agentic/wrap.lock` if the lock is still held. In the common path the lock was already released at the end of the Part A window; this is a no-op backstop that must run before returning, regardless of whether any prior step reported "skipped" or "nothing to do".
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`). Also include the cleanup summary if Step 5 ran.
+**Terminal marker transition (cleared on full success only).** The `.agentic/wrap-pending.json` marker is the resume safety-net staged in Step 0a (or claimed from a prior session via the SessionStart auto-enrichment protocol). Transition it ONLY at true completion of the Enrichment Pipeline:
+
+- **Full success** (context.md written + Part B/C applied + Part E settled, no escalation outstanding): set the marker `status: done`, then unlink `.agentic/wrap-pending.json`. The marker is cleared on full success only - a partial or escalated run leaves it in place so a later session reclaims it.
+- **Give-up** (`attempts >= 3` reached during a claim, see the SessionStart auto-enrichment protocol): set `status: gave_up` and `last_error: <short reason>`; RETAIN the marker. Surface a one-line manual-`/wrap` notice to the user ("Background enrichment gave up after 3 attempts; run `/wrap --sync` to complete it manually. See `.agentic/wrap-pending.json`.").
+- **Light / zero-substance inline run** (Step 0b): the marker was already unlinked in Step 0b - no transition needed here.
+
+**Confirmation - branch by sync vs deferred.**
+
+- **`--sync` (or any inline pipeline run):** relay confirmation to the user now. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done`/`gave_up`), and the cleanup summary if Step 5 ran.
+- **Async (default) run:** the user already received the Step 0c staging confirmation and control was returned then. At pipeline completion, relay a brief background-completion notice with the same path list and marker outcome ("Background session-context enrichment finished. Wrote: ... Marker cleared (`done`)."). If the user has moved on, this is an informational update, not a prompt.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
