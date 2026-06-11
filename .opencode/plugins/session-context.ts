@@ -40,7 +40,11 @@
  *                Finalization writes (loop-state, batch-state,
  *                events.jsonl) run only on /wrap completion via
  *                command.executed and are independent and best-effort: a
- *                failure in one does not affect the others. A diagnostic
+ *                failure in one does not affect the others. This
+ *                per-session-once invariant for the three finalization
+ *                writes is UNCHANGED by the deferred-wrap lock work: they
+ *                stay command.executed-exclusive and must never fire on
+ *                session.idle (which runs every turn). A diagnostic
  *                session.prompt (noreply: true) fires once on /wrap. The
  *                prompt is fire-and-forget (no await) so it cannot block
  *                the handler even if delivery hangs. cwd values with
@@ -49,6 +53,23 @@
  *                for session_total relies on the user invoking /wrap;
  *                OpenCode does not expose a guaranteed shutdown hook from
  *                plugins.
+ *
+ *                Deferred-wrap lock awareness (mirrors hooks/stop-context.js):
+ *                both context.md write sites — the /wrap-coexistence refresh
+ *                (refreshWrapActivityBlock) and the session.idle normal write
+ *                — are gated by wrapLockHeld(cwd) via the shared
+ *                writeContextOrSpill helper. When .agentic/wrap.lock is held
+ *                (a background or --sync /wrap is in its Part A context.md
+ *                window), the plugin SKIPS its context.md write and instead
+ *                appends one record to .agentic/.stop-deferred-activity.jsonl
+ *                (append-only spillover, drained by the enrichment flow). The
+ *                shared helper covers the context.md write decision ONLY; it
+ *                does NOT carry the three finalization writes. Marker-staging
+ *                (.agentic/wrap-pending.json) is suppressed when the current
+ *                session_id matches .agentic/.last-wrap (this session already
+ *                wrapped). Every lock-aware path is fail-open: an unreadable
+ *                lock is treated as not-held, and a spillover/marker write
+ *                failure is logged and swallowed.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
  *              slightly heavier on /wrap completion (multiple writes, one
@@ -364,17 +385,16 @@ export const SessionContextPlugin: Plugin = async ({
   }
 
   /**
-   * Build the activity block markdown from accumulated in-memory state plus
-   * a fresh git status read. Returns the full block including the leading
-   * sentinel. Used by both the session.idle handler and the /wrap
-   * finalization path.
+   * Detect tracked uncommitted changes via `git status --porcelain`.
+   * Untracked files (status `??`) are excluded, matching the activity-block
+   * and spillover contracts. Returns at most `limit` entries. Fail-open:
+   * returns an empty array if git is unavailable or the cwd is not a repo.
+   * Shared by buildActivityBlock and the spillover-record path so both report
+   * uncommitted changes identically.
    */
-  async function buildActivityBlock(
-    cwd: string,
-    dateStr: string,
-    attribution: string,
-  ): Promise<string> {
-    // Detect uncommitted changes via git status --porcelain
+  async function collectUncommitted(
+    limit = 30,
+  ): Promise<Array<{ statusCode: string; filePath: string }>> {
     const uncommittedFiles: Array<{ statusCode: string; filePath: string }> =
       [];
     try {
@@ -393,7 +413,202 @@ export const SessionContextPlugin: Plugin = async ({
     } catch (err: any) {
       await log("warn", "git status failed", { error: err.message });
     }
-    const uncommittedFilesLimited = uncommittedFiles.slice(0, 30);
+    return uncommittedFiles.slice(0, limit);
+  }
+
+  // keep in sync with hooks/stop-context.js — deferred-wrap lock-gate
+  /**
+   * True if .agentic/wrap.lock is present (a background or --sync /wrap is in
+   * its Part A context.md window). Mirrors hooks/stop-context.js wrapLockHeld.
+   * The lock is a directory created via `mkdir .agentic/wrap.lock`; an
+   * existence check on the path covers it. Fail-open: an unreadable lock is
+   * treated as not-held so a lock-check error never blocks a context.md write.
+   */
+  async function wrapLockHeld(cwd: string): Promise<boolean> {
+    try {
+      return await Bun.file(path.join(cwd, ".agentic", "wrap.lock")).exists();
+    } catch (_) {
+      return false; // fail-open: treat unreadable as not-held
+    }
+  }
+
+  /**
+   * Append one spillover record to .agentic/.stop-deferred-activity.jsonl when
+   * wrapLockHeld skipped a context.md write. Mirrors the Stop hook's spillover
+   * path. The record follows the NORMATIVE schema (architect-plan §Data model
+   * artifact 3); the enrichment flow drains and folds these into the context.md
+   * activity block at its Part A write. recent_focus uses the same placeholder
+   * as the activity block — OpenCode cannot capture user messages. Append-only
+   * and fail-open: a write failure is logged and swallowed.
+   */
+  async function appendSpilloverRecord(
+    cwd: string,
+    sessionId: string | null,
+  ): Promise<void> {
+    const spilloverPath = path.join(
+      cwd,
+      ".agentic",
+      ".stop-deferred-activity.jsonl",
+    );
+    try {
+      const uncommitted = (await collectUncommitted()).map(
+        ({ statusCode, filePath }) => `${statusCode} ${filePath}`,
+      );
+      const record = {
+        schema_version: 1,
+        ts: new Date().toISOString(),
+        session_id: sessionId,
+        recent_focus: [RECENT_MESSAGES_PLACEHOLDER],
+        paths_referenced: [...filePaths].sort(),
+        uncommitted,
+        tools_used: [...toolsUsed].sort(),
+      };
+      await appendFile(spilloverPath, JSON.stringify(record) + "\n");
+      await log("info", "Appended spillover record (wrap.lock held)", {
+        spilloverPath,
+      });
+    } catch (err: any) {
+      await log("warn", "Failed to append spillover record", {
+        spilloverPath,
+        error: err.message,
+      });
+    }
+  }
+
+  /**
+   * Read the .agentic/.last-wrap sentinel — the session_id of the session
+   * whose /wrap last successfully wrote context.md. Single trimmed line.
+   * Returns null if absent or unreadable (fail-open). Mirrors the Stop hook's
+   * .last-wrap read used for marker-staging suppression.
+   */
+  async function readLastWrap(cwd: string): Promise<string | null> {
+    try {
+      const file = Bun.file(path.join(cwd, ".agentic", ".last-wrap"));
+      if (!(await file.exists())) return null;
+      const raw = (await file.text()).trim();
+      return raw.length > 0 ? raw : null;
+    } catch (_) {
+      return null; // fail-open
+    }
+  }
+
+  /**
+   * Stage the .agentic/wrap-pending.json resume safety-net marker (atomic
+   * tmp+rename), mirroring the Stop hook's marker-staging contract. Staged
+   * only when ALL hold: (a) no live marker exists (absent, or status
+   * done/gave_up), (b) the current session_id does NOT match .agentic/.last-wrap
+   * (this session already wrapped — suppress), and (c) the session had
+   * substantive activity (>=1 uncommitted tracked file OR >=1 referenced file
+   * path; recent-focus is always the OpenCode placeholder, so it is not a
+   * substantive signal here). Fail-open and never throws: a staging failure is
+   * logged and swallowed so it cannot disturb the idle handler.
+   */
+  async function stageWrapPendingMarker(
+    cwd: string,
+    sessionId: string | null,
+  ): Promise<void> {
+    try {
+      // (b) .last-wrap suppression: do not stage if this session already wrapped.
+      const lastWrap = await readLastWrap(cwd);
+      if (sessionId && lastWrap && lastWrap === sessionId) {
+        await log("info", "Marker staging suppressed (.last-wrap match)", {
+          sessionId,
+        });
+        return;
+      }
+
+      const markerPath = path.join(cwd, ".agentic", "wrap-pending.json");
+
+      // (a) Do not overwrite a live marker (pending / in_progress).
+      const markerFile = Bun.file(markerPath);
+      if (await markerFile.exists()) {
+        try {
+          const existing: any = await markerFile.json();
+          const status = existing?.status;
+          if (status !== "done" && status !== "gave_up") {
+            await log("info", "Live wrap-pending marker exists, not restaging", {
+              status,
+            });
+            return;
+          }
+        } catch (_) {
+          // Unparseable marker: treat as live and leave it for manual /wrap.
+          await log("info", "Existing wrap-pending marker unparseable, not restaging");
+          return;
+        }
+      }
+
+      // (c) Substantive-activity gate.
+      const uncommitted = await collectUncommitted();
+      const substantive = uncommitted.length > 0 || filePaths.size > 0;
+      if (!substantive) {
+        await log("info", "No substantive activity, skipping marker staging");
+        return;
+      }
+
+      const marker = {
+        schema_version: 1,
+        session_id: sessionId,
+        staged_at: new Date().toISOString(),
+        status: "pending",
+        claimed_by: null,
+        claimed_at: null,
+        attempts: 0,
+        project_root: cwd,
+        last_error: null,
+      };
+      const tmpPath = markerPath + ".tmp";
+      await Bun.write(tmpPath, JSON.stringify(marker, null, 2));
+      await rename(tmpPath, markerPath);
+      await log("info", "Staged wrap-pending marker", { markerPath });
+    } catch (err: any) {
+      await log("warn", "Failed to stage wrap-pending marker", {
+        error: err.message,
+      });
+    }
+  }
+
+  /**
+   * Shared context.md write decision (MAJOR-1 helper). Gates BOTH the
+   * /wrap-coexistence refresh and the session.idle normal write on
+   * wrapLockHeld. When the lock is held, SKIP the context.md write and append
+   * one spillover record instead; otherwise run `writeFn` (the caller's actual
+   * context.md write). This is the ONLY surface factored across session.idle
+   * and command.executed — the three finalization writes
+   * (writeLoopState/writeBatchState/writeSessionTotal) deliberately stay
+   * command.executed-exclusive and are NOT carried here. Returns true when a
+   * context.md write was performed, false when it was skipped (lock held) or
+   * `writeFn` reported no write (e.g. no /wrap file present).
+   */
+  async function writeContextOrSpill(
+    cwd: string,
+    sessionId: string | null,
+    writeFn: () => Promise<boolean>,
+  ): Promise<boolean> {
+    if (await wrapLockHeld(cwd)) {
+      await log(
+        "info",
+        "wrap.lock held — skipping context.md write, spilling activity",
+        { cwd },
+      );
+      await appendSpilloverRecord(cwd, sessionId);
+      return false;
+    }
+    return writeFn();
+  }
+
+  /**
+   * Build the activity block markdown from accumulated in-memory state plus
+   * a fresh git status read. Returns the full block including the leading
+   * sentinel. Used by both the session.idle handler and the /wrap
+   * finalization path.
+   */
+  async function buildActivityBlock(
+    cwd: string,
+    dateStr: string,
+    attribution: string,
+  ): Promise<string> {
+    const uncommittedFilesLimited = await collectUncommitted(30);
 
     const recentFocus = RECENT_MESSAGES_PLACEHOLDER;
 
@@ -615,34 +830,43 @@ ${toolsLine}
         try {
           const cwd = directory || process.cwd();
           const dateStr = new Date().toISOString().slice(0, 10);
+          const sessionID: string | undefined = props.sessionID;
+          const sid: string | null = sessionID ?? null;
           await log("info", "session.idle event fired", { cwd, date: dateStr });
           await log("info", "Collected session data", {
             pathCount: filePaths.size,
             toolCount: toolsUsed.size,
           });
 
-          // --- /wrap coexistence: refresh activity block if file was written by /wrap ---
-          const wrapHandled = await refreshWrapActivityBlock(
-            cwd,
-            dateStr,
-            "Auto-appended by session idle plugin",
-          );
-          if (wrapHandled) {
-            await log("info", "session.idle processing complete (wrap path)");
-            return;
-          }
+          // Lock-aware context.md write decision (shared with command.executed
+          // via writeContextOrSpill). When wrap.lock is held, this SKIPS the
+          // context.md write and spills one activity record instead. The
+          // wrap-coexistence refresh and the normal write are mutually
+          // exclusive within a single idle invocation, so a single lock check
+          // gating the whole decision spills at most once per turn.
+          await writeContextOrSpill(cwd, sid, async () => {
+            // --- /wrap coexistence: refresh activity block if file was written by /wrap ---
+            const wrapHandled = await refreshWrapActivityBlock(
+              cwd,
+              dateStr,
+              "Auto-appended by session idle plugin",
+            );
+            if (wrapHandled) {
+              await log("info", "session.idle context.md write complete (wrap path)");
+              return true;
+            }
 
-          // --- Normal write (no /wrap file present) ---
-          const projectDir = path.join(cwd, ".agentic");
-          const outputPath = path.join(projectDir, "context.md");
+            // --- Normal write (no /wrap file present) ---
+            const projectDir = path.join(cwd, ".agentic");
+            const outputPath = path.join(projectDir, "context.md");
 
-          const activityBlock = await buildActivityBlock(
-            cwd,
-            dateStr,
-            "Auto-updated by session idle plugin",
-          );
+            const activityBlock = await buildActivityBlock(
+              cwd,
+              dateStr,
+              "Auto-updated by session idle plugin",
+            );
 
-          const content = `# Session Context
+            const content = `# Session Context
 *Auto-updated by session idle plugin — ${dateStr}. Overwritten each turn. Not committed to git.*
 *Project: ${cwd}*
 
@@ -652,16 +876,23 @@ ${RECENT_MESSAGES_PLACEHOLDER}
 ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
 `;
 
-          try {
-            await $`mkdir -p ${projectDir}`;
-            await Bun.write(outputPath, content);
-            await log("info", "Wrote context.md", { outputPath });
-          } catch (err: any) {
-            await log("warn", "Failed to write context.md", {
-              outputPath,
-              error: err.message,
-            });
-          }
+            try {
+              await $`mkdir -p ${projectDir}`;
+              await Bun.write(outputPath, content);
+              await log("info", "Wrote context.md", { outputPath });
+            } catch (err: any) {
+              await log("warn", "Failed to write context.md", {
+                outputPath,
+                error: err.message,
+              });
+            }
+            return true;
+          });
+
+          // Stage the resume safety-net marker, suppressed when this session
+          // already wrapped (.last-wrap match) — mirrors the Stop hook's
+          // marker-staging contract.
+          await stageWrapPendingMarker(cwd, sid);
 
           await log("info", "session.idle processing complete");
         } catch (err: any) {
@@ -699,14 +930,23 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
           // written by /wrap. If the file is missing or lacks the wrap
           // header, skip the activity-block step but still proceed to
           // bookkeeping writes — wrap may have failed to write context.md,
-          // but finalization runs anyway.
-          await refreshWrapActivityBlock(
-            cwd,
-            dateStr,
-            "Auto-appended by /wrap finalization",
-          );
+          // but finalization runs anyway. This context.md decision is the
+          // ONLY surface shared with session.idle via writeContextOrSpill:
+          // when wrap.lock is held it skips the refresh and spills instead.
+          await writeContextOrSpill(cwd, sid, async () => {
+            return refreshWrapActivityBlock(
+              cwd,
+              dateStr,
+              "Auto-appended by /wrap finalization",
+            );
+          });
 
           // The three finalization writes are independent and best-effort.
+          // They stay command.executed-EXCLUSIVE (per-session-once) and are
+          // deliberately NOT inside writeContextOrSpill — they do not touch
+          // context.md and must run regardless of wrap.lock state. Moving them
+          // into the shared helper (or onto session.idle) would corrupt
+          // loop-state/batch-state/events on every turn.
           await writeLoopState(cwd);
           await writeBatchState(cwd, sid);
           await writeSessionTotal(cwd, sid);
