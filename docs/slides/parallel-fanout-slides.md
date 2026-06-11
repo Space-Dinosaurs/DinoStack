@@ -4,39 +4,50 @@ title: Parallel Fan-out
 theme: default
 paginate: true
 style: |
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
   section {
-    font-family: 'Helvetica Neue', Arial, sans-serif;
-    background: #faf8f3;
-    font-size: 26px;
-    padding: 50px 60px;
+    font-family: 'Nunito Sans', system-ui, sans-serif;
+    background-color: #02050C;
+    background-image:
+      radial-gradient(800px 480px at 14% -10%, rgba(24,224,255,0.12), transparent 60%),
+      radial-gradient(680px 420px at 100% 0%, rgba(176,107,255,0.10), transparent 58%),
+      radial-gradient(720px 560px at 70% 115%, rgba(24,224,255,0.05), transparent 60%);
+    color: #eaf1fb;
+    color-scheme: dark;
   }
-  section h2 {
-    font-size: 1.6em;
-    margin: 0 0 0.5em 0;
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Orbitron', system-ui, sans-serif;
+    color: #ffffff;
+    letter-spacing: 0.01em;
   }
-  section p, section li {
-    line-height: 1.4;
-    margin: 0.3em 0;
+  h1 { text-shadow: 0 0 30px rgba(24,224,255,0.35); }
+  h2 {
+    color: #eaf1fb;
+    text-shadow: 0 0 18px rgba(24,224,255,0.20);
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    padding-bottom: 0.18em;
   }
+  strong { color: #ffffff; }
+  a { color: #18E0FF; text-decoration: none; }
   section.lead {
     display: flex;
     flex-direction: column;
     justify-content: center;
     text-align: center;
-    background: #faf8f3;
-    color: #1a1a1f;
+    color: #eaf1fb;
   }
   section.lead h1 {
-    font-size: 2.5em;
+    font-size: 2.6em;
     margin-bottom: 0.2em;
-    color: #224466;
+    color: #ffffff;
+    text-shadow: 0 0 38px rgba(24,224,255,0.45);
   }
   section.lead p {
     font-size: 1.2em;
-    opacity: 0.85;
+    color: rgba(234,241,251,0.78);
   }
   section.highlight {
-    background: #faf8f3;
+    background-color: #02050C;
   }
   .columns {
     display: grid;
@@ -51,28 +62,106 @@ style: |
     margin-bottom: 0.8em;
   }
   .card {
-    background: white;
+    background: #0A1020;
+    border: 1px solid rgba(255,255,255,0.10);
+    border-left: 4px solid #18E0FF;
     border-radius: 12px;
     padding: 1.2em;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    border-left: 4px solid #b5451f;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.45), 0 0 22px rgba(24,224,255,0.06);
+    color: #eaf1fb;
   }
   .stat {
     font-size: 2.5em;
     font-weight: bold;
-    color: #b5451f;
+    color: #18E0FF;
+    font-family: 'Orbitron', system-ui, sans-serif;
   }
   .label {
     font-size: 0.9em;
-    color: #666;
+    color: #9bb0cc;
     margin-top: 0.2em;
   }
   .callout {
-    background: #faf0e8;
-    border-left: 4px solid #b5451f;
+    background: rgba(24,224,255,0.06);
+    border-left: 4px solid #18E0FF;
     padding: 0.8em 1.2em;
     border-radius: 0 8px 8px 0;
     margin: 0.4em 0 0.8em 0;
+    color: #eaf1fb;
+  }
+  blockquote {
+    border-left: 4px solid #18E0FF;
+    padding-left: 1em;
+    color: rgba(234,241,251,0.78);
+    font-style: italic;
+  }
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    background: rgba(255,255,255,0.06);
+    color: #9be9ff;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+  pre {
+    background: #04070F;
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 8px;
+    color: #eaf1fb;
+  }
+  pre code {
+    background: transparent;
+    color: #eaf1fb;
+    padding: 0;
+  }
+  table {
+    border-collapse: collapse;
+    background: transparent;
+  }
+  table tr {
+    background: transparent;
+  }
+  table tr:nth-child(2n) {
+    background: rgba(255,255,255,0.03);
+  }
+  th, td {
+    border: 1px solid rgba(255,255,255,0.12);
+    padding: 0.4em 0.8em;
+  }
+  th {
+    background: rgba(255,255,255,0.05);
+    color: #ffffff;
+    font-family: 'Nunito Sans', system-ui, sans-serif;
+  }
+  td {
+    color: #eaf1fb;
+  }
+  section::after {
+    color: #6a7c97;
+  }
+  mark {
+    background: rgba(233,181,33,0.22);
+    color: #ffffff;
+  }
+  kbd {
+    background: rgba(255,255,255,0.08);
+    color: #eaf1fb;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 4px;
+  }
+  hr {
+    background-color: rgba(255,255,255,0.12);
+  }
+  section {
+    font-size: 26px;
+    padding: 50px 60px;
+  }
+  section h2 {
+    font-size: 1.6em;
+    margin: 0 0 0.5em 0;
+  }
+  section p, section li {
+    line-height: 1.4;
+    margin: 0.3em 0;
   }
   pre {
     font-size: 0.8em;
@@ -81,12 +170,6 @@ style: |
   }
   code {
     font-size: 0.9em;
-  }
-  blockquote {
-    border-left: 4px solid #b5451f;
-    padding-left: 1em;
-    color: #555;
-    font-style: italic;
   }
 ---
 
