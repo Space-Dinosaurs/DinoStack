@@ -59,6 +59,8 @@ docs/brainstorm/
 # TSV files under evals/results/ ARE committed (see docs/planning/p2-self-improving-harness.md).
 evals/.worktrees/
 evals/results/*.runlog.jsonl
+# migrate_tsv backups: redundant with git history, accumulate per migration.
+evals/results/_archive/
 
 # /auto-harness: per-run lock + per-run state. Ledger TSV at
 # evals/results/auto-harness.tsv IS committed.
