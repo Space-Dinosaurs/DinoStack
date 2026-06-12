@@ -32,9 +32,9 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 
 **Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - local-only per-developer session rollup written by the Stop hook. NOT committed to git - falls under the `.agentic/*` umbrella ignore. See `content/references/events-log.md` "Per-developer session log". Aggregated locally via `agentic-cost team`.
 
-**Identity setup - auto-derive + confirm-once.** Run `agentic-identity auto` once to derive a provisional handle from your GitHub login (`gh api user`). The identity is written to `~/.agentic/identity.yml` with `provisional: true`. Manual setup remains available via `agentic-identity init <handle>`.
+**Identity setup - auto-derive + confirm-once.** Run `agentic-identity auto` once to derive a provisional handle from your GitHub login (`gh api user`). The identity is written to `~/.agentic/identity.yml` with `provisional: true`. Manual setup remains available via `agentic-identity init <handle>`. To use a per-repo handle, pass `--scope project`: this writes `<cwd>/.agentic/identity.yml` (gitignored, covered by the existing `.agentic/*` umbrella). A confirmed project identity takes precedence over the global file for sessions in that repo. A provisional project file does NOT suppress a confirmed global - see "Scope / effective identity resolution" in the `agentic-identity` command doc.
 
-**Conductor first-user-turn provisional-confirm.** When the preflight reads `provisional: true` from `~/.agentic/identity.yml` (Step 1 in `content/sections/01-activation-preflight.md`), the conductor surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
+**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity (Step 1 in `content/sections/01-activation-preflight.md` - project file checked first, then global), the conductor surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
 
 ```
 IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
