@@ -10,10 +10,19 @@ Public API:
                                             reverts, final_metric}
 
 Ledger:
-    14-column TSV appended at evals/results/auto-harness.tsv.
+    17-column TSV appended at evals/results/auto-harness.tsv.
+    Columns 15-17 (signed_rank_p, effect_mean_delta, nonzero_pairs) carry
+    the stats.keep_decision output. Empty string on pre-runner rows.
+
+Keep rule:
+    An edit is kept only if stats.keep_decision(pair_deltas(...)) returns
+    keep=True: one-sided sign-flip permutation test (alpha=0.05) AND mean
+    per-fixture improvement >= EPSILON (0.02) AND >= 5 nonzero pairs.
+    pooled_stdev is retained in the ledger as an observability metric only.
 
 Upstream deps: stdlib time, pathlib, dataclasses, csv, json; sibling modules
-               editor, apply, git_ops, runner_shim, overfitting, state.
+               editor, apply, git_ops, runner_shim, overfitting, state, stats;
+               evals.runner.tsv_writer (_ondisk_header).
 
 Downstream consumers: evals.auto.cli.
 
@@ -22,7 +31,7 @@ Failure modes: a failing subprocess or validation error is recorded as an
                errors ("401", "invalid_api_key") halt the loop with reason
                "auth_fatal". Other fatal exceptions propagate.
 
-Performance: dominated by the per-iteration runner cost (3 runs per fixture
+Performance: dominated by the per-iteration runner cost (9 runs per fixture
              x N fixtures); the loop infrastructure itself is negligible.
 """
 from __future__ import annotations
@@ -42,6 +51,8 @@ from . import git_ops
 from . import overfitting as overfit
 from . import runner_shim
 from . import state as state_mod
+from . import stats
+from evals.runner.tsv_writer import _ondisk_header
 
 _LEDGER_PATH_PARTS = ("evals", "results", "auto-harness.tsv")
 
@@ -164,6 +175,9 @@ LEDGER_HEADER: tuple = (
     "reason",
     "overfitting_verdict",
     "cost_usd_cumulative",
+    "signed_rank_p",
+    "effect_mean_delta",
+    "nonzero_pairs",
 )
 
 
@@ -182,6 +196,7 @@ class LoopConfig:
     editor_model: Optional[str] = None
     editor_timeout_sec: int = 600
     state_file: Optional[Path] = None
+    baseline_rows: list = field(default_factory=list)
 
 
 def _ledger_path(repo_root: Path) -> Path:
@@ -191,15 +206,26 @@ def _ledger_path(repo_root: Path) -> Path:
 def _append_ledger_row(repo_root: Path, row: Dict[str, Any]) -> Path:
     path = _ledger_path(repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    is_new = not path.exists()
     missing = [c for c in LEDGER_HEADER if c not in row]
     if missing:
         raise ValueError(f"ledger row missing columns: {missing}")
-    with path.open("a", encoding="utf-8", newline="") as fh:
-        w = csv.writer(fh, delimiter="\t", lineterminator="\n")
-        if is_new:
+    ondisk = _ondisk_header(path)
+    if ondisk is None:
+        # New or empty file - write header then the row.
+        with path.open("a", encoding="utf-8", newline="") as fh:
+            w = csv.writer(fh, delimiter="\t", lineterminator="\n")
             w.writerow(LEDGER_HEADER)
-        w.writerow([str(row[c]) for c in LEDGER_HEADER])
+            w.writerow([str(row[c]) for c in LEDGER_HEADER])
+    else:
+        if ondisk != LEDGER_HEADER:
+            raise ValueError(
+                f"Ledger schema mismatch: on-disk header has {len(ondisk)} columns, "
+                f"expected {len(LEDGER_HEADER)}. "
+                f"Run `python -m evals.auto.migrate_tsv` to migrate the file."
+            )
+        with path.open("a", encoding="utf-8", newline="") as fh:
+            w = csv.writer(fh, delimiter="\t", lineterminator="\n")
+            w.writerow([str(row[c]) for c in LEDGER_HEADER])
     return path
 
 
@@ -209,10 +235,6 @@ def _now_utc_iso() -> str:
 
 def _fmt(x: float) -> str:
     return f"{x:.6f}"
-
-
-def _keep_delta_threshold(pooled_stdev: float) -> float:
-    return max(pooled_stdev, 0.02)
 
 
 def _is_auth_fatal(stderr: str) -> bool:
@@ -403,6 +425,7 @@ def _build_editor_context(cfg: LoopConfig) -> Dict[str, Any]:
         "LOCKED_FILES": "\n".join(f"  - {p}" for p in locked),
         "BASELINE_METRIC": _fmt(cfg.baseline_metric),
         "POOLED_STDEV": _fmt(cfg.baseline_pooled_stdev),
+        "EPSILON": _fmt(stats.EPSILON),
         "MAX_EDIT_LOC": str(cfg.component_cfg.get("max_edit_loc", 20)),
         "WHOLE_FILE_MODE": "true" if is_whole_file else "false",
         "EDITOR_TIMEOUT_SEC": str(cfg.editor_timeout_sec),
@@ -418,11 +441,12 @@ def _one_iteration(
     base_pooled_stdev: float,
     base_commit: str,
     cumulative_cost: float,
+    base_rows: list,
 ) -> Dict[str, Any]:
     """Run one editor -> apply -> eval -> decide cycle.
 
     Returns a dict with the ledger row plus control fields:
-        {row, decision, new_metric, new_pooled_stdev, cost_usd, fatal}
+        {row, decision, new_metric, new_pooled_stdev, new_rows, cost_usd, fatal}
     """
     # Build and dispatch editor brief.
     brief = editor_mod.build_brief(editor_mod.load_program_template(), _build_editor_context(cfg))
@@ -449,10 +473,14 @@ def _one_iteration(
                 "reason": "editor_auth_fatal",
                 "overfitting_verdict": "",
                 "cost_usd_cumulative": _fmt(cumulative_cost + cost_this),
+                "signed_rank_p": "",
+                "effect_mean_delta": "",
+                "nonzero_pairs": "",
             },
             "decision": "halt",
             "new_metric": base_metric,
             "new_pooled_stdev": base_pooled_stdev,
+            "new_rows": base_rows,
             "cost_usd": cost_this,
             "fatal": True,
         }
@@ -535,10 +563,14 @@ def _one_iteration(
                 "reason": reject_reason,
                 "overfitting_verdict": verdict["verdict"],
                 "cost_usd_cumulative": _fmt(cumulative_cost + cost_this),
+                "signed_rank_p": "",
+                "effect_mean_delta": "",
+                "nonzero_pairs": "",
             },
             "decision": "reject",
             "new_metric": base_metric,
             "new_pooled_stdev": base_pooled_stdev,
+            "new_rows": base_rows,
             "cost_usd": cost_this,
             "fatal": False,
         }
@@ -568,10 +600,14 @@ def _one_iteration(
                 "reason": f"dry_run:loc={loc}:paths={','.join(validation['paths'])}",
                 "overfitting_verdict": verdict["verdict"],
                 "cost_usd_cumulative": _fmt(cumulative_cost + cost_this),
+                "signed_rank_p": "",
+                "effect_mean_delta": "",
+                "nonzero_pairs": "",
             },
             "decision": "dry_run_skip_apply",
             "new_metric": base_metric,
             "new_pooled_stdev": base_pooled_stdev,
+            "new_rows": base_rows,
             "cost_usd": cost_this,
             "fatal": False,
         }
@@ -597,10 +633,14 @@ def _one_iteration(
                 "reason": f"apply_failed:{ar.get('reason','')}:{(ar.get('stderr') or '')[:200]}",
                 "overfitting_verdict": verdict["verdict"],
                 "cost_usd_cumulative": _fmt(cumulative_cost + cost_this),
+                "signed_rank_p": "",
+                "effect_mean_delta": "",
+                "nonzero_pairs": "",
             },
             "decision": "reject",
             "new_metric": base_metric,
             "new_pooled_stdev": base_pooled_stdev,
+            "new_rows": base_rows,
             "cost_usd": cost_this,
             "fatal": False,
         }
@@ -637,31 +677,48 @@ def _one_iteration(
                 "reason": f"runner_failed_rc{rr.get('returncode')}: {(rr.get('stderr') or '')[:200]}",
                 "overfitting_verdict": verdict["verdict"],
                 "cost_usd_cumulative": _fmt(cumulative_cost + cost_this),
+                "signed_rank_p": "",
+                "effect_mean_delta": "",
+                "nonzero_pairs": "",
             },
             "decision": "revert",
             "new_metric": base_metric,
             "new_pooled_stdev": base_pooled_stdev,
+            "new_rows": base_rows,
             "cost_usd": cost_this,
             "fatal": False,
         }
 
-    agg = runner_shim.aggregate_latest(cfg.repo_root, cfg.component, cfg.n_fixtures)
+    head_commit = str(rr.get("head_commit") or "")
+    agg = runner_shim.aggregate_latest(
+        cfg.repo_root,
+        cfg.component,
+        cfg.n_fixtures,
+        expected_commit=head_commit if head_commit else None,
+    )
     new_metric = float(agg["metric"])
     new_pooled_stdev = float(agg["pooled_stdev"])
+    new_rows: list = list(agg.get("rows") or [])
     runner_cost = float(agg.get("cost_usd") or 0.0)
     cost_this += runner_cost
 
     delta = new_metric - base_metric
-    threshold = _keep_delta_threshold(max(new_pooled_stdev, base_pooled_stdev))
-    keep = delta >= threshold
+    deltas = stats.pair_deltas(base_rows, new_rows, key="fixture_id")
+    decision_result = stats.keep_decision(deltas)
+    keep = decision_result["keep"]
+
+    p_value = decision_result["p_value"]
+    signed_rank_p_str = _fmt(p_value) if p_value is not None else ""
+    effect_mean_delta_str = _fmt(decision_result["effect_mean_delta"])
+    nonzero_pairs_str = str(decision_result["n_nonzero"])
 
     if keep:
         decision = "keep"
-        reason = f"delta={delta:.4f}>=threshold={threshold:.4f}"
+        reason = decision_result["reason"]
         # The proposal is already committed on the branch; nothing else to do.
     else:
         decision = "revert"
-        reason = f"delta={delta:.4f}<threshold={threshold:.4f}"
+        reason = decision_result["reason"]
         preserved = _preserve_results_across_reset(cfg.repo_root)
         git_ops.reset_hard(cfg.repo_root, base_commit)
         _restore_results(cfg.repo_root, preserved)
@@ -682,10 +739,14 @@ def _one_iteration(
             "reason": reason,
             "overfitting_verdict": verdict["verdict"],
             "cost_usd_cumulative": _fmt(cumulative_cost + cost_this),
+            "signed_rank_p": signed_rank_p_str,
+            "effect_mean_delta": effect_mean_delta_str,
+            "nonzero_pairs": nonzero_pairs_str,
         },
         "decision": decision,
         "new_metric": new_metric if keep else base_metric,
         "new_pooled_stdev": new_pooled_stdev if keep else base_pooled_stdev,
+        "new_rows": new_rows if keep else base_rows,
         "cost_usd": cost_this,
         "fatal": False,
     }
@@ -714,6 +775,8 @@ def run(cfg: LoopConfig) -> Dict[str, Any]:
         )
         state_mod.save(cfg.state_file, st)
 
+    cur_rows: list = list(cfg.baseline_rows)
+
     halt_reason = ""
     while iterations < cfg.max_iterations:
         if _time_left(start, cfg.time_budget_sec) <= 0:
@@ -731,6 +794,7 @@ def run(cfg: LoopConfig) -> Dict[str, Any]:
             base_pooled_stdev=cur_pooled,
             base_commit=cur_base_commit,
             cumulative_cost=cumulative_cost,
+            base_rows=cur_rows,
         )
         _append_ledger_row(cfg.repo_root, out["row"])
         cumulative_cost += float(out.get("cost_usd") or 0.0)
@@ -740,6 +804,7 @@ def run(cfg: LoopConfig) -> Dict[str, Any]:
             keeps += 1
             cur_metric = float(out["new_metric"])
             cur_pooled = float(out["new_pooled_stdev"])
+            cur_rows = list(out.get("new_rows") or cur_rows)
             cur_base_commit = git_ops.head_sha(cfg.repo_root)
             plateau_streak = 0
         elif decision == "revert":

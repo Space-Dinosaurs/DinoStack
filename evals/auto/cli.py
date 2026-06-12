@@ -103,6 +103,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     baseline = float(agg["metric"])
     pooled = float(agg["pooled_stdev"])
+    baseline_rows = list(agg.get("rows") or [])
     print(f"baseline scalar = {baseline:.4f}  pooled_stdev = {pooled:.4f}")
 
     # Acquire lock.
@@ -140,6 +141,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             editor_model=args.editor_model,
             editor_timeout_sec=int(args.editor_timeout_sec),
             state_file=state_file,
+            baseline_rows=baseline_rows,
         )
 
         result = loop_mod.run(lcfg)

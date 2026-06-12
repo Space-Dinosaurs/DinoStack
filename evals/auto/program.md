@@ -17,10 +17,13 @@ applies, measures, and decides to keep or revert.
 ## Current metric
 
 - Baseline scalar (mean-of-fixture-medians): {{BASELINE_METRIC}}
-- Pooled stdev across fixtures: {{POOLED_STDEV}}
-- Keep threshold: an edit is kept only if the post-edit scalar improves
-  by at least max(pooled_stdev, 0.02). Propose something plausibly
-  bigger than noise.
+- Pooled stdev across fixtures (noise scale reference): {{POOLED_STDEV}}
+- Keep rule: an edit is kept only if it produces a statistically
+  significant improvement across fixtures - specifically, a one-sided
+  sign-flip permutation test (alpha=0.05) must pass AND the mean
+  per-fixture improvement must be at least {{EPSILON}}. This means you
+  need consistent gains across MANY fixtures, not a large jump on one
+  fixture. Target broad improvements, not single-fixture optimization.
 
 ## Lowest-scoring dimensions (corpus-level)
 
