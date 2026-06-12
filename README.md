@@ -310,4 +310,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-License pending - see issue IR-2.
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
