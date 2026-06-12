@@ -846,7 +846,8 @@ Seed with these documented defaults exactly:
   "theme_aware": false,
   "storybook_enabled": false,
   "motion_aware": false,
-  "storybook_version": 7
+  "storybook_version": 7,
+  "commit_telemetry": true
 }
 ```
 
@@ -862,6 +863,7 @@ Seed with these documented defaults exactly:
 - `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` on `visual_conformance` and `accessibility` scenarios; requires Storybook 7+. Init-project detects the installed version and configures `storybook_url` when SB7+ is present. See `content/rules/conventions.md` §Project Config for semantics.
 - `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
+- `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 
@@ -1142,6 +1144,7 @@ Project config (.agentic/config.json)
   auto_merge_on_ci_green: <value>   (auto-merge PRs once CI is green)
   model_profile: <value>            (default = right model per task; budget = cheaper tier)
   debugger_on_failure: <value>      (run a Debugger diagnosis before each fix on a gate failure)
+  commit_telemetry: <value>         (commit session-log to PR branch at Phase 8; default true)
   (other keys at defaults - see the file or /agentic-status to adjust)
 ```
 
