@@ -348,4 +348,4 @@ The rolling window keeps context.md bounded. Five slots is enough to capture act
 
 Focused sessions. Same project dir. `/wrap` every time.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack

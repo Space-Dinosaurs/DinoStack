@@ -498,4 +498,4 @@ Units not as independent as classified - behavioral interaction. Spawn engineer 
 
 Fan-out extends the P0 persistence loop to parallel units - without sacrificing adversarial review.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack

@@ -11,7 +11,7 @@ set -euo pipefail
 #          the /update-agentic-engineering command.
 #
 # Public API:
-#   curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/DinoStack/main/bootstrap.sh | bash
 #   curl -fsSL ... | bash -s -- --mode=opt-in
 #   AE_DEST_DIR=/custom/path bash bootstrap.sh [--mode=opt-in|opt-out] [--profile=...]
 #
@@ -42,8 +42,8 @@ BOOTSTRAP_PWD="$(pwd)"
 # ---------------------------------------------------------------------------
 # URL seams - real defaults; overridable for testing
 # ---------------------------------------------------------------------------
-HTTPS_URL="${AE_HTTPS_URL:-https://github.com/Space-Dinosaurs/agentic-engineering.git}"
-SSH_URL="${AE_SSH_URL:-git@github.com:Space-Dinosaurs/agentic-engineering.git}"
+HTTPS_URL="${AE_HTTPS_URL:-https://github.com/Space-Dinosaurs/DinoStack.git}"
+SSH_URL="${AE_SSH_URL:-git@github.com:Space-Dinosaurs/DinoStack.git}"
 
 # ---------------------------------------------------------------------------
 # Destination directory resolution

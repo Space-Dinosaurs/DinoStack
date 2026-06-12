@@ -379,4 +379,4 @@ N=1 falls through to the standard single-engineer path. Fan-out only activates f
 
 The orchestration-planner does the structural reasoning so the conductor doesn't have to.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack
