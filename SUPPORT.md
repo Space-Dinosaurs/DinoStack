@@ -2,8 +2,8 @@
 
 ## Where to ask
 
-- **Questions, ideas, discussion** - [GitHub Discussions](https://github.com/Space-Dinosaurs/agentic-engineering/discussions)
-- **Bugs and reproducible defects** - [GitHub Issues](https://github.com/Space-Dinosaurs/agentic-engineering/issues) using the bug report template
+- **Questions, ideas, discussion** - [GitHub Discussions](https://github.com/Space-Dinosaurs/DinoStack/discussions)
+- **Bugs and reproducible defects** - [GitHub Issues](https://github.com/Space-Dinosaurs/DinoStack/issues) using the bug report template
 - **Feature requests** - GitHub Issues using the feature request template
 - **Protocol changes** (conductor rules, Skeptic protocol, risk classification, memory persistence, worktree lifecycle, slash commands, agent definitions) - GitHub Issues using the protocol change template
 - **Adapter requests** (support for a new tool) - GitHub Issues using the adapter request template

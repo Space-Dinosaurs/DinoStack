@@ -379,4 +379,4 @@ The hierarchy grows organically. You don't plan it upfront - /wrap builds it fro
 
 Lean roots, detailed tracks, nothing wasted.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack

@@ -553,4 +553,4 @@ Auto-promotion is not a penalty. It is an acknowledgment that the task's actual 
 
 # Plan once. Resume often. Verify always.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack

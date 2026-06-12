@@ -172,7 +172,7 @@ claude
 **2.** Paste this into Claude Code:
 
 ```
-Clone git@github.com:Space-Dinosaurs/agentic-engineering.git and run .claude/install.sh
+Clone git@github.com:Space-Dinosaurs/DinoStack.git and run .claude/install.sh
 ```
 
 The agent clones the repo, runs the installer, and walks you through optional tool setup. Idempotent - safe to re-run anytime.
@@ -328,4 +328,4 @@ First few sessions feel slower than "just doing it." That's the trade - raw spee
 
 That's the whole practice.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack

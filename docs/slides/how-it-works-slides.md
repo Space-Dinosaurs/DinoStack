@@ -518,4 +518,4 @@ The regression test is code-level: it catches the specific failure mode so the s
 Risk-aware delegation. Adversarial review. Focused sessions.
 Mostly passive - just describe the work.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack
