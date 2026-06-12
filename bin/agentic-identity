@@ -1,27 +1,37 @@
 #!/usr/bin/env python3
 """
-Purpose: CLI for managing the per-developer identity file (~/.agentic/identity.yml)
-         used by the Stop hook to write per-developer session telemetry. Supports
-         automatic identity derivation from gh CLI (provisional) and confirmation
-         which flushes the pending session-log buffer.
+Purpose: CLI for managing per-developer identity files used by the Stop hook
+         to write per-developer session telemetry. Supports global identity
+         (~/.agentic/identity.yml) and project-local identity
+         (<repo>/.agentic/identity.yml), with a 4-tier confirmation-first
+         resolution: project-confirmed > global-confirmed > project-provisional
+         > global-provisional > none.
 
 Public API:
-  agentic-identity init <handle> [--display-name "<name>"] [--force]
-  agentic-identity show
-  agentic-identity auto [--force]
-  agentic-identity confirm
+  agentic-identity init <handle> [--display-name "<name>"] [--force] [--scope {global,project}]
+  agentic-identity show [--scope {global,project,effective}]
+  agentic-identity auto [--force] [--scope {global,project}]
+  agentic-identity confirm [--scope {global,project}]
   agentic-identity --help
 
+  Helpers: _read_identity(path=None), _write_identity(lines, target_path=None),
+           _project_identity_path(cwd=None), _resolve_effective_identity(cwd),
+           flushPendingBuffer(confirmed_dev_id, repo_root_filter=None).
+
 Data model:
-  ~/.agentic/identity.yml fields: developer_id, display_name (optional),
-    created_at, provisional (optional, absent=confirmed), derived_from (optional).
+  Global:  ~/.agentic/identity.yml
+  Project: <repo>/.agentic/identity.yml  (gitignored via .agentic/* umbrella)
+  Fields: developer_id, display_name (optional), created_at,
+          provisional (optional, absent=confirmed), derived_from (optional).
   ~/.agentic/session-log/.pending/<uuid>.json: pre-attribution session records;
     flushed to global + per-project logs on confirm/init.
+  Internal keys _scope ("project"/"global") and _confirmed (bool) are tagged
+    on resolved-identity dicts; never written to any file or log.
 
 Upstream deps: Python 3 stdlib only (argparse, fcntl, glob, json, os, re, signal,
                subprocess, sys, datetime, pathlib, time).
 
-Downstream consumers: hooks/stop-context.js (reads ~/.agentic/identity.yml);
+Downstream consumers: hooks/stop-context.js (reads identity files);
                       bin/agentic-cost team (reads .agentic/session-log/ written
                       after identity is set).
 
@@ -30,6 +40,10 @@ Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
                flushPendingBuffer: serialized via fcntl.flock on .flush.lock;
                30s timeout via LOCK_NB+sleep loop (SIGALRM avoided for portability);
                on timeout prints stderr warning and returns without data loss.
+               flushPendingBuffer with repo_root_filter: records whose repo_root
+               does not match the filter are skipped (left in the buffer, not
+               unlinked); records with no/empty repo_root are also skipped under
+               a filter (conservative).
 
 Performance: Standard. File I/O only; subprocess for gh CLI in auto subcommand.
 """
@@ -55,15 +69,24 @@ FLUSH_LOCK_PATH = Path(os.path.expanduser("~/.agentic/session-log/.flush.lock"))
 HANDLE_RE = re.compile(r'^[a-z0-9._-]{1,64}$')
 
 
-def _read_identity() -> dict | None:
+def _project_identity_path(cwd: Path | None = None) -> Path:
+    """Return the project-local identity file path for cwd (or Path.cwd())."""
+    return Path(cwd or Path.cwd()) / ".agentic" / "identity.yml"
+
+
+def _read_identity(path: Path | None = None) -> dict | None:
     """Return parsed identity dict or None if absent/malformed.
+
+    When path is None, reads the global IDENTITY_PATH (default behavior,
+    unchanged for all existing callers). When path is provided, reads that path.
 
     Fields returned: developer_id (required), display_name, created_at,
     provisional (absent => False), derived_from.
     """
-    if not IDENTITY_PATH.is_file():
+    target = path if path is not None else IDENTITY_PATH
+    if not target.is_file():
         return None
-    raw = IDENTITY_PATH.read_text(encoding="utf-8")
+    raw = target.read_text(encoding="utf-8")
     m = re.search(r'^developer_id:\s*(\S+)\s*$', raw, re.MULTILINE)
     if not m:
         return None
@@ -83,15 +106,56 @@ def _read_identity() -> dict | None:
     return result
 
 
-def _write_identity(lines: list[str]) -> int:
-    """Atomically write identity file from lines list. Returns 0 on success, 1 on error."""
+def _resolve_effective_identity(cwd: Path) -> dict | None:
+    """Resolve effective identity via 4-tier total ordering.
+
+    Tier order: project-confirmed > global-confirmed >
+                project-provisional > global-provisional > None.
+
+    Two-pass:
+      Pass 1 (confirmed): project file first, then global - return first confirmed.
+      Pass 2 (provisional): project file first, then global - return first provisional.
+
+    Returns identity dict tagged with internal _scope ("project"/"global")
+    and _confirmed (bool) keys. These are never written to any file or log.
+    """
+    proj_path = _project_identity_path(cwd)
+    proj_id = _read_identity(proj_path)
+    glob_id = _read_identity(None)  # global IDENTITY_PATH
+
+    # Pass 1: confirmed candidates in [project, global] order
+    for identity, scope in [(proj_id, "project"), (glob_id, "global")]:
+        if identity is not None and not identity.get("provisional", False):
+            result = dict(identity)
+            result["_scope"] = scope
+            result["_confirmed"] = True
+            return result
+
+    # Pass 2: provisional candidates in [project, global] order
+    for identity, scope in [(proj_id, "project"), (glob_id, "global")]:
+        if identity is not None:
+            result = dict(identity)
+            result["_scope"] = scope
+            result["_confirmed"] = False
+            return result
+
+    return None
+
+
+def _write_identity(lines: list[str], target_path: Path | None = None) -> int:
+    """Atomically write identity file from lines list. Returns 0 on success, 1 on error.
+
+    When target_path is None, writes to global IDENTITY_PATH (default, unchanged
+    for all existing callers). When provided, writes to that path (mkdir -p parent).
+    """
+    dest = target_path if target_path is not None else IDENTITY_PATH
     content = "\n".join(lines) + "\n"
-    IDENTITY_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = IDENTITY_PATH.with_suffix(".yml.tmp")
+    dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".yml.tmp")
     try:
         tmp.write_text(content, encoding="utf-8")
         os.chmod(tmp, 0o600)
-        tmp.rename(IDENTITY_PATH)
+        tmp.rename(dest)
     except Exception as exc:
         print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
         tmp.unlink(missing_ok=True)
@@ -99,12 +163,20 @@ def _write_identity(lines: list[str]) -> int:
     return 0
 
 
-def flushPendingBuffer(confirmed_dev_id: str) -> int:
+def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = None) -> int:
     """Flush ~/.agentic/session-log/.pending/*.json to global + per-project logs.
 
     Race-safe via fcntl.flock exclusive lock on .flush.lock for the whole loop.
     Uses LOCK_NB + sleep loop (30s timeout) for portability over SIGALRM.
     Returns number of records flushed (0 on no pending or timeout).
+
+    When repo_root_filter is None (default): current behavior exactly - all
+    pending records are attributed to confirmed_dev_id.
+
+    When repo_root_filter is set (e.g. project-scope init/confirm): only records
+    whose repo_root exactly matches repo_root_filter are flushed. Records whose
+    repo_root does not match, or whose repo_root is absent/empty, are left in the
+    buffer (not unlinked, not attributed) for later global flush.
     """
     # Ensure lock file and parent dirs exist.
     FLUSH_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -149,6 +221,12 @@ def flushPendingBuffer(confirmed_dev_id: str) -> int:
                 # Skip malformed records silently.
                 continue
 
+            # repo_root_filter: skip records that don't match (leave in buffer).
+            if repo_root_filter is not None:
+                record_repo_root = record.get("repo_root", "")
+                if not record_repo_root or record_repo_root != repo_root_filter:
+                    continue
+
             session_uuid = record.get("session_uuid", "")
 
             # Dedup: scan global log for this session_uuid.
@@ -189,7 +267,6 @@ def flushPendingBuffer(confirmed_dev_id: str) -> int:
             # Repo root validation.
             repo_root = record.get("repo_root", "")
             project_slug = record.get("project_slug", "")
-            wrote_per_project = False
             if repo_root and project_slug:
                 try:
                     result = subprocess.check_output(
@@ -204,7 +281,6 @@ def flushPendingBuffer(confirmed_dev_id: str) -> int:
                         per_project_log = per_project_log_dir / f"{confirmed_dev_id}.jsonl"
                         with open(per_project_log, "a", encoding="utf-8") as pf:
                             pf.write(attributed_line + "\n")
-                        wrote_per_project = True
                     else:
                         print(
                             f"agentic-identity: repo_root '{repo_root}' basename "
@@ -252,6 +328,19 @@ def flushPendingBuffer(confirmed_dev_id: str) -> int:
     return flushed
 
 
+def _require_repo_root(cwd: Path) -> int:
+    """Return 1 (and print error) if cwd has neither .agentic/ nor .git/; else 0."""
+    if not (cwd / ".agentic").exists() and not (cwd / ".git").exists():
+        print(
+            f"agentic-identity: no repo root found at '{cwd}'. "
+            "Neither .agentic/ nor .git/ exists. "
+            "Run from a repository directory when using --scope project.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     handle = args.handle
     if not HANDLE_RE.match(handle):
@@ -262,6 +351,44 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
         return 1
 
+    scope = getattr(args, "scope", "global")
+    if scope == "project":
+        cwd = Path.cwd()
+        rc = _require_repo_root(cwd)
+        if rc != 0:
+            return rc
+        target_path = _project_identity_path(cwd)
+        existing = _read_identity(target_path) if target_path.is_file() else None
+        is_overwriting_provisional = existing is not None and existing.get("provisional", False)
+        is_fresh = existing is None
+
+        if target_path.is_file() and not args.force:
+            current = existing.get("developer_id", "?") if existing else "?"
+            print(
+                f"agentic-identity: project identity already set to '{current}'. "
+                "Use --force to overwrite.",
+                file=sys.stderr,
+            )
+            return 2
+
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = [f"developer_id: {handle}"]
+        if args.display_name:
+            lines.append(f"display_name: {args.display_name}")
+        lines.append(f"created_at: {created_at}")
+
+        rc = _write_identity(lines, target_path=target_path)
+        if rc != 0:
+            return rc
+
+        print(f"Identity set (project scope): developer_id={handle}, created_at={created_at}")
+
+        if is_overwriting_provisional or is_fresh:
+            flushPendingBuffer(handle, repo_root_filter=str(cwd.resolve()))
+
+        return 0
+
+    # --scope global (default): byte-for-byte current behavior
     existing = _read_identity() if IDENTITY_PATH.is_file() else None
     is_overwriting_provisional = existing is not None and existing.get("provisional", False)
     is_fresh = existing is None
@@ -329,7 +456,43 @@ def cmd_auto(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Check existing identity.
+    scope = getattr(args, "scope", "global")
+    if scope == "project":
+        cwd = Path.cwd()
+        rc = _require_repo_root(cwd)
+        if rc != 0:
+            return rc
+        target_path = _project_identity_path(cwd)
+        existing = _read_identity(target_path)
+        if existing is not None:
+            is_provisional = existing.get("provisional", False)
+            current_handle = existing.get("developer_id", "?")
+            if not is_provisional and not args.force:
+                print(
+                    f"agentic-identity: confirmed project identity already set to "
+                    f"'{current_handle}'. Use --force to overwrite.",
+                    file=sys.stderr,
+                )
+                return 2
+
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = [
+            f"developer_id: {login}",
+            f"created_at: {created_at}",
+            "provisional: true",
+            "derived_from: gh",
+        ]
+        rc = _write_identity(lines, target_path=target_path)
+        if rc != 0:
+            return rc
+
+        print(
+            f"Identity derived (provisional, project scope): developer_id={login}. "
+            "Confirm at next session start."
+        )
+        return 0
+
+    # --scope global (default): current behavior
     existing = _read_identity()
     if existing is not None:
         is_provisional = existing.get("provisional", False)
@@ -364,6 +527,39 @@ def cmd_auto(args: argparse.Namespace) -> int:
 
 def cmd_confirm(args: argparse.Namespace) -> int:
     """Confirm provisional identity: strip provisional/derived_from, flush pending buffer."""
+    scope = getattr(args, "scope", "global")
+    if scope == "project":
+        cwd = Path.cwd()
+        rc = _require_repo_root(cwd)
+        if rc != 0:
+            return rc
+        target_path = _project_identity_path(cwd)
+        identity = _read_identity(target_path)
+        if identity is None:
+            print(
+                "agentic-identity: no project identity set. "
+                "Run 'agentic-identity init <handle> --scope project' first.",
+                file=sys.stderr,
+            )
+            return 1
+
+        dev_id = identity["developer_id"]
+        lines = [f"developer_id: {dev_id}"]
+        if "display_name" in identity:
+            lines.append(f"display_name: {identity['display_name']}")
+        if "created_at" in identity:
+            lines.append(f"created_at: {identity['created_at']}")
+        # Intentionally omit provisional and derived_from.
+
+        rc = _write_identity(lines, target_path=target_path)
+        if rc != 0:
+            return rc
+
+        flushPendingBuffer(dev_id, repo_root_filter=str(cwd.resolve()))
+        print(f"Identity confirmed (project scope): developer_id={dev_id}")
+        return 0
+
+    # --scope global (default): current behavior
     identity = _read_identity()
     if identity is None:
         print(
@@ -392,6 +588,41 @@ def cmd_confirm(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
+    scope = getattr(args, "scope", "global")
+
+    if scope == "effective":
+        identity = _resolve_effective_identity(Path.cwd())
+        if identity is None:
+            print("No identity set. Run: agentic-identity init <handle>")
+            return 0
+        print(f"developer_id:  {identity.get('developer_id', '?')}")
+        if "display_name" in identity:
+            print(f"display_name:  {identity['display_name']}")
+        if "created_at" in identity:
+            print(f"created_at:    {identity['created_at']}")
+        print(f"scope:         {identity.get('_scope', '?')}")
+        print(f"confirmed:     {str(identity.get('_confirmed', False)).lower()}")
+        if identity.get("provisional", False):
+            print("provisional:   true")
+        return 0
+
+    if scope == "project":
+        cwd = Path.cwd()
+        target_path = _project_identity_path(cwd)
+        identity = _read_identity(target_path)
+        if identity is None:
+            print("No identity at project scope.")
+            return 0
+        print(f"developer_id:  {identity.get('developer_id', '?')}")
+        if "display_name" in identity:
+            print(f"display_name:  {identity['display_name']}")
+        if "created_at" in identity:
+            print(f"created_at:    {identity['created_at']}")
+        if identity.get("provisional", False):
+            print("provisional:   true")
+        return 0
+
+    # --scope global (default): current behavior
     identity = _read_identity()
     if identity is None:
         print("No identity set. Run: agentic-identity init <handle>")
@@ -419,9 +650,13 @@ def main(argv: list[str]) -> int:
                         help="Optional human-readable display name")
     p_init.add_argument("--force", action="store_true",
                         help="Overwrite existing identity without prompting")
+    p_init.add_argument("--scope", choices=["global", "project"], default="global",
+                        help="Write to global (~/.agentic/) or project (<cwd>/.agentic/) file")
     p_init.set_defaults(func=cmd_init)
 
     p_show = sub.add_parser("show", help="Print current identity")
+    p_show.add_argument("--scope", choices=["global", "project", "effective"], default="global",
+                        help="Show global, project, or effective (4-tier resolved) identity")
     p_show.set_defaults(func=cmd_show)
 
     p_auto = sub.add_parser(
@@ -433,12 +668,16 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Overwrite existing confirmed identity",
     )
+    p_auto.add_argument("--scope", choices=["global", "project"], default="global",
+                        help="Write to global or project identity file")
     p_auto.set_defaults(func=cmd_auto)
 
     p_confirm = sub.add_parser(
         "confirm",
         help="Confirm provisional identity and flush pending session buffer",
     )
+    p_confirm.add_argument("--scope", choices=["global", "project"], default="global",
+                           help="Confirm global or project identity")
     p_confirm.set_defaults(func=cmd_confirm)
 
     args = p.parse_args(argv[1:])
