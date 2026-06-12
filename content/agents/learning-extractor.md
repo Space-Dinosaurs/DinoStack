@@ -1,6 +1,6 @@
 ---
 name: learning-extractor
-description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern learnings to .agentic/learnings.md. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
+description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern learnings to .agentic/learnings.md. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files. Does NOT write to .agentic/memory.md (that is /wrap-internal rolling scratch; the canonical durable-facts store is root MEMORY.md).
 tools: Read, Glob, Edit, Write
 ---
 
