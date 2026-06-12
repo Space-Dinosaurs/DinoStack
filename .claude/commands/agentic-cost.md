@@ -86,7 +86,7 @@ It is the third dimension in the cost-visibility hierarchy:
 
 | Subcommand | Scope | Source |
 |---|---|---|
-| `team` | One project, all developers | `.agentic/session-log/*.jsonl` (project-local, local-only) |
+| `team` | One project, all developers | `.agentic/session-log/*.jsonl` (committed via Phase 8 telemetry commits; cross-machine after pull) |
 | `operator` | All projects, all developers | `~/.agentic/session-log/*.jsonl` (global mirror) |
 | `project` | One project, all sessions | `.agentic/events.jsonl` (local telemetry) |
 
