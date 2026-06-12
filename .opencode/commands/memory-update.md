@@ -12,7 +12,15 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Immediately** spawn a background `general-purpose` Worker (`run_in_background: true`). Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
-**Before spawning:** Locate the MEMORY.md path from your auto-injected context. The canonical path is Memory lives in the project at `<cwd>/.agentic/memory/``. Construct the full MEMORY.md path: `<cwd>/.agentic/memory/MEMORY.md`. Pass this path to the Worker as `$MEMORY_PATH`.
+**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (auto-injected by Claude Code at startup). Pass this path to the Worker as `$MEMORY_PATH`.
+
+**Orphan data warning:** If `<cwd>/.agentic/memory/MEMORY.md` exists, it was written by a prior buggy version of this command. Its content is NOT auto-injected by Claude Code. Surface this to the operator before spawning:
+
+```
+WARNING: orphaned memory file at .agentic/memory/MEMORY.md detected. Content is not auto-injected. Review manually and merge into <cwd>/MEMORY.md if needed.
+```
+
+Do NOT auto-merge the orphaned file.
 
 **What to pass as context:** A concise summary of the decision - 1-3 sentences covering what was decided, why, and any key tradeoffs.
 
