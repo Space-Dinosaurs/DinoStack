@@ -89,4 +89,9 @@ Do NOT:
 
 ## Required output format
 
+When producing a unified diff, Read the target file first and copy every
+unchanged context line character-for-character. Do NOT paraphrase,
+summarise, or reword context lines - any change to a context line makes
+the patch unapplyable.
+
 {{OUTPUT_FORMAT_INSTRUCTIONS}}

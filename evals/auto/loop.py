@@ -62,7 +62,16 @@ Respond with EXACTLY these two elements, in order, nothing else:
 
 1. A single fenced diff block in unified-diff format that `git apply`
    can consume. File headers must use `a/` and `b/` prefixes (standard
-   `git diff` output). Example:
+   `git diff` output).
+
+   CRITICAL - context lines must be verbatim:
+   Every line WITHOUT a leading `+` or `-` (i.e. every context line,
+   including the space prefix) MUST be copied BYTE-FOR-BYTE from the
+   file exactly as Read. Do NOT paraphrase, reword, reformat, trim
+   trailing whitespace, or alter a single character of any context
+   line. Any deviation causes `git apply` to reject the patch.
+
+   Example:
 
 ```diff
 --- a/content/agents/skeptic.md
@@ -240,6 +249,46 @@ def _fmt(x: float) -> str:
 def _is_auth_fatal(stderr: str) -> bool:
     s = (stderr or "").lower()
     return ("401" in s) or ("invalid_api_key" in s) or ("unauthorized" in s)
+
+
+def _write_editor_log(
+    repo_root: Path,
+    component: str,
+    iteration: int,
+    ts: str,
+    raw_editor_text: str,
+    extracted_diff: str,
+    label: str = "apply_failed",
+) -> None:
+    """Best-effort: write editor output to editor-logs/ for debugging.
+
+    Writes <component>-iter<N>-<ts>-<label>.txt under evals/auto/editor-logs/.
+    Silently swallows any IO error so the loop is never crashed by logging.
+    """
+    try:
+        log_dir = repo_root / "evals" / "auto" / "editor-logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        safe_ts = ts.replace(":", "-")
+        filename = f"{component}-iter{iteration}-{safe_ts}-{label}.txt"
+        path = log_dir / filename
+        separator = "=" * 72
+        content = (
+            f"component: {component}\n"
+            f"iteration: {iteration}\n"
+            f"timestamp: {ts}\n"
+            f"label: {label}\n"
+            f"\n{separator}\n"
+            f"EXTRACTED DIFF\n"
+            f"{separator}\n"
+            f"{extracted_diff or '(empty)'}\n"
+            f"\n{separator}\n"
+            f"RAW EDITOR TEXT\n"
+            f"{separator}\n"
+            f"{raw_editor_text or '(empty)'}\n"
+        )
+        path.write_text(content, encoding="utf-8")
+    except Exception:  # best-effort; never crash the loop on a log write
+        pass
 
 
 def _time_left(start: float, budget: int) -> float:
@@ -485,11 +534,17 @@ def _one_iteration(
             "fatal": True,
         }
 
-    text = _normalise_headings(er.get("text") or "")
+    raw_text = er.get("text") or ""
     is_whole_file = cfg.component_cfg.get("whole_file_replacement", False)
 
+    # Fix 4: extract the diff BEFORE _normalise_headings so that diff-content
+    # lines (e.g. `+```bash`) never pass through the heading normalizer and
+    # cannot flip its fence toggle, corrupting hunk content.
     if is_whole_file:
-        extracted = apply_mod.extract_whole_file(text)
+        extracted = apply_mod.extract_whole_file(raw_text)
+        # Normalise headings only after extraction - whole-file mode doesn't
+        # have diff lines to worry about, but be consistent.
+        text = _normalise_headings(raw_text)
         path = ""
         new_content = ""
         if extracted:
@@ -507,7 +562,11 @@ def _one_iteration(
                 cfg.repo_root, path, new_content
             )
     else:
-        diff = apply_mod.extract_diff(text) or ""
+        # Extract diff from raw text before normalisation touches it.
+        diff = apply_mod.extract_diff(raw_text) or ""
+        # Now normalise headings in the full text (used for overfitting verdict
+        # parsing); the diff is already captured so normalisation cannot corrupt it.
+        text = _normalise_headings(raw_text)
         diff_for_overfit = diff
         validation = apply_mod.validate_paths(
             diff,
@@ -547,9 +606,22 @@ def _one_iteration(
             reject_reason = f"loc_exceeds_budget:{loc}>{max_loc}"
 
     if reject_reason:
+        # Fix 3: log raw editor output for all pre-apply rejections so
+        # extraction failures (empty_or_noop_diff, etc.) are observable.
+        _ts_now = _now_utc_iso()
+        _extracted_for_log = new_content if is_whole_file else diff
+        _write_editor_log(
+            cfg.repo_root,
+            cfg.component,
+            iteration,
+            _ts_now,
+            raw_text,
+            _extracted_for_log,
+            label=f"pre_apply_reject_{reject_reason[:40]}",
+        )
         return {
             "row": {
-                "timestamp_utc": _now_utc_iso(),
+                "timestamp_utc": _ts_now,
                 "component": cfg.component,
                 "branch": git_ops.current_branch(cfg.repo_root),
                 "iteration": iteration,
@@ -617,9 +689,21 @@ def _one_iteration(
     else:
         ar = apply_mod.apply_diff(cfg.repo_root, diff)
     if not ar["ok"]:
+        # Fix 3: write the extracted diff + raw editor text so corruption is visible.
+        _ts_apply = _now_utc_iso()
+        _extracted_for_log = new_content if is_whole_file else diff
+        _write_editor_log(
+            cfg.repo_root,
+            cfg.component,
+            iteration,
+            _ts_apply,
+            raw_text,
+            _extracted_for_log,
+            label="apply_failed",
+        )
         return {
             "row": {
-                "timestamp_utc": _now_utc_iso(),
+                "timestamp_utc": _ts_apply,
                 "component": cfg.component,
                 "branch": git_ops.current_branch(cfg.repo_root),
                 "iteration": iteration,

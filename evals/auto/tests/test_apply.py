@@ -222,3 +222,66 @@ def test_normalise_heading_plain_text():
 def test_normalise_heading_empty():
     assert normalise_heading("") == ""
     assert normalise_heading("   ") == ""
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: CRLF-tolerant extraction (regression tests)
+# These tests FAIL against the OLD _DIFF_FENCE_RE (r"```diff\s*\n(.*?)\n```")
+# and PASS against the new one (r"```diff\s*\n(.*?)\n[ \t\r]*```").
+# ---------------------------------------------------------------------------
+
+def test_extract_diff_trailing_whitespace_on_closing_fence():
+    """Closing fence with trailing spaces must still match."""
+    body = "--- a/foo\n+++ b/foo\n@@ -1 +1 @@\n-x\n+y"
+    text = f"```diff\n{body}\n```   "  # trailing spaces after closing fence
+    d = extract_diff(text)
+    assert d is not None, "extraction failed with trailing whitespace on closing fence"
+    assert "--- a/foo" in d
+    assert "+y" in d
+
+
+def test_extract_diff_crlf_line_endings_normalised():
+    """CRLF line endings in the diff body are normalised to LF."""
+    body_crlf = "--- a/foo\r\n+++ b/foo\r\n@@ -1 +1 @@\r\n-x\r\n+y"
+    text = f"```diff\r\n{body_crlf}\r\n```"
+    d = extract_diff(text)
+    assert d is not None, "extraction failed with CRLF line endings"
+    # Result must contain only LF, not CRLF.
+    assert "\r" not in d, "CRLF not normalised to LF"
+    assert "--- a/foo" in d
+    assert "+y" in d
+
+
+def test_extract_diff_no_diff_returns_none():
+    """Regression guard: no diff fence -> None."""
+    assert extract_diff("plain text, no fence") is None
+    assert extract_diff("") is None
+
+
+def test_extract_diff_empty_fence_returns_none():
+    """An empty diff fence (no-op signal) returns None."""
+    assert extract_diff("```diff\n```") is None
+    assert extract_diff("```diff\n\n```") is None
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: diff-content lines with backticks do not corrupt extraction
+# ---------------------------------------------------------------------------
+
+def test_extract_diff_backtick_content_line_not_corrupted():
+    """A diff line like '+```bash' must not be treated as a fence boundary."""
+    body = (
+        "--- a/content/agents/skeptic.md\n"
+        "+++ b/content/agents/skeptic.md\n"
+        "@@ -1,3 +1,4 @@\n"
+        " existing line\n"
+        "+```bash\n"
+        "+echo hello\n"
+        "+```\n"
+        " existing line"
+    )
+    text = f"```diff\n{body}\n```"
+    d = extract_diff(text)
+    assert d is not None, "extraction returned None when diff contains backtick lines"
+    assert "+```bash" in d, "backtick diff-content line was dropped"
+    assert "+echo hello" in d

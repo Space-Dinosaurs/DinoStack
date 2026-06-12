@@ -45,7 +45,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # ```diff ... ``` fenced block. The diff may span many lines; use DOTALL.
-_DIFF_FENCE_RE = re.compile(r"```diff\s*\n(.*?)\n```", re.DOTALL)
+# Allow optional whitespace (including \r) before the closing fence so CRLF
+# line endings and trailing spaces do not break extraction.
+_DIFF_FENCE_RE = re.compile(r"```diff\s*\n(.*?)\n[ \t\r]*```", re.DOTALL)
 
 # ```markdown ... ``` or ```md ... ``` fenced block for whole-file mode.
 _WHOLE_FILE_FENCE_RE = re.compile(r"```(?:markdown|md)\s*\n(.*?)\n```", re.DOTALL)
@@ -75,14 +77,22 @@ def normalise_heading(line: str) -> str:
 
 
 def extract_diff(text: str) -> Optional[str]:
-    """Return the first fenced ```diff block content, or None if absent."""
+    """Return the first fenced ```diff block content, or None if absent.
+
+    CRLF line endings (\\r\\n) and bare CR (\\r) in the extracted body are
+    normalised to LF so downstream consumers never see mixed line endings.
+    """
     if not text:
         return None
     m = _DIFF_FENCE_RE.search(text)
     if not m:
         return None
     body = m.group(1).strip()
-    return body or None
+    if not body:
+        return None
+    # Normalise CRLF/CR -> LF so `git apply` is not confused by mixed endings.
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    return body
 
 
 def extract_whole_file(text: str) -> Optional[Tuple[str, str]]:
