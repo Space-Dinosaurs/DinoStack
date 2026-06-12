@@ -25,8 +25,9 @@ node_modules/
 !.agentic/config.json
 !.agentic/findings.md
 !.agentic/qa-regressions.md
-# session-log is intentionally local-only telemetry (per-developer, read by
-# agentic-cost); it is NOT committed - let it fall under the .agentic/* umbrella.
+!.agentic/session-log/
+# session-log/: per-developer telemetry, committed so `agentic-cost team` works
+# across machines. Other .agentic/* runtime files stay local under the umbrella.
 .agentic/worktrees/
 .agentic/loop-state.json
 .agentic/tasks.jsonl
