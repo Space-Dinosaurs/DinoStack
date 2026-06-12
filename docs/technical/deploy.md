@@ -17,6 +17,7 @@ The docs site (hub page at `docs/index.html` plus slide decks under `docs/slides
 - Vercel CLI installed (`vercel --version`)
 - Marp CLI installed (`marp --version`, expects v4.x)
 - `vercel.json` at repo root sets `outputDirectory: "docs"` and rewrites `/` to `/index.html`
+- `/install.sh` on this domain is a 307 redirect to the raw GitHub bootstrap URL. To update the redirect destination after a repo rename, change the `redirects[0].destination` value in `vercel.json` and redeploy.
 
 ## Procedure
 

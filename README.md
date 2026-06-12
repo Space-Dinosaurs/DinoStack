@@ -11,7 +11,7 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 ### One-liner install (quickest)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/DinoStack/main/bootstrap.sh | bash
+curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
 This clones the repo into `agentic-engineering/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
@@ -22,13 +22,13 @@ This clones the repo into `agentic-engineering/` inside your current directory, 
 
 ```bash
 # Install to ~/tools/agentic-engineering instead of the current directory
-AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/DinoStack/main/bootstrap.sh | bash
+AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
 **Pass flags through to the installer** (e.g. to set activation mode without prompts):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/DinoStack/main/bootstrap.sh | bash -s -- --mode=opt-in
+curl -fsSL https://docs.dinostack.ai/install.sh | bash -s -- --mode=opt-in
 ```
 
 ### Manual / SSH install
