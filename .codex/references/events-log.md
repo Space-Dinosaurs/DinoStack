@@ -89,7 +89,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 ```
 
 **Fields:**
-- `developer_id`: handle from `~/.agentic/identity.yml`. Never inferred from git config.
+- `developer_id`: handle from the effective identity (`<cwd>/.agentic/identity.yml` if present and wins the 4-tier resolution, else `~/.agentic/identity.yml`). Never inferred from git config.
 - `session_uuid`: the Stop hook payload `session_id` field.
 - `project_slug`: `path.basename(cwd)` - the directory name of the project root.
 - `branch`: from `git symbolic-ref --short HEAD` (best-effort; empty string on failure).
