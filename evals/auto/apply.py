@@ -45,9 +45,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # ```diff ... ``` fenced block. The diff may span many lines; use DOTALL.
-# Allow optional whitespace (including \r) before the closing fence so CRLF
-# line endings and trailing spaces do not break extraction.
-_DIFF_FENCE_RE = re.compile(r"```diff\s*\n(.*?)\n[ \t\r]*```", re.DOTALL)
+# Allow at most one optional \r before the closing fence so CRLF line endings
+# do not break extraction. Using [ \t\r]* would match space-prefixed context
+# lines that look like " ```" inside the diff body, causing premature truncation.
+_DIFF_FENCE_RE = re.compile(r"```diff\s*\n(.*?)\n\r?```", re.DOTALL)
 
 # ```markdown ... ``` or ```md ... ``` fenced block for whole-file mode.
 _WHOLE_FILE_FENCE_RE = re.compile(r"```(?:markdown|md)\s*\n(.*?)\n```", re.DOTALL)

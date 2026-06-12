@@ -30,6 +30,9 @@ Failure modes: a failing subprocess or validation error is recorded as an
                iteration with decision=reject and the loop continues. Auth
                errors ("401", "invalid_api_key") halt the loop with reason
                "auth_fatal". Other fatal exceptions propagate.
+               _write_editor_log writes apply-failure debug logs to
+               evals/auto/editor-logs/ (best-effort; IO errors silently
+               swallowed so the loop never crashes on a log write).
 
 Performance: dominated by the per-iteration runner cost (9 runs per fixture
              x N fixtures); the loop infrastructure itself is negligible.

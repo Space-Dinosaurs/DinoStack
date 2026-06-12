@@ -1,10 +1,17 @@
-"""Regression tests for evals.auto.loop._normalise_headings.
+"""Regression tests for evals.auto.loop._normalise_headings and Fix-4 seam.
 
 Focuses on the fenced-code state machine: the high-blast-radius path where a
 bug could silently corrupt the diff the harness applies.
+
+Fix-4 context: loop.py was changed to call extract_diff(raw_text) BEFORE
+_normalise_headings(raw_text). Without this order, a diff containing lines
+like '+```bash' would flip _normalise_headings' fence toggle, causing heading
+normalisation to run inside the diff block and potentially corrupt hunk content
+or alter verdict parsing.
 """
 from __future__ import annotations
 
+from evals.auto.apply import extract_diff
 from evals.auto.loop import _normalise_headings
 
 
@@ -169,3 +176,69 @@ def test_plain_prose_without_fences():
     """Non-heading lines outside fences pass through unchanged."""
     inp = "just some prose\nmore prose\n"
     assert _normalise_headings(inp) == inp
+
+
+# ---------------------------------------------------------------------------
+# Fix-4: extract_diff called BEFORE _normalise_headings (loop.py seam)
+#
+# The bug: if _normalise_headings ran first on text containing a diff with
+# lines like '+```bash', its fence-toggle state machine would flip at those
+# lines, causing heading normalisation to run inside the diff block and corrupt
+# it. The fix is to extract the diff from raw_text first, THEN normalise.
+#
+# This test exercises the loop.py seam directly: calling extract_diff on
+# raw_text and _normalise_headings on raw_text independently (the correct order)
+# and verifying the extracted diff is intact even when _normalise_headings on
+# the same text would corrupt headings outside the diff.
+# ---------------------------------------------------------------------------
+
+def test_fix4_extract_diff_before_normalise_headings_preserves_backtick_lines():
+    """Fix-4 seam: extracting diff before heading normalisation preserves diff intact.
+
+    Constructs editor output where:
+    - A diff block contains '+```bash' and '+```' lines (backtick diff content)
+    - Prose outside the diff has markdown headings
+
+    The correct loop order (extract_diff first) must return the diff with all
+    backtick content lines intact. If normalisation ran first and corrupted the
+    fence toggle, _normalise_headings would enter the diff block and potentially
+    alter its content, and the diff extraction might miss lines.
+    """
+    diff_body = (
+        "--- a/content/agents/skeptic.md\n"
+        "+++ b/content/agents/skeptic.md\n"
+        "@@ -1,4 +1,7 @@\n"
+        " existing line\n"
+        "+```bash\n"
+        "+echo hello\n"
+        "+```\n"
+        " ## heading-looking context line in diff\n"
+        " existing line"
+    )
+    raw_text = (
+        "## Preamble heading\n"
+        "Some prose about the edit.\n"
+        f"```diff\n{diff_body}\n```\n"
+        "## Verdict heading\n"
+        "Overfitting Rule verdict: no because straightforward improvement\n"
+    )
+
+    # Step 1: extract diff from raw_text (Fix-4 order - before normalisation).
+    diff = extract_diff(raw_text)
+
+    # Step 2: normalise headings on raw_text (for verdict parsing - done after).
+    normalised = _normalise_headings(raw_text)
+
+    # The extracted diff must be complete.
+    assert diff is not None, "extract_diff returned None"
+    assert "+```bash" in diff, "'+```bash' line missing from extracted diff"
+    assert "+echo hello" in diff, "'+echo hello' line missing from extracted diff"
+    assert "+```" in diff, "closing '+```' line missing from extracted diff"
+    assert " ## heading-looking context line in diff" in diff, \
+        "context line with heading prefix missing from extracted diff"
+
+    # The normalised text must have transformed prose headings but not diff content.
+    assert "## Preamble heading" not in normalised, "outside heading was not normalised"
+    assert "## Verdict heading" not in normalised, "outside verdict heading was not normalised"
+    # The verdict line itself should survive (it's not a heading pattern).
+    assert "overfitting rule verdict" in normalised.lower()

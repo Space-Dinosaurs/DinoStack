@@ -226,12 +226,22 @@ def test_normalise_heading_empty():
 
 # ---------------------------------------------------------------------------
 # Fix 2: CRLF-tolerant extraction (regression tests)
-# These tests FAIL against the OLD _DIFF_FENCE_RE (r"```diff\s*\n(.*?)\n```")
-# and PASS against the new one (r"```diff\s*\n(.*?)\n[ \t\r]*```").
+# test_extract_diff_crlf_line_endings_normalised FAILS against the OLD regex
+# (r"```diff\s*\n(.*?)\n```") because the old pattern does not allow \r before
+# the closing fence when the file uses CRLF line endings (\r\n```).
+# test_extract_diff_trailing_whitespace_on_closing_fence does NOT discriminate
+# old vs new - the old regex also passes it because trailing spaces appear
+# *after* the ``` fence, outside the match boundary. It is retained here as a
+# current-behavior conformance test.
 # ---------------------------------------------------------------------------
 
 def test_extract_diff_trailing_whitespace_on_closing_fence():
-    """Closing fence with trailing spaces must still match."""
+    """Closing fence with trailing spaces after it must still extract correctly.
+
+    Note: this test passes both old and new regex because trailing spaces appear
+    after the closing fence token, not before it. It is a conformance test for
+    current behavior, not a regression discriminator.
+    """
     body = "--- a/foo\n+++ b/foo\n@@ -1 +1 @@\n-x\n+y"
     text = f"```diff\n{body}\n```   "  # trailing spaces after closing fence
     d = extract_diff(text)
@@ -241,7 +251,11 @@ def test_extract_diff_trailing_whitespace_on_closing_fence():
 
 
 def test_extract_diff_crlf_line_endings_normalised():
-    """CRLF line endings in the diff body are normalised to LF."""
+    """CRLF line endings in the diff body are normalised to LF.
+
+    This test FAILS against the old regex (r"```diff\\s*\\n(.*?)\\n```") because
+    \\r\\n``` does not match \\n```. It PASSES against the fixed \\n\\r?```.
+    """
     body_crlf = "--- a/foo\r\n+++ b/foo\r\n@@ -1 +1 @@\r\n-x\r\n+y"
     text = f"```diff\r\n{body_crlf}\r\n```"
     d = extract_diff(text)
@@ -265,11 +279,46 @@ def test_extract_diff_empty_fence_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# Fix 4: diff-content lines with backticks do not corrupt extraction
+# MAJOR 1 regression: space-prefixed context line " ```" does not truncate diff
+# This test FAILS against the old [ \t\r]* closing pattern because (.*?) is
+# non-greedy and terminates at the first " ```" context line inside the body.
+# It PASSES against the corrected \n\r?``` pattern.
+# ---------------------------------------------------------------------------
+
+def test_extract_diff_space_prefixed_fence_context_line_not_truncated():
+    """A diff context line ' ```' must not prematurely close the outer fence.
+
+    Fails against r"```diff\\s*\\n(.*?)\\n[ \\t\\r]*```" (old pattern with
+    [ \\t\\r]* allowing leading space) because the non-greedy (.*?) terminates
+    at the first space-prefixed ``` context line. Passes against \\n\\r?```.
+    """
+    body = (
+        "--- a/content/commands/implement-ticket.md\n"
+        "+++ b/content/commands/implement-ticket.md\n"
+        "@@ -10,7 +10,8 @@\n"
+        " some prose line\n"
+        " ```diff\n"          # context line: space + ``` - triggers premature match in old regex
+        " --- a/example\n"
+        " +++ b/example\n"
+        " ```\n"              # context line: space + ``` - also a potential early terminator
+        "+new added line\n"
+        " final context line"
+    )
+    text = f"```diff\n{body}\n```"
+    d = extract_diff(text)
+    assert d is not None, "extraction returned None - diff was truncated at space-prefixed context fence"
+    assert "+new added line" in d, "content after space-prefixed ``` context line was truncated"
+    assert "final context line" in d, "final context line was truncated"
+
+
+# ---------------------------------------------------------------------------
+# extract_diff-level: backtick diff-content lines do not corrupt apply.py
+# (Note: this tests the apply.py extract_diff function directly, NOT the Fix-4
+# loop.py reorder. For the loop.py Fix-4 coverage, see test_loop.py.)
 # ---------------------------------------------------------------------------
 
 def test_extract_diff_backtick_content_line_not_corrupted():
-    """A diff line like '+```bash' must not be treated as a fence boundary."""
+    """A diff line like '+```bash' is extracted intact by apply.extract_diff."""
     body = (
         "--- a/content/agents/skeptic.md\n"
         "+++ b/content/agents/skeptic.md\n"
