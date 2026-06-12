@@ -4,7 +4,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final - treat it as a living system, not a finished product.
 
-**Live docs:** https://agentic-engineering-tyhummel.vercel.app
+**Live docs:** https://docs.dinostack.ai/
 
 ## Getting started
 
