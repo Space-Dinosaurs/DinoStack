@@ -4,15 +4,17 @@ Purpose: Aggregate per-run scores into median/stdev and assemble the TSV row
 
 Public API: aggregate(per_run_scores: list[dict], fixture, manifest, commit,
                       component_content_hash) -> dict
-            (dict keys match evals.runner.tsv_writer.TSV_HEADER).
+            (dict keys match evals.runner.tsv_writer.TSV_HEADER; includes
+             fixture_id sourced from fixture.id).
 
 Upstream deps: stdlib statistics, json; evals.runner.loader types.
 
 Downstream consumers: evals.runner.cli.
 
 Failure modes: empty per_run_scores yields status="no_runs" with median=0.0,
-               stdev=0.0, n_runs=0. If any per-run score has status other than
-               "ok" the aggregated status becomes the first non-ok status.
+               stdev=0.0, n_runs=0, fixture_id from fixture.id. If any per-run
+               score has status other than "ok" the aggregated status becomes
+               the first non-ok status.
 
 Performance: standard.
 """
@@ -36,6 +38,7 @@ def aggregate(
             "commit": commit,
             "component_content_hash": component_content_hash,
             "fixture_hash": compute_fixture_hash(fixture.path),
+            "fixture_id": fixture.id,
             "primary_score_median": 0.0,
             "primary_score_stdev": 0.0,
             "n_runs": 0,
@@ -93,6 +96,7 @@ def aggregate(
         "commit": commit,
         "component_content_hash": component_content_hash,
         "fixture_hash": compute_fixture_hash(fixture.path),
+        "fixture_id": fixture.id,
         "primary_score_median": round(median, 6),
         "primary_score_stdev": round(stdev, 6),
         "n_runs": len(per_run_scores),

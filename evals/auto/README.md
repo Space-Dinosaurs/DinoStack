@@ -9,6 +9,30 @@ command and NOT a daemon - it is a standalone Python CLI you run on demand.
 Read `docs/planning/p2-self-improving-harness.md` ("Proposed approach" and
 "Overfitting Rule") and `evals/OVERFITTING-RULE.md` before using this tool.
 
+## One-time v2 migration + baseline (run before first loop)
+
+Before running the loop for the first time after upgrading to v2, complete
+these three steps in order. Step 1 must run before steps 2 and 3 - the loop's
+baseline read and the ledger's header-width guard both require the migrated
+schema.
+
+```sh
+# 1. Migrate stale-schema TSVs to the new 10-column (component) and
+#    17-column (ledger) schemas. Idempotent - safe to run multiple times.
+python -m evals.auto.migrate_tsv
+
+# 2. Establish the v2 baseline (n_runs=9 is set in skeptic.yaml; no --n needed).
+#    Run from the repo root on a clean tree on a NON-main branch.
+python -m evals.runner.cli run skeptic
+
+# 3. Then start the loop.
+python -m evals.auto.cli run skeptic --max-iterations 5 --cost-budget-usd 20
+```
+
+Note: `migrate_tsv` is delivered by a separate setup step. If the module is
+not yet present, check that your branch includes the `evals/auto/migrate_tsv.py`
+file before running step 1.
+
 ## Quickstart
 
 ```sh
@@ -52,9 +76,11 @@ The CLI aborts before spawning any agent if any of these is false:
 5. Apply the diff via `git apply --index`, commit it on the working
    branch, and run `python -m evals.runner.cli run <component>`.
 6. Aggregate the freshly-written TSV rows (mean-of-fixture-medians)
-   into a scalar. Compare to the prior baseline: if `delta >=
-   max(pooled_stdev, 0.02)`, keep the commit. Otherwise `git reset
-   --hard` back to the previous base.
+   into a scalar. Pair the per-fixture results against the baseline
+   by `fixture_id`. Keep the commit only if a one-sided sign-flip
+   permutation test (alpha=0.05) is significant AND the mean
+   per-fixture delta is >= 0.02 AND there are >= 5 nonzero pairs.
+   Otherwise `git reset --hard` back to the previous base.
 7. Append a row to `evals/results/auto-harness.tsv` describing the
    decision, the delta, and cumulative cost.
 
@@ -64,7 +90,7 @@ iterations (plateau), or editor-agent auth failure.
 
 ## Reading the ledger TSV
 
-`evals/results/auto-harness.tsv` (14 columns):
+`evals/results/auto-harness.tsv` (17 columns):
 
 | column | meaning |
 |---|---|
@@ -77,11 +103,14 @@ iterations (plateau), or editor-agent auth failure.
 | `baseline_metric` | Scalar before this iteration |
 | `new_metric` | Scalar after apply+run (empty on reject/halt) |
 | `delta` | new - baseline (empty on reject/halt) |
-| `pooled_stdev` | Post-eval pooled stdev across fixtures |
+| `pooled_stdev` | Post-eval pooled stdev across fixtures (observability only) |
 | `decision` | `keep` / `revert` / `reject` / `dry_run_skip_apply` / `halt` |
 | `reason` | Decision rationale or reject/halt reason |
 | `overfitting_verdict` | `pass` / `fail` from the editor's verdict line |
 | `cost_usd_cumulative` | Total loop cost including this iteration |
+| `signed_rank_p` | p-value from the one-sided sign-flip permutation test (empty on pre-runner rows) |
+| `effect_mean_delta` | Mean per-fixture delta across paired fixtures (empty on pre-runner rows) |
+| `nonzero_pairs` | Number of nonzero paired deltas used in the test (empty on pre-runner rows) |
 
 ## Killing a runaway loop
 
