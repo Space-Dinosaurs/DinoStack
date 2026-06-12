@@ -106,6 +106,15 @@ def build_skeptic_prompt(fixture: Fixture) -> str:
         "## Resolved issues preflight",
         "No prior rounds.",
         "",
+        "## Global-context inputs",
+        "",
+        "1. Architect plan: n/a - Trivial direct edit",
+        "2. Brief / Plan tier artifact: n/a - Trivial direct edit",
+        "3. qa_criteria block (verbatim YAML, OR \"n/a - <enumerated reason>\"): n/a - Trivial direct edit",
+        "4. Per-consumer impact table (verbatim, OR \"n/a - <enumerated reason>\"): n/a - non-shared-utility surface (importer count below 5 threshold)",
+        "5. Related files (list of absolute paths the diff touches OR is logically coupled to): ./evals-fixture/diff.patch",
+        "6. Diff under review: ./evals-fixture/diff.patch",
+        "",
         "Produce your sign-off using the exact format specified in your role.",
     ]
     return "\n".join(parts) + "\n"

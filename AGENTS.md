@@ -17,10 +17,10 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
-- `gh pr create` for this repo requires an explicit token: `GITHUB_TOKEN=$(gh auth token --user tyson-solara6 2>/dev/null) gh pr create --repo Space-Dinosaurs/agentic-engineering` (SSH-alias remote not recognized by default gh auth)
+- `gh pr create` for this repo requires an explicit token: `GITHUB_TOKEN=$(gh auth token --user tyson-solara6 2>/dev/null) gh pr create --repo Space-Dinosaurs/DinoStack` (SSH-alias remote not recognized by default gh auth)
 - `rm -rf` is blocked by Claude Code permissions in this repo; remove files individually: `rm <file>` then `rmdir <dir>`
 - `bin/agentic-memory` — lightweight memory retrieval tool for querying `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md` on demand.
-- The `fullmetalblanket` git remote points to a non-existent GitHub repo - never push or PR to it. `origin` (`Space-Dinosaurs/agentic-engineering`, what `main` tracks) is the only canonical remote.
+- The `fullmetalblanket` git remote points to a non-existent GitHub repo - never push or PR to it. `origin` (`Space-Dinosaurs/DinoStack`, what `main` tracks) is the only canonical remote.
 
 ## Deploy
 - Docs site: see `docs/technical/deploy.md`. Always verify the linked project ID before running `vercel --prod`.

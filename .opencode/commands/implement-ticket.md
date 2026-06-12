@@ -1460,6 +1460,7 @@ export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" &
 git -C $REPO add [specific files]
 
 # Resolve developer identity for trailer (soft-fail throughout; agentic-identity may not be installed).
+# Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
 DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
 # Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
 if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
@@ -1479,10 +1480,65 @@ else
   git -C $REPO commit -m "$COMMIT_MSG"
 fi
 
+# --- Telemetry commit (soft-fail throughout) ---
+COMMIT_TELEMETRY=$(python3 -c "
+import json, sys
+try:
+  cfg = json.load(open('$REPO/.agentic/config.json'))
+  print('true' if cfg.get('commit_telemetry', True) else 'false')
+except: print('true')
+" 2>/dev/null || echo 'true')
+
+if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
+  SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
+
+  # Resolve PR_CHECKOUT: the checkout that holds the PR branch.
+  # Fan-out path: $REPO is on $FEATURE_BRANCH after the line-977 checkout.
+  # Single-engineer paths: engineer return supplies WORKTREE_PATH.
+  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
+    PR_CHECKOUT="$REPO"
+  elif [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+    PR_CHECKOUT="$WORKTREE_PATH"
+    # Copy file into the worktree (git cannot stage files outside the work tree).
+    mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
+    cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
+  else
+    echo "WARNING: telemetry commit skipped - cannot resolve PR checkout for branch $BRANCH_NAME"
+    PR_CHECKOUT=""
+  fi
+
+  # HEAD-branch guard (safety floor: never commit to the wrong branch).
+  if [ -n "$PR_CHECKOUT" ]; then
+    ACTUAL_HEAD=$(git -C "$PR_CHECKOUT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    if [ "$ACTUAL_HEAD" != "$BRANCH_NAME" ]; then
+      echo "WARNING: telemetry commit skipped - $PR_CHECKOUT is on '$ACTUAL_HEAD', expected '$BRANCH_NAME'"
+      PR_CHECKOUT=""
+    fi
+  fi
+
+  if [ -n "$PR_CHECKOUT" ] && [ -f "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" ]; then
+    git -C "$PR_CHECKOUT" add ".agentic/session-log/${DEVELOPER}.jsonl"
+    # Only commit if the index has a diff (avoids empty-commit on no new sessions).
+    if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
+      NL=$'
+'
+      TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
+      git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||         git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
+    fi
+    # Push only on single-engineer paths (fan-out push handled in its own block).
+    if [ "$PR_CHECKOUT" != "$REPO" ]; then
+      git -C "$PR_CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || true
+    fi
+  fi
+fi
+# --- End telemetry commit ---
+
 git -C $REPO push -u origin [BRANCH_NAME]
 ```
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
+
+**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the line-977 `git checkout`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug.
 
 Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
@@ -1663,6 +1719,7 @@ Run:
 ```bash
 # Resolve identity for PR Developer: field (may already be set from Phase 8).
 # Re-derive here if Phase 8 was skipped (e.g., parallel path with no fixup files).
+# Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
 DEVELOPER=${DEVELOPER:-$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
 if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 

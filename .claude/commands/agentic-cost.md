@@ -86,9 +86,15 @@ It is the third dimension in the cost-visibility hierarchy:
 
 | Subcommand | Scope | Source |
 |---|---|---|
-| `team` | One project, all developers | `.agentic/session-log/*.jsonl` (project-local, local-only) |
+| `team` | One project, all developers | `.agentic/session-log/*.jsonl` (committed via Phase 8 telemetry commits; cross-machine after pull) |
 | `operator` | All projects, all developers | `~/.agentic/session-log/*.jsonl` (global mirror) |
 | `project` | One project, all sessions | `.agentic/events.jsonl` (local telemetry) |
+
+**Per-repo handle attribution:** A developer who uses `agentic-identity init --scope project`
+with a handle different from their global handle will appear as two separate rows in both
+`team` and `operator` output - one row per distinct `developer_id`. This is expected behavior;
+each handle is an independent identity. Manual cross-handle aggregation is required if a
+unified view is needed.
 
 The `.pending/` staging directory is never globbed - only fully-attributed
 lines from `*.jsonl` files are included. If no global logs exist (directory absent or

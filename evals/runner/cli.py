@@ -5,27 +5,38 @@ Purpose: Command-line entry point for the evals runner. Subcommands:
 Public API: main(argv: list[str] | None = None) -> int; invoked via
             `python -m evals.runner.cli`.
 
-Upstream deps: stdlib argparse, importlib, subprocess, sys, json;
+Upstream deps: stdlib argparse, concurrent.futures, importlib, subprocess, sys, json;
                evals.runner.{loader, isolator, invoker, prompt, aggregator,
                tsv_writer, normalizer, logging}.
 
 Downstream consumers: humans running evals; CI (future).
 
 Failure modes: Exits non-zero on missing components, missing fixtures, absent
-               Claude CLI, or unhandled runner exceptions. Per-run errors
-               within an N-run loop are captured in the runlog and TSV rather
-               than raising to the shell.
+               Claude CLI, or unhandled runner exceptions. Per-fixture worker
+               exceptions are captured as error rows (status="scoring_error")
+               so a crashed fixture yields an error row, not a missing row.
+               All TSV + runlog writes happen single-threaded after the
+               ThreadPoolExecutor joins (no concurrent-append race).
 
-Performance: dominated by the Claude CLI calls; runner overhead is negligible.
+Performance: fixtures run in parallel via a bounded ThreadPoolExecutor
+             (default 4 workers, clamped to len(fixtures)). Each fixture
+             gets its own isolated wt-<uuid> worktree via isolator.py (tier
+             determined per manifest: Tier-1 for agent-mode, Tier-2 for
+             command-mode), so workers share no mutable state during
+             execution. Writes are single-threaded post-join, sorted by
+             fixture_id, so exactly n_fixtures rows land contiguously per
+             run-commit.
 """
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import importlib
 import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 from . import aggregator as agg_mod
 from . import invoker as inv_mod
@@ -86,6 +97,18 @@ def _score_run(scoring, run_record: dict, fixture: ld.Fixture) -> dict:
         }
 
 
+class _FixtureResult(NamedTuple):
+    """Transport type returned by _run_fixture (worker side).
+
+    row: the aggregated TSV row dict (keys match TSV_HEADER; ready for
+         tsv.append_row after the executor joins).
+    runlog_records: per-run records to be written via write_runlog after join,
+                    in run-index order.
+    """
+    row: dict
+    runlog_records: list[dict]
+
+
 def _run_fixture(
     manifest: ld.ComponentManifest,
     fixture: ld.Fixture,
@@ -95,9 +118,20 @@ def _run_fixture(
     scoring,
     max_turns: int | None = None,
     backend: str = "claude",
-) -> dict:
+    model: str = "sonnet",
+) -> _FixtureResult:
+    """Execute all n_runs for one fixture; return aggregated row + runlog records.
+
+    Does NOT write to TSV or runlog. All writes happen single-threaded in
+    cmd_run after the executor joins, so there is no concurrent-append race
+    on the TSV file (tsv_writer is not thread-safe).
+
+    Each invocation uses its own isolator worktree (Tier1Worktree creates a
+    unique wt-<uuid12> path per __enter__ call), so parallel calls are safe.
+    """
     per_run_scores: list[dict] = []
     invocation_modes: list[str] = []
+    runlog_records: list[dict] = []
     invoke_section = manifest.invoke or {}
     agent_name = invoke_section.get("agent_name")
     invoke_mode = invoke_section.get("mode") or "agent"
@@ -168,6 +202,7 @@ def _run_fixture(
                     home=fake_home,
                     max_turns=max_turns,
                     backend=backend,
+                    model=model,
                 )
                 # Scorer needs the worktree root to read AGENTS.md/.gitignore
                 # line-level content. Stuff it into the record before the
@@ -182,28 +217,26 @@ def _run_fixture(
                     prompt_text, worktree, manifest.timeout_seconds,
                     agent_name=agent_name, max_turns=max_turns,
                     backend=backend,
+                    model=model,
                 )
             score = _score_run(scoring, run_record, fixture)
         per_run_scores.append(score)
         invocation_modes.append(run_record.get("invocation_mode") or "raw-prompt")
-        write_runlog(
-            manifest.name,
-            {
-                "fixture_id": fixture.id,
-                "run_index": i,
-                "commit": commit,
-                "content_hash": content_hash,
-                "cli_status": run_record.get("status"),
-                "latency_ms": run_record.get("latency_ms"),
-                "turns_used": run_record.get("turns_used"),
-                "cost_usd": run_record.get("cost_usd"),
-                "invocation_mode": run_record.get("invocation_mode"),
-                "primary": score.get("primary"),
-                "score_status": score.get("status"),
-                "final_text_preview": (run_record.get("final_text") or "")[:1000],
-                "parse_warnings": run_record.get("_parse_warnings", []),
-            },
-        )
+        runlog_records.append({
+            "fixture_id": fixture.id,
+            "run_index": i,
+            "commit": commit,
+            "content_hash": content_hash,
+            "cli_status": run_record.get("status"),
+            "latency_ms": run_record.get("latency_ms"),
+            "turns_used": run_record.get("turns_used"),
+            "cost_usd": run_record.get("cost_usd"),
+            "invocation_mode": run_record.get("invocation_mode"),
+            "primary": score.get("primary"),
+            "score_status": score.get("status"),
+            "final_text_preview": (run_record.get("final_text") or "")[:1000],
+            "parse_warnings": run_record.get("_parse_warnings", []),
+        })
 
     row = agg_mod.aggregate(per_run_scores, fixture, manifest, commit, content_hash)
     # For agent-mode components, tag any row that fell back to raw-prompt so
@@ -211,8 +244,7 @@ def _run_fixture(
     # Command-mode rows are always raw-prompt by design and do not get the tag.
     if invoke_mode == "agent" and invocation_modes and any(m != "two-level" for m in invocation_modes):
         row["description"] = f"[raw-prompt] {row['description']}"
-    tsv.append_row(manifest.name, row)
-    return row
+    return _FixtureResult(row=row, runlog_records=runlog_records)
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -250,26 +282,103 @@ def cmd_run(args: argparse.Namespace) -> int:
                     fx.path,
                 )
 
+    # Clamp: at least 1 (guard against --workers 0 or negative), at most
+    # len(fixtures) (no point spinning idle threads).
+    effective_workers = max(1, min(args.workers, len(fixtures)))
+
+    # Submit all fixtures to the thread pool. Each fixture gets its own
+    # isolator worktree (Tier1Worktree creates a unique wt-<uuid12> path per
+    # __enter__ call - confirmed via isolator.py), so workers share no
+    # mutable state inside _run_fixture.
+    futures: dict[concurrent.futures.Future, ld.Fixture] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
+        for fx in fixtures:
+            f = executor.submit(
+                _run_fixture,
+                manifest, fx, n_runs, commit, content_hash, scoring,
+                max_turns=args.max_turns,
+                backend=args.backend,
+                model=args.model,
+            )
+            futures[f] = fx
+
+    n_rows = _collect_and_write(futures, manifest, commit, content_hash)
+    tsv_file = tsv.tsv_path(manifest.name)
+    print(f"Wrote {n_rows} rows to {tsv_file}")
+    return 0
+
+
+def _collect_and_write(
+    futures: "dict[concurrent.futures.Future, ld.Fixture]",
+    manifest: ld.ComponentManifest,
+    commit: str,
+    content_hash: str,
+) -> int:
+    """Collect future results, build error rows for exceptions, sort, and write.
+
+    Separated from cmd_run so tests can drive this logic with a mocked
+    _run_fixture without constructing a full argparse.Namespace or loader.
+
+    Returns the number of TSV rows written.
+
+    Invariants:
+    - Every fixture in `futures` yields exactly one row (error row on exception).
+    - TSV rows are written in fixture_id lexicographic order (deterministic).
+    - All writes happen in this function (single-threaded, post-join); callers
+      must not write TSV or runlog rows before calling this function.
+    """
+    # Collect results after executor join. Per-fixture exceptions are captured
+    # as error rows (status="scoring_error") so every fixture yields exactly
+    # one row - crashed fixture -> error row, not missing row.
+    result_pairs: list[tuple[str, _FixtureResult]] = []
+    for f, fx in futures.items():
+        try:
+            fixture_result = f.result()
+        except Exception as exc:
+            _log.error("Worker exception for fixture %s: %s", fx.id, exc, exc_info=True)
+            error_row = agg_mod.aggregate(
+                [{"primary": 0.0, "status": "scoring_error", "diagnostic": {"error": str(exc)}}],
+                fx,
+                manifest,
+                commit,
+                content_hash,
+            )
+            fixture_result = _FixtureResult(row=error_row, runlog_records=[])
+        result_pairs.append((fx.id, fixture_result))
+
+    # Sort by fixture_id for deterministic write order: rows land contiguously
+    # per run-commit in a stable order aggregate_latest can rely on when
+    # filtering by expected_commit.
+    result_pairs.sort(key=lambda t: t[0])
+
+    # Single-threaded post-join batch write: all TSV rows first, then all
+    # runlog records (both in fixture_id order). tsv_writer is not thread-safe;
+    # writing here (after executor join) eliminates the race.
     rows: list[dict] = []
-    for fx in fixtures:
-        row = _run_fixture(
-            manifest, fx, n_runs, commit, content_hash, scoring,
-            max_turns=args.max_turns,
-            backend=args.backend,
-        )
-        rows.append(row)
+    all_runlog_records: list[dict] = []
+    for _fx_id, fixture_result in result_pairs:
+        rows.append(fixture_result.row)
+        all_runlog_records.extend(fixture_result.runlog_records)
+
+    for row in rows:
+        tsv.append_row(manifest.name, row)
+
+    for rec in all_runlog_records:
+        write_runlog(manifest.name, rec)
+
+    # Per-fixture log summary (preserves original output format).
+    for fx_id, fixture_result in result_pairs:
+        row = fixture_result.row
         _log.info(
             "  -> fixture=%s median=%.4f stdev=%.4f n=%d status=%s",
-            fx.id,
+            fx_id,
             row["primary_score_median"],
             row["primary_score_stdev"],
             row["n_runs"],
             row["status"],
         )
 
-    tsv_file = tsv.tsv_path(manifest.name)
-    print(f"Wrote {len(rows)} rows to {tsv_file}")
-    return 0
+    return len(rows)
 
 
 def cmd_list_components(_args: argparse.Namespace) -> int:
@@ -305,6 +414,16 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--fixture", default=None, help="Run only this fixture ID.")
     p_run.add_argument("--n", type=int, default=None, help="Override n_runs.")
     p_run.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        dest="workers",
+        help=(
+            "Max parallel fixture workers (default: 4). "
+            "Clamped to len(fixtures) if fewer fixtures than workers."
+        ),
+    )
+    p_run.add_argument(
         "--max-turns",
         type=int,
         default=None,
@@ -322,6 +441,14 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "CLI backend to use for eval runs. 'claude' (default) uses Claude Code; "
             "'kimi' uses the Kimi CLI."
+        ),
+    )
+    p_run.add_argument(
+        "--model",
+        default="sonnet",
+        help=(
+            "Model alias passed to the CLI backend (default: sonnet). "
+            "Passed verbatim as --model to the underlying CLI invocation."
         ),
     )
     p_run.set_defaults(func=cmd_run)

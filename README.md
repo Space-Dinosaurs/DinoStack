@@ -4,14 +4,14 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final - treat it as a living system, not a finished product.
 
-**Live docs:** https://agentic-engineering-tyhummel.vercel.app
+**Live docs:** https://docs.dinostack.ai/
 
 ## Getting started
 
 ### One-liner install (quickest)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash
+curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
 This clones the repo into `agentic-engineering/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
@@ -22,26 +22,26 @@ This clones the repo into `agentic-engineering/` inside your current directory, 
 
 ```bash
 # Install to ~/tools/agentic-engineering instead of the current directory
-AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash
+AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
 **Pass flags through to the installer** (e.g. to set activation mode without prompts):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/agentic-engineering/main/bootstrap.sh | bash -s -- --mode=opt-in
+curl -fsSL https://docs.dinostack.ai/install.sh | bash -s -- --mode=opt-in
 ```
 
 ### Manual / SSH install
 
 ```bash
-git clone git@github.com:Space-Dinosaurs/agentic-engineering.git && cd agentic-engineering && bash bootstrap.sh
+git clone git@github.com:Space-Dinosaurs/DinoStack.git && cd DinoStack && bash bootstrap.sh
 ```
 
 Or clone, cd in, and start Claude Code to let the agent run the installer interactively:
 
 ```bash
-git clone git@github.com:Space-Dinosaurs/agentic-engineering.git
-cd agentic-engineering
+git clone git@github.com:Space-Dinosaurs/DinoStack.git
+cd DinoStack
 claude
 ```
 
@@ -73,8 +73,8 @@ If you see none of this, the task was classified as a small, reversible direct a
 **Or install manually via install.sh directly:**
 
 ```bash
-git clone git@github.com:Space-Dinosaurs/agentic-engineering.git
-cd agentic-engineering
+git clone git@github.com:Space-Dinosaurs/DinoStack.git
+cd DinoStack
 bash .claude/install.sh
 ```
 
@@ -201,6 +201,56 @@ agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pri
 
 **Project config / overview layer** - the committed `.agentic/config.json` holds four operator-tunable methodology toggles: `debugger_on_failure` (bool, default `false`; interposes a Debugger diagnosis step before each Phase 7 engineer fix pass), `qa_default_skip` (reserved; no-op, does not alter QA-gate behavior), `model_profile` (`default` | `budget`; `budget` routes eligible spawns to Tier 1), and `auto_merge_on_ci_green` (bool, default `false`; when `true`, `/implement-ticket` Phase 12 squash-merges the PR after CI passes and the PR is ready with no requested changes). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
 
+## Identity and Telemetry
+
+`agentic-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
+
+### Registering a handle (global)
+
+The quickest path derives your handle from your GitHub login:
+
+```bash
+agentic-identity auto      # derives handle from `gh api user`, writes it provisional
+agentic-identity confirm   # strips the provisional flag and flushes buffered sessions
+```
+
+Or set a handle manually:
+
+```bash
+agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
+```
+
+Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes the buffer and starts writing attributed logs.
+
+Run `agentic-identity show` at any time to see your current identity.
+
+### Per-project override
+
+If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
+
+```bash
+agentic-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
+agentic-identity confirm --scope project          # confirm a provisional project identity
+```
+
+The project file is covered by the existing `.agentic/*` gitignore umbrella - it is per-developer and never committed. The global identity is unchanged.
+
+### Precedence
+
+When both files exist, the most-confirmed identity wins:
+
+**project-confirmed > global-confirmed > project-provisional > global-provisional > none**
+
+A provisional project file never suppresses a working confirmed-global handle. To see which handle is active in the current repo:
+
+```bash
+agentic-identity show --scope effective
+```
+
+### agentic-cost attribution
+
+`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
+
 ## Repo structure
 
 ```
@@ -241,8 +291,8 @@ This framework is a safety rail, not a complete boundary. The recommended permis
 
 ## Community
 
-- [GitHub Discussions](https://github.com/Space-Dinosaurs/agentic-engineering/discussions) - questions, ideas, design discussion
-- [GitHub Issues](https://github.com/Space-Dinosaurs/agentic-engineering/issues) - bug reports, feature requests, protocol-change RFCs, adapter requests
+- [GitHub Discussions](https://github.com/Space-Dinosaurs/DinoStack/discussions) - questions, ideas, design discussion
+- [GitHub Issues](https://github.com/Space-Dinosaurs/DinoStack/issues) - bug reports, feature requests, protocol-change RFCs, adapter requests
 - Discord: TBD (link will be added once the server is live)
 - [SUPPORT.md](SUPPORT.md) - where to ask what
 - [GOVERNANCE.md](GOVERNANCE.md) - how decisions get made
@@ -260,4 +310,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-License pending - see issue IR-2.
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
