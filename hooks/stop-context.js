@@ -15,7 +15,7 @@
  *             Claude Code Stop hook. Internal helpers: writeLoopState(cwd),
  *             writeBatchState(cwd, sessionId), scanSessionAggregate(eventsPath, sessionId),
  *             writeSessionTotal(cwd, sessionId), computeSessionTotals(cwd, sessionId),
- *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId),
+ *             getIdentity(), writeSessionLog(cwd, identity, sessionId),
  *             writeSessionLogGlobal(identity, sessionId, data),
  *             writePendingBuffer(cwd, sessionId),
  *             appendIdentityNudgeToContextMd(repoRoot).
@@ -27,10 +27,8 @@
  *                [cwd]/.agentic/batch-state.json,
  *                [cwd]/.agentic/session-log/<developer_id>.jsonl,
  *                ~/.agentic/session-log/<developer_id>.jsonl (global mirror),
- *                ~/.agentic/session-log/.pending/<session_uuid>.json (pending buffer),
- *                ~/.agentic/identity.yml (read-only, global), and
- *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
- *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)).
+ *                ~/.agentic/session-log/.pending/<session_uuid>.json (pending buffer), and
+ *                ~/.agentic/identity.yml (read-only).
  *
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
@@ -316,16 +314,17 @@ function removeLearningsAgentSession(cwd, sessionId) {
 }
 
 /**
- * Parse a YAML identity file at filePath. Returns {developer_id, provisional} or null.
+ * Read ~/.agentic/identity.yml and return {developer_id, provisional} or null.
+ * Parses the optional `provisional:` line; absent means confirmed (provisional: false).
  * Silent on ENOENT or any parse error.
  *
- * @param {string} filePath - Absolute path to the identity.yml file.
  * @returns {{developer_id: string, provisional: boolean}|null}
  */
-function _parseIdentityFile(filePath) {
+function getIdentity() {
   try {
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf8');
+    const identityPath = path.join(os.homedir(), '.agentic', 'identity.yml');
+    if (!fs.existsSync(identityPath)) return null;
+    const raw = fs.readFileSync(identityPath, 'utf8');
     const m = raw.match(/^developer_id:\s*(\S+)\s*$/m);
     if (!m) return null;
     const pm = raw.match(/^provisional:\s*(true|false)\s*$/m);
@@ -334,38 +333,6 @@ function _parseIdentityFile(filePath) {
   } catch (_) {
     return null;
   }
-}
-
-/**
- * Resolve effective identity via 4-tier total ordering:
- *   project-confirmed > global-confirmed > project-provisional > global-provisional > null
- *
- * Reads project file (<cwd>/.agentic/identity.yml) and global file
- * (~/.agentic/identity.yml) using two synchronous existsSync+readFileSync calls
- * (~1ms, Node built-ins only, no subprocess).
- *
- * The existing three-branch write-vs-buffer gate (identity && !identity.provisional)
- * remains valid: confirmed at either scope -> direct write; provisional -> pending buffer.
- *
- * @param {string} cwd - The repo working directory (already validated by run()).
- * @returns {{developer_id: string, provisional: boolean}|null}
- */
-function getIdentity(cwd) {
-  const projectPath = path.join(cwd, '.agentic', 'identity.yml');
-  const globalPath = path.join(os.homedir(), '.agentic', 'identity.yml');
-
-  const projId = _parseIdentityFile(projectPath);
-  const globId = _parseIdentityFile(globalPath);
-
-  // Pass 1: first confirmed candidate in [project, global] order
-  if (projId && !projId.provisional) return projId;
-  if (globId && !globId.provisional) return globId;
-
-  // Pass 2: first provisional candidate in [project, global] order
-  if (projId) return projId;
-  if (globId) return globId;
-
-  return null;
 }
 
 /**
@@ -856,7 +823,7 @@ ${toolsLine}
       writeSessionTotal(cwd, sessionId);
       // Three-branch identity gate (independent of all other paths).
       try {
-        const identity = getIdentity(cwd);
+        const identity = getIdentity();
         if (identity && !identity.provisional) {
           // Confirmed identity: per-project write + global mirror
           writeSessionLog(cwd, identity, sessionId);
@@ -929,7 +896,7 @@ ${toolsLine}
   // --- 13. Three-branch identity gate: session log, global mirror, or pending buffer ---
   // Independent best-effort write; any failure swallowed. Never blocks exit.
   try {
-    const identity = getIdentity(cwd);
+    const identity = getIdentity();
     if (identity && !identity.provisional) {
       // Confirmed identity: per-project write + global mirror
       writeSessionLog(cwd, identity, sessionId);

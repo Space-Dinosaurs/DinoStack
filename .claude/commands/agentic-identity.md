@@ -12,10 +12,10 @@ Implementation: `bin/agentic-identity` (Python 3 stdlib + optional pyyaml).
 ## Usage
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,project}]
-agentic-identity show [--scope {global,project,effective}]
-agentic-identity auto [--force] [--scope {global,project}]
-agentic-identity confirm [--scope {global,project}]
+agentic-identity init <handle> [--display-name <name>] [--force]
+agentic-identity show
+agentic-identity auto [--force]
+agentic-identity confirm
 ```
 
 ## Subcommands
@@ -23,57 +23,31 @@ agentic-identity confirm [--scope {global,project}]
 ### init
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,project}]
+agentic-identity init <handle> [--display-name <name>] [--force]
 ```
 
 Set a developer identity manually. `<handle>` must match `^[a-z0-9._-]{1,64}$`.
 
-- `--scope` defaults to `global`, preserving all existing behavior byte-for-byte.
-- `--scope global` writes `~/.agentic/identity.yml` (atomic tmp+rename).
-- `--scope project` writes `<cwd>/.agentic/identity.yml` (the current repo root;
-  exits `1` if `cwd` is not inside a git repo). The project file is gitignored
-  by the existing `.agentic/*` umbrella - it is per-developer only and never
-  lands in the repo by default.
-- If a confirmed identity already exists at the target scope, `--force` is
-  required to overwrite.
+- Writes `~/.agentic/identity.yml` (atomic tmp+rename).
+- If a confirmed identity already exists, `--force` is required to overwrite.
 - If the existing identity is provisional, overwrites silently (no `--force`
   needed).
 - After writing, flushes any pending buffer (see "Provisional model" below)
-  onto the new handle. For `--scope project`, only pending records whose
-  `repo_root` matches the current repo are flushed to the project handle;
-  other repos' buffered sessions remain in the buffer.
+  onto the new handle. The count of flushed sessions is printed.
 - `--display-name` sets an optional human-readable name stored as
-  `display_name` in the target identity file.
+  `display_name` in `~/.agentic/identity.yml`.
 
-Exit codes: `0` success; `1` invalid handle, missing handle, flush error, or
-not in a git repo (project scope); `2` confirmed identity exists without `--force`.
+Exit codes: `0` success; `1` invalid handle, missing handle, or flush error;
+`2` confirmed identity exists without `--force`.
 
 ### show
 
 ```
-agentic-identity show [--scope {global,project,effective}]
+agentic-identity show
 ```
 
-Print identity information. No writes, always exits `0`.
-
-- `--scope global` (default): prints `~/.agentic/identity.yml`.
-- `--scope project`: prints `<cwd>/.agentic/identity.yml`.
-- `--scope effective`: resolves and prints the effective identity per the 4-tier
-  ordering (see "Scope / effective identity resolution" below). Also prints a
-  `scope:` field indicating which file won (`global` or `project`).
-
-`--scope effective` is available on `show` only; it is rejected with exit `1`
-on `init`, `auto`, and `confirm` (structural rejection; those subcommands write
-to one explicit scope).
-
-Example output (`--scope effective`, project identity active):
-
-```
-developer_id:  repo-handle
-display_name:  Repo Handle
-created_at:    2026-06-10T09:00:00Z
-scope:         project
-```
+Print the current identity. No writes, always exits `0` (prints a message
+whether or not an identity file exists).
 
 Example output (provisional):
 
@@ -92,21 +66,19 @@ display_name:  Tyson Hummel
 created_at:    2026-06-04T10:00:00Z
 ```
 
-`provisional: true` appears only when the identity is provisional. Prints
-"No identity set. Run: agentic-identity init <handle>" when no file exists
-at the requested scope.
+`provisional: true` appears only when the identity is auto-derived and not
+yet confirmed.
 
-Exit codes: `0` always.
+Exit codes: `0` always (prints "No identity set. Run: agentic-identity init
+<handle>" when no file exists).
 
 ### auto
 
 ```
-agentic-identity auto [--force] [--scope {global,project}]
+agentic-identity auto [--force]
 ```
 
 Derive a handle automatically from the GitHub CLI and write it as provisional.
-`--scope` defaults to `global`. `--scope project` writes to `<cwd>/.agentic/identity.yml`
-(exits `1` if not in a git repo).
 
 Steps:
 1. Calls `gh api user --jq .login` with a 5-second timeout.
@@ -136,24 +108,21 @@ identity exists without `--force`.
 ### confirm
 
 ```
-agentic-identity confirm [--scope {global,project}]
+agentic-identity confirm
 ```
 
-Confirm a provisional identity and activate telemetry. `--scope` defaults to
-`global`. `--scope project` confirms `<cwd>/.agentic/identity.yml` (exits `1`
-if not in a git repo or if no project identity file exists).
+Confirm a provisional identity and activate telemetry.
 
 Steps:
-1. Strips `provisional:` and `derived_from:` from the target identity file
+1. Strips `provisional:` and `derived_from:` from `~/.agentic/identity.yml`
    (atomic tmp+rename). The identity is now confirmed.
-2. Calls `flushPendingBuffer` - moves buffered pending sessions into the
-   per-project and global session logs under the confirmed handle (see
-   "Pending buffer" below). For `--scope project`, only records whose
-   `repo_root` matches the current repo are attributed to the project handle.
+2. Calls `flushPendingBuffer` - moves all buffered pending sessions into
+   the per-project and global session logs under the confirmed handle
+   (see "Pending buffer" below).
 3. Prints "Flushed N pending session(s)".
 
 If the identity is already confirmed, `confirm` is a no-op (exits `0`).
-If no identity file exists at the target scope, exits `1`.
+If no identity file exists, exits `1`.
 
 Exit codes: `0` success or already confirmed; `1` no identity file or
 flush error.
@@ -232,44 +201,9 @@ Telemetry continues to buffer (not lost). The prompt re-surfaces each session
 until confirmed. CI/headless sessions never reach a user turn, so they stay
 deferred and buffered automatically.
 
-## Scope / effective identity resolution
-
-A project-local identity file at `<repo>/.agentic/identity.yml` lets a developer
-use a different handle for sessions in that repo without changing their global
-default. The file is gitignored by the existing `.agentic/*` umbrella; it is
-per-developer and never lands in the repo by default.
-
-### 4-tier ordering
-
-When the preflight, Stop hook, or `show --scope effective` resolves identity,
-it applies this total ordering (higher tier wins):
-
-| Tier | File | State |
-|---|---|---|
-| 1 (highest) | `<cwd>/.agentic/identity.yml` | confirmed (no `provisional: true`) |
-| 2 | `~/.agentic/identity.yml` | confirmed |
-| 3 | `<cwd>/.agentic/identity.yml` | provisional |
-| 4 (lowest) | `~/.agentic/identity.yml` | provisional |
-| none | neither file exists | - |
-
-Key rules:
-- A **confirmed global identity is not suppressed** by a provisional project
-  file. Tier 2 beats Tier 3.
-- A confirmed project identity beats a confirmed global (Tier 1 > Tier 2).
-- `--scope project` requires the `cwd` to be inside a git repo; exits `1` if not.
-
-### `agentic-cost` and two-handle attribution
-
-A developer who uses a `--scope project` handle in repo A and their global handle
-everywhere else will appear as **two separate rows** in `agentic-cost team` and
-`agentic-cost operator` output - one row per distinct `developer_id`. This is
-intentional: each handle is an independent identity. Cross-handle rollup is not
-provided automatically; aggregate manually if needed.
-
 ## Identity schema
 
-Files: `~/.agentic/identity.yml` (global) and optionally `<cwd>/.agentic/identity.yml`
-(project-local, gitignored). Both files use the same schema.
+File: `~/.agentic/identity.yml`
 
 | Field | Required | Notes |
 |---|---|---|

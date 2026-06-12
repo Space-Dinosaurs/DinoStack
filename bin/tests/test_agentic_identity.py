@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """
-Regression tests for agentic-identity: canonical shape fix and project-scope override.
+Regression test for flushPendingBuffer canonical shape fix.
 
-Test groups:
-  1. test_flushed_line_canonical_shape - flushed lines match canonical shape (original test).
-  2. test_project_scope_flush_does_not_touch_other_repo_records (A) - repo_root_filter
-     isolates flush to matching repo; other-repo pending files are left in buffer.
-  3. test_confirmed_global_not_suppressed_by_provisional_project (B) - global-confirmed
-     wins over project-provisional in 4-tier resolution.
-  4. test_project_confirmed_beats_confirmed_global (C) - project-confirmed wins over
-     global-confirmed in 4-tier resolution.
-  5. test_no_repo_root_record_skipped_by_filter (D) - records with absent/empty repo_root
-     are conservatively skipped when a repo_root_filter is active.
-  6. test_global_scope_flush_unaffected (E) - no-filter flush attributes all pending records.
+Verifies that flushed session-log lines match the canonical shape written by
+hooks/stop-context.js writeSessionLog / writeSessionLogGlobal:
+  {ts, phase, event, agent, task_id, developer_id, session_uuid,
+   project_slug, branch, data}
+
+The pre-fix behavior (dict(record) + developer_id) would produce lines that
+include schema_version and repo_root, which are absent from the canonical
+shape. Any consumer filtering on phase == 'session_end' / event == 'session_total'
+would silently drop or misparse flushed records in a mixed-schema file.
 
 Regression test obligation: content/references/regression-test-obligation.md
-Run with: python3 -m pytest bin/tests/test_agentic_identity.py -x
-       or: python3 bin/tests/test_agentic_identity.py
+Run with: python3 bin/tests/test_agentic_identity.py
 """
 from __future__ import annotations
 
@@ -40,8 +37,6 @@ _mod = importlib.util.module_from_spec(_spec)
 _loader.exec_module(_mod)
 
 flushPendingBuffer = _mod.flushPendingBuffer
-_resolve_effective_identity = _mod._resolve_effective_identity
-_project_identity_path = _mod._project_identity_path
 
 
 def _write_pending(pending_dir: Path, record: dict) -> Path:
@@ -52,37 +47,18 @@ def _write_pending(pending_dir: Path, record: dict) -> Path:
     return p
 
 
-def _patch_paths(tmp_path: Path):
-    """Patch module-level paths to use tmp_path. Returns (pending_dir, log_dir, lock_path)."""
-    pending_dir = tmp_path / "session-log" / ".pending"
-    global_log_dir = tmp_path / "session-log"
-    flush_lock = tmp_path / "session-log" / ".flush.lock"
-    _mod.PENDING_DIR = pending_dir
-    _mod.GLOBAL_SESSION_LOG_DIR = global_log_dir
-    _mod.FLUSH_LOCK_PATH = flush_lock
-    flush_lock.parent.mkdir(parents=True, exist_ok=True)
-    flush_lock.touch(exist_ok=True)
-    return pending_dir, global_log_dir, flush_lock
-
-
-def _write_identity_file(path: Path, developer_id: str, provisional: bool = False) -> None:
-    """Write a minimal identity.yml at path."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"developer_id: {developer_id}", "created_at: 2026-01-01T00:00:00Z"]
-    if provisional:
-        lines.append("provisional: true")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
-# Existing test (preserved)
-# ---------------------------------------------------------------------------
-
 def test_flushed_line_canonical_shape():
     """flushed line must match canonical shape; must NOT contain schema_version or repo_root."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        pending_dir, global_log_dir, flush_lock = _patch_paths(tmp_path)
+        pending_dir = tmp_path / "session-log" / ".pending"
+        global_log_dir = tmp_path / "session-log"
+        flush_lock = tmp_path / "session-log" / ".flush.lock"
+
+        # Patch module-level paths
+        _mod.PENDING_DIR = pending_dir
+        _mod.GLOBAL_SESSION_LOG_DIR = global_log_dir
+        _mod.FLUSH_LOCK_PATH = flush_lock
 
         # Pending record mimics what writePendingBuffer in stop-context.js writes.
         # Includes schema_version and repo_root - fields that must NOT appear in
@@ -103,6 +79,8 @@ def test_flushed_line_canonical_shape():
             },
         }
         _write_pending(pending_dir, pending_record)
+        flush_lock.parent.mkdir(parents=True, exist_ok=True)
+        flush_lock.touch(exist_ok=True)
 
         dev_id = "testdev"
         count = flushPendingBuffer(dev_id)
@@ -142,188 +120,6 @@ def test_flushed_line_canonical_shape():
         print("PASS test_flushed_line_canonical_shape")
 
 
-# ---------------------------------------------------------------------------
-# New tests (A-E): project-scope override regression suite
-# ---------------------------------------------------------------------------
-
-def test_project_scope_flush_does_not_touch_other_repo_records():
-    """(A) repo_root_filter=/repo/a flushes only the /repo/a record; /repo/b file stays."""
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
-
-        record_a = {
-            "session_uuid": "uuid-repo-a",
-            "ts": "2026-06-01T00:00:00.000Z",
-            "repo_root": "/repo/a",
-            "project_slug": "a",
-            "branch": "main",
-            "data": {},
-        }
-        record_b = {
-            "session_uuid": "uuid-repo-b",
-            "ts": "2026-06-01T00:01:00.000Z",
-            "repo_root": "/repo/b",
-            "project_slug": "b",
-            "branch": "main",
-            "data": {},
-        }
-        path_a = _write_pending(pending_dir, record_a)
-        path_b = _write_pending(pending_dir, record_b)
-
-        count = flushPendingBuffer("a-dev", repo_root_filter="/repo/a")
-        assert count == 1, f"Expected 1 flushed, got {count}"
-
-        # /repo/a record was flushed - its file should be gone
-        assert not path_a.exists(), "Pending file for /repo/a should have been removed"
-
-        # /repo/b record was NOT touched - its file must still exist
-        assert path_b.exists(), "Pending file for /repo/b must remain in buffer"
-
-        # The flushed line must have developer_id == "a-dev"
-        global_log = global_log_dir / "a-dev.jsonl"
-        assert global_log.is_file(), "Global log for a-dev should exist"
-        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
-        assert len(lines) == 1, f"Expected 1 flushed line, got {len(lines)}"
-        row = json.loads(lines[0])
-        assert row["developer_id"] == "a-dev"
-        assert row["session_uuid"] == "uuid-repo-a"
-
-        print("PASS test_project_scope_flush_does_not_touch_other_repo_records")
-
-
-def test_confirmed_global_not_suppressed_by_provisional_project():
-    """(B) provisional project + confirmed global -> effective is global-dev (_confirmed True, _scope global)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        cwd = tmp_path / "myrepo"
-        cwd.mkdir()
-
-        # Project identity: provisional
-        proj_path = cwd / ".agentic" / "identity.yml"
-        _write_identity_file(proj_path, "project-dev", provisional=True)
-
-        # Global identity: confirmed - patch IDENTITY_PATH on the module
-        global_id_path = tmp_path / "global-identity.yml"
-        _write_identity_file(global_id_path, "global-dev", provisional=False)
-        original_identity_path = _mod.IDENTITY_PATH
-        _mod.IDENTITY_PATH = global_id_path
-        try:
-            result = _resolve_effective_identity(cwd)
-        finally:
-            _mod.IDENTITY_PATH = original_identity_path
-
-        assert result is not None, "Expected a resolved identity"
-        assert result["developer_id"] == "global-dev", \
-            f"Expected global-dev, got {result['developer_id']!r}"
-        assert result["_scope"] == "global", \
-            f"Expected scope=global, got {result['_scope']!r}"
-        assert result["_confirmed"] is True, \
-            f"Expected _confirmed=True, got {result['_confirmed']!r}"
-
-        print("PASS test_confirmed_global_not_suppressed_by_provisional_project")
-
-
-def test_project_confirmed_beats_confirmed_global():
-    """(C) both confirmed -> project identity wins."""
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        cwd = tmp_path / "myrepo"
-        cwd.mkdir()
-
-        # Project identity: confirmed
-        proj_path = cwd / ".agentic" / "identity.yml"
-        _write_identity_file(proj_path, "project-dev", provisional=False)
-
-        # Global identity: confirmed
-        global_id_path = tmp_path / "global-identity.yml"
-        _write_identity_file(global_id_path, "global-dev", provisional=False)
-        original_identity_path = _mod.IDENTITY_PATH
-        _mod.IDENTITY_PATH = global_id_path
-        try:
-            result = _resolve_effective_identity(cwd)
-        finally:
-            _mod.IDENTITY_PATH = original_identity_path
-
-        assert result is not None, "Expected a resolved identity"
-        assert result["developer_id"] == "project-dev", \
-            f"Expected project-dev, got {result['developer_id']!r}"
-        assert result["_scope"] == "project", \
-            f"Expected scope=project, got {result['_scope']!r}"
-        assert result["_confirmed"] is True, \
-            f"Expected _confirmed=True, got {result['_confirmed']!r}"
-
-        print("PASS test_project_confirmed_beats_confirmed_global")
-
-
-def test_no_repo_root_record_skipped_by_filter():
-    """(D) record with absent repo_root is skipped by a non-None filter; file remains."""
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
-
-        record_no_root = {
-            "session_uuid": "uuid-no-root",
-            "ts": "2026-06-01T00:00:00.000Z",
-            # repo_root intentionally absent
-            "project_slug": "unknown",
-            "branch": "main",
-            "data": {},
-        }
-        pending_file = _write_pending(pending_dir, record_no_root)
-
-        count = flushPendingBuffer("some-dev", repo_root_filter="/repo/x")
-        assert count == 0, f"Expected 0 flushed (no-root record should be skipped), got {count}"
-
-        # File must remain in the buffer
-        assert pending_file.exists(), "Pending file with no repo_root must remain in buffer"
-
-        print("PASS test_no_repo_root_record_skipped_by_filter")
-
-
-def test_global_scope_flush_unaffected():
-    """(E) no filter (repo_root_filter=None) attributes all pending records."""
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
-
-        record1 = {
-            "session_uuid": "uuid-g1",
-            "ts": "2026-06-01T00:00:00.000Z",
-            "repo_root": "/repo/alpha",
-            "project_slug": "alpha",
-            "branch": "main",
-            "data": {},
-        }
-        record2 = {
-            "session_uuid": "uuid-g2",
-            "ts": "2026-06-01T00:01:00.000Z",
-            "repo_root": "/repo/beta",
-            "project_slug": "beta",
-            "branch": "main",
-            "data": {},
-        }
-        _write_pending(pending_dir, record1)
-        _write_pending(pending_dir, record2)
-
-        count = flushPendingBuffer("g-dev")  # no filter
-        assert count == 2, f"Expected 2 flushed, got {count}"
-
-        global_log = global_log_dir / "g-dev.jsonl"
-        assert global_log.is_file(), "Global log for g-dev should exist"
-        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
-        assert len(lines) == 2, f"Expected 2 flushed lines, got {len(lines)}"
-        uuids = {json.loads(l)["session_uuid"] for l in lines}
-        assert uuids == {"uuid-g1", "uuid-g2"}, f"Unexpected session_uuids: {uuids}"
-
-        print("PASS test_global_scope_flush_unaffected")
-
-
 if __name__ == "__main__":
     test_flushed_line_canonical_shape()
-    test_project_scope_flush_does_not_touch_other_repo_records()
-    test_confirmed_global_not_suppressed_by_provisional_project()
-    test_project_confirmed_beats_confirmed_global()
-    test_no_repo_root_record_skipped_by_filter()
-    test_global_scope_flush_unaffected()
     print("All tests passed.")

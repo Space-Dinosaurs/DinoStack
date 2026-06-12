@@ -1456,7 +1456,6 @@ export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" &
 git -C $REPO add [specific files]
 
 # Resolve developer identity for trailer (soft-fail throughout; agentic-identity may not be installed).
-# Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
 DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
 # Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
 if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
@@ -1660,7 +1659,6 @@ Run:
 ```bash
 # Resolve identity for PR Developer: field (may already be set from Phase 8).
 # Re-derive here if Phase 8 was skipped (e.g., parallel path with no fixup files).
-# Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
 DEVELOPER=${DEVELOPER:-$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
 if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 

@@ -89,7 +89,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 ```
 
 **Fields:**
-- `developer_id`: handle from the effective identity (`<cwd>/.agentic/identity.yml` if present and wins the 4-tier resolution, else `~/.agentic/identity.yml`). Never inferred from git config.
+- `developer_id`: handle from `~/.agentic/identity.yml`. Never inferred from git config.
 - `session_uuid`: the Stop hook payload `session_id` field.
 - `project_slug`: `path.basename(cwd)` - the directory name of the project root.
 - `branch`: from `git symbolic-ref --short HEAD` (best-effort; empty string on failure).
@@ -97,6 +97,6 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 
 **PII boundary:** Only the fields above are written. Excluded: prompt content, file paths, tool I/O, user messages, finding text, task descriptions, commit messages, environment variable values.
 
-**No identity:** The session-log write is skipped only when the 4-tier resolution yields no effective identity - i.e. neither the project-local `<repo>/.agentic/identity.yml` nor the global `~/.agentic/identity.yml` resolves a usable handle (both absent, or only provisional handles present such that telemetry is buffered rather than written directly). A developer whose identity is confirmed at any tier (project-confirmed or global-confirmed) receives a normal session-log write; a developer with only provisional identities has telemetry buffered to `~/.agentic/session-log/.pending/` until `agentic-identity confirm` is run. When no tier resolves at all, the Stop hook appends a one-time nudge to `.agentic/context.md` directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
+**No identity:** When `~/.agentic/identity.yml` is absent, the session-log write is skipped. The Stop hook instead appends a one-time nudge to `.agentic/context.md` directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
 
 **Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are local-only, the rollup reflects sessions from this developer's machine only (not teammates' sessions).
