@@ -406,4 +406,4 @@ Threat model: drift detection in a non-adversarial conductor relationship. Not a
 
 Every finding named. Every round tracked. Every escalation clean.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack

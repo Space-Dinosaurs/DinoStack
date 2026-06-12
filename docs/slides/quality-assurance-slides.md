@@ -341,4 +341,4 @@ Skeptic and QA test orthogonal properties - correctness vs. functional acceptanc
 
 Browser-real verification. Per-project memory. Every run starts smarter.
 
-github.com/Space-Dinosaurs/agentic-engineering
+github.com/Space-Dinosaurs/DinoStack

@@ -9,11 +9,7 @@
 
 ## Setup
 
-Clone the repo to `~/agentic-engineering/` (this path is expected by references):
-
-```bash
-git clone git@github.com:Solara6/agentic-engineering.git ~/agentic-engineering
-```
+To install, see the Quickstart in the [root README](../README.md).
 
 ### Project-level (team use)
 

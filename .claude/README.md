@@ -9,11 +9,7 @@
 
 ## Installation
 
-Clone the repo to `~/agentic-engineering/` (this path is expected by the skill):
-
-```bash
-git clone git@github.com:Solara6/agentic-engineering.git ~/agentic-engineering
-```
+To install, see the Quickstart in the [root README](../README.md).
 
 Then open Claude Code and ask your agent:
 
