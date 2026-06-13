@@ -57,6 +57,15 @@ manual_smoke: >-
 
 ---
 
+## Amendments (operator-accepted 2026-06-12, post-architect+Skeptic)
+
+Two success-criteria narrowings, both forced by findings (not preferences), accepted by the operator before implementation:
+
+1. **Fidelity (forced by the headless empirical test):** the deferred wrap is a **non-interactive single-pass enrichment** (`/wrap-deferred`), NOT the full interactive `/wrap`. It writes context.md / `.agentic/memory.md` / AGENTS.md directly with no draft-Worker, no Skeptic review of its own draft, and no compression pass. The interactive `/wrap` provably HANGS headlessly on its human-decision points (a stale-lock prompt), so the full-fidelity pipeline cannot run unattended. Manual `/wrap` remains the full-fidelity path. This narrows "produces the same outputs as a synchronous wrap" -> "produces a good-faith single-pass enrichment of the same three targets."
+2. **Coverage (forced by the live-resume Critical):** only a **cleanly-ended** session (a genuine `SessionEnd` with a terminal reason) is auto-wrapped. A session killed without `SessionEnd`, or ended via `reason:resume`, is NOT auto-wrapped - manual `/wrap` recovers it. The only safe "this session has ended" signal is a real `SessionEnd`; a heartbeat-staleness sweep cannot distinguish an idle-but-open live session from a killed one, so auto-wrapping the abnormal-termination case would risk resuming a LIVE session and corrupting its transcript. This narrows "killed and detected via marker staleness -> wrapped automatically" -> "cleanly-ended sessions auto-wrap; abnormally-terminated sessions need manual `/wrap`." (Marker staleness/reclaim now recovers only a dead *daemon*'s abandoned `in_progress` marker, never a killed live session's `pending` marker.)
+
+Authoritative design: `docs/planning/daemon-driven-deferred-wrap/architect-plan.md` (v4, Skeptic-signed-off: 0 Critical / 0 Major across 3 review rounds). Empirical basis: `docs/planning/daemon-driven-deferred-wrap/headless-test-findings.md`.
+
 ## Reference
 
 Evolves PR #184 (`feature/deferred-background-wrap`). Feasibility of headless resume verified via claude-code-guide (2026-06-12): `claude -p "/wrap" --resume <id>` is supported non-`--bare`; resume reloads the transcript; non-`--bare` uses stored credentials automatically; the one empirical unknown is detached/no-TTY keychain access (covered in Verification). Operator decisions captured in `.agentic/brief-session.json` (`decisions` block, d1-d9).
