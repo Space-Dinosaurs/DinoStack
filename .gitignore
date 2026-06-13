@@ -47,7 +47,6 @@ node_modules/
 # AI assistant adapter directories (local-only, not committed)
 .agents/
 .goose/
-.hermes/
 
 # Claude Code feature worktrees created by the eval harness (ephemeral)
 .claude/worktrees/
