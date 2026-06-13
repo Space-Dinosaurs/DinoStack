@@ -190,7 +190,7 @@ No narration? The task was classified <strong>Direct action</strong> - handled i
 - Loaded as a skill - it shapes how your agent plans, implements, and reviews code
 - Mostly **passive**: you don't drive it with commands
 - Risk-aware delegation, adversarial review, focused sessions
-- Tool-agnostic: Claude Code, Cursor, Codex, Gemini CLI
+- Tool-agnostic: Claude Code, Cursor, Codex, Gemini CLI, Kimi, OpenCode, and more
 
 <div class="callout">
 Not a framework you call into. A living protocol that shapes every response, every task, every review - in the background.
@@ -252,7 +252,7 @@ Learnings, conventions, and decisions persist across sessions instead of dying w
 | `/init-project` | One-time setup when bringing the protocol into a repo |
 | `/implement-ticket` | Explicitly hand a task to a Worker |
 | `/skeptic` | Force a review pass on recent changes |
-| `/wrap` | Close out a session: commit, PR, memory, cleanup |
+| `/wrap` | On-demand session summarization and memory capture for non-ticket sessions |
 | `/memory-update` | Persist a learning you want to keep |
 
 <div class="callout">

@@ -770,11 +770,11 @@ One-paragraph summary, resolved architecture decisions, repo structure, tools, c
 <div class="card">
 <strong>Subdirectory</strong><br />
 <code>[repo]/[track]/AGENTS.md</code><br />
-Stack details, track-specific patterns, gotchas, schemas. Loaded only when working in that directory. Under ~60 lines.
+Stack details, track-specific patterns, gotchas, schemas. Loaded only when working in that directory. Can be as detailed as needed.
 </div>
 </div>
 <div class="callout">
-Each tier inherits from the one above. An agent working in <code>api/</code> sees: global rules + project root + api/AGENTS.md. Line limits prevent context bloat - every line in AGENTS.md is loaded into every agent's context window, so keeping files lean directly improves accuracy and speed.
+Each tier inherits from the one above. An agent working in <code>api/</code> sees: global rules + project root + api/AGENTS.md. The root ~40-line limit prevents context bloat; subdirectory files are loaded only in context and can be as detailed as the track requires.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -997,7 +997,7 @@ code {
 <td>Architecture decisions with full rationale (auto-loaded from rules)</td>
 </tr>
 <tr>
-<td><code>context.md</code></td>
+<td><code>.agentic/context.md</code></td>
 <td>Ephemeral session state - auto-written by the Stop hook</td>
 </tr>
 <tr>
@@ -1401,7 +1401,7 @@ code {
 <li>Files touched this session</li>
 <li>Git diff and commit history</li>
 <li>Existing AGENTS.md content</li>
-<li>Current context.md</li>
+<li>Current <code>.agentic/context.md</code></li>
 </ul>
 </div>
 <div class="card">
@@ -1409,16 +1409,16 @@ code {
 <ul>
 <li>Updates root AGENTS.md with new decisions</li>
 <li>Creates/updates track AGENTS.md files</li>
-<li>Enriches context.md with session summary</li>
+<li>Enriches <code>.agentic/context.md</code> with session summary</li>
 <li>Adds stable facts to MEMORY.md</li>
-<li>Promotes recurring or high-blast-radius Skeptic findings to .claude/findings.md</li>
+<li>Promotes recurring or high-blast-radius Skeptic findings to <code>.agentic/findings.md</code></li>
 </ul>
 </div>
 </div>
 <ul>
 <li>If you touched a new subdirectory, /wrap creates its track AGENTS.md automatically</li>
 <li>Stable facts (architecture, gotchas, setup commands) get extracted and persisted</li>
-<li>Ephemeral details (current task, next steps) stay in context.md where they belong</li>
+<li>Ephemeral details (current task, next steps) stay in <code>.agentic/context.md</code> where they belong</li>
 </ul>
 <div class="callout">
 The hierarchy grows organically. You don't plan it upfront - /wrap builds it from what actually happened in each session.

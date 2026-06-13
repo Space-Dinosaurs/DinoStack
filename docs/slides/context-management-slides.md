@@ -297,7 +297,7 @@ The whole system is designed around one bet: <strong>context hygiene beats raw m
 <div class="columns">
 <div class="card">
 <strong>Stop hook (automatic)</strong><br/>
-Fires after every turn. Writes <code>context.md</code> with recent user messages, files touched, uncommitted changes, and tools used. Zero ceremony - it just runs.
+Fires after every turn. Writes <code>.agentic/context.md</code> with recent user messages, files touched, uncommitted changes, and tools used. Zero ceremony - it just runs.
 </div>
 <div class="card">
 <strong>/wrap (on demand)</strong><br/>
@@ -305,14 +305,14 @@ Replaces the stop hook's raw snapshot with a structured, enriched version. Captu
 </div>
 </div>
 
-<p style="margin-top: 0.8em;">If <code>/wrap</code> has already written <code>context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/wrap</code> content is never lost.</p>
+<p style="margin-top: 0.8em;">If <code>/wrap</code> has already written <code>.agentic/context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/wrap</code> content is never lost.</p>
 
 <div class="callout">
 The stop hook is the safety net - you always get <em>something</em>. <code>/wrap</code> is the upgrade - you get structured, compounding context.
 </div>
 
 <div class="callout">
-Close the session cleanly so the Stop hook can finish writing <code>context.md</code>. In the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state). In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.
+Close the session cleanly so the Stop hook can finish writing <code>.agentic/context.md</code>. In the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state). In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.
 </div>
 
 ---
@@ -328,7 +328,7 @@ Close the session cleanly so the Stop hook can finish writing <code>context.md</
 
 You can run **multiple sessions in parallel** - open separate terminals, each with `claude` in the same project directory. They share the same persistent memory and AGENTS.md.
 
-When you `/wrap` each session, they merge into a shared `context.md` using a **rolling window of five slots** (Session A through E):
+When you `/wrap` each session, they merge into a shared `.agentic/context.md` using a **rolling window of five slots** (Session A through E):
 
 - First wrap writes Session A. Second wrap labels the existing as A, adds B.
 - At five sessions, the oldest (A) drops off and everything shifts down.
@@ -337,7 +337,7 @@ When you `/wrap` each session, they merge into a shared `context.md` using a **r
 This means you can work on five parallel streams in a project and `/wrap` each one. The next session that starts sees a merged view of all recent work.
 
 <div class="callout">
-The rolling window keeps context.md bounded. Five slots is enough to capture active workstreams without drowning the next session in stale history.
+The rolling window keeps <code>.agentic/context.md</code> bounded. Five slots is enough to capture active workstreams without drowning the next session in stale history.
 </div>
 
 ---

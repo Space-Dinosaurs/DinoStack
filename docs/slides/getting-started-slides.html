@@ -319,7 +319,7 @@ claude
 </code></pre>
 <p>The agent clones the repo, runs the installer, and walks you through optional tool setup. Idempotent - safe to re-run anytime.</p>
 <blockquote>
-<p><strong>Other adapters:</strong> Gemini CLI users run <code>bash .gemini/install.sh</code>. Cursor and Codex CLI users run <code>.cursor/install.sh</code> and <code>.codex/install.sh</code> respectively - same pattern, each tool's native format.</p>
+<p><strong>Other adapters:</strong> Gemini CLI users run <code>bash .gemini/install.sh</code>. Cursor and Codex CLI users run <code>.cursor/install.sh</code> and <code>.codex/install.sh</code> respectively. Kimi users run <code>.kimi/install.sh</code>, OpenCode users run <code>.opencode/install.sh</code> - same pattern, each tool's native format.</p>
 </blockquote>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="3" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -477,7 +477,7 @@ hr {
 <li><strong><code>opt-out</code> (default)</strong> - active everywhere. Individual projects disable it by adding <code>agentic-engineering: opt-out</code> to their root <code>AGENTS.md</code>. Best for most users.</li>
 <li><strong><code>opt-in</code></strong> - dormant until a project's <code>AGENTS.md</code> contains <code>agentic-engineering: opt-in</code>. Best for trying the protocol in one project before rolling out everywhere.</li>
 </ul>
-<p>Press Enter at the prompt to accept the default, or pass <code>--mode=opt-in</code> / <code>--mode=opt-out</code> to the installer. The choice is saved to <code>~/.claude/agentic-engineering.json</code> and shared across all four adapters. Change it later by re-running any installer with a <code>--mode</code> flag.</p>
+<p>Press Enter at the prompt to accept the default, or pass <code>--mode=opt-in</code> / <code>--mode=opt-out</code> to the installer. The choice is saved to <code>~/.claude/agentic-engineering.json</code> and shared across all adapters. Change it later by re-running any installer with a <code>--mode</code> flag.</p>
 <p>On first activation in a project (TTY only) the preflight prints a one-line notice naming the resolved <code>mode</code>, <code>marker</code>, <code>profile</code>, and <code>preset</code>, and points you at <code>/agentic-status</code> (read-only resolver dump) and <code>/agentic-disable</code> (explicit opt-out, refuses on existing <code>opt-in</code> without <code>--force</code>). The notice is gated on a race-safe per-project sentinel at <code>.agentic/.activated</code>; deleting the sentinel re-arms the notice only and does not change activation state. <code>AGENTIC_QUIET=1</code> or a non-TTY stdout suppresses both the notice and the sentinel write.</p>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -1126,12 +1126,12 @@ hr {
 ;" data-marpit-pagination-total="9">
 <h2 id="close-every-session-with-wrap">Close every session with <code>/wrap</code></h2>
 
-<p>When the goal is done - or clearly won't be done today - run <code>/wrap</code>. It does the closing ritual so you don't have to:</p>
+<p>When the goal is done - or clearly won't be done today - run <code>/wrap</code>. It does the session-close ritual for non-ticket sessions:</p>
 <ul>
-<li>Commits the work and opens a PR</li>
-<li>Cleans up the worktree</li>
-<li>Captures learnings into memory</li>
-<li>Marks the session done so next time starts fresh</li>
+<li>Produces a structured <code>.agentic/context.md</code> with decisions, next steps, and gotchas</li>
+<li>Extracts stable facts and adds them to MEMORY.md</li>
+<li>Updates AGENTS.md with conventions learned this session</li>
+<li>Leaves the next session starting from richer context than this one</li>
 </ul>
 <div class="callout">
 <code>/wrap</code> is not optional ceremony. Skipping it is how memory drifts, context bloats, and sessions become unshippable.

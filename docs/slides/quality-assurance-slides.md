@@ -162,19 +162,20 @@ Runtime verification that gets smarter every run
 
 ## The qa-engineer in one slide
 
-- Spawned **after Skeptic sign-off**, before merge, for any change with visible UI or behavioral output
+- For UI-visible changes with `qa_criteria` defined: spawned **in parallel with the Skeptic** (both background, single message) - sign-off requires both to pass
+- For non-UI or unknown-diff cases: spawned **after Skeptic sign-off** as a sequential fallback
 - Verifies the change in a **real browser** - navigates, clicks, screenshots, captures console errors
 - Falls back to source-reading only when browser access is blocked (labels those criteria `[source-verified]`)
-- Returns a structured **PASS / FAIL / PARTIAL / BLOCKED** report with evidence
+- Returns a structured **PASS / FAIL / PARTIAL / BLOCKED / INCONCLUSIVE** report with evidence
 - Does **not** fix anything - reporting is the whole job
 
 <div class="callout">
-Static review (Skeptic) plus runtime review (qa-engineer) is the protocol's two-pass safety net. Compiles and looks right is not the same as actually works.
+Static review (Skeptic) plus runtime review (qa-engineer) is the protocol's two-pass safety net. For UI-visible changes, both run concurrently - no sequential delay.
 </div>
 
 ---
 
-## `.claude/qa.md` is the project's QA memory
+## `qa.md` is the project's QA memory
 
 <style scoped>
   pre { font-size: 0.8em; padding: 0.5em 0.8em; margin: 0.3em 0 0.8em 0; }
@@ -297,6 +298,57 @@ local: http://localhost:3000
 ```
 
 Each entry was a surprise the first time. After the entry, the qa-engineer handles it automatically on every run that follows.
+
+---
+
+## When QA is skipped - `qa_skip` enum
+
+<style scoped>
+  table { font-size: 0.82em; }
+  th, td { padding: 0.35em 0.7em; }
+  p { font-size: 0.85em; margin: 0.3em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+QA fires by default for every Elevated unit. It is skipped only when the architect explicitly sets one of these five `qa_skip` values:
+
+| Value | When it applies |
+|---|---|
+| `pure-backend-library` | No UI or behavioral surface visible to users |
+| `config-only` | Change is purely configuration with no runtime code path |
+| `type-only-refactor` | Only types/interfaces changed - no runtime effect |
+| `dep-bump-no-runtime-change` | Dependency version bump with no API change |
+| `docs-only` | Documentation files only, no code |
+
+A project having no `qa.md` is NOT a reason to skip QA. The absence only removes supplemental context - the gate still fires.
+
+<div class="callout">
+If none of these five values fit, QA fires. The <code>qa_skip</code> rationale must be logged in the Brief or architect plan.
+</div>
+
+---
+
+## INCONCLUSIVE - when runtime is unreachable
+
+<style scoped>
+  ul { font-size: 0.85em; }
+  ul li { margin: 0.2em 0; }
+  p { font-size: 0.85em; margin: 0.3em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+When the qa-engineer cannot reach a runtime path (preview deploy blocked AND local-env unavailable), the result is **INCONCLUSIVE** (`qa_unverified=true`) - not a pass.
+
+- The conductor **MUST NOT auto-promote** INCONCLUSIVE to PASS
+- Static source review of an Elevated UI-visible criterion is approximately zero signal - state hooks, conditional rendering, and prop-sync bugs are invisible to source review
+- The conductor surfaces the state to the operator with three options:
+  1. **Provide the missing env/URL** and re-run QA
+  2. **Accept INCONCLUSIVE** - the PR can merge but carries `qa_unverified=true`
+  3. **Abandon the ticket**
+
+<div class="callout">
+INCONCLUSIVE is not a pass. The operator must explicitly accept the unverified state before merge. The conductor does not proceed silently.
+</div>
 
 ---
 

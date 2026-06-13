@@ -255,14 +255,18 @@ Workers return their summaries in the normal return path. Conductor handles all 
 
 The planner classifies each parallel group and sets `skeptic_strategy`:
 
-<div class="columns">
+<div class="columns-3">
 <div class="card">
 <strong>per-unit</strong><br/>
-Units are fully independent. Each gets its own Skeptic reviewing only its unit's diff. Per-unit Skeptics can themselves be spawned in parallel - non-overlapping diffs, no interference. Runs as part of each unit's P0 persistence loop inside its worktree.
+Units are fully independent. Each gets its own Skeptic reviewing only that unit's diff. Per-unit Skeptics can themselves be spawned in parallel - non-overlapping diffs, no interference. Runs as part of each unit's P0 persistence loop inside its worktree.
 </div>
 <div class="card">
 <strong>integration</strong><br/>
 Units have shared interface contracts, shared data models, or cross-cutting concerns. Still implemented in parallel. But Skeptic review is deferred until all units are merged onto a scratch integration branch. One integration Skeptic reviews the combined diff. This IS the Phase 6 gate - no second Skeptic.
+</div>
+<div class="card">
+<strong>multi-dimensional</strong><br/>
+High-stakes Elevated units (auth, payments, data migrations, crypto, secrets). Three reviewers fan out in one message on the same diff: correctness-Skeptic + security-auditor + perf-analyst. Conductor synthesizes all findings before opening any fix loop. Sign-off requires all three to clear.
 </div>
 </div>
 
@@ -486,7 +490,7 @@ Units not as independent as classified - behavioral interaction. Spawn engineer 
 </div>
 <div class="card">
 <strong>Phase 6 interaction</strong><br/>
-<code>per-unit</code>: Phase 6 fires normally (combined diff). <code>integration</code>: integration Skeptic IS Phase 6 - do not spawn a second Skeptic.
+<code>per-unit</code>: each unit's own Skeptic IS its Phase 6 gate, reviewing only that unit's diff (not a combined diff). <code>integration</code>: the integration Skeptic IS Phase 6 - it reviews the combined diff after all units merge; do not spawn a second Skeptic.
 </div>
 </div>
 
