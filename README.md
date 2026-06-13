@@ -20,7 +20,9 @@ This clones the repo into `agentic-engineering/` inside your current directory, 
 
 > **Note:** the one-liner requires the repo to be public. Until then, collaborators can use the SSH path below - the script automatically falls back to SSH on clone failure.
 
-**Custom install location:** set `AE_DEST_DIR` before running. The default is `<current directory>/agentic-engineering`. (The one-liner's default folder is `agentic-engineering/` - the package name; a plain `git clone` of the repo creates `DinoStack/` - the repo name instead. Either works; override the one-liner's location with `AE_DEST_DIR`.)
+**Custom install location:** set `AE_DEST_DIR` before running. The default is `<current directory>/agentic-engineering`.
+
+> **Folder naming:** the one-liner lands in `agentic-engineering/` (the package name); a plain `git clone` of the repo creates `DinoStack/` (the repo name). Either works - override the one-liner's location with `AE_DEST_DIR`.
 
 ```bash
 # Install to ~/tools/agentic-engineering instead of the current directory
