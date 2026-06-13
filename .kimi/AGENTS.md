@@ -664,7 +664,11 @@ Additionally, the Stop hook writes a one-line per-session rollup to `.agentic/se
 
 **Pending-buffer (pre-attribution staging).** When no confirmed identity exists at session exit - i.e., `agentic-identity init` has not yet been run - the Stop hook writes the session telemetry record to `~/.agentic/session-log/.pending/<session_uuid>.json` instead of a named per-developer log. This file is a staging area only: it is not an `events.jsonl` event type, it is not read by `agentic-cost`, and it carries no `developer_id` field. When the user later runs `agentic-identity confirm` or `agentic-identity init <handle>`, the identity layer flushes all pending records, stamps each with the confirmed handle, and appends them to the appropriate per-project and global session-log files as if they had been written at session time.
 
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`), append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`.
+**`session_uuid` on conductor-emitted events.** The conductor stamps `data.session_uuid` on every `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, and `tool_failure_workaround` emit. The value is the Claude Code harness session uuid obtained from `$CLAUDE_CODE_SESSION_ID`, which MUST equal the Stop hook's `payload.session_id`. This allows the Stop hook and session-scoped readers to filter precisely to one session. Absent on legacy lines; general readers treat absence as include for back-compat.
+
+**`tool_failure_workaround` event type.** Emitted by the conductor when it resolves a tool or command failure via retry or workaround. Schema: `{ event: "tool_failure_workaround", agent: null, data: { session_uuid, tool, domain_tag, note } }`. PII boundary identical to `conductor_direct` (no args, no output, no secrets; `note` is one sentence). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
+
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`.
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
