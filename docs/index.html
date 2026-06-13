@@ -1185,30 +1185,6 @@
             <li><strong>Task state in <code>.agentic/tasks.jsonl</code></strong> - conductor writes all entries (pending &rarr; in_progress &rarr; done/failed/blocked). Workers return summaries only. Crash recovery: <code>in_progress</code> entries on resume treated as failed, re-spawned with original brief from <code>inputs</code> field.</li>
           </ul>
         </div>
-        <div class="rel-card" style="border-color: rgba(24,224,255,0.25); margin-top: 10px;">
-          <h4 style="color: var(--sky);">Planning Artifacts <a class="slide-link" href="slides/planning-tier-slides.html" target="_blank" rel="noopener noreferrer">slides</a></h4>
-          <figure class="infographic-card">
-            <div class="infographic-meta">
-              <span class="infographic-kicker">Planning artifacts</span>
-              <span class="infographic-tag">Brief or Plan, decided mechanically</span>
-            </div>
-            <figcaption class="infographic-title">How much planning a task needs is a mechanical gate, not a guess</figcaption>
-            <p class="infographic-copy">The promotion gate sits between orchestration-planner output and the first engineer spawn, validating the plan before any code is written. The trigger is purely mechanical, counting Elevated units: 0-1 needs no artifact and the conductor spawns engineers directly; 2-5 requires a one-screen Brief covering problem, success criteria, and constraints; 6+ units, or cross-track or multi-session work, requires a full Plan-tier directory with an architect plan and risk register, and architecture-constraining work adds an ADR.</p>
-            <a class="infographic-zoom" href="images/infographics/planning-artifacts-gate.png" target="_blank" rel="noopener noreferrer">
-              <img class="infographic-image" src="images/infographics/planning-artifacts-gate.png" alt="DinoStack: The Planning Artifacts Promotion Gate. After task decomposition (orchestration-planner output), an Elevated Units Gate validates the plan before any code is written. The required artifact scales mechanically with the number of Elevated units: 0-1 units require no artifact and the conductor spawns engineers directly; 2-5 units require a one-screen (about 15 to 30 line) Brief covering the problem, success criteria, and constraints; 6 or more units, or cross-track or multi-session tasks, require a full Plan-tier directory containing an architect plan and a risk register, plus an Architecture Decision Record (ADR) when the work constrains architectural decisions. Summary table: 0-1 elevated units maps to no artifact (direct spawn); 2-5 maps to a Brief; 6 or more or cross-track maps to a full Plan plus ADR." loading="lazy">
-            </a>
-          </figure>
-          <ul>
-            <li><strong>Promotion gate (mechanical)</strong> - sits between orchestration-planner output and the first engineer spawn. Trigger table: 0-1 Elevated units = no artifact; 2-5 Elevated units = Brief required; 6+ Elevated units OR cross-track OR multi-session = Plan required. Trivial units do not count toward thresholds. "Cross-track" = distinct depth-1 directories each with their own <code>AGENTS.md</code>; cross-track or architecture-decision-constraining work additionally requires an <strong>ADR</strong> alongside the Plan.</li>
-            <li><strong>Brief template</strong> - one-screen (~15-20 lines) at <code>docs/planning/&lt;slug&gt;.md</code>. Fields: Problem, Success criteria (max 4 bullets), Non-goals (max 3 bullets), Constraints (hard only), Verification (single non-skippable line - "cannot specify" blocks sign-off), Linked artifacts.</li>
-            <li><strong>Plan-tier directory</strong> - <code>docs/planning/&lt;slug&gt;/</code> containing <code>brief.md</code>, <code>architect-plan.md</code>, <code>orchestration.jsonl</code>, <code>risk-register.md</code> (&lt;=10 lines), <code>rollback.md</code> (&lt;=10 lines), <code>verification-gate.md</code>. Assembled from existing artifacts plus three short conductor-authored coverage docs.</li>
-            <li><strong>Verification gate non-skippable</strong> - <code>verification-gate.md</code> owns the trigger (signal that verification failed); <code>rollback.md</code> owns the procedure. Any "cannot specify" entry blocks Skeptic sign-off until the planning gap is resolved.</li>
-            <li><strong>Mid-flight retroactive Brief</strong> - in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed; retroactive Brief is authored before the next engineer spawn and governs all subsequent units.</li>
-            <li><strong>3rd-resume auto-promotion</strong> - a Brief-tier task on its 3rd resume per <code>.agentic/loop-state.json</code> auto-promotes to Plan tier (mechanical, regardless of operator notice).</li>
-            <li><strong>Engineer contract additions</strong> - <code>brief_path</code> and <code>plan_path</code> fields added to the Worker execution contract; engineer reads the Brief or Plan and treats success criteria + verification gate as authoritative alongside the architect plan.</li>
-            <li><strong>Interactive /brief path</strong> - Brief can also be authored interactively via <code>/brief</code> before architect and engineer are spawned. When <code>brief_path</code> is pre-populated from a <code>/brief</code> session (<code>brief_source: operator</code>), the conductor skips Brief authoring at the promotion gate and uses a completeness-only Skeptic variant instead of the full framing review.</li>
-          </ul>
-        </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
           <h4 style="color: #b06bff;">Cost-Aware Tier Routing</h4>
           <ul>
@@ -1270,6 +1246,30 @@
           </ul>
         </div>
       </div>
+    </div>
+    <div class="rel-card" style="border-color: rgba(24,224,255,0.25); margin-top: 10px;">
+      <h4 style="color: var(--sky);">Planning Artifacts <a class="slide-link" href="slides/planning-tier-slides.html" target="_blank" rel="noopener noreferrer">slides</a></h4>
+      <figure class="infographic-card">
+        <div class="infographic-meta">
+          <span class="infographic-kicker">Planning artifacts</span>
+          <span class="infographic-tag">Brief or Plan, decided mechanically</span>
+        </div>
+        <figcaption class="infographic-title">How much planning a task needs is a mechanical gate, not a guess</figcaption>
+        <p class="infographic-copy">The promotion gate sits between orchestration-planner output and the first engineer spawn, validating the plan before any code is written. The trigger is purely mechanical, counting Elevated units: 0-1 needs no artifact and the conductor spawns engineers directly; 2-5 requires a one-screen Brief covering problem, success criteria, and constraints; 6+ units, or cross-track or multi-session work, requires a full Plan-tier directory with an architect plan and risk register, and architecture-constraining work adds an ADR.</p>
+        <a class="infographic-zoom" href="images/infographics/planning-artifacts-gate.png" target="_blank" rel="noopener noreferrer">
+          <img class="infographic-image" src="images/infographics/planning-artifacts-gate.png" alt="DinoStack: The Planning Artifacts Promotion Gate. After task decomposition (orchestration-planner output), an Elevated Units Gate validates the plan before any code is written. The required artifact scales mechanically with the number of Elevated units: 0-1 units require no artifact and the conductor spawns engineers directly; 2-5 units require a one-screen (15 to 20 line) Brief covering the problem, success criteria, and constraints; 6 or more units, or cross-track or multi-session tasks, require a full Plan-tier directory containing an architect plan and a risk register, plus an Architecture Decision Record (ADR) when the work constrains architectural decisions. Summary table: 0-1 elevated units maps to no artifact (direct spawn); 2-5 maps to a Brief; 6 or more or cross-track maps to a full Plan plus ADR." loading="lazy">
+        </a>
+      </figure>
+      <ul>
+        <li><strong>Promotion gate (mechanical)</strong> - sits between orchestration-planner output and the first engineer spawn. Trigger table: 0-1 Elevated units = no artifact; 2-5 Elevated units = Brief required; 6+ Elevated units OR cross-track OR multi-session = Plan required. Trivial units do not count toward thresholds. "Cross-track" = distinct depth-1 directories each with their own <code>AGENTS.md</code>; cross-track or architecture-decision-constraining work additionally requires an <strong>ADR</strong> alongside the Plan.</li>
+        <li><strong>Brief template</strong> - one-screen (~15-20 lines) at <code>docs/planning/&lt;slug&gt;.md</code>. Fields: Problem, Success criteria (max 4 bullets), Non-goals (max 3 bullets), Constraints (hard only), Verification (single non-skippable line - "cannot specify" blocks sign-off), Linked artifacts.</li>
+        <li><strong>Plan-tier directory</strong> - <code>docs/planning/&lt;slug&gt;/</code> containing <code>brief.md</code>, <code>architect-plan.md</code>, <code>orchestration.jsonl</code>, <code>risk-register.md</code> (&lt;=10 lines), <code>rollback.md</code> (&lt;=10 lines), <code>verification-gate.md</code>. Assembled from existing artifacts plus three short conductor-authored coverage docs.</li>
+        <li><strong>Verification gate non-skippable</strong> - <code>verification-gate.md</code> owns the trigger (signal that verification failed); <code>rollback.md</code> owns the procedure. Any "cannot specify" entry blocks Skeptic sign-off until the planning gap is resolved.</li>
+        <li><strong>Mid-flight retroactive Brief</strong> - in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed; retroactive Brief is authored before the next engineer spawn and governs all subsequent units.</li>
+        <li><strong>3rd-resume auto-promotion</strong> - a Brief-tier task on its 3rd resume per <code>.agentic/loop-state.json</code> auto-promotes to Plan tier (mechanical, regardless of operator notice).</li>
+        <li><strong>Engineer contract additions</strong> - <code>brief_path</code> and <code>plan_path</code> fields added to the Worker execution contract; engineer reads the Brief or Plan and treats success criteria + verification gate as authoritative alongside the architect plan.</li>
+        <li><strong>Interactive /brief path</strong> - Brief can also be authored interactively via <code>/brief</code> before architect and engineer are spawned. When <code>brief_path</code> is pre-populated from a <code>/brief</code> session (<code>brief_source: operator</code>), the conductor skips Brief authoring at the promotion gate and uses a completeness-only Skeptic variant instead of the full framing review.</li>
+      </ul>
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Core thesis:</strong> "The value of an adversarial reviewer is independence. A reviewer who has already heard the implementer's justifications is no longer independent."
@@ -2447,6 +2447,15 @@
 </div><!-- /#other-adapters -->
 
 <!-- Ecosystem Comparison moved to its own standalone page: agentic-engineering-comparison.html (linked from the side nav and deck index). -->
+
+<!-- ═══ Ecosystem Comparison ═══ -->
+<div id="ecosystem-comparison" class="section">
+  <div class="section-title"><h2>Ecosystem Comparison</h2><h3>How DinoStack compares to the alternatives</h3></div>
+  <p class="desc">DinoStack is one of several agentic engineering methodologies, and it is not always the right tool. The Ecosystem Comparison positions it honestly against the field - ICM, GSD, Arize Alex, Agentic OS, the in-context-versus-orchestration research, and more - calling out where independent review, risk gates, and parallel orchestration earn their keep, and where a lighter single-agent approach is the better fit.</p>
+  <p style="margin-top: 20px;">
+    <a class="slide-link" href="agentic-engineering-comparison.html" target="_blank" rel="noopener noreferrer" style="font-size: 14px; padding: 7px 18px;">Open the Ecosystem Comparison &rarr;</a>
+  </p>
+</div>
 
 </div>
 <script>
