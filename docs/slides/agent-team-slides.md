@@ -245,7 +245,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 - Spawned into their own **isolated worktree** - their own files, their own context
 - Given a **structured brief** - goal, constraints, acceptance criteria, non-goals
 - Do their narrow job and return a **structured result** - not raw transcript
-- Most agents are read-only analysis/planning. `engineer`, `release-orchestrator`, `learnings-agent`, and `wrap-ticket` write files.
+- Most agents are read-only analysis/planning. `engineer`, `adr-generator`, `release-orchestrator`, `learnings-agent`, and `wrap-ticket` write files.
 
 <div class="callout">
 The main thread never sees their raw work - only their conclusion. That's the whole point: heavy work without heavy context.
@@ -304,6 +304,7 @@ The Skeptic brings the teeth. The adversarial brief aims them - at auth, at a mi
 
 - `orchestration-planner` is a **meta-agent** - it plans which other agents to spawn and in what order
 - Given a goal, it returns: agent roster, phased execution plan, Skeptic checkpoints, parallelization map, open questions
+- Each unit in the JSONL output carries a `skeptic_strategy`: `"per-unit"` (independent units, parallel Skeptics), `"integration"` (shared interface, one combined-diff Skeptic), or `"multi-dimensional"` (high-stakes: correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff)
 - It does not implement anything - planning only
 - Output is a structured plan the conductor follows directly
 

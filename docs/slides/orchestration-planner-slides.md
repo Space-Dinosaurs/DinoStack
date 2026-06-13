@@ -363,12 +363,12 @@ When a plan contains 2+ independent units, the planner emits a JSONL block. Each
 ```
 
 Key fields added for fan-out:
-- **`skeptic_strategy`** - `"per-unit"` (independent units, parallel Skeptics) or `"integration"` (interdependent units, one combined Skeptic)
+- **`skeptic_strategy`** - `"per-unit"` (independent units, parallel Skeptics), `"integration"` (interdependent units, one combined Skeptic), or `"multi-dimensional"` (high-stakes units: correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff)
 - **`merge_order`** - integer; conductor merges unit branches in this order for conflict locality
 - **`unit_slug`** - the canonical unit identifier used in `.agentic/tasks.jsonl` task entries
 
 <div class="callout">
-N=1 falls through to the standard single-engineer path. Fan-out only activates for N&ge;2 independent units.
+N=1 still emits the one-line <code>## Task entries</code> JSONL block (required by the spec). The conductor skips task-state initialization for single-unit plans - fan-out only activates for N&ge;2 independent units.
 </div>
 
 ---

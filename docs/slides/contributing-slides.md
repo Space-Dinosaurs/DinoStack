@@ -208,7 +208,7 @@ New named agents, new slash commands, or improvements to existing ones.
 </div>
 <div class="card" style="border-left-color: #b06bff;">
 <strong>Adapters</strong><br/>
-New tool support (Windsurf, Continue.dev, etc.) or improvements to existing Claude Code and Cursor adapters.
+New tool support or improvements to existing adapters. 8 ship today: Claude Code, Codex, Cursor, Gemini, Kimi, omp, OpenCode, Pi.
 </div>
 </div>
 
@@ -224,20 +224,21 @@ New tool support (Windsurf, Continue.dev, etc.) or improvements to existing Clau
   .callout { font-size: 0.82em; padding: 0.4em 1em; }
 </style>
 
-The `content/` directory is the single source of truth. Adapter files (`.claude/`, `.cursor/`) are generated outputs - never edit them directly.
+The `content/` directory is the single source of truth. Adapter files (`.claude/`, `.cursor/`, etc.) are generated outputs - never edit them directly.
 
 ```
 content/
   rules/        3 rule files (agent-methodology, code-standards, conventions)
-  references/   7 reference docs (agent-team, design-goals, doc-sync-obligation, multi-developer-coordination, regression-test-obligation, skeptic-protocol, subagent-protocol)
-  commands/     6 command files (implement, init-project, memory-update, ...)
-  agents/       10 agent definitions (architect, debugger, engineer, ...)
+  references/   18 reference docs (agent-team, skeptic-protocol, qa-gate,
+                    capability-preflight, events-log, planning-artifacts, ...)
+  commands/     18 command files (implement-ticket, init-project, wrap, brief, ...)
+  agents/       16 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 ```
 
-Build scripts regenerate adapter files from `content/`. The pre-commit hook runs both builds automatically when `content/` files are staged.
+Build scripts regenerate adapter files from `content/`. The pre-commit hook runs all 8 adapter builds automatically when `content/` files are staged. Slide `.md` sources have a separate `slides-sync` CI gate: after editing, run `bash scripts/build-slides.sh` and commit the regenerated `.html`.
 
 <div class="callout">
-If you edit a file in <code>.claude/commands/</code> directly, the pre-commit hook will overwrite your changes. Always edit the source in <code>content/</code>.
+Never edit generated files directly - the pre-commit hook or CI will overwrite them. Always edit the source in <code>content/</code> (adapter files) or <code>docs/slides/</code> (slide sources).
 </div>
 
 ---
@@ -249,22 +250,16 @@ If you edit a file in <code>.claude/commands/</code> directly, the pre-commit ho
   .callout { font-size: 0.82em; padding: 0.4em 1em; }
 </style>
 
-<div class="columns">
-<div class="card">
-<strong>.claude/build.sh</strong><br/>
-Commands: prepends the <code>/agentic-engineering</code> prerequisite to each command from <code>content/commands/</code>. Rules, references, and agents are symlinked directly - no copy needed.
-</div>
-<div class="card">
-<strong>.cursor/build.sh</strong><br/>
-Rules: combines YAML frontmatter sidecars from <code>.cursor/rules/frontmatter/</code> with rule content to produce <code>.mdc</code> files. References and commands are copied.
-</div>
-</div>
+8 adapters ship build scripts: `.claude/`, `.codex/`, `.cursor/`, `.gemini/`, `.kimi/`, `.omp/`, `.opencode/`, `.pi/`. Each `build.sh` transforms `content/` into the tool's native format.
 
-- **Symlinks vs copies**: Claude Code uses symlinks into `content/` for rules, references, and agents. Cursor needs transformed formats, so it copies.
-- **Frontmatter sidecars**: Cursor rules need YAML frontmatter (`alwaysApply`, `globs`). This metadata lives in `.cursor/rules/frontmatter/*.yaml`, separate from the content.
+- **`.claude/build.sh`** - prepends the `/agentic-engineering` prerequisite to commands; symlinks rules, references, agents directly into `content/`
+- **`.cursor/build.sh`** - combines YAML frontmatter sidecars with rule content to produce `.mdc` files; copies references and commands
+- **Other adapters** - each converts content into their tool's format per that tool's conventions
+
+The pre-commit hook runs ALL 8 builds when `content/` files are staged - a single missed build fails the `adapter-sync` CI gate. Run `bash scripts/build-slides.sh` separately for slide changes (enforced by the `slides-sync` CI gate).
 
 <div class="callout">
-The build is idempotent. Running <code>install.sh</code> re-runs the build automatically. You can also run <code>.claude/build.sh</code> or <code>.cursor/build.sh</code> directly.
+The build is idempotent. Running <code>install.sh</code> re-runs all builds automatically. You must run ALL 8 builds before committing <code>content/</code> changes or CI will fail.
 </div>
 
 ---
@@ -279,10 +274,11 @@ The build is idempotent. Running <code>install.sh</code> re-runs the build autom
 
 1. **Pull before you change anything** - `git fetch origin && git pull --rebase origin main`
 2. Create a feature branch from `main`
-3. Edit in `content/` - the pre-commit hook rebuilds adapter files on commit
-4. Test locally: re-run `install.sh`, open a session, verify the change works
-5. Open a PR - one concern per PR, describe the *why* in the body
-6. PR is merged after the required number of approvals
+3. Edit in `content/` - the pre-commit hook rebuilds all 8 adapter files on commit
+4. If you edited a slide `.md`, run `bash scripts/build-slides.sh` and commit the `.html` too
+5. Test locally: re-run `install.sh`, open a session, verify the change works
+6. Open a PR - one concern per PR, describe the *why* in the body
+7. PR is merged after the required number of approvals
 
 <div class="callout">
 Pull-before-edit is especially important here. This repo sees active refactors - file renames, symlink restructures, directory reshapes. A stale local branch turns clean edits into hand-merges.
@@ -300,8 +296,8 @@ Pull-before-edit is especially important here. This repo sees active refactors -
 
 1. Create `.<toolname>/` matching the tool's config directory convention
 2. Convert the 3 rules into the tool's native rule format (from `content/rules/`)
-3. Copy or symlink the 7 reference docs (from `content/references/`)
-4. Convert the 7 commands into the tool's command format (from `content/commands/`)
+3. Copy or symlink the 18 reference docs (from `content/references/`)
+4. Convert the 18 commands into the tool's command format (from `content/commands/`)
 5. Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)
 6. Write `.<toolname>/README.md` with setup instructions
 7. Update root `README.md` with the new adapter

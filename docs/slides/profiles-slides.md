@@ -285,14 +285,22 @@ bash .claude/install.sh --profile=strict
 ```json
 { "mode": "opt-out", "profile": "strict" }
 ```
+Or use the `preset` field (`lean` | `standard` | `strict`) - overrides `profile` when set:
+```json
+{ "mode": "opt-out", "preset": "strict" }
+```
 
 **3. Per-project override in root `AGENTS.md`**
 ```
 agentic-engineering-profile: strict
 ```
+Or use `preset` (wins over `agentic-engineering-profile:` on collision):
+```
+agentic-engineering-preset: strict
+```
 
 <div class="callout">
-Per-project override takes precedence over the global config. Set a global default that fits most of your work, then override in the projects that need tighter or looser gates.
+Per-project preset wins over per-project profile. Preset resolves: lean->relaxed, standard->default, strict->strict. Set a global default that fits most of your work, then override in the projects that need tighter or looser gates.
 </div>
 
 ---

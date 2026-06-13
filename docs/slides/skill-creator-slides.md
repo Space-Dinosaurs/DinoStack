@@ -168,14 +168,14 @@ How DinoStack's agents and skills were built - and how you can build your own
   .callout { font-size: 0.88em; padding: 0.5em 1em; margin-top: 0.5em; }
 </style>
 
-- A **built-in Anthropic skill** for Claude Code that creates other skills and agents
+- A **DinoStack-provided skill** (installed by the adapters) that creates other skills and agents - not a built-in Anthropic platform feature
 - Drives an iterative loop: draft a skill, test it, evaluate the output, improve, repeat
 - Uses **subagents** for grading, blind comparison, and analysis - not just vibes
 - Outputs a complete skill directory: `SKILL.md`, eval cases, bundled scripts, references
-- The same tool that built the DinoStack agents is available to everyone
+- The same tool that built the DinoStack agents is available to every DinoStack user
 
 <div class="callout">
-This is the tool that was used to build the agents in this protocol. It is not a template - it is a development framework with built-in evaluation and iteration.
+This is the tool that was used to build the agents in this protocol. It is not a template - it is a development framework with built-in evaluation and iteration. It ships with the DinoStack adapters, not with Claude Code itself.
 </div>
 
 ---
@@ -283,7 +283,7 @@ The agents didn't ship because they "seemed good." They shipped because they pas
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-The skill creator is available to every Claude Code user. To build your own skill or agent:
+The skill creator is available after DinoStack is installed. To build your own skill or agent:
 
 1. Start Claude Code and say **"create a skill that does X"** - the skill creator activates
 2. Describe what you want - the skill creator drafts `SKILL.md` and test cases

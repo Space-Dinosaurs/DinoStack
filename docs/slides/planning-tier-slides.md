@@ -304,6 +304,29 @@ All triggers are mechanical. Operator judgment is not a field. Evaluate after or
 
 ---
 
+## Cross-artifact alignment check
+
+<style scoped>
+  ul { font-size: 0.88em; }
+  ul li { margin: 0.3em 0; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+After orchestration-planner returns and before Skeptic-on-Brief runs, the conductor maps every Brief success criterion to at least one unit's `acceptance_criteria` in the planner JSONL:
+
+- **Covered** - criterion maps to at least one unit. Proceed to Skeptic-on-Brief.
+- **Uncovered** - criterion has no corresponding unit. Blocks Skeptic-on-Brief until resolved.
+
+Resolution paths for uncovered criteria: re-spawn planner with the gap called out, or surface a descope/expand decision to the operator.
+
+When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed.
+
+<div class="callout">
+This check is mechanical and conductor-direct - no agent spawn needed. It complements the adversarial Skeptic-on-Brief; it does not replace it. An uncovered criterion is a planning gap: the Brief commits to an outcome no unit is scoped to deliver.
+</div>
+
+---
+
 ## Brief template
 
 <style scoped>
@@ -331,6 +354,12 @@ Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines)
                         and regression tests required by .agentic/findings.md that prove this is done.
                         "Cannot specify" is itself a planning gap and blocks Skeptic sign-off.>
 
+**QA criteria:**       <Required for Elevated. YAML block: qa_skip (one of 5 valid enums or null),
+                        qa_skip_rationale (required if qa_skip != null), scenarios[] (required if
+                        qa_skip null; method in {browser, api, runtime-required, visual_conformance,
+                        accessibility, perceptual_diff}), manual_smoke. Absence on Elevated is a
+                        Critical Skeptic finding.>
+
 **Linked artifacts:**  architect-plan: <path>; orchestration: <path or inline JSONL block>
 ```
 
@@ -351,6 +380,7 @@ Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines)
 - **Non-goals** - written to defeat the most likely scope-creep direction.
 - **Constraints** - list only what would change the architect's design if violated.
 - **Verification** - non-skippable. Name the concrete tests, gates, qa.md trigger patterns, and regression tests required by the findings flywheel. If verification cannot be specified at planning time, that is a planning gap - the Brief is not Skeptic-eligible until verification is named.
+- **QA criteria** - required for Elevated. YAML block with `qa_skip` enum (or null) and `scenarios[]`. Absence on an Elevated Brief is a Critical Skeptic finding.
 - **Linked artifacts** - makes the Brief auditable against its own inputs.
 
 </div>
