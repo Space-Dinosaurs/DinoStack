@@ -6,7 +6,7 @@ This file is a light scaffold. The detailed, current roadmap is tracked on GitHu
 
 - **Active and planned work:** [GitHub Issues](https://github.com/Space-Dinosaurs/DinoStack/issues) and the project board (TBD - link will be added once the public board is set up).
 - **Released changes:** [CHANGELOG.md](CHANGELOG.md)
-- **Design artifacts for in-flight work:** `docs/planning/`
+- **Design artifacts for in-flight work:** `docs/planning/` (local-only, not tracked upstream)
 
 ## How the roadmap is maintained
 

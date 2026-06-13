@@ -3,14 +3,9 @@
 A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
 
 ## Decisions
-- Internal eval harness lives at `evals/` (Python 3.11, stdlib + pyyaml, git worktrees, shell-out to Codex CLI). Component-first approach per `docs/planning/p2-self-improving-harness.md`. See `evals/LEARNINGS.md` before starting work on any new component eval, and `evals/OVERFITTING-RULE.md` before shipping content/ edits motivated by eval scores.
-- ICL-vs-orchestration head-to-head harness lives at `evals/icl_vs_orchestration/` (separate from the component-first harness above). Two-condition runner with 6-dimension scoring; consumes Stage-0 baseline at `evals/baselines/2026-05-pre-icl-restructure.json` whose `git.agentic_engineering_sha` field is the authoritative content-SHA pin (NEVER read `git.ai_tools_sha`).
 - Methodology source-of-truth lives in `content/sections/01-*.md` through `12-*.md` (P2 added `06-capability-preflight.md`; sections formerly 06-11 are now 07-12). The legacy `content/rules/agent-methodology.md` path no longer exists - edit `content/sections/` for any methodology change.
 - `scripts/build-methodology.sh` is the canonical methodology assembly script. Adapter builds (`.claude/build.sh`, `.codex/build.sh`, `.gemini/build.sh`, `.kimi/build.sh`) invoke it via `bash "$REPO_DIR/scripts/build-methodology.sh"`. `.cursor/build.sh` has a different output structure and does not use it.
 - `.claude/install.sh` manages `~/.claude/CLAUDE.md` via a `managed_content` Python string (lines ~364-380). Four @-import lines (METHODOLOGY.md plus 3 rules files under `rules/`) must appear in that string or rules will not auto-inject in Claude Code sessions. Re-run install.sh after any changes to that string.
-- Auto-harness keep-metric is mean-of-medians (`evals/auto/runner_shim.py:147`, PR #41). Median was blind to single-fixture wins when ≥half fixtures sat at ceiling 1.0.
-- Auto-harness dimension signal (`evals/auto/loop.py:_build_dimension_signal`, PR #49) requires scorers to emit `{dim: {score: float}}`. Components using semantically-rich nested dicts (`tp_recall.matched[*].credit`, `signal_discipline` tiers, etc.) are dim-signal-blind until per-component extractors are added.
-- Eval runner supports Kimi CLI backend (`evals/runner/invoker.py`) with MCP config path fix and timeout multiplier, in addition to the original Claude CLI backend. The stream-json normalizer was committed in PR #99.
 - `bootstrap.sh` (repo root, PR #109) is the public `curl | bash` installer: clones to `$(pwd)/agentic-engineering` (override `AE_DEST_DIR`), writes the resolved path to `~/.agentic/agentic-engineering-config.json` (`repo_dir`). `/update-agentic-engineering` reads `repo_dir` at runtime (git-rev-parse validated, falls back to `~/agentic-engineering`) for location-aware updates. Repo is private (Space-Dinosaurs); the one-liner activates with no code change when made public.
 - `skill_auto_load` opt-in enforcement (PR #97): shared hook `hooks/skill-auto-load-check.sh` wired per adapter - Claude and Codex: UserPromptSubmit; Gemini: BeforeAgent; Kimi: SessionStart. OpenCode uses a `session.created` plugin in `.opencode/plugins/session-context.ts`. Cursor has no hook (loaded via .mdc). All install scripts use read-modify-write for config updates; bare overwrite destroys existing keys. OpenCode reads from `~/.config/opencode/agentic-engineering.json`; all other adapters read from `~/.claude/agentic-engineering.json`.
 - FE/QA methodology (P0+P1+P2) shipped 2026-05-28 in 14 PRs (#137-#140, #142-#145, #149-#154). `qa_criteria.method` enum is now 7 values: `browser`, `api`, `runtime-required`, `visual_conformance`, `accessibility`, `perceptual_diff`, `motion`. Capability preflight default is `blocking` as of P2 (9 agents populated; skeptic + orchestration-planner are deliberate no-ops). Canonical new reference docs: `content/references/capability-preflight.md` and `content/references/frontend-discipline.md` (7 sections + 8 Skeptic finding categories). Motion scenarios require Playwright (CDP `Emulation.setEmulatedMedia`); agent-browser cannot execute them. Storybook 6 ships URL format detection only; full SB6 framework adapter procedure improvements are deferred.
@@ -25,13 +20,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - The `fullmetalblanket` git remote points to a non-existent GitHub repo - never push or PR to it. `origin` (`Space-Dinosaurs/DinoStack`, what `main` tracks) is the only canonical remote.
 
 ## Deploy
-- Docs site: see `docs/technical/deploy.md`. Always verify the linked project ID before running `vercel --prod`.
-
-## Docs
-- `docs/planning/` - pre-implementation design artifacts
-- `docs/research/` - research notes and reference material
-- `docs/technical/` - implementation specs and architecture
-- `docs/overview/` - high-level summaries and onboarding docs
+- Docs site: deploy steps are in `docs/technical/deploy.md` (local-only, not tracked upstream). Always verify the linked project ID before running `vercel --prod`.
 
 ## Conventions
 - **Workflow for all implementation work (non-Trivial risk):**
@@ -45,7 +34,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 	8. Update local main: `git checkout main && git pull --ff-only origin main`.
 	- Steps 6-8 are automatic - never pause for merge approval when CI is green.
 	- Failed CI is a hard stop - investigate before proceeding.
-- **Conductor never edits shippable artifacts directly, including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`; the conductor edits only exempt artifacts (`.agentic/`, `docs/planning/`, conductor-direct prints/decisions/resolver execution) in its own checkout. See `content/rules/conventions.md` §Git Workflow for the shippable/exempt classifier.
+- **Conductor never edits shippable artifacts directly, including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`; the conductor edits only exempt artifacts (`.agentic/`, conductor-direct prints/decisions/resolver execution) in its own checkout. See `content/rules/conventions.md` §Git Workflow for the shippable/exempt classifier.
 - When isolation:worktree Workers are used across multiple sequential spawns in the same task, the worktree is cleaned up between them and subsequent Workers fall back to the main tree. Tell follow-up Workers this explicitly.
 - When spawning parallel engineer units, each spawn brief must explicitly say "branch your worktree from current `origin/main`, NOT a local checkout that may include not-yet-merged sibling units." Worktree branch leaks (commits landing on the wrong unit's branch) are the most common cross-unit contamination class when parent units have not yet merged.
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.

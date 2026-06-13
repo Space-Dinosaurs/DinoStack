@@ -1,6 +1,0 @@
-{
-  "name": "webhook-service",
-  "version": "1.2.0",
-  "scripts": {"test": "jest"},
-  "dependencies": {"express": "^4.19.0"}
-}

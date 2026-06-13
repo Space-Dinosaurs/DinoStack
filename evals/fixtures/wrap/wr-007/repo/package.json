@@ -1,7 +1,0 @@
-{
-  "name": "orders-api",
-  "version": "2.4.1",
-  "type": "commonjs",
-  "scripts": {"test": "jest"},
-  "dependencies": {"express": "^4.19.0", "zod": "^3.23.0"}
-}

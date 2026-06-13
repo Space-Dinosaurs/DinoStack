@@ -1,8 +1,0 @@
-ticket_id: s-trivial-typo
-ticket_class: trivial
-description: |
-  Fix a typo in the README.md file: "recieve" should be "receive".
-  This is a single-file documentation fix with no behavioral impact.
-expected_files:
-  - README.md
-expects_regression_test: false
