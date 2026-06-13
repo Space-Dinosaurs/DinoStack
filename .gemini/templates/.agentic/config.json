@@ -4,8 +4,17 @@
   "qa_default_skip": null,
   "model_profile": "default",
   "auto_merge_on_ci_green": false,
-  "capability_preflight_mode": "advisory",
+  "capability_preflight_mode": "blocking",
   "perceptual_diff_enabled": false,
   "theme_aware": false,
-  "storybook_enabled": false
+  "storybook_enabled": false,
+  "motion_aware": false,
+  "storybook_version": 7,
+  "commit_telemetry": true,
+  "deferred_wrap_daemon": false,
+  "deferred_wrap_idle_minutes": 15,
+  "deferred_wrap_heartbeat_seconds": 120,
+  "deferred_wrap_timeout_minutes": 10,
+  "deferred_wrap_inprogress_reclaim_minutes": 30,
+  "deferred_wrap_pending_ttl_days": 7
 }

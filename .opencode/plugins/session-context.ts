@@ -64,12 +64,12 @@
  *                appends one record to .agentic/.stop-deferred-activity.jsonl
  *                (append-only spillover, drained by the enrichment flow). The
  *                shared helper covers the context.md write decision ONLY; it
- *                does NOT carry the three finalization writes. Marker-staging
- *                (.agentic/wrap-pending.json) is suppressed when the current
- *                session_id matches .agentic/.last-wrap (this session already
- *                wrapped). Every lock-aware path is fail-open: an unreadable
- *                lock is treated as not-held, and a spillover/marker write
- *                failure is logged and swallowed.
+ *                does NOT carry the three finalization writes. This plugin does
+ *                NOT stage a wrap-pending marker: the marker's only consumer is
+ *                the Claude-only deferred-wrap daemon, so OpenCode staging was
+ *                dead and has been removed (pre-#184 behavior). Every lock-aware
+ *                path is fail-open: an unreadable lock is treated as not-held,
+ *                and a spillover write failure is logged and swallowed.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
  *              slightly heavier on /wrap completion (multiple writes, one
@@ -476,99 +476,6 @@ export const SessionContextPlugin: Plugin = async ({
   }
 
   /**
-   * Read the .agentic/.last-wrap sentinel — the session_id of the session
-   * whose /wrap last successfully wrote context.md. Single trimmed line.
-   * Returns null if absent or unreadable (fail-open). Mirrors the Stop hook's
-   * .last-wrap read used for marker-staging suppression.
-   */
-  async function readLastWrap(cwd: string): Promise<string | null> {
-    try {
-      const file = Bun.file(path.join(cwd, ".agentic", ".last-wrap"));
-      if (!(await file.exists())) return null;
-      const raw = (await file.text()).trim();
-      return raw.length > 0 ? raw : null;
-    } catch (_) {
-      return null; // fail-open
-    }
-  }
-
-  /**
-   * Stage the .agentic/wrap-pending.json resume safety-net marker (atomic
-   * tmp+rename), mirroring the Stop hook's marker-staging contract. Staged
-   * only when ALL hold: (a) no live marker exists (absent, or status
-   * done/gave_up), (b) the current session_id does NOT match .agentic/.last-wrap
-   * (this session already wrapped — suppress), and (c) the session had
-   * substantive activity (>=1 uncommitted tracked file OR >=1 referenced file
-   * path; recent-focus is always the OpenCode placeholder, so it is not a
-   * substantive signal here). Fail-open and never throws: a staging failure is
-   * logged and swallowed so it cannot disturb the idle handler.
-   */
-  async function stageWrapPendingMarker(
-    cwd: string,
-    sessionId: string | null,
-  ): Promise<void> {
-    try {
-      // (b) .last-wrap suppression: do not stage if this session already wrapped.
-      const lastWrap = await readLastWrap(cwd);
-      if (sessionId && lastWrap && lastWrap === sessionId) {
-        await log("info", "Marker staging suppressed (.last-wrap match)", {
-          sessionId,
-        });
-        return;
-      }
-
-      const markerPath = path.join(cwd, ".agentic", "wrap-pending.json");
-
-      // (a) Do not overwrite a live marker (pending / in_progress).
-      const markerFile = Bun.file(markerPath);
-      if (await markerFile.exists()) {
-        try {
-          const existing: any = await markerFile.json();
-          const status = existing?.status;
-          if (status !== "done" && status !== "gave_up") {
-            await log("info", "Live wrap-pending marker exists, not restaging", {
-              status,
-            });
-            return;
-          }
-        } catch (_) {
-          // Unparseable marker: treat as live and leave it for manual /wrap.
-          await log("info", "Existing wrap-pending marker unparseable, not restaging");
-          return;
-        }
-      }
-
-      // (c) Substantive-activity gate.
-      const uncommitted = await collectUncommitted();
-      const substantive = uncommitted.length > 0 || filePaths.size > 0;
-      if (!substantive) {
-        await log("info", "No substantive activity, skipping marker staging");
-        return;
-      }
-
-      const marker = {
-        schema_version: 1,
-        session_id: sessionId,
-        staged_at: new Date().toISOString(),
-        status: "pending",
-        claimed_by: null,
-        claimed_at: null,
-        attempts: 0,
-        project_root: cwd,
-        last_error: null,
-      };
-      const tmpPath = markerPath + ".tmp";
-      await Bun.write(tmpPath, JSON.stringify(marker, null, 2));
-      await rename(tmpPath, markerPath);
-      await log("info", "Staged wrap-pending marker", { markerPath });
-    } catch (err: any) {
-      await log("warn", "Failed to stage wrap-pending marker", {
-        error: err.message,
-      });
-    }
-  }
-
-  /**
    * Shared context.md write decision (MAJOR-1 helper). Gates BOTH the
    * /wrap-coexistence refresh and the session.idle normal write on
    * wrapLockHeld. When the lock is held, SKIP the context.md write and append
@@ -888,11 +795,6 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
             }
             return true;
           });
-
-          // Stage the resume safety-net marker, suppressed when this session
-          // already wrapped (.last-wrap match) — mirrors the Stop hook's
-          // marker-staging contract.
-          await stageWrapPendingMarker(cwd, sid);
 
           await log("info", "session.idle processing complete");
         } catch (err: any) {
