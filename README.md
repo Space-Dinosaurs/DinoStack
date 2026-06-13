@@ -4,6 +4,8 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final - treat it as a living system, not a finished product.
 
+> **DinoStack and "agentic-engineering".** DinoStack is the product. *agentic-engineering* is the methodology package it ships - the engine. You'll see `agentic-engineering` throughout the internals: the `~/.claude/agentic-engineering.json` config, the `agentic-engineering: opt-in` marker, the `.agentic/` directory, the `/agentic-*` commands. Those names are deliberate and stable - renaming them would break every existing install. DinoStack is the name on the box; agentic-engineering is the name in the wiring.
+
 **Live docs:** https://docs.dinostack.ai/
 
 ## Getting started
@@ -19,6 +21,8 @@ This clones the repo into `agentic-engineering/` inside your current directory, 
 > **Note:** the one-liner requires the repo to be public. Until then, collaborators can use the SSH path below - the script automatically falls back to SSH on clone failure.
 
 **Custom install location:** set `AE_DEST_DIR` before running. The default is `<current directory>/agentic-engineering`.
+
+> **Folder naming:** the one-liner lands in `agentic-engineering/` (the package name); a plain `git clone` of the repo creates `DinoStack/` (the repo name). Either works - override the one-liner's location with `AE_DEST_DIR`.
 
 ```bash
 # Install to ~/tools/agentic-engineering instead of the current directory
