@@ -1,4 +1,0 @@
-results/*.tsv
-*.pyc
-__pycache__/
-.pytest_cache/

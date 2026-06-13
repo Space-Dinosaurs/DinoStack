@@ -23,10 +23,8 @@ node_modules/
 # re-ignore the runtime artifacts explicitly.
 .agentic/*
 !.agentic/config.json
-!.agentic/findings.md
 !.agentic/qa-regressions.md
 !.agentic/session-log/
-!.agentic/learnings.md
 # session-log/: per-developer telemetry, committed so `agentic-cost team` works
 # across machines. Other .agentic/* runtime files stay local under the umbrella.
 .agentic/worktrees/
@@ -56,27 +54,20 @@ node_modules/
 # Local-only brainstorming / scratchpads
 docs/brainstorm/
 
-# Eval runner: worktrees are ephemeral per-run; runlog JSONL is per-run detail.
-# TSV files under evals/results/ ARE committed (see docs/planning/p2-self-improving-harness.md).
-evals/.worktrees/
-evals/results/*.runlog.jsonl
-# migrate_tsv backups: redundant with git history, accumulate per migration.
-evals/results/_archive/
+# Internal self-improvement infrastructure and working docs - kept local, not shipped upstream.
+evals/
+.github/workflows/corpus-validation.yml
+docs/planning/
+docs/research/
+docs/technical/
+docs/operations/
+docs/overview/
+docs/_archive/session-learnings/
 
-# /auto-harness: per-run lock + per-run state. Ledger TSV at
-# evals/results/auto-harness.tsv IS committed.
-evals/.auto-harness.lock
-evals/auto/state/
-evals/auto/editor-logs/
-
-# Baseline capture: in-progress sibling file is ephemeral (not committed).
-# The completed baseline JSON IS committed.
-evals/baselines/*.progress
-evals/baselines/*.progress.tmp
-
-# ICL-vs-orchestration eval: per-run result JSON files are generated artifacts.
-# Committed results (if any) are explicitly added with git add -f.
-evals/icl_vs_orchestration/results/
+# Stray .agentic/ runtime working dirs created when a command/subagent runs with a non-root cwd.
+content/**/.agentic/
+!content/templates/.agentic/
+!content/templates/.agentic/**
 
 # Pi coding agent generated/project-local state (not adapter-owned)
 .pi/taskplane.json
