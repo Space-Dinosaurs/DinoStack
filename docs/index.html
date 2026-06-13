@@ -1571,7 +1571,7 @@
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
   <div class="section-title" data-num="06"><h2>Skill Layer <a class="slide-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer">slides: skill creator</a></h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships exactly 18 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Only DinoStack commands are listed here - bundled tool and Claude skills are intentionally excluded. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships exactly 18 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1580,23 +1580,6 @@
           <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Run once per repo. Detailed in the Project Lifecycle section below.</li>
           <li><strong>/implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and Skeptic phases in sequence for a scoped ticket. The primary command for shipping code.</li>
           <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Run at the end of any session to capture learning. Detailed in the Project Lifecycle section below.</li>
-          <li><strong>/brief</strong> - interactive planning dialogue. Produces a Brief at <code>docs/planning/&lt;slug&gt;.md</code> via a structured multi-turn conversation, then hands off to the architect and engineer with <code>brief_path</code> pre-populated in the execution contract. The operator-initiated planning entry point before architect/engineer spawn.</li>
-        </ul>
-      </div>
-    </div>
-    <div>
-      <div class="rel-card">
-        <h4 style="color: var(--green);">Utilities &amp; setup</h4>
-        <ul>
-          <li><strong>/migrate-project</strong> - bring an existing project's scaffolding up to the current methodology version. Additive and non-destructive by default; <code>--include-destructive</code> applies operator-owned markers and file modifications.</li>
-          <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
-          <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
-          <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
-          <li><strong>/agentic-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, preset, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
-          <li><strong>/agentic-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
-          <li><strong>/agentic-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
-          <li><strong>/agentic-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
-          <li><strong>/agentic-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 16px;">
@@ -1608,6 +1591,23 @@
           <li><strong>/prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
           <li><strong>/representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
           <li><strong>/test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate.</li>
+          <li><strong>/brief</strong> - interactive planning dialogue. Produces a Brief at <code>docs/planning/&lt;slug&gt;.md</code> via a structured multi-turn conversation, then hands off to the architect and engineer with <code>brief_path</code> pre-populated in the execution contract. The conductor auto-invokes it on planning-intent signals ("I want to build...", "thinking about..."); operator-available but normally methodology-triggered.</li>
+          <li><strong>/migrate-project</strong> - bring an existing project's scaffolding up to the current methodology version. Additive and non-destructive by default; <code>--include-destructive</code> applies operator-owned markers and file modifications.</li>
+          <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
+          <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
+          <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="rel-card">
+        <h4 style="color: var(--green);">Utilities &amp; setup</h4>
+        <ul>
+          <li><strong>/agentic-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, preset, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
+          <li><strong>/agentic-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
+          <li><strong>/agentic-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
+          <li><strong>/agentic-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
+          <li><strong>/agentic-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
         </ul>
       </div>
     </div>
