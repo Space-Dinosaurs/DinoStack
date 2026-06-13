@@ -78,15 +78,17 @@ else
   ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
 fi
 
-# templates/: hardlink .agentic/config.json seed
+# templates/: hardlink .agentic seed files
 mkdir -p "$SKILL_DST/templates/.agentic"
-TMPL_SRC="$CONTENT/templates/.agentic/config.json"
-TMPL_DST="$SKILL_DST/templates/.agentic/config.json"
-if [[ -e "$TMPL_DST" ]] && [[ "$(get_inode "$TMPL_SRC")" == "$(get_inode "$TMPL_DST")" ]]; then
-  :
-else
-  rm -f "$TMPL_DST"
-  ln "$TMPL_SRC" "$TMPL_DST"
-fi
+for tmpl_name in config.json learnings.md; do
+  TMPL_SRC="$CONTENT/templates/.agentic/$tmpl_name"
+  TMPL_DST="$SKILL_DST/templates/.agentic/$tmpl_name"
+  if [[ -e "$TMPL_DST" ]] && [[ "$(get_inode "$TMPL_SRC")" == "$(get_inode "$TMPL_DST")" ]]; then
+    :
+  else
+    rm -f "$TMPL_DST"
+    ln "$TMPL_SRC" "$TMPL_DST"
+  fi
+done
 
 echo "Claude adapter build complete."

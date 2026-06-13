@@ -78,6 +78,8 @@ done
 CURSOR_DIR="$REPO_DIR/.cursor"
 hardlink_from_content "$CONTENT/project-scaffolding.yml" "$CURSOR_DIR/project-scaffolding.yml"
 mkdir -p "$CURSOR_DIR/templates/.agentic"
-hardlink_from_content "$CONTENT/templates/.agentic/config.json" "$CURSOR_DIR/templates/.agentic/config.json"
+for tmpl_name in config.json learnings.md; do
+  hardlink_from_content "$CONTENT/templates/.agentic/$tmpl_name" "$CURSOR_DIR/templates/.agentic/$tmpl_name"
+done
 
 echo "Cursor adapter build complete."
