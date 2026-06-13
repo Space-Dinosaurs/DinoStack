@@ -455,13 +455,15 @@ console.log('\n[11] toggle/launch boundary: an idle daemon makes no marker trans
 }
 
 // ---------------------------------------------------------------------------
-// (SEC-C1) the drain --allowedTools grants NO Bash/git/shell at all (repo-local
-// .git/config RCE is closed by removing git execution entirely), and every spawned
-// child env neutralizes global/system git config (defense-in-depth).
+// (SEC-C1) the drain spawn passes --disallowedTools "Bash", which REMOVES Bash from
+// the headless model's context (the actual security boundary under
+// bypassPermissions, where --allowedTools only suppresses prompts and does NOT
+// constrain the tool set). This is what closes the repo-local .git/config RCE class.
+// Every spawned child env also neutralizes global/system git config (defense-in-depth).
 // ---------------------------------------------------------------------------
-console.log('\n[SEC-C1] drain --allowedTools has NO Bash/git; child env neutralizes global/system git config');
+console.log('\n[SEC-C1] drain spawn passes --disallowedTools Bash (Bash removed from model context); child env neutralizes global/system git config');
 {
-  const { base, projectDir, agenticDir } = makeProject('ae-wd-allowtools-');
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-disallowtools-');
   writeConfig(agenticDir, FAST_IDLE);
   const logPath = path.join(base, 'mock.log');
   const envLogPath = path.join(base, 'mock-env.log');
@@ -472,30 +474,36 @@ console.log('\n[SEC-C1] drain --allowedTools has NO Bash/git; child env neutrali
     MOCK_CLAUDE_LOG: logPath, MOCK_CLAUDE_ENV_LOG: envLogPath,
   }, 40000);
 
-  // The mock logs the full argv per invocation; the --resume drain line carries the
-  // --allowedTools value the daemon passed.
+  // The mock records the full argv per invocation; the --resume drain line carries
+  // the exact flags (incl. --disallowedTools / --allowedTools) the daemon passed.
   const drainLine = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
     .split('\n').find((l) => l.includes('--resume')) || '';
-  assert(drainLine.length > 0, 'a --resume drain was logged (allowlist is observable)');
+  assert(drainLine.length > 0, 'a --resume drain was logged (argv is observable)');
+  // Tokenize the recorded argv so flag/value pairs can be asserted positionally.
+  const drainArgv = drainLine.trim().split(/\s+/);
 
-  // CRITICAL: NO Bash / git / shell of ANY form in the allowlist. Removing git
-  // execution is the only fix for the repo-local .git/config exec class (fsmonitor /
-  // diff.external / pager / alias / ext::) - an argv-safe allowlist cannot close it.
-  assert(!/Bash/.test(drainLine),
-    'allowlist grants NO Bash tool at all (no git/shell) - repo-local .git/config RCE closed (SEC-C1)');
-  assert(!/\bgit\b/.test(drainLine),
-    'allowlist mentions no git verb of any kind (SEC-C1)');
+  // CRITICAL (the load-bearing assertion): --disallowedTools "Bash" is present on the
+  // drain spawn, so Bash is REMOVED from the headless model's context. This is the
+  // only fix for the repo-local .git/config exec class (fsmonitor / diff.external /
+  // pager / alias / ext::) - under bypassPermissions, --allowedTools alone cannot
+  // close it because unlisted tools (Bash) remain in context and auto-approve.
+  const disallowIdx = drainArgv.indexOf('--disallowedTools');
+  assert(disallowIdx >= 0, '--disallowedTools flag is present on the /wrap-deferred drain spawn (SEC-C1)');
+  assert(drainArgv[disallowIdx + 1] === 'Bash',
+    `--disallowedTools value is exactly "Bash" so Bash is removed from model context (got: ${drainArgv[disallowIdx + 1]}) (SEC-C1)`);
+  // The value carries no git verb or other tool - Bash removal is the whole boundary.
+  assert(!/\bgit\b/.test(drainArgv[disallowIdx + 1] || ''),
+    '--disallowedTools value is the bare tool name (no git verb) (SEC-C1)');
 
-  // The allowlist is EXACTLY the file tools, in order.
-  const allowToolsIdx = drainLine.indexOf('--allowedTools');
-  const allowToolsVal = allowToolsIdx >= 0
-    ? (drainLine.slice(allowToolsIdx).split(/\s+/)[1] || '')
-    : '';
+  // --allowedTools is still EXACTLY the file tools (kept; harmless prompt-suppression
+  // under bypassPermissions). It is NOT the boundary, but its value must not drift.
+  const allowIdx = drainArgv.indexOf('--allowedTools');
+  const allowToolsVal = allowIdx >= 0 ? (drainArgv[allowIdx + 1] || '') : '';
   assert(allowToolsVal === 'Read,Edit,Write,Glob,Grep',
     `--allowedTools is exactly the file tools (got: ${allowToolsVal})`);
   // And each file tool is individually present (belt-and-suspenders on the exact match).
   for (const tool of ['Read', 'Edit', 'Write', 'Glob', 'Grep']) {
-    assert(drainLine.includes(tool), `allowlist still grants ${tool}`);
+    assert(allowToolsVal.split(',').includes(tool), `allowlist still grants ${tool}`);
   }
 
   // Defense-in-depth: every spawned child env neutralizes global/system git config.

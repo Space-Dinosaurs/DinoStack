@@ -54,8 +54,11 @@
  *                is ever passed as a `--resume` argument (no shell-arg injection);
  *                args are passed as an argv array (no shell), so there is no shell
  *                metacharacter surface. The headless child runs under
- *                bypassPermissions, so its --allowedTools list IS the security
- *                boundary.
+ *                bypassPermissions; under that mode --allowedTools does NOT
+ *                constrain the tool set (it only suppresses approval prompts for the
+ *                tools it lists - unlisted tools stay in context and auto-approve),
+ *                so the security boundary is --disallowedTools, which REMOVES a tool
+ *                from the model's context before the bypass step.
  *                SEC-C1 (CRITICAL, repo-local .git/config RCE): a malicious cloned
  *                repo ships its own repo-local `.git/config`, which git reads on
  *                EVERY invocation with no opt-out flag. Execution hooks in that
@@ -65,10 +68,14 @@
  *                arbitrary code execution on the developer's machine under
  *                bypassPermissions. An argv-safe per-verb git allowlist CANNOT close
  *                this (the danger is git reading the attacker's on-disk config, not
- *                the argv we pass). Mitigation: the headless child is granted NO
- *                Bash/git/shell tool at all (DEFERRED_WRAP_ALLOWED_TOOLS = file
- *                tools only), so it can never invoke git and the exec vectors never
- *                fire; plus defense-in-depth GIT_CONFIG_GLOBAL=/dev/null,
+ *                the argv we pass). Mitigation: the headless drain spawn passes
+ *                --disallowedTools "Bash" (DEFERRED_WRAP_DISALLOWED_TOOLS), which
+ *                removes Bash from the model's context entirely, so it can never
+ *                invoke git/shell and the exec vectors never fire - this is enforced
+ *                before the bypass-mode auto-approval and is the actual boundary.
+ *                --allowedTools (file tools only) is kept but is supplementary under
+ *                bypassPermissions (prompt-suppression, not a constraint). Plus
+ *                defense-in-depth GIT_CONFIG_GLOBAL=/dev/null,
  *                GIT_CONFIG_SYSTEM=/dev/null, GIT_CONFIG_NOSYSTEM=1 in every spawned
  *                child env (childEnv) so the global/system config tiers are
  *                neutralized regardless. The interactive `/wrap` is OUT OF SCOPE:
@@ -115,29 +122,44 @@ const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0
 const DEFAULT_MAX_TURNS = 40;
 
 // SEC-C1 (CRITICAL, repo-local .git/config RCE): the headless `/wrap-deferred`
-// child runs under --permission-mode bypassPermissions, so its --allowedTools list
-// IS the only security boundary. We grant NO Bash/git/shell tool at all - file
-// tools only.
+// child runs under --permission-mode bypassPermissions. Under that mode,
+// --allowedTools does NOT constrain the tool set - it only suppresses the approval
+// PROMPT for the tools it lists. Any tool NOT listed (including Bash) still remains
+// in the model's context and is auto-approved by the bypass mode. So dropping Bash
+// from --allowedTools is NOT a security boundary: the model can still call Bash.
 //
-// Why no git, even scoped read-only verbs: a malicious cloned repo ships its OWN
-// repo-local `.git/config`, which git reads on EVERY invocation with no flag and no
-// way to opt out per-command. That config can carry execution hooks that fire on the
-// read-only verbs themselves: `core.fsmonitor=<program>` executes on `git status`,
+// The actual boundary is --disallowedTools: a bare tool name passed there REMOVES the
+// tool from the model's context, and that removal is enforced BEFORE the bypass-mode
+// auto-approval step. We pass `Bash` so the headless run cannot invoke git (or any
+// shell command) at all, regardless of bypassPermissions.
+//
+// Why Bash removal matters here: a malicious cloned repo ships its OWN repo-local
+// `.git/config`, which git reads on EVERY invocation with no flag and no way to opt
+// out per-command. That config can carry execution hooks that fire on ordinary
+// read-only verbs: `core.fsmonitor=<program>` executes on `git status`,
 // `diff.external=<program>` executes on a bare `git diff`, and `core.pager` /
 // `core.sshCommand` / `alias.*` / `ext::` reach arbitrary execution similarly. None
 // of these involve a `-c` flag or shell metacharacters, so an argv-safe, per-verb
 // `Bash(git status:*)` allowlist does NOT close them - the danger is git reading the
 // attacker's on-disk config, not the argv we pass. Under bypassPermissions in an
 // attacker-influenced repo this is arbitrary code execution on the developer's
-// machine when the daemon drains that session. Allowlist narrowing cannot fix this
-// class; the only fix is to remove git execution from the headless run entirely.
+// machine when the daemon drains that session. The only fix that closes the class is
+// to remove the Bash tool from the model's context entirely - which --disallowedTools
+// does and --allowedTools does not.
 //
 // The deferred wrap does not need git: it is best-effort and conversation-driven.
 // It writes context.md/memory.md/AGENTS.md via Write/Edit, and derives any git-state
 // section of context.md from the resumed CONVERSATION transcript (or omits it). The
 // interactive `/wrap` - run by a human under normal permissions, not bypassed - is
 // out of scope and still reads git normally.
+//
+// --allowedTools is still passed: under bypassPermissions it is harmless (it
+// auto-approves the file tools without a prompt) and documents the intended surface.
 const DEFERRED_WRAP_ALLOWED_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep'].join(',');
+// The tool removed from the headless model's context (THE security boundary, per the
+// note above). A bare tool name in --disallowedTools deletes it from context before
+// the bypass-mode step, so Bash/git/shell can never run in the deferred drain.
+const DEFERRED_WRAP_DISALLOWED_TOOLS = 'Bash';
 
 // SEC-C1 (belt-and-suspenders, defense-in-depth): even though the headless child is
 // granted no git tool, harden every spawned child's env so that if git ever runs
@@ -382,6 +404,13 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
         '--resume', sessionId,
         '-p', '/wrap-deferred',
         '--permission-mode', 'bypassPermissions',
+        // SEC-C1 (THE security boundary): --disallowedTools removes Bash from the
+        // model's context BEFORE the bypass-mode step, so the headless run cannot
+        // invoke git/shell at all - regardless of bypassPermissions. This is what
+        // actually closes the repo-local .git/config RCE class. See the const def.
+        '--disallowedTools', DEFERRED_WRAP_DISALLOWED_TOOLS,
+        // --allowedTools only suppresses prompts for the listed file tools under
+        // bypassPermissions; it does NOT constrain the tool set (see SEC-C1 note).
         '--allowedTools', DEFERRED_WRAP_ALLOWED_TOOLS,
         '--max-turns', String(DEFAULT_MAX_TURNS),
       ], {
