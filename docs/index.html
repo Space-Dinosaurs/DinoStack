@@ -561,11 +561,6 @@
   }
 
   /* ── Infographics ── */
-  .infographic-stack {
-    display: grid;
-    gap: 18px;
-    margin-top: 20px;
-  }
   .infographic-card {
     position: relative;
     overflow: hidden;
@@ -931,48 +926,28 @@
 
 <div class="diagram">
 
-<!-- ═══ VISUAL ATLAS: Core concepts at a glance ═══ -->
+<!-- ═══ VISUAL ATLAS: What is DinoStack overview ═══ -->
 <div id="infographics" class="section">
-  <div class="section-title" data-num="00"><h2>Infographics</h2><h3>Three visual maps of the ideas that make the harness work</h3></div>
-  <p class="desc">The methodology is more than "use lots of agents." These diagrams show the real center of gravity: operator-attention routing, strict risk-based delegation, and durable review loops that survive long-running work.</p>
+  <div class="section-title" data-num="00"><h2>What is DinoStack</h2><h3>The whole framework in one view</h3></div>
+  <p class="desc">DinoStack is a methodology for shipping software with AI agents at scale. It turns a single AI assistant into a coordinated team of specialists, with the human operator as the specification and verification gate at either end.</p>
   <div class="atlas-chips">
-    <span class="atlas-chip">Conductor stays free</span>
+    <span class="atlas-chip">Operator is the spec + verify gate</span>
     <span class="atlas-chip">Fresh Skeptic every round</span>
-    <span class="atlas-chip">When in doubt: Elevated</span>
-    <span class="atlas-chip">Loop state survives interruptions</span>
+    <span class="atlas-chip">Knowledge compounds across sessions</span>
+    <span class="atlas-chip">Portable across agent tools</span>
   </div>
 
-  <div class="infographic-stack">
-    <figure class="infographic-card">
-      <div class="infographic-meta">
-        <span class="infographic-kicker">Attention Architecture</span>
-        <span class="infographic-tag">conductor, not implementer</span>
-      </div>
-      <figcaption class="infographic-title">How the system routes scarce human attention</figcaption>
-      <p class="infographic-copy">The human supplies intent and judgment. The conductor classifies risk, keeps context light, fans work out to specialists, and only lets reviewed output move forward. Memory flows back into the next session so the system compounds instead of restarting cold.</p>
-      <img class="infographic-image" src="images/infographics/attention-architecture.png" alt="Operator hands intent to a risk router, which routes through a central conductor figure to six specialist agent icons (investigator, architect, planner, engineer, debugger, QA). A skeptic-review gate funnels reviewed work back into AGENTS.md and MEMORY.md tablets via a feedback loop." loading="lazy">
-    </figure>
-
-    <figure class="infographic-card">
-      <div class="infographic-meta">
-        <span class="infographic-kicker">Decision System</span>
-        <span class="infographic-tag">risk drives orchestration</span>
-      </div>
-      <figcaption class="infographic-title">The risk router decides the whole shape of execution</figcaption>
-      <p class="infographic-copy">The methodology does not ask, "How many lines is this?" It asks what kind of mistake is possible. One Elevated signal is enough to move the task into Worker plus Skeptic territory, and the default under uncertainty is to classify upward, not downward.</p>
-      <img class="infographic-image" src="images/infographics/risk-router.png" alt="Risk classification flowchart: a central terracotta diamond labeled 'Any Elevated signal?' branches YES to a violet 'Elevated path - Worker plus fresh Skeptic' panel, and NO to a teal 'All Trivial signals?' diamond, which branches YES to a green 'Trivial - direct action' panel and NO to a teal 'Low - direct plus self-check' panel. A side note reads 'When in doubt, classify up'." loading="lazy">
-    </figure>
-
-    <figure class="infographic-card">
-      <div class="infographic-meta">
-        <span class="infographic-kicker">Durability</span>
-        <span class="infographic-tag">bounded loops, recoverable state</span>
-      </div>
-      <figcaption class="infographic-title">Long-running implementation loops can stop, resume, and keep their memory</figcaption>
-      <p class="infographic-copy">The distinctive move here is not just review, but durable review. The conductor tracks loop state at phase boundaries, carries findings forward across attempts, and promotes lessons into future planning so the system gets harder to fool over time.</p>
-      <img class="infographic-image" src="images/infographics/bounded-loop.png" alt="A bounded review loop on the left with three nodes around a circle - Phase 1 Engineer (top), Phase 2 Skeptic (lower-left), Phase 3 QA (lower-right) - centered on the label 'Bounded loop / 3-pass cap'. On the right, a stack of four labeled cards: durable phase memory (loop-state.json), multi-unit tracking (tasks.jsonl), regression obligation (tests with every fix), session continuity (AGENTS.md, MEMORY.md, context.md)." loading="lazy">
-    </figure>
-  </div>
+  <figure class="infographic-card">
+    <div class="infographic-meta">
+      <span class="infographic-kicker">What is DinoStack</span>
+      <span class="infographic-tag">the whole picture</span>
+    </div>
+    <figcaption class="infographic-title">A coordinated team of specialists, gated by the operator</figcaption>
+    <p class="infographic-copy">It classifies risk, delegates to background specialists, reviews adversarially, verifies behavior in-browser, manages context across long sessions, improves itself, and installs across every major agent tool - Claude Code, Cursor, Codex, Gemini, and more.</p>
+    <a class="infographic-zoom" href="images/infographics/what-is-dinostack.png" target="_blank" rel="noopener noreferrer">
+      <img class="infographic-image" src="images/infographics/what-is-dinostack.png" alt="DinoStack: Agentic Engineering Framework overview. Seven capabilities with icons - classifies risk (effort scales to complexity); delegates to specialists (investigators, architects, planners, engineers working in parallel under a conductor); reviews adversarially (a fresh skeptic challenges every non-trivial change); verifies behavior (QA-engineer agents run in-browser QA); manages context (isolated worktrees, persisted Briefs and Plans); self-improving (captures learnings, decisions, and QA quirks into living docs); and portable (one install across Claude Code, Cursor, Codex, Gemini, and more)." loading="lazy">
+    </a>
+  </figure>
 </div>
 
 <!-- ═══ ORIENTATION: How to tell the protocol is running ═══ -->
@@ -1044,6 +1019,19 @@
 <!-- ═══ LAYER 2: What the rules contain ═══ -->
 <div id="protocols" class="section protocol-layer">
   <div class="section-title" data-num="02"><h2>Protocol Layer <a class="slide-link" href="slides/how-it-works-slides.html" target="_blank" rel="noopener noreferrer">slides: how it works</a> <a class="slide-link" href="slides/autonomy-slides.html" target="_blank" rel="noopener noreferrer">slides: autonomy</a></h2><h3>Behavioral rules governing all work</h3></div>
+
+  <figure class="infographic-card">
+    <div class="infographic-meta">
+      <span class="infographic-kicker">From intent to verified code</span>
+      <span class="infographic-tag">specification to verification</span>
+    </div>
+    <figcaption class="infographic-title">Five coordinated layers between the operator's two gates</figcaption>
+    <p class="infographic-copy">The operator authors intent at the specification gate - goals, constraints, success criteria. A wide-bandwidth engine then runs five layers: risk routing chooses the level of autonomy, planning builds the blueprint, workers spawn to decompose the goal into parallel tasks, independent Skeptics challenge logic and implementation, and automated quality gates validate code, types, tests, and regressions. Work returns to the verification gate to review diffs, confirm outcomes, and approve with confidence.</p>
+    <a class="infographic-zoom" href="images/infographics/delegated-methodology.png" target="_blank" rel="noopener noreferrer">
+      <img class="infographic-image" src="images/infographics/delegated-methodology.png" alt="The Delegated Methodology: from intent to verified code. Left panel &quot;Authoring Intent&quot; is the specification gate where the operator defines goals, constraints, and success criteria. The center &quot;Wide Bandwidth Engine&quot; runs five layers: 1) Risk Routing - classify the task and choose autonomy; 2) Planning - build the blueprint before execution; 3) Spawn Workers - decompose into specialized parallel tasks; 4) Skeptic Review - independent reviewers challenge logic, UX, and implementation; 5) Quality Gates - automated checks validate code, types, tests, and regressions. The right panel &quot;Final Acceptance&quot; is the verification gate to review PR diffs, confirm outcomes, and approve." loading="lazy">
+    </a>
+  </figure>
+
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1199,6 +1187,17 @@
         </div>
         <div class="rel-card" style="border-color: rgba(24,224,255,0.25); margin-top: 10px;">
           <h4 style="color: var(--sky);">Planning Artifacts <a class="slide-link" href="slides/planning-tier-slides.html" target="_blank" rel="noopener noreferrer">slides</a></h4>
+          <figure class="infographic-card">
+            <div class="infographic-meta">
+              <span class="infographic-kicker">Planning artifacts</span>
+              <span class="infographic-tag">Brief or Plan, decided mechanically</span>
+            </div>
+            <figcaption class="infographic-title">How much planning a task needs is a mechanical gate, not a guess</figcaption>
+            <p class="infographic-copy">The promotion gate sits between orchestration-planner output and the first engineer spawn, validating the plan before any code is written. The trigger is purely mechanical, counting Elevated units: 0-1 needs no artifact and the conductor spawns engineers directly; 2-5 requires a one-screen Brief covering problem, success criteria, and constraints; 6+ units, or cross-track or multi-session work, requires a full Plan-tier directory with an architect plan and risk register, and architecture-constraining work adds an ADR.</p>
+            <a class="infographic-zoom" href="images/infographics/planning-artifacts-gate.png" target="_blank" rel="noopener noreferrer">
+              <img class="infographic-image" src="images/infographics/planning-artifacts-gate.png" alt="DinoStack: The Planning Artifacts Promotion Gate. After task decomposition (orchestration-planner output), an Elevated Units Gate validates the plan before any code is written. The required artifact scales mechanically with the number of Elevated units: 0-1 units require no artifact and the conductor spawns engineers directly; 2-5 units require a one-screen (about 15 to 30 line) Brief covering the problem, success criteria, and constraints; 6 or more units, or cross-track or multi-session tasks, require a full Plan-tier directory containing an architect plan and a risk register, plus an Architecture Decision Record (ADR) when the work constrains architectural decisions. Summary table: 0-1 elevated units maps to no artifact (direct spawn); 2-5 maps to a Brief; 6 or more or cross-track maps to a full Plan plus ADR." loading="lazy">
+            </a>
+          </figure>
           <ul>
             <li><strong>Promotion gate (mechanical)</strong> - sits between orchestration-planner output and the first engineer spawn. Trigger table: 0-1 Elevated units = no artifact; 2-5 Elevated units = Brief required; 6+ Elevated units OR cross-track OR multi-session = Plan required. Trivial units do not count toward thresholds. "Cross-track" = distinct depth-1 directories each with their own <code>AGENTS.md</code>; cross-track or architecture-decision-constraining work additionally requires an <strong>ADR</strong> alongside the Plan.</li>
             <li><strong>Brief template</strong> - one-screen (~15-20 lines) at <code>docs/planning/&lt;slug&gt;.md</code>. Fields: Problem, Success criteria (max 4 bullets), Non-goals (max 3 bullets), Constraints (hard only), Verification (single non-skippable line - "cannot specify" blocks sign-off), Linked artifacts.</li>
@@ -1395,6 +1394,18 @@
 <div id="agents" class="section agent-layer">
   <div class="section-title" data-num="04"><h2>Agent Layer <a class="slide-link" href="slides/agent-team-slides.html" target="_blank" rel="noopener noreferrer">slides: agent team</a></h2><h3>Specialized subagents spawned by the conductor</h3></div>
 
+  <figure class="infographic-card">
+    <div class="infographic-meta">
+      <span class="infographic-kicker">Bounded Skeptic review</span>
+      <span class="infographic-tag">adversarial, but it terminates</span>
+    </div>
+    <figcaption class="infographic-title">Adversarial review that converges instead of looping forever</figcaption>
+    <p class="infographic-copy">Every round spawns a brand-new Skeptic so it reviews against the original brief, passed verbatim, with no anchoring to the Worker's justifications. Findings are triaged Critical (blocking), Major (blocking without deferral), or Minor (non-blocking cleanup). A strict three-pass cap prevents infinite loops, and re-raising a Critical after a claimed fix is a convergence failure that escalates immediately. Hitting the cap or failing to converge hands a structured stall report to the human operator for judgment.</p>
+    <a class="infographic-zoom" href="images/infographics/skeptic-review-loop.png" target="_blank" rel="noopener noreferrer">
+      <img class="infographic-image" src="images/infographics/skeptic-review-loop.png" alt="DinoStack: The Bounded Skeptic Review Loop. A Worker agent's output enters an adversarial review cycle where every round spawns a fresh Skeptic agent to prevent anchoring bias to the Worker's justifications, and the original task brief is passed verbatim so the Skeptic reviews against the original intent. The Skeptic triages findings into Critical (blocking), Major (blocking without deferral), and Minor (non-blocking cleanup). Guardrails and human escalation: a strict three-pass cap on fix attempts per phase prevents infinite loops; re-raising a Critical finding after a claimed fix is a convergence failure that triggers immediate escalation, skipping the remaining iteration budget. Hitting the cap or failing to converge generates a structured stall report handed off to the human operator for judgment and arbitration." loading="lazy">
+    </a>
+  </figure>
+
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1452,6 +1463,18 @@
 <!-- ═══ LAYER 4: Composed Flows ═══ -->
 <div id="flows" class="section protocol-layer">
   <div class="section-title" data-num="05"><h2>Composed Flows <a class="slide-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer">slides: work tracking</a></h2><h3>How agents work together</h3></div>
+
+  <figure class="infographic-card">
+    <div class="infographic-meta">
+      <span class="infographic-kicker">Composed flows</span>
+      <span class="infographic-tag">worker plus Skeptic, routed by risk</span>
+    </div>
+    <figcaption class="infographic-title">Specialized flows for features, security, and bug fixes</figcaption>
+    <p class="infographic-copy">Past the risk-classification gate, the conductor routes Elevated work into composed flows. A standard feature runs architect design, mandatory plan review, engineering implementation, and adversarial code review. Security-sensitive work adds a security-auditor deep dive and a multi-dimensional sign-off requiring both Skeptic and Auditor. A bug fix runs root-cause diagnosis, confidence-based escalation, implementation with a mandatory regression test, and a verification gate. Independent specialists can also fan out in parallel under git-worktree isolation.</p>
+    <a class="infographic-zoom" href="images/infographics/composed-flows-routing.png" target="_blank" rel="noopener noreferrer">
+      <img class="infographic-image" src="images/infographics/composed-flows-routing.png" alt="DinoStack: Composed Flows and Agent Routing. The Conductor (main session agent) decomposes tasks, delegates, and narrates progress, routing through a Risk Classification Gate. Low risk takes Direct Action for immediate execution; Elevated risk enters composed flows and can fan out parallel specialists under git-worktree isolation. Standard Feature Flow: 1) Architect Design, 2) Mandatory Plan Review by Skeptic, 3) Engineering Implementation, 4) Adversarial Code Review by Skeptic. Security-Sensitive Flow adds Enhanced Safety Routing, a Security-Auditor Deep Dive applying OWASP Top 10 analysis, and a Multi-Dimensional Sign-Off requiring both Skeptic and Security Auditor. Bug Fix Flow: 1) Root Cause Diagnosis by Debugger with Confidence-Based Escalation to a human on low confidence, 2) Implementation by Engineer with a mandatory regression test, 3) Verification Gate by Skeptic and QA." loading="lazy">
+    </a>
+  </figure>
 
   <div class="flow">
     <div class="flow-section">
@@ -1592,6 +1615,19 @@
 <!-- ═══ LAYER 6: Persistence ═══ -->
 <div id="persistence" class="section persistence-layer">
   <div class="section-title" data-num="07"><h2>Persistence Layer <a class="slide-link" href="slides/context-management-slides.html" target="_blank" rel="noopener noreferrer">slides: context management</a></h2><h3>Per-project state that survives across sessions</h3></div>
+
+  <figure class="infographic-card">
+    <div class="infographic-meta">
+      <span class="infographic-kicker">The self-improving loop</span>
+      <span class="infographic-tag">knowledge compounds</span>
+    </div>
+    <figcaption class="infographic-title">The system gets harder to fool over time</figcaption>
+    <p class="infographic-copy">Two phases keep knowledge alive. Real-time capture: a learnings-agent records error-fix cycles and resolved findings, and a learning-extractor distills fix patterns into a central learnings file, while the wrap-ticket agent enriches the project's intent layer from session summaries and diffs. Knowledge promotion: durable facts and conventions are persisted into the core memory triad - MEMORY.md (facts), AGENTS.md (conventions), and context.md (state) - so future sessions avoid repeating past mistakes instead of restarting cold.</p>
+    <a class="infographic-zoom" href="images/infographics/self-improving-loop.png" target="_blank" rel="noopener noreferrer">
+      <img class="infographic-image" src="images/infographics/self-improving-loop.png" alt="DinoStack: The Self-Improving Agentic Loop. Phase 1, Real-Time and Post-Task Capture: a learnings-agent captures real-time error-fix cycles and resolved findings; a learning-extractor identifies fix patterns and writes them to a central learnings file; insights are saved immediately to prevent loss of critical architectural or debugging context. Phase 2, Knowledge Promotion and Persistence: a wrap-ticket agent analyzes session summaries and diffs to enrich the project's intent layer, updating the core memory triad MEMORY.md (facts), AGENTS.md (conventions), and context.md (state). Key finding: compounding intelligence - future sessions read these updated files to avoid repeating past mistakes and accelerate development." loading="lazy">
+    </a>
+  </figure>
+
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1884,6 +1920,18 @@
 <!-- ═══ LAYER 8: Git Workflow ═══ -->
 <div id="git" class="section config-layer">
   <div class="section-title" data-num="09"><h2>Git Workflow</h2><h3>Worktree isolation model</h3></div>
+
+  <figure class="infographic-card">
+    <div class="infographic-meta">
+      <span class="infographic-kicker">Parallel fan-out</span>
+      <span class="infographic-tag">isolated worktrees, ordered merge</span>
+    </div>
+    <figcaption class="infographic-title">Independent units run in parallel, each in its own worktree, merged in planner order</figcaption>
+    <p class="infographic-copy">When the orchestration-planner splits a goal into independent atomic units, the conductor fans them out as parallel engineers, each working a single task in its own .agentic/worktrees/ branch so concurrent work never collides. Every unit runs its own adversarial review loop with a fresh Skeptic and passes automated quality gates. The conductor monitors for a DONE state with Skeptic sign-off, then merges validated changes sequentially - no fast-forward, in the planner-specified order - to preserve structural integrity, while a learning-extractor captures findings for future sessions.</p>
+    <a class="infographic-zoom" href="images/infographics/parallel-engineering.png" target="_blank" rel="noopener noreferrer">
+      <img class="infographic-image" src="images/infographics/parallel-engineering.png" alt="DinoStack: Orchestrating Parallel Engineering with Fan-Out Autonomy. The Conductor receives human intent on the main feature branch and is freed from implementation. Fan-Out Autonomy splits the goal into independent atomic units; the orchestration-planner determines dependencies and merge order, and a spawn threshold plus risk routing decide when to fan out for complex changes. Multiple Engineer subagents run in parallel, each on a single atomic task inside its own .agentic/worktrees/ branch (git worktree isolation, parallelism by default). Each engineer runs an adversarial review loop with a fresh Skeptic every round and must pass automated quality gates (mandatory testing, type-checking, regression tests). At convergence the conductor monitors for a DONE state with Skeptic sign-off and performs a sequential no-fast-forward terminal merge, merging validated changes in the planner-specified order to maintain structural integrity. A continuous learning-extractor captures findings into .agentic/learnings.md to improve future sessions." loading="lazy">
+    </a>
+  </figure>
 
   <div class="flow" style="margin-top: 0;">
     <div class="flow-title">Standard Feature Branch Flow</div>
