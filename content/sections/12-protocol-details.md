@@ -47,3 +47,6 @@ Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`,
 
 **Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
 Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in METHODOLOGY.md §Worktree Lifecycle.
+
+**Capture classification** - when deciding whether to write a learning entry at a mandatory trigger:
+Read `content/references/capture-classification.md` for the guardrail-first precedence chain, the two-gate MUST/SHOULD/SKIP table, and the per-trigger declaration format. Mandatory triggers and the `Capture:` block format are owned by `content/references/conductor-operating-rules.md §learnings-agent`.
