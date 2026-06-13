@@ -316,6 +316,110 @@ console.log('\n[f] wrap.lock present (/wrap-coexistence path): /wrap content pre
 }
 
 // ---------------------------------------------------------------------------
+// (g) per-turn heartbeat touch (U1 liveness signal)
+// ---------------------------------------------------------------------------
+console.log('\n[g] per-turn heartbeat: a substantive Stop touches .agentic/.heartbeats/<session_id>');
+{
+  const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-g-');
+  const heartbeatPath = path.join(agenticDir, '.heartbeats', 'sess-g');
+
+  try {
+    runHook(projectDir, fakeHome, 'sess-g', EDIT_TRANSCRIPT);
+  } catch (err) {
+    assert(false, `hook must not throw (got: ${err.message})`);
+    cleanup(tmpDir);
+    process.exit(1);
+  }
+
+  assert(fs.existsSync(heartbeatPath),
+    'Stop hook touches this session heartbeat (daemon liveness signal)');
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// (h) per-session marker isolation: two distinct sessions -> two distinct markers
+// ---------------------------------------------------------------------------
+console.log('\n[h] per-session staging: two distinct sessions stage two distinct markers (no collision)');
+{
+  const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-h-');
+  const m1 = path.join(agenticDir, 'wrap-pending-sess-h1.json');
+  const m2 = path.join(agenticDir, 'wrap-pending-sess-h2.json');
+
+  try {
+    runHook(projectDir, fakeHome, 'sess-h1', EDIT_TRANSCRIPT);
+    runHook(projectDir, fakeHome, 'sess-h2', EDIT_TRANSCRIPT);
+  } catch (err) {
+    assert(false, `hook must not throw (got: ${err.message})`);
+    cleanup(tmpDir);
+    process.exit(1);
+  }
+
+  assert(fs.existsSync(m1) && fs.existsSync(m2),
+    'each session stages its own per-session marker');
+  if (fs.existsSync(m1) && fs.existsSync(m2)) {
+    const j1 = JSON.parse(fs.readFileSync(m1, 'utf8'));
+    const j2 = JSON.parse(fs.readFileSync(m2, 'utf8'));
+    assert(j1.session_id === 'sess-h1' && j2.session_id === 'sess-h2',
+      'each marker records its own session_id (no cross-contamination)');
+    assert(j1.status === 'pending' && j2.status === 'pending',
+      'both markers staged as pending');
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// (i) loop-guard (case 13, Stop-hook portion): AGENTIC_WRAP_DAEMON=1 -> no marker,
+//     no heartbeat. The daemon's own headless /wrap-deferred run still fires Stop;
+//     under the guard the Stop hook must NOT re-stage or re-touch.
+// ---------------------------------------------------------------------------
+console.log('\n[i] loop-guard: under AGENTIC_WRAP_DAEMON=1 the Stop hook stages no marker + touches no heartbeat');
+{
+  const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-i-');
+  const markerPath = path.join(agenticDir, 'wrap-pending-sess-i.json');
+  const heartbeatPath = path.join(agenticDir, '.heartbeats', 'sess-i');
+
+  const payload = JSON.stringify({
+    cwd: projectDir, session_id: 'sess-i', transcript: EDIT_TRANSCRIPT,
+  });
+  try {
+    execSync(`node "${hookScript}"`, {
+      input: payload,
+      encoding: 'utf8',
+      env: { ...process.env, HOME: fakeHome, AGENTIC_WRAP_DAEMON: '1' },
+      timeout: 10000,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+  } catch (err) {
+    assert(false, `hook must not throw under the guard (got: ${err.message})`);
+    cleanup(tmpDir);
+    process.exit(1);
+  }
+
+  assert(!fs.existsSync(markerPath),
+    'no marker staged under the loop-guard (case 13)');
+  assert(!fs.existsSync(heartbeatPath),
+    'no heartbeat touched under the loop-guard (case 13)');
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// (case 12 note) "non-Claude -> no marker staged" is NOT a Stop-hook behavior.
+// ---------------------------------------------------------------------------
+// Verification-gate case (12) ("non-Claude / no .claude-host sentinel -> no marker
+// staged") is enforced at the `/wrap` Step 0a sentinel gate
+// (`[ -f "$cwd/.agentic/.claude-host" ]`), which is PROSE executed by the model -
+// it is NOT a gate in this Node Stop hook. The Stop hook only ever runs on Claude
+// Code in the first place; it stages a marker on any substantive, unlocked,
+// not-already-wrapped session regardless of the sentinel (verified empirically:
+// the marker is staged with no `.claude-host` file present). A Stop-hook-level
+// "non-Claude" assertion would therefore assert behavior the hook does not have.
+// Coverage for the sentinel gate lives in the `/wrap` Step 0a contract and the
+// SessionStart self-heal path (ensureClaudeHost, covered in
+// test-wrap-marker-reclaim.js [20]); the structural extraction is checked in
+// test-wrap-context-format-golden.js. Recording the gap here rather than skipping
+// it silently.
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed.`);
