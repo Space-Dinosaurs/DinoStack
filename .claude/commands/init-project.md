@@ -266,7 +266,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
 - `.agentic/config.json` - committed (NOT gitignored) project-level methodology toggles; always created with documented defaults so the conductor has a stable file to read
 - `glossary.md` (root) - the project's Ubiquitous Language; seeded with a header and TODO bullet so the team and agents have a place to record domain terms
-- `memory/MEMORY.md` (created at `<cwd>/.agentic/memory/MEMORY.md` by Claude Code - `/init-project` seeds it with a stub)
+- `MEMORY.md` (root) - canonical durable-facts store, auto-injected by Claude Code at startup; `/init-project` seeds it with a stub if absent
 - `.gitignore`
 - `docs/overview/vision.md`, `docs/overview/requirements.md`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
 
@@ -596,7 +596,7 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
     - `.claude/settings.json` - always check.
     - `docs/{planning,research,technical,overview}/` - always check.
     - `docs/overview/vision.md` and `docs/overview/requirements.md` - always check.
-    - Seeded `MEMORY.md` at `<cwd>/.agentic/memory/MEMORY.md` - always check.
+    - Seeded `MEMORY.md` at `<cwd>/MEMORY.md` - always check.
     - `.agentic/qa.md` (or legacy `.claude/qa.md`) - only if this project has a web UI.
     - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
     - `.agentic/tracking.md` (or legacy `.claude/tracking.md`) - only if a tracker was confirmed during `/init-project`.
@@ -899,11 +899,9 @@ Add any project-specific env vars here (e.g. database connection strings, API ke
 
 ### 8. Seed `MEMORY.md`
 
-The project MEMORY.md lives at `<cwd>/.agentic/memory/MEMORY.md` and is auto-injected by Claude Code at startup.
+The canonical MEMORY.md lives at `<cwd>/MEMORY.md` (repo root) and is auto-injected by Claude Code at startup. This is the conductor-managed, human-reviewed durable-facts store. It is distinct from `.agentic/memory.md`, which is `/wrap`-internal rolling scratch (gitignored, not auto-injected).
 
-If the file does not already exist, create the memory directory and seed the file:
-- Resolve the memory directory path from the Claude Code auto-injected context (look for "You have a persistent auto memory directory at `<cwd>/.agentic/memory/`")
-- Create the file at `[memory_dir]/MEMORY.md` with:
+If `<cwd>/MEMORY.md` does not already exist, create it:
 
 ```
 # Memory
@@ -913,7 +911,7 @@ If the file does not already exist, create the memory directory and seed the fil
 <!-- Entry format: - **YYYY-MM-DD:** [what and why, one sentence] -->
 ```
 
-If the file already exists (e.g. because AGENTS.md curation in Step 3 merged entries into it), leave the stub header step and proceed to Step 9.
+If the file already exists (e.g. because AGENTS.md curation in Step 3 merged entries into it), skip this step and proceed to Step 9.
 
 ### 9. Create `.gitignore`
 

@@ -874,7 +874,12 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 
 **Pagination (vicious loop defense):** The sweep MUST NOT read the full `.agentic/events.jsonl` on every boot. It reads only events with `ts` strictly greater than the timestamp stored in `.agentic/.meta-divergence-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), the scan is capped to the most recent 100 lines of the events file. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to the tracker file (atomic: tmp + `mv`). This prevents the vicious loop where growing telemetry consumes ever more context on every session start. See `content/references/skeptic-protocol.md` Section 14 "Session-start sweep pagination" for the full procedure.
 
-**Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
+**Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
+
+**Knowledge-file routing (three distinct stores):**
+- `<cwd>/MEMORY.md` - canonical durable facts; committed; auto-injected by Claude Code; written by `/wrap`, wrap-ticket, `/memory-update`.
+- `.agentic/memory.md` - `/wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
+- `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (discretionary).
 
 **Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `agentic-cost team`.
 
@@ -909,8 +914,11 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
 - `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
 - `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
-- `MEMORY.md` - stable facts learned about the project, with rationale.
+- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; auto-injected by Claude Code at startup. Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
+- `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (conductor-discretionary).
 - `decisions.md` - the project's decision log, where used.
+- `.agentic/findings.md` - curated Skeptic-finding patterns; committed. Written by `findings-curator` at Phase 6 loop exit.
+- `.agentic/qa-regressions.md` - curated QA regression patterns; committed. Written by `qa-regressions-curator` at Phase 6b QA FAIL.
 - `qa.md` - QA triggers and project-specific quirks the QA engineer needs to know.
 - Module manifests - file-level intent embedded in the source itself (see `module-manifest.md`).
 - `glossary.md` - the project's Ubiquitous Language (see below).
