@@ -1,7 +1,0 @@
-# Production config for the HTTP client.
-# NOTE: timeout_ms is a millisecond field, per the source.py contract.
-# This file was edited in the recent PR #4412 "raise http timeout to 30s".
-http:
-  endpoint: "https://api.example.com"
-  timeout_ms: 30    # was 15 before the PR; author intended 30 seconds
-  retries: 3

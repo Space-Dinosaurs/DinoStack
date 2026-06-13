@@ -1,6 +1,0 @@
-[project]
-name = "ad-002-violation"
-version = "0.1.0"
-dependencies = [
-  "structlog>=24.1.0",
-]

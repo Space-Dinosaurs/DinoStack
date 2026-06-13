@@ -1,5 +1,0 @@
-{
-  "name": "platform-monorepo",
-  "private": true,
-  "workspaces": ["apps/*", "packages/*"]
-}
