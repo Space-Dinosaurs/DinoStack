@@ -1156,6 +1156,8 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 - On return (asynchronous): if `learning-extractor` returns with a valid JSON shape, the conductor stores the `learning_ids[]` for Phase 11b and prints `operator_summary` to the user at the next turn boundary. If `skipped_reason` is populated (zero-substance, etc.), the conductor notes it silently.
 - If `learning-extractor` does not return before Phase 11b, `wrap-ticket` reads whatever entries exist in `.agentic/learnings.md` (may be partial or empty). No warning needed.
 
+**Mandatory capture-sweep declaration (clean exit only).** After spawning `learning-extractor` (fire-and-forget) and BEFORE the calibration emit, the conductor MUST sweep for any mandatory-trigger event (per `content/references/conductor-operating-rules.md §learnings-agent`) that occurred during this task but was not yet evaluated. For each outstanding trigger, emit a `Capture: MUST/SKIP` declaration in the conductor's user-facing output. Apply guardrail-first precedence per `content/references/capture-classification.md` before writing any entry. A trigger with no declaration is a protocol gap. This sweep is the last-resort catch before the Stop-hook backstop fires.
+
 **Calibration emit + meta-Skeptic sampling (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor performs the following before declaring the unit complete:
 
 1. **Build the calibration data block.** Compute `diff_lines` from the reviewed diff (`git -C $REPO diff origin/$BASE_BRANCH..HEAD | wc -l`, or the unit-scoped equivalent for fan-out). Tally `findings_count` from the final Skeptic round's findings list (Critical / Major / Minor counts). Read `iteration` from the loop state.

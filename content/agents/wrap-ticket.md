@@ -23,7 +23,9 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             context_md_recent_focus_addition, operator_summary, writer_actions[],
             skipped_reason, size_advisory.
 
-Upstream deps: None (no external libraries; only Read/Glob/Grep/Edit/Write tools).
+Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
+              learnings_extracted; prefix-agnostic match on both prefixes).
+              No external libraries; only Read/Glob/Grep/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
                       return, prints operator_summary to the user, never blocks
@@ -125,7 +127,7 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 - Read `merged_diff` (passed as input).
 - If `architect_plan_path` is a real path, Read it.
 - If `brief_path` is a real path, Read it.
-- If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
+- If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `\[(LRN|KNW)-\d{8}-\d{3}\]`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
 
 ### 3. Extract candidate facts
 
