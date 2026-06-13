@@ -441,6 +441,74 @@ console.log('\n[11] toggle/launch boundary: an idle daemon makes no marker trans
 }
 
 // ---------------------------------------------------------------------------
+// (SEC-M1) the drain --allowedTools is an explicit scoped git allowlist, not a glob
+// ---------------------------------------------------------------------------
+console.log('\n[SEC-M1] drain --allowedTools uses scoped read-only git verbs, never Bash(git *)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-allowtools-');
+  writeConfig(agenticDir, FAST_IDLE);
+  const logPath = path.join(base, 'mock.log');
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
+
+  runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok', MOCK_CLAUDE_LOG: logPath,
+  }, 40000);
+
+  // The mock logs the full argv per invocation; the --resume drain line carries the
+  // --allowedTools value the daemon passed.
+  const drainLine = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
+    .split('\n').find((l) => l.includes('--resume')) || '';
+  assert(drainLine.length > 0, 'a --resume drain was logged (allowlist is observable)');
+
+  // The over-broad glob MUST be gone.
+  assert(!/Bash\(git \*\)/.test(drainLine),
+    'allowlist no longer contains the over-broad Bash(git *) glob (SEC-M1)');
+  // The scoped read-only verbs MUST be present.
+  for (const verb of ['git status', 'git log', 'git diff', 'git rev-parse', 'git branch']) {
+    assert(drainLine.includes('Bash(' + verb + ':*)'),
+      `allowlist scopes ${verb} to Bash(${verb}:*) (blocks git -c ... ${verb.split(' ')[1]})`);
+  }
+  assert(drainLine.includes('Bash(git stash list:*)'),
+    'allowlist scopes `git stash list` (read-only stash survey)');
+  // The base file tools survive.
+  for (const tool of ['Read', 'Edit', 'Write', 'Glob', 'Grep']) {
+    assert(drainLine.includes(tool), `allowlist still grants ${tool}`);
+  }
+  // No write/mutating git verb (the command writes via Write/Edit, not git).
+  for (const bad of ['git commit', 'git add', 'git push', 'git checkout', 'git reset', 'git stash push']) {
+    assert(!drainLine.includes('Bash(' + bad + ':*)'),
+      `allowlist does NOT grant mutating verb ${bad}`);
+  }
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (SEC-M2) oversized config.json is skipped (defaults used, daemon still runs)
+// ---------------------------------------------------------------------------
+console.log('\n[SEC-M2] oversized config.json is skipped (size cap, defaults, fail-open)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-cfgcap-');
+  // A config that sets FAST_IDLE but is padded past the 64 KB cap. Because the daemon
+  // skips it (size cap) it falls back to DEFAULTS - including the 15-min idle window -
+  // so a fast self-exit would NOT happen. We assert the daemon ignores the oversized
+  // file by confirming it does NOT pick up the fast-idle override (it runs until the
+  // watchdog kills it rather than self-exiting in ~1 poll).
+  const padded = Object.assign({}, FAST_IDLE, { _pad: 'x'.repeat(70 * 1024) });
+  fs.writeFileSync(path.join(agenticDir, 'config.json'), JSON.stringify(padded), 'utf8');
+  // No ready markers -> with DEFAULTS (15-min idle) the daemon will NOT self-exit
+  // within the short watchdog; with the (ignored) fast-idle it WOULD. The watchdog
+  // SIGKILL proves the oversized config was skipped and defaults applied.
+  const { signal, stdout } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 8000);
+
+  assert(signal === 'SIGKILL',
+    'daemon ignored the oversized config (used default 15-min idle; killed by watchdog, did not fast self-exit)');
+  assert(!/self-exiting/.test(stdout),
+    'daemon did NOT log a fast self-exit (oversized fast-idle override was skipped)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
 // Final cleanup of the shared mock bin dir
 // ---------------------------------------------------------------------------
 cleanup(MOCK_DIR);

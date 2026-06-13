@@ -422,6 +422,145 @@ console.log('\n[20] ensureClaudeHost: create-if-absent, idempotent, UNGUARDED, f
 }
 
 // ---------------------------------------------------------------------------
+// (SEC-M2) oversized marker file is skipped (fail-open), not parsed
+// ---------------------------------------------------------------------------
+console.log('\n[SEC-M2] oversized marker file is skipped (treated as unreadable), small one read');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-sizecap-');
+  const BIG = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const SMALL = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+  // A valid `ready` marker, but padded past the 64 KB cap with a huge field.
+  const bigMarker = {
+    schema_version: 3, session_id: BIG, staged_at: new Date().toISOString(),
+    status: 'ready', claimed_by: null, claimed_kind: null, claimed_at: null,
+    attempts: 0, project_root: projectDir, last_error: null,
+    _pad: 'x'.repeat(70 * 1024), // > MAX_MARKER_BYTES (64 KB)
+  };
+  fs.writeFileSync(
+    path.join(agenticDir, 'wrap-pending-' + BIG + '.json'),
+    JSON.stringify(bigMarker, null, 2), 'utf8'
+  );
+  // A normal small `ready` marker.
+  writeMarkerRaw(agenticDir, SMALL, { status: 'ready' });
+
+  // Direct read of the oversized marker is null (skipped before parse).
+  assert(lib.readMarker(projectDir, BIG) === null,
+    'oversized marker read returns null (size cap, fail-open)');
+  // The small marker is still readable.
+  assert(lib.readMarker(projectDir, SMALL) !== null,
+    'small marker still readable alongside an oversized sibling');
+
+  // The scan skips the oversized marker but returns the small one.
+  const ready = lib.listReadyMarkers(projectDir);
+  const ids = ready.map((e) => e.sessionId);
+  assert(!ids.includes(BIG), 'listReadyMarkers excludes the oversized marker');
+  assert(ids.includes(SMALL), 'listReadyMarkers still includes the small ready marker');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (SEC-M3a) non-UUID marker filenames are short-circuited (never read)
+// ---------------------------------------------------------------------------
+console.log('\n[SEC-M3a] non-UUID wrap-pending-*.json filenames are filtered before any read');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-uuidfilter-');
+  const VALID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+  // A valid ready marker (UUID session component).
+  writeMarkerRaw(agenticDir, VALID, { status: 'ready' });
+  // Hostile non-UUID filenames carrying a `ready` payload - MUST be ignored because
+  // their session component does not match the UUID shape (filtered before read).
+  for (const bad of ['not-a-uuid', '../escape', 'x'.repeat(300), 'short', '']) {
+    // Guard against an empty component producing the bare prefix file; skip empty.
+    const fname = 'wrap-pending-' + bad + '.json';
+    try {
+      fs.writeFileSync(path.join(agenticDir, fname),
+        JSON.stringify({ status: 'ready', session_id: bad }, null, 2), 'utf8');
+    } catch (_) { /* '../escape' may be rejected by the fs; that is fine */ }
+  }
+
+  const ready = lib.listReadyMarkers(projectDir);
+  assert(ready.length === 1 && ready[0].sessionId === VALID,
+    'listReadyMarkers returns ONLY the UUID-named ready marker (non-UUID names short-circuited)');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (SEC-M3b) per-scan count cap: at most MAX_MARKERS_PER_SCAN processed
+// ---------------------------------------------------------------------------
+console.log('\n[SEC-M3b] per-scan count cap: a pathologically large marker dir is bounded');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-scancap-');
+
+  // Plant > 1000 valid-UUID `ready` markers. The cap is 1000, so the scan must
+  // process AT MOST 1000 (proving it does not read every file on a hostile dir).
+  const TOTAL = 1100;
+  for (let i = 0; i < TOTAL; i++) {
+    // Deterministic distinct UUIDs: 12-hex tail from the index.
+    const tail = i.toString(16).padStart(12, '0');
+    const sid = 'dddddddd-dddd-dddd-dddd-' + tail;
+    writeMarkerRaw(agenticDir, sid, { status: 'ready' });
+  }
+
+  // Silence the expected truncation warning during the assertion.
+  const origWrite = process.stderr.write;
+  let warned = false;
+  process.stderr.write = function (chunk) {
+    if (typeof chunk === 'string' && /scan truncated/.test(chunk)) { warned = true; return true; }
+    return origWrite.apply(process.stderr, arguments);
+  };
+  let ready;
+  try {
+    ready = lib.listReadyMarkers(projectDir);
+  } finally {
+    process.stderr.write = origWrite;
+  }
+
+  assert(ready.length === 1000,
+    `scan processes at most MAX_MARKERS_PER_SCAN (got ${ready.length}, expected 1000)`);
+  assert(warned === true, 'scan emits a truncation warning when capped');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (PERF-Minor) cleanStalePending co-deletes the sibling heartbeat
+// ---------------------------------------------------------------------------
+console.log('\n[PERF] cleanStalePending co-deletes a deleted stale marker\'s sibling heartbeat');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-hbleak-');
+  const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const STALE = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+  const FRESH = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+
+  // A stale pending marker (older than TTL) + its sibling heartbeat.
+  writeMarkerRaw(agenticDir, STALE, { status: 'pending', staged_at: agoIso(8 * 24 * 60 * 60) });
+  lib.touchHeartbeat(projectDir, STALE);
+  // A fresh pending marker + heartbeat that must SURVIVE.
+  writeMarkerRaw(agenticDir, FRESH, { status: 'pending', staged_at: agoIso(60) });
+  lib.touchHeartbeat(projectDir, FRESH);
+
+  const staleHb = lib.heartbeatPath(projectDir, STALE);
+  const freshHb = lib.heartbeatPath(projectDir, FRESH);
+  assert(fs.existsSync(staleHb), 'stale session heartbeat exists before janitor');
+  assert(fs.existsSync(freshHb), 'fresh session heartbeat exists before janitor');
+
+  const res = lib.cleanStalePending(projectDir, TTL_MS);
+
+  assert(res.deleted.includes(STALE), 'stale pending marker reported deleted');
+  assert(!markerExists(agenticDir, STALE), 'stale pending marker removed from disk');
+  assert(!fs.existsSync(staleHb), 'stale session sibling heartbeat co-deleted (no orphan leak)');
+  // The fresh marker and its heartbeat are untouched.
+  assert(markerExists(agenticDir, FRESH), 'fresh pending marker kept');
+  assert(fs.existsSync(freshHb), 'fresh session heartbeat NOT deleted (only stale co-deleted)');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed.`);

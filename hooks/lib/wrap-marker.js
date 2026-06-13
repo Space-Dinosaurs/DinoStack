@@ -65,11 +65,20 @@
  *                stale in_progress markers and NEVER touches pending markers, so it
  *                cannot resume a live/idle session. cleanStalePending DELETES old
  *                pending markers (never status-mutates them), so it likewise cannot
- *                promote a live session.
+ *                promote a live session, and co-deletes each deleted marker's sibling
+ *                heartbeat (PERF-Minor) inside the per-marker try/catch so a
+ *                heartbeat-unlink error never aborts the sweep.
+ *                SECURITY (DoS hardening): every marker read is size-bounded
+ *                (MAX_MARKER_BYTES, SEC-M2) and every directory scan filters
+ *                filenames to the session-UUID shape BEFORE opening any file and
+ *                caps the number processed per tick (MAX_MARKERS_PER_SCAN, SEC-M3),
+ *                so a hostile repo cannot wedge a poll tick with a giant marker or a
+ *                directory of tens of thousands of files. Both remain fail-open.
  *
  * Performance: standard. Synchronous fs only; no git, no network, no subprocess.
  *              listReadyMarkers / listInProgressMarkers glob one directory
- *              (readdirSync) and stat-read each wrap-pending-*.json once.
+ *              (readdirSync), filter names to the UUID shape, then stat-read at most
+ *              MAX_MARKERS_PER_SCAN wrap-pending-<uuid>.json files once each.
  */
 
 'use strict';
@@ -88,6 +97,20 @@ const MARKER_SUFFIX = '.json';
 // the session is still emitting turns and a ready marker should be deferred.
 const DEFAULT_HEARTBEAT_FRESH_MS = 120 * 1000;
 const MAX_ATTEMPTS = 3;
+
+// SEC-M2 (DoS, unbounded JSON read): a marker is a tiny fixed-shape JSON blob. A
+// hostile repo could plant a multi-GB wrap-pending-<id>.json that the daemon
+// re-reads every poll tick; cap the size and treat anything larger as unreadable
+// (fail-open -> null). 64 KB is generous for the marker schema.
+const MAX_MARKER_BYTES = 64 * 1024;
+// SEC-M3 (DoS, unbounded scan): the session component of a marker filename is a
+// Claude session UUID. Filter readdir results to this shape BEFORE reading any file
+// so a directory full of hostile non-UUID wrap-pending-*.json files is never opened.
+const SESSION_UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+// SEC-M3 cap: process at most this many markers per scan. A near-idle project has a
+// handful; this only bites a pathologically large (likely hostile) directory, where
+// reading every file each tick would be the DoS. We log when truncated.
+const MAX_MARKERS_PER_SCAN = 1000;
 
 // ---------------------------------------------------------------------------
 // Internal helpers (not exported)
@@ -134,10 +157,24 @@ function atomicWriteJson(targetPath, obj) {
   }
 }
 
-/** Read + parse a marker file by absolute path. Fail-open: null on any error. */
+/**
+ * Best-effort diagnostic to stderr - the lib is otherwise silent (its consumers own
+ * stdout). NEVER throws; swallows any write error. Used only for the SEC-M3 scan-cap
+ * truncation warning, a genuinely abnormal (likely hostile) condition worth surfacing.
+ */
+function warn(msg) {
+  try { process.stderr.write('[wrap-marker] ' + msg + '\n'); } catch (_) { /* ignore */ }
+}
+
+/**
+ * Read + parse a marker file by absolute path. Fail-open: null on any error.
+ * SEC-M2: stat-then-read - skip an over-cap (or non-regular) file before loading its
+ * bytes, so a planted multi-GB marker cannot wedge a scan.
+ */
 function readMarkerFile(absPath) {
   try {
-    if (!fs.existsSync(absPath)) return null;
+    const st = fs.statSync(absPath); // throws if absent -> caught -> null
+    if (!st.isFile() || st.size > MAX_MARKER_BYTES) return null;
     const raw = fs.readFileSync(absPath, 'utf8');
     const marker = JSON.parse(raw);
     return (marker && typeof marker === 'object') ? marker : null;
@@ -249,14 +286,36 @@ function listMarkersByStatus(cwd, wantStatus) {
     } catch (_) {
       return out; // .agentic/ absent -> no markers
     }
+    // SEC-M3 (a) SHORT-CIRCUIT: keep only well-formed wrap-pending-<UUID>.json names
+    // and validate the session component against the UUID shape BEFORE opening any
+    // file. A directory full of hostile non-UUID wrap-pending-*.json files is thus
+    // filtered with a cheap regex test and never read/parsed.
+    const candidates = [];
     for (const name of names) {
       if (!name.startsWith(MARKER_PREFIX) || !name.endsWith(MARKER_SUFFIX)) continue;
       const sessionId = name.slice(MARKER_PREFIX.length, name.length - MARKER_SUFFIX.length);
-      if (!sessionId) continue;
-      const abs = path.join(dir, name);
-      const marker = readMarkerFile(abs);
+      if (!sessionId || !SESSION_UUID_RE.test(sessionId)) continue;
+      candidates.push({ sessionId, abs: path.join(dir, name) });
+    }
+    // SEC-M3 (b) CAP: never read+parse more than MAX_MARKERS_PER_SCAN files per tick.
+    // A near-idle project has a handful; truncation only bites a pathologically large
+    // (likely hostile) directory and is surfaced via warn(). Sorting happens below on
+    // the (already bounded) results.
+    let truncated = false;
+    let scanned = candidates;
+    if (candidates.length > MAX_MARKERS_PER_SCAN) {
+      truncated = true;
+      scanned = candidates.slice(0, MAX_MARKERS_PER_SCAN);
+    }
+    for (const c of scanned) {
+      const marker = readMarkerFile(c.abs);
       if (!marker || marker.status !== wantStatus) continue;
-      out.push({ sessionId, path: abs, marker });
+      out.push({ sessionId: c.sessionId, path: c.abs, marker });
+    }
+    if (truncated) {
+      warn('marker scan truncated at ' + MAX_MARKERS_PER_SCAN + ' of ' + candidates.length
+        + ' candidate markers in ' + dir + ' (possible DoS; processing the first '
+        + MAX_MARKERS_PER_SCAN + ')');
     }
   } catch (_) {
     return out;
@@ -631,6 +690,12 @@ function cleanStalePending(cwd, ttlMs) {
       if (stagedMs === null) continue;             // unparseable -> leave alone
       if ((Date.now() - stagedMs) <= ttlMs) continue; // still within TTL -> keep
       fs.unlinkSync(entry.path);                   // DELETE-ONLY (never mutate status)
+      // PERF-Minor (orphan heartbeat leak): a session that staged a marker and then
+      // abnormally terminated also leaves a sibling heartbeat file. When we delete the
+      // stale pending marker, co-delete its heartbeat so it cannot accumulate. This is
+      // delete-only and idempotent (removeHeartbeat is fail-open); a heartbeat-unlink
+      // failure must NEVER abort the marker sweep, so it stays inside this try/catch.
+      removeHeartbeat(safe, entry.sessionId);
       result.deleted.push(entry.sessionId);
     } catch (_) {
       // Fail-open per marker.

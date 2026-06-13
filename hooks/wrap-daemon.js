@@ -53,7 +53,14 @@
  *                SECURITY: the session id is validated as a plausible UUID before it
  *                is ever passed as a `--resume` argument (no shell-arg injection);
  *                args are passed as an argv array (no shell), so there is no shell
- *                metacharacter surface.
+ *                metacharacter surface. The headless child runs under
+ *                bypassPermissions, so its --allowedTools list IS the security
+ *                boundary: it is an EXPLICIT per-verb read-only git allowlist
+ *                (SEC-M1, DEFERRED_WRAP_ALLOWED_TOOLS) - never `Bash(git *)` - so
+ *                `git -c <config>=...` / `ext::` config-injection forms cannot
+ *                match. Both config and marker/scan reads are size-bounded
+ *                (SEC-M2 / SEC-M3) so a planted multi-GB file or a directory of
+ *                tens of thousands of marker files cannot wedge a poll tick.
  *
  * Performance: long-running but near-idle. Polls the marker directory on a fixed
  *              interval; each tick is a single readdir + a few stat/read calls.
@@ -91,6 +98,38 @@ const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0
 // Bound the headless wrap so a single hung run cannot starve the queue forever.
 const DEFAULT_MAX_TURNS = 40;
 
+// SEC-M1: the headless `/wrap-deferred` child runs under --permission-mode
+// bypassPermissions, so its --allowedTools list IS the security boundary. The old
+// `Bash(git *)` glob was too broad: it admitted `git -c core.pager='!sh' log`,
+// `git -c alias.x='!sh' x`, and `ext::`/remote-helper forms that reach arbitrary
+// execution with prompts bypassed. We replace it with an EXPLICIT per-verb allowlist
+// of ONLY the read-only git surveys `/wrap-deferred` needs to build context.md's
+// git-state section (it writes context.md/memory.md/AGENTS.md via Write/Edit, NOT
+// via git - so NO mutating git verb is listed):
+//   git status      - uncommitted/working-tree survey (`git status --porcelain`)
+//   git stash list  - stashed-work survey
+//   git log         - recent commits produced this session
+//   git diff        - inspect uncommitted/staged change detail when summarizing
+//   git rev-parse   - resolve HEAD / branch / repo-root for the git-state section
+//   git branch      - current-branch name for the git-state section
+// The `Bash(git <verb>:*)` scoped form fixes the verb and wildcards only its args;
+// because `-c <config>=...` precedes the subcommand, `git -c ... status` does NOT
+// match `Bash(git status:*)` - the dangerous `-c`/`ext::` config-injection surface
+// is closed. Keep this list MINIMAL: add a verb only when /wrap-deferred provably
+// needs it, and never add a write/mutating verb.
+const DEFERRED_WRAP_GIT_VERBS = [
+  'git status',
+  'git stash list',
+  'git log',
+  'git diff',
+  'git rev-parse',
+  'git branch',
+];
+const DEFERRED_WRAP_ALLOWED_TOOLS = [
+  'Read', 'Edit', 'Write', 'Glob', 'Grep',
+  ...DEFERRED_WRAP_GIT_VERBS.map((verb) => 'Bash(' + verb + ':*)'),
+].join(',');
+
 // ---------------------------------------------------------------------------
 // Config (defensive; absent file/keys -> defaults)
 // ---------------------------------------------------------------------------
@@ -103,6 +142,12 @@ const CONFIG_DEFAULTS = {
   deferred_wrap_pending_ttl_days: 7,
 };
 
+// SEC-M2 (DoS, unbounded JSON read): config.json is a tiny tuning file. A hostile
+// repo could plant a multi-GB file that we re-read every startup; cap the size and
+// fall back to defaults (fail-open) on anything larger. 64 KB is generous for a
+// handful of numeric keys.
+const MAX_CONFIG_BYTES = 64 * 1024;
+
 /**
  * Read tuning params from [cwd]/.agentic/config.json. Every key is optional and
  * falls back to its default; a missing file, parse error, or non-numeric value all
@@ -112,7 +157,14 @@ function readConfig(cwd) {
   const out = Object.assign({}, CONFIG_DEFAULTS);
   let parsed = null;
   try {
-    const raw = fs.readFileSync(path.join(cwd, '.agentic', 'config.json'), 'utf8');
+    const cfgPath = path.join(cwd, '.agentic', 'config.json');
+    // SEC-M2: stat-then-read - skip an over-cap (or non-regular) file before we
+    // load its bytes, so a planted multi-GB config cannot wedge startup.
+    const st = fs.statSync(cfgPath);
+    if (!st.isFile() || st.size > MAX_CONFIG_BYTES) {
+      return out; // too large / not a regular file -> defaults (fail-open)
+    }
+    const raw = fs.readFileSync(cfgPath, 'utf8');
     parsed = JSON.parse(raw);
   } catch (_) {
     parsed = null;
@@ -295,7 +347,7 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
         '--resume', sessionId,
         '-p', '/wrap-deferred',
         '--permission-mode', 'bypassPermissions',
-        '--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash(git *)',
+        '--allowedTools', DEFERRED_WRAP_ALLOWED_TOOLS,
         '--max-turns', String(DEFAULT_MAX_TURNS),
       ], {
         cwd: projectRoot,
@@ -481,7 +533,12 @@ function installCleanup() {
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
     process.on(sig, () => {
       releaseSingleton();
-      // Re-raise default behavior by exiting with the conventional 128+signal code.
+      // CORR-Minor-2: exit 0 DELIBERATELY. This is a fire-and-forget background
+      // daemon, not an interactive process whose caller inspects a 128+signal code;
+      // the only contract that matters on a signal is that the pid singleton is
+      // released (done above) and the process leaves. A uniform exit 0 keeps every
+      // exit path of this daemon consistent (see the module manifest). Comment and
+      // code agree: this is NOT a 128+signal re-raise.
       process.exit(0);
     });
   }
