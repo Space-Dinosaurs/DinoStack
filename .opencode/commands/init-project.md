@@ -964,7 +964,8 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 # .agentic/tracking.md, .agentic/learnings.md - these are tool-agnostic agent
 # config and fix-pattern knowledge that belong in source control.
 # .agentic/session-log/ IS tracked (committed via Phase 8 telemetry commits).
-# The negation carve-outs below override the .agentic/* umbrella ignore.
+# The negation carve-outs below keep these tracked even if a project later
+# adds a broad .agentic/* umbrella ignore (e.g. via agentic-migrate).
 !.agentic/session-log/
 !.agentic/learnings.md
 ```
