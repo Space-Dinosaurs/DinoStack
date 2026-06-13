@@ -593,6 +593,54 @@ console.log('\nTest 13b: knw-tag-alone-suppresses (KNW tag without Discovered: l
 }
 
 // ---------------------------------------------------------------------------
+// Test 14: standard-exit-path-call-site-arity (regression for U6b Major)
+// Drives the REAL run() standard exit path as a subprocess and asserts the
+// capture-gap nudge uses the STANDARD (non-residual) wording when no guardrail
+// was added. This regression guards the call-site arity: a 3-arg call
+// `appendCaptureGapNoticeToContextMd(cwd, sessionId, gap.residualOnly)` passes
+// sessionId (truthy string) as residualOnly, forcing the "residual" wording even
+// when residualOnly should be false. The 2-arg `(cwd, gap.residualOnly)` is correct.
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: standard-exit-path-call-site-arity (run() integration)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-runpath-014';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+  // Learning-worthy debugger event, no guardrail added -> residualOnly must be false.
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'debugger') + '\n', 'utf8');
+
+  // Drive the real hook via subprocess so run()'s actual call site executes.
+  // Payload routes through the STANDARD exit path (no /wrap-authored context.md).
+  const payload = JSON.stringify({ cwd, session_id: sessionId, transcript: [] });
+  let ran = true;
+  try {
+    execSync(`node ${JSON.stringify(hookPath)}`, {
+      input: payload, cwd, timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    // The hook calls process.exit(0); execSync only throws on non-zero exit.
+    ran = false;
+    console.log(`  SKIP: hook subprocess failed (${(e.message || '').split('\n')[0]})`);
+  }
+
+  if (ran) {
+    const ctxPath = path.join(cwd, '.agentic', 'context.md');
+    let ctx = '';
+    try { ctx = fs.readFileSync(ctxPath, 'utf8'); } catch (_) { /* absent */ }
+    assert(ctx.includes('CAPTURE-GAP'), 'standard exit path appended a capture-gap nudge');
+    assert(
+      !ctx.includes('a related test or guardrail was added this session'),
+      'standard exit path uses NON-residual wording (residualOnly correctly false)'
+    );
+    assert(
+      ctx.includes('resolved a root cause / worked around a tool failure'),
+      'standard exit path nudge contains the standard (non-residual) text'
+    );
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);

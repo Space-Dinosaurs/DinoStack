@@ -1273,7 +1273,7 @@ ${toolsLine}
   try {
     const gap = detectCaptureGap(cwd, sessionId);
     if (gap.shouldNudge) {
-      appendCaptureGapNoticeToContextMd(cwd, sessionId, gap.residualOnly);
+      appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
     }
   } catch (_) { /* silent */ }
 
