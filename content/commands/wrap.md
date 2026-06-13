@@ -99,22 +99,25 @@ If /wrap aborts before the lock is acquired (e.g. at the active-Workers check ab
 
 This section is the single source of truth for the on-disk artifacts that drive async-by-default `/wrap` and SessionStart auto-enrichment. Every other unit (the Stop hook `hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the conductor's SessionStart auto-enrichment protocol below) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename) and umbrella-ignored by `.agentic/*`.
 
-**1. `.agentic/wrap-pending.json` (the enrichment marker).** Staged when a session has substantive un-wrapped work, so the next session in that project completes enrichment idempotently. Schema:
+**1. `.agentic/wrap-pending-<session_id>.json` (the per-session enrichment marker).** One marker per session, keyed by `session_id` in the filename so concurrent sessions never collide. Staged when a session has substantive un-wrapped work, so the daemon (or the next session in that project) completes enrichment idempotently. Schema:
 
     {
-      "schema_version": 1,
+      "schema_version": 3,
       "session_id": "<uuid of the session that staged the marker>",
-      "staged_at": "<ISO8601 UTC, immutable>",
-      "status": "pending | in_progress | done | gave_up",
-      "claimed_by": "<uuid of the session currently running enrichment, or null>",
+      "staged_at": "<ISO8601 UTC, immutable, FIFO key>",
+      "status": "pending | ready | in_progress | done | gave_up",
+      "claimed_by": "<pid/uuid of the claimant currently running enrichment, or null>",
+      "claimed_kind": "session | daemon | null",
       "claimed_at": "<ISO8601 UTC of last claim, or null>",
       "attempts": "<int, 0..3>",
       "project_root": "<absolute cwd>",
       "last_error": "<short string or null>"
     }
 
-- `status` lifecycle: `pending` (staged, unclaimed) -> `in_progress` (claimed, enrichment running) -> `done` (completed; marker then unlinked) | `gave_up` (`attempts >= 3`; marker retained with a manual-`/wrap` notice).
-- `staged_at` is immutable. `claimed_at` plus a staleness window are a wastefulness reducer, not a correctness invariant (see Lock strategy in the Enrichment Pipeline below) - they make a double-claim rare, never impossible; idempotency is what makes a double-run safe.
+- `status` lifecycle: `pending` (staged on a Stop turn, not yet finalized) -> `ready` (finalized by a genuine terminal SessionEnd; the SOLE `pending -> ready` transition - there is NO stale-sweep) -> `in_progress` (claimed, enrichment running) -> `done` (completed; marker then unlinked) | `gave_up` (`attempts >= 3`; marker retained with a manual-`/wrap` notice). Only a `ready` marker is daemon-claimable; an open/idle session leaves its marker `pending` and is never auto-resumed.
+- Dropped vs schema_version 1/2: `branch` and `head_sha` (the daemon enriches in the main project dir, so git-state reflects the live tree; enrichment is conversation-driven, not snapshot-driven).
+- `claimed_kind` records who holds the claim: `session` (a manual `/wrap` Step 0a) or `daemon` (the background wrap daemon). Daemon-startup reclaim acts ONLY on `claimed_kind: "daemon"` markers (MAJOR-C).
+- `staged_at` is immutable and is the FIFO ordering key the daemon uses to drain `ready` markers oldest-first. `claimed_at` plus a staleness window are a wastefulness reducer, not a correctness invariant - they make a double-claim rare, never impossible; idempotency is what makes a double-run safe.
 - `attempts` increments at claim time, before enrichment begins, so a crash mid-enrichment still counts toward the give-up budget.
 
 **2. `.agentic/.last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `/wrap` (sync or background enrichment) last successfully wrote `context.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `.last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).

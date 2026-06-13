@@ -19,13 +19,20 @@
  *             writeSessionLogGlobal(identity, sessionId, data),
  *             writePendingBuffer(cwd, sessionId),
  *             appendIdentityNudgeToContextMd(repoRoot),
- *             wrapLockHeld(cwd), appendSpilloverRecord(cwd, record),
+ *             wrapLockHeld(cwd) (thin alias to wrap-marker lib),
+ *             appendSpilloverRecord(cwd, record),
  *             writeContextMdOrSpill(cwd, outputPath, projectDir, body, record),
- *             readLastWrap(cwd), liveMarkerExists(cwd),
- *             stageWrapPending(cwd, sessionId, scan).
+ *             stageWrapPending(cwd, sessionId, scan) (thin alias to wrap-marker
+ *             lib stagePending). The marker reads/transitions (readLastWrap,
+ *             liveMarkerForSession - which replaces the former liveMarkerExists -
+ *             stagePending, touchHeartbeat, etc.) now live in
+ *             hooks/lib/wrap-marker.js, the single source of truth.
  *
- * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
- *                dependencies. Reads from stdin (fd 0). Reads/writes
+ * Upstream deps: Node built-ins only (fs, path, os, child_process) plus the
+ *                local CommonJS module hooks/lib/wrap-marker.js (the deferred-/wrap
+ *                marker single source of truth - lock gate, per-session staging,
+ *                heartbeat). No npm dependencies. Reads from stdin (fd 0).
+ *                Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
  *                [cwd]/.agentic/loop-state.json,
  *                [cwd]/.agentic/batch-state.json,
@@ -35,6 +42,9 @@
  *                ~/.agentic/identity.yml (read-only, global), and
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
  *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)).
+ *                Via wrap-marker.js it also touches [cwd]/.agentic/.heartbeats/<session_id>
+ *                (per-turn liveness mtime) and may stage
+ *                [cwd]/.agentic/wrap-pending-<session_id>.json (per-session marker).
  *
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
@@ -46,7 +56,7 @@
  *                        globbed by agentic-cost (operator or team) - it is consumed
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
- * Failure modes: All failures are silent (process.exit(0)). Nine independent
+ * Failure modes: All failures are silent (process.exit(0)). Ten independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -81,7 +91,13 @@
  *                enrichment's locked Part-A merge is not clobbered, and the
  *                skipped activity is spilled instead for the enrichment to drain.
  *                Append-only, fail-open.
- *                All nine paths are independent - a failure in one does not
+ *                (10) wrapMarker.touchHeartbeat writes/utimes
+ *                .agentic/.heartbeats/<session_id> once per turn (per-session
+ *                liveness mtime); no-op under the AGENTIC_WRAP_DAEMON loop-guard;
+ *                any fs error swallowed independently of all other paths.
+ *                Marker staging (stageWrapPending -> wrap-marker lib) shares this
+ *                fail-open discipline and is never counted as blocking exit.
+ *                All ten paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
  *                traversal components are rejected for the loop-state and
@@ -91,13 +107,16 @@
  *                fs.existsSync on .agentic/wrap.lock, a DIRECTORY created by
  *                /wrap) gates path 1; it is re-checked immediately before each
  *                context.md writeFileSync to minimize TOCTOU. stageWrapPending
- *                stages a .agentic/wrap-pending.json marker (atomic tmp+rename,
- *                NORMATIVE schema in content/commands/wrap.md) so the next session
- *                can complete enrichment for an un-wrapped session; staging is
- *                suppressed when the current session_id equals .agentic/.last-wrap
- *                (this session already wrapped), when a live marker already exists
- *                (status pending/in_progress), or when the session had no
- *                substantive activity. Staging is fail-open and never blocks exit.
+ *                (delegated to wrap-marker lib stagePending) stages a per-session
+ *                .agentic/wrap-pending-<session_id>.json marker (schema_version 3,
+ *                atomic tmp+rename, NORMATIVE schema in content/commands/wrap.md)
+ *                so the next session or the daemon can complete enrichment for an
+ *                un-wrapped session; staging is suppressed when the current
+ *                session_id equals .agentic/.last-wrap (this session already
+ *                wrapped), when this session's marker is already ready / pending /
+ *                in_progress (MAJOR-3), when the session had no substantive
+ *                activity, or under the AGENTIC_WRAP_DAEMON loop-guard. Staging is
+ *                fail-open and never blocks exit.
  *
  * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout).
  *              Synchronous I/O throughout; runs as a short-lived CLI process.
@@ -132,6 +151,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
+
+// Single source of truth for the deferred-/wrap marker state machine, lock,
+// heartbeat, and sentinel. The local helpers that previously lived in this file
+// (wrapLockHeld, readLastWrap, liveMarkerExists, stageWrapPending) are now
+// delegated to this lib so stop-context.js, the SessionEnd hook, and the daemon
+// share one atomic, fail-open implementation.
+const wrapMarker = require('./lib/wrap-marker.js');
 
 /**
  * Write interrupted status to loop-state.json if an active loop exists.
@@ -658,19 +684,10 @@ function writePendingBuffer(cwd, sessionId) {
 }
 
 // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
-/**
- * Return true when a /wrap holds the lock at .agentic/wrap.lock.
- * Note: .agentic/wrap.lock is a DIRECTORY (atomic `mkdir` lock); fs.existsSync
- * resolves directories, so this works for the directory lock.
- * Fail-open: any error (unreadable path, permission) is treated as not-held so
- * the hook never crashes and never wrongly suppresses its own writes.
- *
- * @param {string} cwd - Verified project directory.
- * @returns {boolean} true if the lock is present, false otherwise.
- */
+// Thin alias: the implementation lives in hooks/lib/wrap-marker.js so the lock
+// gate is shared with the SessionEnd hook and the daemon. Fail-open in the lib.
 function wrapLockHeld(cwd) {
-  try { return fs.existsSync(path.join(cwd, '.agentic', 'wrap.lock')); }
-  catch (_) { return false; } // fail-open: treat unreadable as not-held
+  return wrapMarker.wrapLockHeld(cwd);
 }
 
 /**
@@ -690,47 +707,6 @@ function appendSpilloverRecord(cwd, record) {
     fs.appendFileSync(spilloverPath, JSON.stringify(record) + '\n', 'utf8');
   } catch (_) {
     // Silent failure - spillover is best-effort; a missed record is tolerated.
-  }
-}
-
-/**
- * Read the single-line session_id from .agentic/.last-wrap, or null when absent
- * or unreadable. Used to suppress marker staging for a session that already
- * wrapped (its own /wrap wrote .last-wrap). Fully replaces header-date parsing.
- *
- * @param {string} cwd - Verified project directory.
- * @returns {string|null} The last-wrap session_id, or null.
- */
-function readLastWrap(cwd) {
-  try {
-    const lastWrapPath = path.join(cwd, '.agentic', '.last-wrap');
-    if (!fs.existsSync(lastWrapPath)) return null;
-    const raw = fs.readFileSync(lastWrapPath, 'utf8').trim();
-    return raw || null;
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
- * Return true when a LIVE enrichment marker exists at .agentic/wrap-pending.json.
- * A marker counts as live when its status is "pending" or "in_progress"; a
- * "done" or "gave_up" marker (or an absent/unreadable/malformed file) is NOT
- * live, so staging may proceed. Fail-open: on any read/parse error, returns
- * false (treat as no live marker) so staging is not wrongly blocked.
- *
- * @param {string} cwd - Verified project directory.
- * @returns {boolean} true if a live marker exists.
- */
-function liveMarkerExists(cwd) {
-  try {
-    const markerPath = path.join(cwd, '.agentic', 'wrap-pending.json');
-    if (!fs.existsSync(markerPath)) return false;
-    const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
-    const status = marker && marker.status;
-    return status === 'pending' || status === 'in_progress';
-  } catch (_) {
-    return false; // fail-open: unreadable/malformed marker is not "live"
   }
 }
 
@@ -769,16 +745,13 @@ function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecor
 }
 
 /**
- * Stage a .agentic/wrap-pending.json enrichment marker (atomic tmp+rename) so
- * the next session in this project can complete enrichment for a session that
- * exited un-wrapped. NORMATIVE marker schema lives in content/commands/wrap.md.
- *
- * Staging predicate (all must hold): (a) no live marker already exists, AND
- * (b) the current session_id does NOT match .agentic/.last-wrap (this session
- * has not already wrapped), AND (c) the session had substantive activity
- * (>=1 uncommitted tracked file OR >=1 non-read file path referenced OR a
- * non-empty recent-focus). Uses only already-computed scan vars - no new git
- * or subprocess calls. Fail-open and never blocks process.exit(0).
+ * Stage a per-session .agentic/wrap-pending-<session_id>.json enrichment marker
+ * (schema_version 3) so the next session in this project (or the daemon) can
+ * complete enrichment for a session that exited un-wrapped. The full staging
+ * predicate, the MAJOR-3 ready/pending/in_progress suppression, the .last-wrap
+ * suppression, the substantive-activity gate, the atomic tmp+rename write, and
+ * the loop-guard NO-OP all live in hooks/lib/wrap-marker.js (single source of
+ * truth). NORMATIVE marker schema lives in content/commands/wrap.md.
  *
  * @param {string} cwd - Verified project directory.
  * @param {string|null} sessionId - Current session uuid from the Stop payload.
@@ -786,44 +759,7 @@ function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecor
  *          recentFocusCount: number}} scan - Already-computed activity counts.
  */
 function stageWrapPending(cwd, sessionId, scan) {
-  try {
-    // M3 parity: reject traversal cwd before any path join.
-    const resolvedCwd = path.resolve(cwd);
-    if (resolvedCwd !== cwd) return;
-
-    // Predicate (b): suppress if this session already wrapped.
-    if (sessionId && readLastWrap(cwd) === sessionId) return;
-
-    // Predicate (a): suppress if a live marker already exists.
-    if (liveMarkerExists(cwd)) return;
-
-    // Predicate (c): require substantive activity.
-    const substantive = scan.uncommittedCount >= 1
-      || scan.pathsReferencedCount >= 1
-      || scan.recentFocusCount >= 1;
-    if (!substantive) return;
-
-    const marker = {
-      schema_version: 1,
-      session_id: sessionId,
-      staged_at: new Date().toISOString(),
-      status: 'pending',
-      claimed_by: null,
-      claimed_at: null,
-      attempts: 0,
-      project_root: cwd,
-      last_error: null,
-    };
-
-    const agenticDir = path.join(cwd, '.agentic');
-    fs.mkdirSync(agenticDir, { recursive: true });
-    const markerPath = path.join(agenticDir, 'wrap-pending.json');
-    const tmpPath = markerPath + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(marker, null, 2), 'utf8');
-    fs.renameSync(tmpPath, markerPath);
-  } catch (_) {
-    // Silent failure - staging is best-effort; never blocks exit.
-  }
+  wrapMarker.stagePending(cwd, sessionId, scan);
 }
 
 function run() {
@@ -852,6 +788,12 @@ function run() {
   const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())
     ? payload.session_id.trim()
     : null;
+
+  // --- 3b. Touch this session's heartbeat (per-turn liveness signal) ---
+  // Pure wastefulness defense: the daemon defers claiming a `ready` marker whose
+  // session still emits turns. Local fs only (no git/network); no-op under the
+  // loop-guard; fail-open. Never blocks exit.
+  if (sessionId) wrapMarker.touchHeartbeat(cwd, sessionId);
 
   const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
 

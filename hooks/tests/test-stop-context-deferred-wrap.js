@@ -11,8 +11,8 @@
  *   (c) .agentic/.last-wrap contains the current session_id -> no marker staged
  *       (this session already wrapped).
  *   (d) substantive payload (an Edit tool_use in the transcript) + lock absent
- *       + no .last-wrap -> wrap-pending.json marker staged with valid JSON and
- *       the NORMATIVE schema fields.
+ *       + no .last-wrap -> per-session wrap-pending-<session_id>.json marker
+ *       staged with valid JSON and the NORMATIVE schema_version 3 fields.
  *   (e) read-only/clean session (transcript with only a Read tool_use, clean
  *       tree, no .last-wrap) -> no marker staged.
  *   (f) wrap.lock present on the /wrap-coexistence path (existing context.md
@@ -200,7 +200,7 @@ console.log('\n[c] .last-wrap == current session_id: no marker staged');
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-c-');
   // .last-wrap names the CURRENT session - it already wrapped.
   fs.writeFileSync(path.join(agenticDir, '.last-wrap'), 'sess-c\n', 'utf8');
-  const markerPath = path.join(agenticDir, 'wrap-pending.json');
+  const markerPath = path.join(agenticDir, 'wrap-pending-sess-c.json');
 
   try {
     runHook(projectDir, fakeHome, 'sess-c', EDIT_TRANSCRIPT);
@@ -211,17 +211,17 @@ console.log('\n[c] .last-wrap == current session_id: no marker staged');
   }
 
   assert(!fs.existsSync(markerPath),
-    'wrap-pending.json NOT staged when current session already wrapped');
+    'per-session marker NOT staged when current session already wrapped');
   cleanup(tmpDir);
 }
 
 // ---------------------------------------------------------------------------
 // (d) substantive payload (Edit) + lock absent + no .last-wrap -> marker staged
 // ---------------------------------------------------------------------------
-console.log('\n[d] substantive payload: wrap-pending.json staged with valid JSON');
+console.log('\n[d] substantive payload: per-session wrap-pending marker staged (schema_version 3)');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-d-');
-  const markerPath = path.join(agenticDir, 'wrap-pending.json');
+  const markerPath = path.join(agenticDir, 'wrap-pending-sess-d.json');
 
   try {
     runHook(projectDir, fakeHome, 'sess-d', EDIT_TRANSCRIPT);
@@ -231,29 +231,32 @@ console.log('\n[d] substantive payload: wrap-pending.json staged with valid JSON
     process.exit(1);
   }
 
-  assert(fs.existsSync(markerPath), 'wrap-pending.json staged for substantive session');
+  assert(fs.existsSync(markerPath), 'per-session marker staged for substantive session');
   if (fs.existsSync(markerPath)) {
     let m;
     try {
       m = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
-      assert(true, 'wrap-pending.json is valid JSON');
+      assert(true, 'per-session marker is valid JSON');
     } catch (e) {
-      assert(false, `wrap-pending.json is valid JSON (parse error: ${e.message})`);
+      assert(false, `per-session marker is valid JSON (parse error: ${e.message})`);
     }
     if (m) {
-      assert(m.schema_version === 1, 'marker schema_version === 1');
+      assert(m.schema_version === 3, `marker schema_version === 3 (got ${m.schema_version})`);
       assert(m.session_id === 'sess-d', `marker session_id === 'sess-d' (got ${m.session_id})`);
       assert(m.status === 'pending', `marker status === 'pending' (got ${m.status})`);
       assert(m.claimed_by === null, 'marker claimed_by === null');
+      assert(m.claimed_kind === null, 'marker claimed_kind === null');
       assert(m.claimed_at === null, 'marker claimed_at === null');
       assert(m.attempts === 0, 'marker attempts === 0');
       assert(m.project_root === projectDir, 'marker project_root === project dir');
       assert(m.last_error === null, 'marker last_error === null');
+      assert(!('branch' in m), 'marker has no branch field (dropped in v3)');
+      assert(!('head_sha' in m), 'marker has no head_sha field (dropped in v3)');
       assert(typeof m.staged_at === 'string' && m.staged_at.length > 0, 'marker staged_at is a non-empty string');
     }
   }
   // No leftover tmp file from the atomic write.
-  assert(!fs.existsSync(markerPath + '.tmp'), 'no leftover wrap-pending.json.tmp');
+  assert(!fs.existsSync(markerPath + '.tmp'), 'no leftover wrap-pending-sess-d.json.tmp');
   cleanup(tmpDir);
 }
 
@@ -263,7 +266,7 @@ console.log('\n[d] substantive payload: wrap-pending.json staged with valid JSON
 console.log('\n[e] read-only/clean session: no marker staged');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-e-');
-  const markerPath = path.join(agenticDir, 'wrap-pending.json');
+  const markerPath = path.join(agenticDir, 'wrap-pending-sess-e.json');
 
   try {
     // READONLY_TRANSCRIPT: a Bash `echo hi` with no file paths, no user message,
@@ -276,7 +279,7 @@ console.log('\n[e] read-only/clean session: no marker staged');
   }
 
   assert(!fs.existsSync(markerPath),
-    'wrap-pending.json NOT staged for a non-substantive session');
+    'per-session marker NOT staged for a non-substantive session');
   cleanup(tmpDir);
 }
 
