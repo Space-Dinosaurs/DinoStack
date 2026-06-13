@@ -25,6 +25,7 @@ node_modules/
 !.agentic/config.json
 !.agentic/qa-regressions.md
 !.agentic/session-log/
+!.agentic/learnings.md
 # session-log/: per-developer telemetry, committed so `agentic-cost team` works
 # across machines. Other .agentic/* runtime files stay local under the umbrella.
 .agentic/worktrees/
