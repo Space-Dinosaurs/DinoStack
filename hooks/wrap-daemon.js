@@ -55,12 +55,28 @@
  *                args are passed as an argv array (no shell), so there is no shell
  *                metacharacter surface. The headless child runs under
  *                bypassPermissions, so its --allowedTools list IS the security
- *                boundary: it is an EXPLICIT per-verb read-only git allowlist
- *                (SEC-M1, DEFERRED_WRAP_ALLOWED_TOOLS) - never `Bash(git *)` - so
- *                `git -c <config>=...` / `ext::` config-injection forms cannot
- *                match. Both config and marker/scan reads are size-bounded
- *                (SEC-M2 / SEC-M3) so a planted multi-GB file or a directory of
- *                tens of thousands of marker files cannot wedge a poll tick.
+ *                boundary.
+ *                SEC-C1 (CRITICAL, repo-local .git/config RCE): a malicious cloned
+ *                repo ships its own repo-local `.git/config`, which git reads on
+ *                EVERY invocation with no opt-out flag. Execution hooks in that
+ *                config fire on the read-only verbs themselves - `core.fsmonitor`
+ *                on `git status`, `diff.external` on a bare `git diff`, plus
+ *                `core.pager` / `core.sshCommand` / `alias.*` / `ext::` - reaching
+ *                arbitrary code execution on the developer's machine under
+ *                bypassPermissions. An argv-safe per-verb git allowlist CANNOT close
+ *                this (the danger is git reading the attacker's on-disk config, not
+ *                the argv we pass). Mitigation: the headless child is granted NO
+ *                Bash/git/shell tool at all (DEFERRED_WRAP_ALLOWED_TOOLS = file
+ *                tools only), so it can never invoke git and the exec vectors never
+ *                fire; plus defense-in-depth GIT_CONFIG_GLOBAL=/dev/null,
+ *                GIT_CONFIG_SYSTEM=/dev/null, GIT_CONFIG_NOSYSTEM=1 in every spawned
+ *                child env (childEnv) so the global/system config tiers are
+ *                neutralized regardless. The interactive `/wrap` is OUT OF SCOPE:
+ *                it is human-driven under normal (non-bypassed) permissions and
+ *                reads git normally. Both config and marker/scan reads are
+ *                size-bounded (SEC-M2 / SEC-M3) so a planted multi-GB file or a
+ *                directory of tens of thousands of marker files cannot wedge a poll
+ *                tick.
  *
  * Performance: long-running but near-idle. Polls the marker directory on a fixed
  *              interval; each tick is a single readdir + a few stat/read calls.
@@ -98,37 +114,56 @@ const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0
 // Bound the headless wrap so a single hung run cannot starve the queue forever.
 const DEFAULT_MAX_TURNS = 40;
 
-// SEC-M1: the headless `/wrap-deferred` child runs under --permission-mode
-// bypassPermissions, so its --allowedTools list IS the security boundary. The old
-// `Bash(git *)` glob was too broad: it admitted `git -c core.pager='!sh' log`,
-// `git -c alias.x='!sh' x`, and `ext::`/remote-helper forms that reach arbitrary
-// execution with prompts bypassed. We replace it with an EXPLICIT per-verb allowlist
-// of ONLY the read-only git surveys `/wrap-deferred` needs to build context.md's
-// git-state section (it writes context.md/memory.md/AGENTS.md via Write/Edit, NOT
-// via git - so NO mutating git verb is listed):
-//   git status      - uncommitted/working-tree survey (`git status --porcelain`)
-//   git stash list  - stashed-work survey
-//   git log         - recent commits produced this session
-//   git diff        - inspect uncommitted/staged change detail when summarizing
-//   git rev-parse   - resolve HEAD / branch / repo-root for the git-state section
-//   git branch      - current-branch name for the git-state section
-// The `Bash(git <verb>:*)` scoped form fixes the verb and wildcards only its args;
-// because `-c <config>=...` precedes the subcommand, `git -c ... status` does NOT
-// match `Bash(git status:*)` - the dangerous `-c`/`ext::` config-injection surface
-// is closed. Keep this list MINIMAL: add a verb only when /wrap-deferred provably
-// needs it, and never add a write/mutating verb.
-const DEFERRED_WRAP_GIT_VERBS = [
-  'git status',
-  'git stash list',
-  'git log',
-  'git diff',
-  'git rev-parse',
-  'git branch',
-];
-const DEFERRED_WRAP_ALLOWED_TOOLS = [
-  'Read', 'Edit', 'Write', 'Glob', 'Grep',
-  ...DEFERRED_WRAP_GIT_VERBS.map((verb) => 'Bash(' + verb + ':*)'),
-].join(',');
+// SEC-C1 (CRITICAL, repo-local .git/config RCE): the headless `/wrap-deferred`
+// child runs under --permission-mode bypassPermissions, so its --allowedTools list
+// IS the only security boundary. We grant NO Bash/git/shell tool at all - file
+// tools only.
+//
+// Why no git, even scoped read-only verbs: a malicious cloned repo ships its OWN
+// repo-local `.git/config`, which git reads on EVERY invocation with no flag and no
+// way to opt out per-command. That config can carry execution hooks that fire on the
+// read-only verbs themselves: `core.fsmonitor=<program>` executes on `git status`,
+// `diff.external=<program>` executes on a bare `git diff`, and `core.pager` /
+// `core.sshCommand` / `alias.*` / `ext::` reach arbitrary execution similarly. None
+// of these involve a `-c` flag or shell metacharacters, so an argv-safe, per-verb
+// `Bash(git status:*)` allowlist does NOT close them - the danger is git reading the
+// attacker's on-disk config, not the argv we pass. Under bypassPermissions in an
+// attacker-influenced repo this is arbitrary code execution on the developer's
+// machine when the daemon drains that session. Allowlist narrowing cannot fix this
+// class; the only fix is to remove git execution from the headless run entirely.
+//
+// The deferred wrap does not need git: it is best-effort and conversation-driven.
+// It writes context.md/memory.md/AGENTS.md via Write/Edit, and derives any git-state
+// section of context.md from the resumed CONVERSATION transcript (or omits it). The
+// interactive `/wrap` - run by a human under normal permissions, not bypassed - is
+// out of scope and still reads git normally.
+const DEFERRED_WRAP_ALLOWED_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep'].join(',');
+
+// SEC-C1 (belt-and-suspenders, defense-in-depth): even though the headless child is
+// granted no git tool, harden every spawned child's env so that if git ever runs
+// incidentally (e.g. invoked indirectly by some future tool), attacker-controlled
+// GLOBAL/SYSTEM git config cannot inject execution. Repo-local `.git/config` is
+// already neutralized by granting no Bash/git; this closes the global/system tiers
+// regardless. Merge these into the child env alongside AGENTIC_WRAP_DAEMON.
+const GIT_HARDENED_ENV = {
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_SYSTEM: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+};
+
+/**
+ * Build the env for a daemon-spawned `claude` child: the inherited process env,
+ * the daemon loop-guard, and the git-config hardening (SEC-C1). Centralized so the
+ * auth pre-flight child and the drain child cannot drift apart.
+ */
+function childEnv() {
+  return Object.assign(
+    {},
+    process.env,
+    { AGENTIC_WRAP_DAEMON: '1' },
+    GIT_HARDENED_ENV,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Config (defensive; absent file/keys -> defaults)
@@ -295,7 +330,7 @@ function authOk() {
     const res = spawnSync('claude', ['auth', 'status'], {
       stdio: 'ignore',
       timeout: 30 * 1000,
-      env: Object.assign({}, process.env, { AGENTIC_WRAP_DAEMON: '1' }),
+      env: childEnv(),
     });
     // spawnSync sets .error on ENOENT/timeout; non-zero status -> not authed.
     if (res.error) return false;
@@ -356,7 +391,7 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
         // headless run spawned, not just the immediate child.
         detached: true,
         stdio: 'ignore',
-        env: Object.assign({}, process.env, { AGENTIC_WRAP_DAEMON: '1' }),
+        env: childEnv(),
       });
     } catch (err) {
       resolve({ ok: false, error: 'spawn-failed: ' + (err && err.message ? err.message : 'unknown') });

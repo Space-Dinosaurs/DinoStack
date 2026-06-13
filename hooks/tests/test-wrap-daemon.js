@@ -78,6 +78,20 @@ function installMockClaude() {
     'const args = process.argv.slice(2);',
     'const log = process.env.MOCK_CLAUDE_LOG;',
     'if (log) { try { fs.appendFileSync(log, args.join(" ") + "\\n"); } catch (_) {} }',
+    '// SEC-C1: record the git-config hardening env vars the daemon set on this child',
+    '// so a test can assert global/system git config is neutralized. One JSON line',
+    '// per invocation, keyed by the first arg so auth vs drain are distinguishable.',
+    'const envLog = process.env.MOCK_CLAUDE_ENV_LOG;',
+    'if (envLog) {',
+    '  try {',
+    '    fs.appendFileSync(envLog, JSON.stringify({',
+    '      kind: args[0],',
+    '      GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,',
+    '      GIT_CONFIG_SYSTEM: process.env.GIT_CONFIG_SYSTEM,',
+    '      GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,',
+    '    }) + "\\n");',
+    '  } catch (_) {}',
+    '}',
     'if (args[0] === "auth" && args[1] === "status") {',
     '  process.exit(process.env.MOCK_CLAUDE_AUTH === "fail" ? 1 : 0);',
     '}',
@@ -441,17 +455,21 @@ console.log('\n[11] toggle/launch boundary: an idle daemon makes no marker trans
 }
 
 // ---------------------------------------------------------------------------
-// (SEC-M1) the drain --allowedTools is an explicit scoped git allowlist, not a glob
+// (SEC-C1) the drain --allowedTools grants NO Bash/git/shell at all (repo-local
+// .git/config RCE is closed by removing git execution entirely), and every spawned
+// child env neutralizes global/system git config (defense-in-depth).
 // ---------------------------------------------------------------------------
-console.log('\n[SEC-M1] drain --allowedTools uses scoped read-only git verbs, never Bash(git *)');
+console.log('\n[SEC-C1] drain --allowedTools has NO Bash/git; child env neutralizes global/system git config');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-allowtools-');
   writeConfig(agenticDir, FAST_IDLE);
   const logPath = path.join(base, 'mock.log');
+  const envLogPath = path.join(base, 'mock-env.log');
   writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
 
   runDaemonToExit(projectDir, {
-    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok', MOCK_CLAUDE_LOG: logPath,
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok',
+    MOCK_CLAUDE_LOG: logPath, MOCK_CLAUDE_ENV_LOG: envLogPath,
   }, 40000);
 
   // The mock logs the full argv per invocation; the --resume drain line carries the
@@ -460,25 +478,44 @@ console.log('\n[SEC-M1] drain --allowedTools uses scoped read-only git verbs, ne
     .split('\n').find((l) => l.includes('--resume')) || '';
   assert(drainLine.length > 0, 'a --resume drain was logged (allowlist is observable)');
 
-  // The over-broad glob MUST be gone.
-  assert(!/Bash\(git \*\)/.test(drainLine),
-    'allowlist no longer contains the over-broad Bash(git *) glob (SEC-M1)');
-  // The scoped read-only verbs MUST be present.
-  for (const verb of ['git status', 'git log', 'git diff', 'git rev-parse', 'git branch']) {
-    assert(drainLine.includes('Bash(' + verb + ':*)'),
-      `allowlist scopes ${verb} to Bash(${verb}:*) (blocks git -c ... ${verb.split(' ')[1]})`);
-  }
-  assert(drainLine.includes('Bash(git stash list:*)'),
-    'allowlist scopes `git stash list` (read-only stash survey)');
-  // The base file tools survive.
+  // CRITICAL: NO Bash / git / shell of ANY form in the allowlist. Removing git
+  // execution is the only fix for the repo-local .git/config exec class (fsmonitor /
+  // diff.external / pager / alias / ext::) - an argv-safe allowlist cannot close it.
+  assert(!/Bash/.test(drainLine),
+    'allowlist grants NO Bash tool at all (no git/shell) - repo-local .git/config RCE closed (SEC-C1)');
+  assert(!/\bgit\b/.test(drainLine),
+    'allowlist mentions no git verb of any kind (SEC-C1)');
+
+  // The allowlist is EXACTLY the file tools, in order.
+  const allowToolsIdx = drainLine.indexOf('--allowedTools');
+  const allowToolsVal = allowToolsIdx >= 0
+    ? (drainLine.slice(allowToolsIdx).split(/\s+/)[1] || '')
+    : '';
+  assert(allowToolsVal === 'Read,Edit,Write,Glob,Grep',
+    `--allowedTools is exactly the file tools (got: ${allowToolsVal})`);
+  // And each file tool is individually present (belt-and-suspenders on the exact match).
   for (const tool of ['Read', 'Edit', 'Write', 'Glob', 'Grep']) {
     assert(drainLine.includes(tool), `allowlist still grants ${tool}`);
   }
-  // No write/mutating git verb (the command writes via Write/Edit, not git).
-  for (const bad of ['git commit', 'git add', 'git push', 'git checkout', 'git reset', 'git stash push']) {
-    assert(!drainLine.includes('Bash(' + bad + ':*)'),
-      `allowlist does NOT grant mutating verb ${bad}`);
+
+  // Defense-in-depth: every spawned child env neutralizes global/system git config.
+  const envLines = (fs.existsSync(envLogPath) ? fs.readFileSync(envLogPath, 'utf8') : '')
+    .split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return null; } })
+    .filter(Boolean);
+  assert(envLines.length >= 1, 'at least one child recorded its git-config env');
+  for (const e of envLines) {
+    assert(e.GIT_CONFIG_GLOBAL === '/dev/null',
+      `child (${e.kind}) env sets GIT_CONFIG_GLOBAL=/dev/null`);
+    assert(e.GIT_CONFIG_SYSTEM === '/dev/null',
+      `child (${e.kind}) env sets GIT_CONFIG_SYSTEM=/dev/null`);
+    assert(e.GIT_CONFIG_NOSYSTEM === '1',
+      `child (${e.kind}) env sets GIT_CONFIG_NOSYSTEM=1`);
   }
+  // Both the auth pre-flight child and the drain child must be hardened.
+  assert(envLines.some((e) => e.kind === 'auth'),
+    'auth pre-flight child env was recorded (hardened)');
+  assert(envLines.some((e) => e.kind === '--resume'),
+    'drain child env was recorded (hardened)');
 
   cleanup(base);
 }
