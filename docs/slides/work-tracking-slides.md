@@ -176,7 +176,7 @@ Every project tracks work differently:
 - Baking *nothing* in means every session re-explains "how do we track work here?"
 
 <div class="callout">
-<code>.claude/tracking.md</code> is the protocol's pressure release: project-level, free-form instructions the orchestration-planner reads and follows verbatim.
+<code>.agentic/tracking.md</code> is the protocol's pressure release: project-level, free-form instructions the orchestration-planner reads and follows verbatim.
 </div>
 
 ---
@@ -189,13 +189,13 @@ Every project tracks work differently:
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
 
-File: `.claude/tracking.md` at the project root.
+File: `.agentic/tracking.md` at the project root (legacy path `.claude/tracking.md` also recognized as fallback).
 
 Reader: the **orchestration-planner** agent, during step 7 of its planning process:
 
 ```
-Check if .claude/tracking.md exists in the project root.
-If it does, read it and follow its instructions.
+Check for .agentic/tracking.md first, then .claude/tracking.md (legacy fallback).
+If it exists at either path, read it and follow its instructions.
 ```
 
 The planner is otherwise strictly read-only. `tracking.md` is the **one file** that can instruct it to run commands (curl a ticket API, update a status, post a comment).
@@ -300,7 +300,7 @@ No external tracker. Work is captured in docs/worklog.md.
 - **`/init-project`** can seed the file during project setup - you edit it to match your tracker
 - **The orchestration-planner** reads it every time it plans a task - no caching, no staleness
 - **Every other agent ignores it** - engineer, skeptic, qa-engineer, investigator never touch it
-- **Version control it** - same as `AGENTS.md`, `decisions.md`, and the rest of `.claude/`
+- **Version control it** - same as `AGENTS.md`, `decisions.md`, and other tool-agnostic config in `.agentic/`
 - **Scales down cleanly** - no file means no tracker actions, and the planner plans the same way otherwise
 
 <div class="callout">

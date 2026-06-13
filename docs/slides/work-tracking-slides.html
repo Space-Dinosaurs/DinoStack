@@ -319,7 +319,7 @@ hr {
 <li>Baking <em>nothing</em> in means every session re-explains &quot;how do we track work here?&quot;</li>
 </ul>
 <div class="callout">
-<code>.claude/tracking.md</code> is the protocol's pressure release: project-level, free-form instructions the orchestration-planner reads and follows verbatim.
+<code>.agentic/tracking.md</code> is the protocol's pressure release: project-level, free-form instructions the orchestration-planner reads and follows verbatim.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="3" data-marpit-scope-s002="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -473,10 +473,10 @@ hr {
 ;" data-marpit-pagination-total="8">
 <h2 id="where-it-lives-and-who-reads-it">Where it lives and who reads it</h2>
 
-<p>File: <code>.claude/tracking.md</code> at the project root.</p>
+<p>File: <code>.agentic/tracking.md</code> at the project root (legacy path <code>.claude/tracking.md</code> also recognized as fallback).</p>
 <p>Reader: the <strong>orchestration-planner</strong> agent, during step 7 of its planning process:</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Check if .claude/tracking.md exists in the project root.
-If it does, read it and follow its instructions.
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Check for .agentic/tracking.md first, then .claude/tracking.md (legacy fallback).
+If it exists at either path, read it and follow its instructions.
 </code></pre>
 <p>The planner is otherwise strictly read-only. <code>tracking.md</code> is the <strong>one file</strong> that can instruct it to run commands (curl a ticket API, update a status, post a comment).</p>
 <div class="callout">
@@ -1140,7 +1140,7 @@ hr {
 <li><strong><code>/init-project</code></strong> can seed the file during project setup - you edit it to match your tracker</li>
 <li><strong>The orchestration-planner</strong> reads it every time it plans a task - no caching, no staleness</li>
 <li><strong>Every other agent ignores it</strong> - engineer, skeptic, qa-engineer, investigator never touch it</li>
-<li><strong>Version control it</strong> - same as <code>AGENTS.md</code>, <code>decisions.md</code>, and the rest of <code>.claude/</code></li>
+<li><strong>Version control it</strong> - same as <code>AGENTS.md</code>, <code>decisions.md</code>, and other tool-agnostic config in <code>.agentic/</code></li>
 <li><strong>Scales down cleanly</strong> - no file means no tracker actions, and the planner plans the same way otherwise</li>
 </ul>
 <div class="callout">

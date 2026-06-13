@@ -1484,12 +1484,12 @@ code {
 </code></pre>
 <p>Key fields added for fan-out:</p>
 <ul>
-<li><strong><code>skeptic_strategy</code></strong> - <code>&quot;per-unit&quot;</code> (independent units, parallel Skeptics) or <code>&quot;integration&quot;</code> (interdependent units, one combined Skeptic)</li>
+<li><strong><code>skeptic_strategy</code></strong> - <code>&quot;per-unit&quot;</code> (independent units, parallel Skeptics), <code>&quot;integration&quot;</code> (interdependent units, one combined Skeptic), or <code>&quot;multi-dimensional&quot;</code> (high-stakes units: correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff)</li>
 <li><strong><code>merge_order</code></strong> - integer; conductor merges unit branches in this order for conflict locality</li>
 <li><strong><code>unit_slug</code></strong> - the canonical unit identifier used in <code>.agentic/tasks.jsonl</code> task entries</li>
 </ul>
 <div class="callout">
-N=1 falls through to the standard single-engineer path. Fan-out only activates for N&ge;2 independent units.
+N=1 still emits the one-line <code>## Task entries</code> JSONL block (required by the spec). The conductor skips task-state initialization for single-unit plans - fan-out only activates for N&ge;2 independent units.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="9" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

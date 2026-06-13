@@ -796,7 +796,7 @@ hr {
 <li>Spawned into their own <strong>isolated worktree</strong> - their own files, their own context</li>
 <li>Given a <strong>structured brief</strong> - goal, constraints, acceptance criteria, non-goals</li>
 <li>Do their narrow job and return a <strong>structured result</strong> - not raw transcript</li>
-<li>Most agents are read-only analysis/planning. <code>engineer</code>, <code>release-orchestrator</code>, <code>learnings-agent</code>, and <code>wrap-ticket</code> write files.</li>
+<li>Most agents are read-only analysis/planning. <code>engineer</code>, <code>adr-generator</code>, <code>release-orchestrator</code>, <code>learnings-agent</code>, and <code>wrap-ticket</code> write files.</li>
 </ul>
 <div class="callout">
 The main thread never sees their raw work - only their conclusion. That's the whole point: heavy work without heavy context.
@@ -1283,6 +1283,7 @@ hr {
 <ul>
 <li><code>orchestration-planner</code> is a <strong>meta-agent</strong> - it plans which other agents to spawn and in what order</li>
 <li>Given a goal, it returns: agent roster, phased execution plan, Skeptic checkpoints, parallelization map, open questions</li>
+<li>Each unit in the JSONL output carries a <code>skeptic_strategy</code>: <code>&quot;per-unit&quot;</code> (independent units, parallel Skeptics), <code>&quot;integration&quot;</code> (shared interface, one combined-diff Skeptic), or <code>&quot;multi-dimensional&quot;</code> (high-stakes: correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff)</li>
 <li>It does not implement anything - planning only</li>
 <li>Output is a structured plan the conductor follows directly</li>
 </ul>

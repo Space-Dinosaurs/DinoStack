@@ -1039,11 +1039,17 @@ hr {
 <p><strong>2. Edit <code>~/.claude/agentic-engineering.json</code> directly</strong></p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-json"><span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;mode&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;opt-out&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;profile&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;strict&quot;</span> <span class="hljs-punctuation">}</span>
 </code></pre>
+<p>Or use the <code>preset</code> field (<code>lean</code> | <code>standard</code> | <code>strict</code>) - overrides <code>profile</code> when set:</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-json"><span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;mode&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;opt-out&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;preset&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;strict&quot;</span> <span class="hljs-punctuation">}</span>
+</code></pre>
 <p><strong>3. Per-project override in root <code>AGENTS.md</code></strong></p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>agentic-engineering-profile: strict
 </code></pre>
+<p>Or use <code>preset</code> (wins over <code>agentic-engineering-profile:</code> on collision):</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>agentic-engineering-preset: strict
+</code></pre>
 <div class="callout">
-Per-project override takes precedence over the global config. Set a global default that fits most of your work, then override in the projects that need tighter or looser gates.
+Per-project preset wins over per-project profile. Preset resolves: lean-&gt;relaxed, standard-&gt;default, strict-&gt;strict. Set a global default that fits most of your work, then override in the projects that need tighter or looser gates.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

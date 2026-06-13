@@ -274,7 +274,8 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
   .callout { font-size: 0.8em; padding: 0.4em 1em; }
 </style>
 
-- **2 re-route limit (default)**: same finding contested across 2+ rounds without resolution - escalate to the human with both positions
+- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes** before escalating to the human - regardless of which findings are in flight
+- **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate to the human with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
 - The primary agent tracks each finding by its text across all rounds
@@ -282,7 +283,7 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 **Loop-context override (inside `/implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** is enough to trigger convergence failure escalation. The loop already consumes iteration budget on each fix pass; waiting for a second re-raise wastes a pass on a finding the Engineer already failed to address. Outside a named loop, the 2-re-route rule is unchanged.
 
 <div class="callout">
-The protocol does not force resolution. Inside a persistence loop, it escalates faster. Outside, the standard 2-re-route buffer applies.
+The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
 </div>
 
 ---

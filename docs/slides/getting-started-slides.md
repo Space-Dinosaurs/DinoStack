@@ -177,7 +177,7 @@ Clone git@github.com:Space-Dinosaurs/DinoStack.git and run .claude/install.sh
 
 The agent clones the repo, runs the installer, and walks you through optional tool setup. Idempotent - safe to re-run anytime.
 
-> **Other adapters:** Gemini CLI users run `bash .gemini/install.sh`. Cursor and Codex CLI users run `.cursor/install.sh` and `.codex/install.sh` respectively - same pattern, each tool's native format.
+> **Other adapters:** Gemini CLI users run `bash .gemini/install.sh`. Cursor and Codex CLI users run `.cursor/install.sh` and `.codex/install.sh` respectively. Kimi users run `.kimi/install.sh`, OpenCode users run `.opencode/install.sh` - same pattern, each tool's native format.
 
 ---
 
@@ -188,7 +188,7 @@ The installer asks one question: how should the methodology activate across your
 - **`opt-out` (default)** - active everywhere. Individual projects disable it by adding `agentic-engineering: opt-out` to their root `AGENTS.md`. Best for most users.
 - **`opt-in`** - dormant until a project's `AGENTS.md` contains `agentic-engineering: opt-in`. Best for trying the protocol in one project before rolling out everywhere.
 
-Press Enter at the prompt to accept the default, or pass `--mode=opt-in` / `--mode=opt-out` to the installer. The choice is saved to `~/.claude/agentic-engineering.json` and shared across all four adapters. Change it later by re-running any installer with a `--mode` flag.
+Press Enter at the prompt to accept the default, or pass `--mode=opt-in` / `--mode=opt-out` to the installer. The choice is saved to `~/.claude/agentic-engineering.json` and shared across all adapters. Change it later by re-running any installer with a `--mode` flag.
 
 On first activation in a project (TTY only) the preflight prints a one-line notice naming the resolved `mode`, `marker`, `profile`, and `preset`, and points you at `/agentic-status` (read-only resolver dump) and `/agentic-disable` (explicit opt-out, refuses on existing `opt-in` without `--force`). The notice is gated on a race-safe per-project sentinel at `.agentic/.activated`; deleting the sentinel re-arms the notice only and does not change activation state. `AGENTIC_QUIET=1` or a non-TTY stdout suppresses both the notice and the sentinel write.
 
@@ -280,12 +280,12 @@ Focused sessions are the single biggest force multiplier. The protocol assumes y
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
 
-When the goal is done - or clearly won't be done today - run `/wrap`. It does the closing ritual so you don't have to:
+When the goal is done - or clearly won't be done today - run `/wrap`. It does the session-close ritual for non-ticket sessions:
 
-- Commits the work and opens a PR
-- Cleans up the worktree
-- Captures learnings into memory
-- Marks the session done so next time starts fresh
+- Produces a structured `.agentic/context.md` with decisions, next steps, and gotchas
+- Extracts stable facts and adds them to MEMORY.md
+- Updates AGENTS.md with conventions learned this session
+- Leaves the next session starting from richer context than this one
 
 <div class="callout">
 <code>/wrap</code> is not optional ceremony. Skipping it is how memory drifts, context bloats, and sessions become unshippable.

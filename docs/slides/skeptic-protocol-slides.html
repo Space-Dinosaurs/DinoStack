@@ -975,14 +975,15 @@ hr {
 <h2 id="escalation-and-round-limits">Escalation and round limits</h2>
 
 <ul>
-<li><strong>2 re-route limit (default)</strong>: same finding contested across 2+ rounds without resolution - escalate to the human with both positions</li>
+<li><strong>Max 3 fix passes (hard cap)</strong>: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of <strong>3 fix passes</strong> before escalating to the human - regardless of which findings are in flight</li>
+<li><strong>2 re-route limit (per finding)</strong>: same finding contested across 2+ rounds without resolution - escalate to the human with both positions</li>
 <li><strong>Simple changes</strong>: capped at <strong>1 round</strong> - Critical/Major findings escalate directly</li>
 <li><strong>Standard Elevated changes</strong>: the 2-re-route rule applies</li>
 <li>The primary agent tracks each finding by its text across all rounds</li>
 </ul>
 <p><strong>Loop-context override (inside <code>/implement-ticket</code> Phase 6):</strong> the 2-re-route rule is replaced by a stricter contract - <strong>1 re-raise of a Critical finding after a claimed fix</strong> is enough to trigger convergence failure escalation. The loop already consumes iteration budget on each fix pass; waiting for a second re-raise wastes a pass on a finding the Engineer already failed to address. Outside a named loop, the 2-re-route rule is unchanged.</p>
 <div class="callout">
-The protocol does not force resolution. Inside a persistence loop, it escalates faster. Outside, the standard 2-re-route buffer applies.
+The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-marpit-scope-s006="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
