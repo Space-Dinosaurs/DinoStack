@@ -86,7 +86,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Eleven toggles:
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Twelve toggles:
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -99,8 +99,16 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `motion_aware` - boolean, default `false`. Opt-in for the `motion` scenario method auto-Major Skeptic rule. When `true`, qa-engineer runs CDP-emulated reduced-motion checks per scenario. Absent motion scenarios on UI-visible Elevated units with `qa_skip == null` trigger a Skeptic-on-Brief Major finding. Matches `theme_aware` / `perceptual_diff_enabled` opt-in precedent.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. When `6`, qa-engineer converts story IDs to the `?selectedKind=&selectedStory=` URL format. When `7` or absent, uses the current `?id=` format. Set automatically by init-project based on detected framework adapter version.
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. The commit makes per-session telemetry team-visible after squash merge. Set to `false` to opt out. No effect when identity is absent or provisional.
+- `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/wrap` jobs (idle detection, heartbeat, timeout, reclaim, and pending TTL are tuned by the `deferred_wrap_*` related keys below). The default `false` preserves the in-session synchronous `/wrap` behavior.
 
-**Related config key (not a toggle):** `storybook_url` - optional string, default `http://localhost:6006` when present. Set automatically by init-project Storybook version detection when a SB6 or SB7+ framework adapter is found. Override per-run via the `story-url` knowledge tag in `qa.md`.
+**Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
+
+- `storybook_url` - optional string, default `http://localhost:6006` when present. Set automatically by init-project Storybook version detection when a SB6 or SB7+ framework adapter is found. Override per-run via the `story-url` knowledge tag in `qa.md`.
+- `deferred_wrap_idle_minutes` - integer, default `15`. Minutes of session idle before the deferred-wrap daemon considers a session eligible for an out-of-session wrap. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_heartbeat_seconds` - integer, default `120`. Interval in seconds at which the daemon writes a liveness heartbeat while processing a deferred-wrap job. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_timeout_minutes` - integer, default `10`. Maximum minutes a single deferred-wrap job may run before the daemon aborts it. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_inprogress_reclaim_minutes` - integer, default `30`. Minutes after which an in-progress job whose heartbeat has gone stale is reclaimed and re-queued by the daemon. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_pending_ttl_days` - integer, default `7`. Days a pending deferred-wrap job is retained before the daemon expires it. Only consulted when `deferred_wrap_daemon` is `true`.
 
 The file is operator-tunable but optional and graceful: if absent, every toggle takes its default and nothing breaks.
 
