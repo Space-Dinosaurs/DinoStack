@@ -8,7 +8,9 @@
  *          per-developer session telemetry via a three-branch identity gate:
  *          confirmed identity -> per-project log + global mirror; provisional
  *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/);
- *          no identity also appends a one-time nudge to context.md.
+ *          no identity also appends a one-time nudge to context.md. Runs a
+ *          capture-gap backstop that detects learning-worthy sessions with no
+ *          captured learnings and appends a nudge to context.md.
  *
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
@@ -18,7 +20,9 @@
  *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId),
  *             writeSessionLogGlobal(identity, sessionId, data),
  *             writePendingBuffer(cwd, sessionId),
- *             appendIdentityNudgeToContextMd(repoRoot).
+ *             appendIdentityNudgeToContextMd(repoRoot),
+ *             detectCaptureGap(cwd, sessionId),
+ *             appendCaptureGapNoticeToContextMd(cwd, sessionId, residualOnly).
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
  *                dependencies. Reads from stdin (fd 0). Reads/writes
@@ -28,9 +32,13 @@
  *                [cwd]/.agentic/session-log/<developer_id>.jsonl,
  *                ~/.agentic/session-log/<developer_id>.jsonl (global mirror),
  *                ~/.agentic/session-log/.pending/<session_uuid>.json (pending buffer),
- *                ~/.agentic/identity.yml (read-only, global), and
+ *                ~/.agentic/identity.yml (read-only, global),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
- *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)).
+ *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
+ *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop),
+ *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop),
+ *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor; atomic
+ *                tmp+rename on write).
  *
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
@@ -42,7 +50,7 @@
  *                        globbed by agentic-cost (operator or team) - it is consumed
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
- * Failure modes: All failures are silent (process.exit(0)). Eight independent
+ * Failure modes: All failures are silent (process.exit(0)). Nine independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -66,14 +74,19 @@
  *                ~/.agentic/session-log/.pending/<uuid>.json; enforces cap-100
  *                (drops oldest by ts with one stderr notice); any fs error swallowed
  *                independently of all other paths.
- *                All eight paths are independent - a failure in one does not
+ *                (9) appendCaptureGapNoticeToContextMd appends to context.md; any
+ *                fs error is swallowed independently. The .capture-gap-last-sweep
+ *                cursor update is also best-effort and never blocks exit.
+ *                All nine paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
  *                traversal components are rejected for the loop-state and
  *                batch-state writes (defence in depth).
  *
- * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout).
- *              Synchronous I/O throughout; runs as a short-lived CLI process.
+ * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout)
+ *              plus one git diff subprocess call for the capture-gap backstop
+ *              (5 s timeout, soft-fail). Synchronous I/O throughout; runs as a
+ *              short-lived CLI process.
  */
 
 /**
@@ -630,6 +643,280 @@ function writePendingBuffer(cwd, sessionId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Capture-gap backstop helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Guardrail glob patterns used to detect test / lint / schema files added
+ * during the session. Matched against the basename of each changed path.
+ * @type {RegExp[]}
+ */
+const GUARDRAIL_PATTERNS = [
+  /test/i,
+  /spec/i,
+  /\.eslintrc/i,
+  /\.schema\./i,
+  /ruff\.toml/i,
+  /mypy\.ini/i,
+];
+
+/**
+ * Normalize a string into tokens for domain-proximity matching.
+ * Splits on '/', '.', '-', '_' and lowercases; filters tokens shorter than 4
+ * chars (too generic to carry domain signal).
+ *
+ * @param {string} str
+ * @returns {string[]}
+ */
+function _tokenize(str) {
+  return str.toLowerCase().split(/[\/.\-_]/).filter((t) => t.length >= 4);
+}
+
+/**
+ * Detect whether this session has learning-worthy events with no learnings
+ * captured. Pure function: reads files, runs one git subprocess, returns a
+ * result object. Never throws - all errors are absorbed and return
+ * { shouldNudge: false }.
+ *
+ * Three conditions must ALL hold for shouldNudge === true:
+ *   (a) At least one learning-worthy event this session (debugger/investigator
+ *       spawn_complete, skeptic spawn_complete with major/critical resolved, or
+ *       tool_failure_workaround). Events without session_uuid are DELIBERATELY
+ *       EXCLUDED (inverse of scanSessionAggregate which includes absent uuids
+ *       for back-compat). This exclusion prevents false nags from legacy event
+ *       lines whose session cannot be determined. Self-heals after one post-upgrade
+ *       session where emits carry session_uuid.
+ *   (b) No today-dated [LRN- or [KNW- entries in .agentic/learnings.md.
+ *   (c) No domain-proximate guardrail added this session (suppression). The
+ *       suppressor checks git diff --name-only origin/HEAD..HEAD (all session
+ *       commits since branch diverged from upstream - primary) falling back to
+ *       git diff --name-only HEAD~1 HEAD (single-commit fallback when no
+ *       upstream ref exists). If guardrails were added but none are domain-
+ *       proximate with the event domain tokens, residualOnly is set true and
+ *       the nudge still fires with residual-WHY wording.
+ *
+ * @param {string} cwd - Project root (absolute, already validated by run()).
+ * @param {string|null} sessionId - Stop payload session_id (harness uuid).
+ * @returns {{ shouldNudge: boolean, residualOnly: boolean }}
+ */
+function detectCaptureGap(cwd, sessionId) {
+  try {
+    if (!sessionId) return { shouldNudge: false, residualOnly: false };
+
+    // --- (a) Scan events.jsonl for learning-worthy events this session ---
+    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+
+    // Pagination: read only lines after the last sweep cursor.
+    let lastSweepTs = '';
+    try {
+      const cursorPath = path.join(cwd, '.agentic', '.capture-gap-last-sweep');
+      if (fs.existsSync(cursorPath)) {
+        lastSweepTs = fs.readFileSync(cursorPath, 'utf8').trim();
+      }
+    } catch (_) { /* silent */ }
+
+    let rawEvents = '';
+    try {
+      if (fs.existsSync(eventsPath)) {
+        rawEvents = fs.readFileSync(eventsPath, 'utf8');
+      }
+    } catch (_) { return { shouldNudge: false, residualOnly: false }; }
+
+    const eventLines = rawEvents.split('\n');
+    // On cold start (no cursor), cap to the last 100 lines.
+    const linesToScan = lastSweepTs
+      ? eventLines
+      : eventLines.slice(-100);
+
+    const LEARNING_AGENTS = new Set(['debugger', 'investigator']);
+    let hasLearningWorthyEvent = false;
+    const eventDomainTokens = new Set();
+
+    for (const line of linesToScan) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let obj;
+      try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+
+      const data = (obj && obj.data) || {};
+
+      // DELIBERATE: lines without data.session_uuid are EXCLUDED here.
+      // This is the inverse of scanSessionAggregate (which includes absent uuids
+      // for back-compat). The backstop must not nag on legacy event lines from
+      // prior sessions that lack session attribution - that would cause false
+      // positives on every session until the file rotates. scanSessionAggregate
+      // keeps absent=include for back-compat; only this backstop uses absent=exclude.
+      if (!data.session_uuid || data.session_uuid !== sessionId) continue;
+
+      // Pagination: skip lines at or before the last sweep timestamp.
+      if (lastSweepTs && obj.ts && obj.ts <= lastSweepTs) continue;
+
+      const ev = obj.event;
+      const agentName = (obj.agent || '').toLowerCase();
+
+      let worthy = false;
+      if (ev === 'tool_failure_workaround') {
+        worthy = true;
+      } else if (ev === 'spawn_complete') {
+        if (LEARNING_AGENTS.has(agentName)) {
+          worthy = true;
+        } else if (agentName === 'skeptic') {
+          const fc = data.findings_count || {};
+          if ((Number(fc.critical) || 0) > 0 || (Number(fc.major) || 0) > 0) {
+            if (data.signed_off) worthy = true;
+          }
+        }
+      }
+
+      if (worthy) {
+        hasLearningWorthyEvent = true;
+        // Collect domain tokens from domain_tag and tool references
+        for (const src of [data.domain_tag, data.tool]) {
+          if (typeof src === 'string' && src) {
+            for (const tok of _tokenize(src)) eventDomainTokens.add(tok);
+          }
+        }
+      }
+    }
+
+    if (!hasLearningWorthyEvent) return { shouldNudge: false, residualOnly: false };
+
+    // --- (b) Check .agentic/learnings.md for today-dated entries ---
+    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    try {
+      const learningsPath = path.join(cwd, '.agentic', 'learnings.md');
+      if (fs.existsSync(learningsPath)) {
+        const learningsRaw = fs.readFileSync(learningsPath, 'utf8');
+        // Match [LRN-YYYYMMDD-XXX] or [KNW-YYYYMMDD-XXX] with today's date, OR
+        // a "Discovered: YYYY-MM-DD" line dated today.
+        const dateCompact = todayStr.replace(/-/g, '');
+        const hasToday =
+          learningsRaw.includes(`[LRN-${dateCompact}`) ||
+          learningsRaw.includes(`[KNW-${dateCompact}`) ||
+          learningsRaw.includes(`Discovered: ${todayStr}`);
+        if (hasToday) return { shouldNudge: false, residualOnly: false };
+      }
+    } catch (_) { /* silent - absent learnings.md means no learning captured */ }
+
+    // --- (c) Guardrail suppression ---
+    // Collect names of guardrail files added this session via git diff.
+    // Primary: git diff --name-only origin/HEAD..HEAD  (all commits since branch diverged)
+    // Fallback: git diff --name-only HEAD~1 HEAD       (last commit only; used when no upstream)
+    let changedPaths = [];
+    try {
+      let diffOutput = '';
+      try {
+        diffOutput = execSync(
+          'git diff --name-only origin/HEAD..HEAD',
+          { cwd, timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+        );
+      } catch (_primaryErr) {
+        // No upstream ref - fall back to last commit only.
+        try {
+          diffOutput = execSync(
+            'git diff --name-only HEAD~1 HEAD',
+            { cwd, timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+          );
+        } catch (_) { /* no commits yet or non-git dir; diffOutput stays '' */ }
+      }
+      changedPaths = diffOutput.split('\n').map((p) => p.trim()).filter(Boolean);
+    } catch (_) { /* soft-fail: no suppression applied */ }
+
+    const addedGuardrailPaths = changedPaths.filter((p) => {
+      const base = path.basename(p);
+      if (GUARDRAIL_PATTERNS.some((re) => re.test(base))) return true;
+      // Also match directory segments: tests/, evals/, spec/
+      return /(?:^|\/)(?:tests|evals|spec)\//i.test(p + '/');
+    });
+
+    if (addedGuardrailPaths.length === 0) {
+      // No guardrails added - fire standard nudge.
+      return { shouldNudge: true, residualOnly: false };
+    }
+
+    // Check domain proximity: does any guardrail path share a >=4-char token
+    // with any event domain token?
+    let domainProximate = false;
+    if (eventDomainTokens.size > 0) {
+      for (const gp of addedGuardrailPaths) {
+        const gpTokens = _tokenize(gp);
+        if (gpTokens.some((t) => eventDomainTokens.has(t))) {
+          domainProximate = true;
+          break;
+        }
+      }
+    }
+
+    if (domainProximate) {
+      // Domain-proximate guardrail added - suppress nudge entirely.
+      return { shouldNudge: false, residualOnly: false };
+    }
+
+    // Guardrails added but none domain-proximate - fire with residual-WHY text.
+    return { shouldNudge: true, residualOnly: true };
+  } catch (_) {
+    // Top-level safety net: any unexpected error -> no nudge (never blocks exit).
+    return { shouldNudge: false, residualOnly: false };
+  }
+}
+
+/**
+ * Append a capture-gap nudge to .agentic/context.md. Sentinel-gated per session
+ * via .agentic/.capture-gap-last-sweep (ISO8601 UTC; absent = cold start). The
+ * cursor is updated atomically (tmp+rename) after a successful append so the same
+ * session does not nag twice. Silent failure on any fs error.
+ *
+ * When residualOnly === true the nudge text emphasises that a guardrail was added
+ * but is not domain-proximate, so only the residual WHY / dead-end reasoning needs
+ * capturing. When residualOnly === false the standard nudge fires.
+ *
+ * @param {string} cwd - Verified project root.
+ * @param {string|null} sessionId - Current session uuid (used only for logging context).
+ * @param {boolean} residualOnly - True when a guardrail was added but none were
+ *   domain-proximate with the learning-worthy event.
+ */
+function appendCaptureGapNoticeToContextMd(cwd, sessionId, residualOnly) {
+  try {
+    const contextPath = path.join(cwd, '.agentic', 'context.md');
+    const cursorPath = path.join(cwd, '.agentic', '.capture-gap-last-sweep');
+
+    let nudgeText;
+    if (residualOnly) {
+      nudgeText = [
+        '',
+        '---',
+        'CAPTURE-GAP: a related test or guardrail was added this session, but it is not',
+        'domain-proximate to the learning-worthy event (root cause / tool workaround).',
+        'Capture only the residual WHY and any dead-ends the test does not encode:',
+        'spawn learnings-agent or add an LRN/KNW entry to .agentic/learnings.md.',
+        '(If the guardrail fully captures it, ignore this.)',
+      ].join('\n') + '\n';
+    } else {
+      nudgeText = [
+        '',
+        '---',
+        'CAPTURE-GAP: this session resolved a root cause / worked around a tool failure',
+        'but recorded no learning. If there is a non-obvious WHY beyond what a test or',
+        'the diff already shows, capture it: spawn learnings-agent or add an LRN/KNW',
+        'entry to .agentic/learnings.md. (If the test you added fully captures it, ignore this.)',
+      ].join('\n') + '\n';
+    }
+
+    fs.appendFileSync(contextPath, nudgeText, 'utf8');
+
+    // Update pagination cursor atomically so the same session doesn't fire twice.
+    try {
+      const nowIso = new Date().toISOString();
+      const tmpCursor = cursorPath + '.tmp';
+      fs.writeFileSync(tmpCursor, nowIso, 'utf8');
+      fs.renameSync(tmpCursor, cursorPath);
+    } catch (_) { /* silent - cursor update failure is non-fatal */ }
+  } catch (_) {
+    // Silent failure - consistent with all other context.md append paths.
+  }
+}
+
 function run() {
   // --- 1. Read stdin ---
   let raw = '';
@@ -897,6 +1184,13 @@ ${toolsLine}
       } catch (_) {
         // Silent failure - never block session exit
       }
+      // Capture-gap backstop on wrap-coexistence exit path.
+      try {
+        const gap = detectCaptureGap(cwd, sessionId);
+        if (gap.shouldNudge) {
+          appendCaptureGapNoticeToContextMd(cwd, sessionId, gap.residualOnly);
+        }
+      } catch (_) { /* silent */ }
       removeLearningsAgentSession(cwd, sessionId);
       process.exit(0);
     }
@@ -973,6 +1267,16 @@ ${toolsLine}
 
   // --- 14. Remove learnings-agent session marker if owned by this session ---
   removeLearningsAgentSession(cwd, sessionId);
+
+  // --- 15. Capture-gap backstop (path 9 - independent of all other paths) ---
+  // Detects learning-worthy sessions with no captured learnings and appends a
+  // nudge to context.md. Silent failure; never blocks exit.
+  try {
+    const gap = detectCaptureGap(cwd, sessionId);
+    if (gap.shouldNudge) {
+      appendCaptureGapNoticeToContextMd(cwd, sessionId, gap.residualOnly);
+    }
+  } catch (_) { /* silent */ }
 
   process.exit(0);
 }
