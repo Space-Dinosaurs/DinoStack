@@ -1571,41 +1571,43 @@
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
   <div class="section-title" data-num="06"><h2>Skill Layer <a class="slide-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer">slides: skill creator</a></h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/skill-name</code> in the chat. They expand into full prompts with multi-step workflows, often spawning their own Worker + Skeptic loops internally. Commands are defined in <code>~/agentic-engineering/.claude/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>~/agentic-engineering/.claude/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships exactly 18 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Only DinoStack commands are listed here - bundled tool and Claude skills are intentionally excluded. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--green);">Dev Workflow Skills</h4>
+        <h4 style="color: var(--green);">Operator commands - the daily loop</h4>
         <ul>
-          <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. The entry point for manually triggering Elevated review.</li>
-          <li><strong>/implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and skeptic phases in sequence for a scoped ticket.</li>
-          <li><strong>/ticket-status-sync</strong> - reconcile a ticket's tracker column with the actual state of its code after <code>/implement-ticket</code> exits before merge. Fires the Done transition the default human-merge flow leaves unfired. Single-ticket or <code>--all</code> sweep; soft-fails on tracker API errors.</li>
-          <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Detailed in the Project Lifecycle section below.</li>
-          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Detailed in the Project Lifecycle section below.</li>
-          <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
-          <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
-          <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
-          <li><strong>/prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
-          <li><strong>/representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
-          <li><strong>/test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate when coding is cheap and verification is the scarce thing.</li>
-          <li><strong>/agentic-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it the CLI prints token counts only and never invents dollar figures. The Skeptic flags missing telemetry emits at instrumented boundaries as a <strong style="color: var(--green);">Minor</strong> finding so cost dashboards stay accurate.</li>
-          <li><strong>/agentic-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, preset, and first-activation sentinel state. Useful for debugging "why is this project active/inactive?" and "which profile is in effect?" Writes nothing; always exits 0.</li>
-          <li><strong>/agentic-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Refuses to overwrite an existing <code>opt-in</code> marker without <code>--force</code>. Optional <code>--global</code> updates <code>~/.claude/agentic-engineering.json</code> with <code>mode=opt-out</code>, preserving every existing key verbatim.</li>
+          <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Run once per repo. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and Skeptic phases in sequence for a scoped ticket. The primary command for shipping code.</li>
+          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Run at the end of any session to capture learning. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/brief</strong> - interactive planning dialogue. Produces a Brief at <code>docs/planning/&lt;slug&gt;.md</code> via a structured multi-turn conversation, then hands off to the architect and engineer with <code>brief_path</code> pre-populated in the execution contract. The operator-initiated planning entry point before architect/engineer spawn.</li>
         </ul>
       </div>
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--green);">Content / Output Skills</h4>
+        <h4 style="color: var(--green);">Utilities &amp; setup</h4>
         <ul>
-          <li><strong>/pdf</strong> - read, extract, combine, split, rotate, watermark, or create PDF files</li>
-          <li><strong>/pptx</strong> - create or read PowerPoint presentations with PptxGenJS</li>
-          <li><strong>/docx</strong> - create or manipulate Word documents with professional formatting</li>
-          <li><strong>/xlsx</strong> - open, edit, compute formulas, chart, or create spreadsheets</li>
-          <li><strong>/frontend-design</strong> - create production-grade frontend interfaces with high design quality. Uses design system generation.</li>
-          <li><strong>/claude-api</strong> - build apps with the Claude API or Anthropic SDK. Triggers on anthropic/sdk imports. Covers tool use, streaming, batches, files API.</li>
-          <li><strong>/mcp-builder</strong> - guide for creating MCP servers that enable LLMs to interact with external services. Supports Python (FastMCP) and Node.</li>
-          <li><strong>/webapp-testing</strong> - verify frontend functionality using Playwright. Captures screenshots, browser logs, and validates UI behavior.</li>
+          <li><strong>/migrate-project</strong> - bring an existing project's scaffolding up to the current methodology version. Additive and non-destructive by default; <code>--include-destructive</code> applies operator-owned markers and file modifications.</li>
+          <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
+          <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
+          <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
+          <li><strong>/agentic-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, preset, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
+          <li><strong>/agentic-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
+          <li><strong>/agentic-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
+          <li><strong>/agentic-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
+          <li><strong>/agentic-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
+        </ul>
+      </div>
+      <div class="rel-card" style="margin-top: 16px;">
+        <h4 style="color: var(--green);">Invoked by the methodology</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 8px 0;">The conductor runs these during a workflow. Operator-available but rarely typed directly.</p>
+        <ul>
+          <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. Entry point for manually triggering Elevated review.</li>
+          <li><strong>/ticket-status-sync</strong> - reconcile a ticket's tracker column with actual code state after <code>/implement-ticket</code> exits before merge. Single-ticket or <code>--all</code> sweep; soft-fails on tracker API errors.</li>
+          <li><strong>/prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
+          <li><strong>/representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
+          <li><strong>/test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate.</li>
         </ul>
       </div>
     </div>
