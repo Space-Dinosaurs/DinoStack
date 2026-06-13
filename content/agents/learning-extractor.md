@@ -1,23 +1,33 @@
 ---
 name: learning-extractor
-description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern learnings to .agentic/learnings.md. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files. Does NOT write to .agentic/memory.md (that is /wrap-internal rolling scratch; the canonical durable-facts store is root MEMORY.md).
+description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
 tools: Read, Glob, Edit, Write
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 <!--
-Purpose: Extracts durable fix-pattern learnings from resolved Skeptic findings.
-         Spawned once per ticket at Phase 6 clean exit (after Skeptic sign-off,
-         before meta-Skeptic sampling). Writes structured learning entries to
-         .agentic/learnings.md. Consumed downstream by wrap-ticket at Phase 11b.
+Purpose: Extracts durable fix-pattern LRN learnings from resolved Skeptic
+         findings. Spawned once per ticket at Phase 6 clean exit (after Skeptic
+         sign-off, before meta-Skeptic sampling). Writes structured LRN entries
+         to .agentic/learnings.md. Consumed downstream by wrap-ticket at
+         Phase 11b.
+
+         SCOPE: learning-extractor emits LRN entries ONLY. KNW capture (env
+         facts, dead-ends, architectural rationale, tool-failure workarounds)
+         is learnings-agent's responsibility via the mandatory triggers defined
+         in content/references/conductor-operating-rules.md §learnings-agent.
+         A finding's residual (the non-testable WHY) is still recorded as LRN
+         here; promotion to KNW or MEMORY.md happens at /wrap.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Required inputs: ticket_id, findings_log, merged_diff.
-            Returns a JSON object with fields: learnings_written[], 
-            learning_ids[], skipped_reason, operator_summary.
+            Returns a JSON object with fields: learnings_written[],
+            learning_ids[], skipped_reason, operator_summary. All IDs in
+            learning_ids[] carry the LRN- prefix.
 
 Upstream deps: None (no external libraries; only Read/Glob/Edit/Write tools).
+               content/templates/.agentic/learnings.md (canonical LRN schema).
 
 Downstream consumers: wrap-ticket at Phase 11b (reads .agentic/learnings.md
                       entries written by this agent to enrich MEMORY.md and
@@ -36,7 +46,7 @@ Performance: ~30s budget. The conductor enforces a 30s timeout on the spawn;
              one file read, small number of append writes.
 -->
 
-> **Note:** For ad-hoc work, `learnings-agent` is the preferred inline capture mechanism. `learning-extractor` remains the Phase 6 pipeline for ticketed work (`/implement-ticket`).
+> **Note:** For ad-hoc work, `learnings-agent` is the preferred inline capture mechanism. `learning-extractor` remains the Phase 6 pipeline for ticketed work (`/implement-ticket`). `learning-extractor` produces LRN entries only; KNW entries are produced by `learnings-agent` via mandatory conductor triggers.
 
 ## Role
 
