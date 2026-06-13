@@ -70,7 +70,7 @@
   }
 
   .wrap {
-    max-width: 1100px;
+    max-width: 1280px;
     margin: 0 auto;
     padding: 0 28px;
   }
@@ -237,10 +237,10 @@
   caption { display: none; }
   th, td {
     text-align: left;
-    padding: 13px 16px;
+    padding: 15px 18px;
     border-bottom: 1px solid var(--border-faint);
     vertical-align: top;
-    line-height: 1.45;
+    line-height: 1.55;
     color: var(--text-secondary);
   }
   thead th {
@@ -265,7 +265,7 @@
     text-transform: none;
     white-space: nowrap;
   }
-  /* AE anchor column = 2nd column (1st data col) */
+  /* DinoStack anchor column = 2nd column (1st data col) */
   th.ae, td.ae {
     background: var(--gold-glow);
     border-left: 2px solid var(--gold);
@@ -410,56 +410,56 @@
     <p class="eyebrow">Master Comparison &middot; Agentic-Frameworks</p>
     <h1>DinoStack vs. The Field</h1>
     <p class="lede">DinoStack is a multi-agent orchestration methodology for Claude Code that bets <strong>correctness over speed</strong>: a conductor decomposes work, spawns named specialist subagents, and routes anything risky through an independent adversarial reviewer that never sees the implementer's reasoning. It is built as plain markdown and folders with a thin code shell, so it shares its substrate with the lighter single-agent methodologies it competes with. It is the strongest option when work is concurrent, correctness-critical, and multi-step. It is the wrong tool when the job is cheap, sequential, and reviewed by a human at every step, where a single agent with the right context wins outright.</p>
-    <p class="lede">This doc positions DinoStack (AE) against the alternatives already researched in this workspace and is honest about where each competitor legitimately wins. ICM/MWP is simpler for solo sequential human-reviewed work. In-context prompting beats orchestration on a single procedural task. GSD ships product faster for a solo developer. None of that is hidden here, because the positioning is only credible if the tradeoffs are real.</p>
+    <p class="lede">This doc positions DinoStack against the alternatives already researched in this workspace and is honest about where each competitor legitimately wins. ICM/MWP is simpler for solo sequential human-reviewed work. In-context prompting beats orchestration on a single procedural task. GSD ships product faster for a solo developer. None of that is hidden here, because the positioning is only credible if the tradeoffs are real.</p>
   </div>
 </header>
 
 <section class="alt">
   <div class="wrap">
     <h2 class="section-head">At a glance</h2>
-    <p class="section-sub">One card per alternative: what it is, what it is best at, and where AE wins.</p>
+    <p class="section-sub">One card per alternative: what it is, what it is best at, and where DinoStack wins.</p>
     <div class="cards">
 
       <div class="card">
         <h3>ICM / MWP <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Van Clief)</span></h3>
         <p class="identity">Single-agent methodology: folders + markdown one agent navigates for context</p>
         <div class="row"><span class="label">Best at</span><span class="val">Cheap, sequential, human-reviewed solo work; minimal infrastructure</span></div>
-        <div class="row win"><span class="label">Where AE wins</span><span class="val">Concurrency and adversarial correctness it deliberately leaves out</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Concurrency and adversarial correctness it deliberately leaves out</span></div>
       </div>
 
       <div class="card">
         <h3>GSD <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(T&Acirc;CHES)</span></h3>
         <p class="identity">Lightweight spec-driven framework for solo devs, cross-harness</p>
         <div class="row"><span class="label">Best at</span><span class="val">Shipping velocity, zero-config onboarding, project-level artifacts</span></div>
-        <div class="row win"><span class="label">Where AE wins</span><span class="val">Independent review, risk gates, specialist roles, audit trail</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent review, risk gates, specialist roles, audit trail</span></div>
       </div>
 
       <div class="card">
         <h3>Arize "Alex" <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Salian)</span></h3>
         <p class="identity">Runtime context-management harness for long-running production agents</p>
         <div class="row"><span class="label">Best at</span><span class="val">Keeping one live agent under its token budget over long sessions</span></div>
-        <div class="row win"><span class="label">Where AE wins</span><span class="val">Build-time orchestration, risk classification, adversarial review</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Build-time orchestration, risk classification, adversarial review</span></div>
       </div>
 
       <div class="card">
         <h3>Agentic OS <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Chase)</span></h3>
         <p class="identity">Conversational skill framework: domains, Obsidian memory, button dashboard</p>
         <div class="row"><span class="label">Best at</span><span class="val">Approachable setup, human-navigable memory, non-technical accessibility</span></div>
-        <div class="row win"><span class="label">Where AE wins</span><span class="val">Verification, multi-agent orchestration, cost control</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Verification, multi-agent orchestration, cost control</span></div>
       </div>
 
       <div class="card">
         <h3>In-context prompting <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Melbourne paper)</span></h3>
         <p class="identity">Put the whole procedure in the system prompt; let one model self-orchestrate</p>
         <div class="row"><span class="label">Best at</span><span class="val">A single well-defined procedural conversational task</span></div>
-        <div class="row win"><span class="label">Where AE wins</span><span class="val">Concurrent, correctness-critical, multi-step work across files</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Concurrent, correctness-critical, multi-step work across files</span></div>
       </div>
 
       <div class="card">
         <h3>120x architect-builder <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(ChatGPT+Codex)</span></h3>
         <p class="identity">Solo operator's spec-and-handoff: LLM as planning architect, Codex/Claude Code as builder, folder is source of truth</p>
         <div class="row"><span class="label">Best at</span><span class="val">Non-coders building in-house tools via sequential human-reviewed sprints</span></div>
-        <div class="row win"><span class="label">Where AE wins</span><span class="val">Independent review, risk gates, automated parallel orchestration, audit trail</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent review, risk gates, automated parallel orchestration, audit trail</span></div>
       </div>
 
     </div>
@@ -752,22 +752,22 @@
     <div class="prose">
 
       <h3>ICM / MWP (Jake Van Clief)</h3>
-      <p>Interpretable Context Methodology (the formal protocol is the Model Workspace Protocol, arXiv:2603.16021) structures plain folders and markdown that a single agent navigates for context, and rejects multi-agent frameworks, RAG, and orchestration servers as the wrong layer to automate. <span class="win">AE wins</span> on concurrency and correctness: ICM trusts one agent's output, while AE's whole reason to spawn a fresh Skeptic is that a single agent cannot review itself. ICM legitimately wins for cheap, sequential, human-reviewed solo work, where the orchestration tax buys nothing, and it reports a 20-40% token reduction. The cleanest framing is that they are complementary layers, not rivals: AE is built on the same markdown-and-folders substrate ICM preaches, with a governance layer on top that the substrate makes affordable.</p>
+      <p>Interpretable Context Methodology (the formal protocol is the Model Workspace Protocol, arXiv:2603.16021) structures plain folders and markdown that a single agent navigates for context, and rejects multi-agent frameworks, RAG, and orchestration servers as the wrong layer to automate. <span class="win">DinoStack wins</span> on concurrency and correctness: ICM trusts one agent's output, while DinoStack's whole reason to spawn a fresh Skeptic is that a single agent cannot review itself. ICM legitimately wins for cheap, sequential, human-reviewed solo work, where the orchestration tax buys nothing, and it reports a 20-40% token reduction. The cleanest framing is that they are complementary layers, not rivals: DinoStack is built on the same markdown-and-folders substrate ICM preaches, with a governance layer on top that the substrate makes affordable.</p>
 
       <h3>GSD (Get Shit Done)</h3>
-      <p>GSD is a lightweight spec-driven framework for solo developers who want to ship fast without enterprise overhead, working across Claude Code, OpenCode, Gemini CLI, Cursor, and Windsurf. It maintains a project-level roadmap and a running STATE journal that AE does not (AE has first-class vision and requirements docs but treats a roadmap and a project STATE journal as a deliberate non-goal), plus a yolo auto-approve mode and a <code>--next</code> step auto-runner. <span class="win">AE wins</span> on review independence (the Skeptic is a fresh context that cannot ratify reasoning it helped produce), per-change risk gates, specialist named roles, worktree isolation, and cross-session loop resume. The honest split: GSD is "ship my idea fast," AE is "don't ship a bug, and prove you didn't."</p>
+      <p>GSD is a lightweight spec-driven framework for solo developers who want to ship fast without enterprise overhead, working across Claude Code, OpenCode, Gemini CLI, Cursor, and Windsurf. It maintains a project-level roadmap and a running STATE journal that DinoStack does not (DinoStack has first-class vision and requirements docs but treats a roadmap and a project STATE journal as a deliberate non-goal), plus a yolo auto-approve mode and a <code>--next</code> step auto-runner. <span class="win">DinoStack wins</span> on review independence (the Skeptic is a fresh context that cannot ratify reasoning it helped produce), per-change risk gates, specialist named roles, worktree isolation, and cross-session loop resume. The honest split: GSD is "ship my idea fast," DinoStack is "don't ship a bug, and prove you didn't."</p>
 
       <h3>Arize "Alex" (Salian)</h3>
-      <p>Alex is a production AI harness that solves runtime context-window limits with smart truncation (keep head and tail), an external memory store for the middle, and sub-agents that offload data-heavy work so the main conversation stays small. It operates at a different layer than AE: runtime inference management for a live agent serving users, versus AE's build-time orchestration for agents writing and reviewing code. <span class="win">AE wins</span> on risk classification before spawning and adversarial review of outputs, both of which Alex does heuristically or not at all. Alex legitimately leads on long-session evals (load 10 turns, test the 11th) and on a retrievable memory store, two patterns AE could borrow. The two are complementary, not competing.</p>
+      <p>Alex is a production AI harness that solves runtime context-window limits with smart truncation (keep head and tail), an external memory store for the middle, and sub-agents that offload data-heavy work so the main conversation stays small. It operates at a different layer than DinoStack: runtime inference management for a live agent serving users, versus DinoStack's build-time orchestration for agents writing and reviewing code. <span class="win">DinoStack wins</span> on risk classification before spawning and adversarial review of outputs, both of which Alex does heuristically or not at all. Alex legitimately leads on long-session evals (load 10 turns, test the 11th) and on a retrievable memory store, two patterns DinoStack could borrow. The two are complementary, not competing.</p>
 
       <h3>Agentic OS (Chase)</h3>
-      <p>Chase's Agentic OS is a conversational framework that turns Claude Code into a structured workspace: decompose work into domains, tasks, and skills built by voice dump, store knowledge in an Obsidian vault, and trigger skills from a button dashboard so non-technical users never touch the terminal. <span class="win">AE wins</span> on the verification gap (mandatory Skeptic, QA, sandboxed execution versus no quality control), multi-agent orchestration, and cost. Agentic OS legitimately wins on conversational onboarding, domain-level organization, and a human-navigable Obsidian memory front-end, which are real product gaps in a verification-first methodology.</p>
+      <p>Chase's Agentic OS is a conversational framework that turns Claude Code into a structured workspace: decompose work into domains, tasks, and skills built by voice dump, store knowledge in an Obsidian vault, and trigger skills from a button dashboard so non-technical users never touch the terminal. <span class="win">DinoStack wins</span> on the verification gap (mandatory Skeptic, QA, sandboxed execution versus no quality control), multi-agent orchestration, and cost. Agentic OS legitimately wins on conversational onboarding, domain-level organization, and a human-navigable Obsidian memory front-end, which are real product gaps in a verification-first methodology.</p>
 
       <h3>In-context prompting (Melbourne paper)</h3>
-      <p>A University of Melbourne paper shows that for procedural conversational tasks, a frontier model handed the entire flowchart in its system prompt outperforms the same model orchestrated through LangGraph, CrewAI, and similar frameworks across every domain and metric tested, sometimes by roughly 18x fewer failures. The diagnosis: orchestration fragments reasoning, introduces routing and handoff failure modes, and constrains the model's natural style. This is the strongest case against orchestration, but it is scoped: the result covers single procedural conversational tasks, not the concurrent, multi-file, correctness-critical work AE targets, and the authors concede scaffolding still earns its keep for weaker models, heavy real-world tool use, and safety constraints. <span class="win">AE wins</span> where the work is genuinely concurrent and correctness-critical; the paper's honest advice (try the in-context baseline first) is worth heeding before reaching for any orchestration on a single procedural task.</p>
+      <p>A University of Melbourne paper shows that for procedural conversational tasks, a frontier model handed the entire flowchart in its system prompt outperforms the same model orchestrated through LangGraph, CrewAI, and similar frameworks across every domain and metric tested, sometimes by roughly 18x fewer failures. The diagnosis: orchestration fragments reasoning, introduces routing and handoff failure modes, and constrains the model's natural style. This is the strongest case against orchestration, but it is scoped: the result covers single procedural conversational tasks, not the concurrent, multi-file, correctness-critical work DinoStack targets, and the authors concede scaffolding still earns its keep for weaker models, heavy real-world tool use, and safety constraints. <span class="win">DinoStack wins</span> where the work is genuinely concurrent and correctness-critical; the paper's honest advice (try the in-context baseline first) is worth heeding before reaching for any orchestration on a single procedural task.</p>
 
       <h3>120x architect-builder (ChatGPT+Codex)</h3>
-      <p>The 120x method (channel 120x-ai) is a solo operator's spec-and-handoff discipline: a large language model plays the planning "architect" that brainstorms, runs discovery, and emits a per-sprint "architect pack" (requirements, blueprint, acceptance criteria, handoff prompt), and Codex or Claude Code plays the "builder" that dry-runs and implements from the approved pack. The source of truth is a structured project folder of markdown, never the chat history. It shares AE's substrate (folders + markdown, a thin <code>AGENTS.md</code> router, cleaner-context-not-more) and AE's anti-vibe-coding thesis (never let the builder guess business rules), and it goes further than most solo workflows by splitting planning from building and adding an architect-reviews-builder loop. <span class="win">AE wins</span> on review independence (the 120x architect grades the builder inside the chat that authored the plan, so it catches builder drift but not spec blindness; AE's Skeptic is a fresh context that never saw the implementer's reasoning), per-change risk classification, automated parallel orchestration with worktree isolation, and a telemetry audit trail. The 120x method legitimately wins on reach and simplicity: it is teachable to non-coders in a four-week cohort, the manual human-in-the-loop sprint review is a feature for that audience, and it carries zero machinery for sequential work. Cleanest framing: 120x is what AE's spec discipline looks like before you automate the orchestration, make the reviewer independent, and gate the machinery on risk.</p>
+      <p>The 120x method (channel 120x-ai) is a solo operator's spec-and-handoff discipline: a large language model plays the planning "architect" that brainstorms, runs discovery, and emits a per-sprint "architect pack" (requirements, blueprint, acceptance criteria, handoff prompt), and Codex or Claude Code plays the "builder" that dry-runs and implements from the approved pack. The source of truth is a structured project folder of markdown, never the chat history. It shares DinoStack's substrate (folders + markdown, a thin <code>AGENTS.md</code> router, cleaner-context-not-more) and DinoStack's anti-vibe-coding thesis (never let the builder guess business rules), and it goes further than most solo workflows by splitting planning from building and adding an architect-reviews-builder loop. <span class="win">DinoStack wins</span> on review independence (the 120x architect grades the builder inside the chat that authored the plan, so it catches builder drift but not spec blindness; DinoStack's Skeptic is a fresh context that never saw the implementer's reasoning), per-change risk classification, automated parallel orchestration with worktree isolation, and a telemetry audit trail. The 120x method legitimately wins on reach and simplicity: it is teachable to non-coders in a four-week cohort, the manual human-in-the-loop sprint review is a feature for that audience, and it carries zero machinery for sequential work. Cleanest framing: 120x is what DinoStack's spec discipline looks like before you automate the orchestration, make the reviewer independent, and gate the machinery on risk.</p>
 
     </div>
   </div>
@@ -778,7 +778,7 @@
     <h2 class="section-head">When DinoStack is the right choice (and when it isn't)</h2>
     <div class="two-col">
       <div class="left">
-        <h3 style="color:var(--gold);">AE shines when at least one holds</h3>
+        <h3 style="color:var(--gold);">DinoStack shines when at least one holds</h3>
         <ul>
           <li><strong>Work is concurrent:</strong> multiple units can run in parallel and need coordination plus isolation.</li>
           <li><strong>Correctness is non-negotiable:</strong> production systems, security or billing surfaces, irreversible operations.</li>
@@ -792,13 +792,13 @@
           <li><strong>A single well-defined procedural task:</strong> use the in-context baseline; the Melbourne result says orchestration makes it worse.</li>
           <li><strong>Solo sequential work a human checks as it goes:</strong> ICM/MWP's single-agent markdown navigation is simpler and 20-40% cheaper on tokens.</li>
           <li><strong>Fast solo product iteration where speed beats correctness:</strong> GSD's velocity and zero-config onboarding fit better.</li>
-          <li><strong>Runtime context management for a live agent serving users:</strong> that is Arize Alex's layer, not AE's.</li>
+          <li><strong>Runtime context management for a live agent serving users:</strong> that is Arize Alex's layer, not DinoStack's.</li>
         </ul>
       </div>
     </div>
-    <p class="conviction">The core conviction that separates AE from every single-agent option on this list: LLMs are systematically overconfident about their own output, so Elevated work has no self-review path and requires a second independent agent. If you do not believe that, or your tasks do not warrant it, one of the lighter methodologies above is the better fit, and this doc says so on purpose.</p>
+    <p class="conviction">The core conviction that separates DinoStack from every single-agent option on this list: LLMs are systematically overconfident about their own output, so Elevated work has no self-review path and requires a second independent agent. If you do not believe that, or your tasks do not warrant it, one of the lighter methodologies above is the better fit, and this doc says so on purpose.</p>
     <div class="callout">
-      <strong>Supporting context (not a head-to-head):</strong> an internal self-audit of AE against ten pillars of AI-enabled software engineering frames where AE is strong (review rigor, risk classification) and where it is thinner (cost and reviewer-quality feedback loops), and is useful background for the claims in this doc.
+      <strong>Supporting context (not a head-to-head):</strong> an internal self-audit of DinoStack against ten pillars of AI-enabled software engineering frames where DinoStack is strong (review rigor, risk classification) and where it is thinner (cost and reviewer-quality feedback loops), and is useful background for the claims in this doc.
     </div>
   </div>
 </section>
@@ -810,10 +810,10 @@
       <li><span class="src-title">ICM / Model Workspace Protocol</span> <span class="desc">- Jake Van Clief</span></li>
       <li><span class="src-title">GSD / Get Shit Done</span> <span class="desc">- T&Acirc;CHES</span></li>
       <li><span class="src-title">Arize "Alex" runtime context management</span> <span class="desc">- Salian</span></li>
-      <li><span class="src-title">Agentic OS</span> <span class="desc">- Chase, vs Helios, which embeds AE</span></li>
+      <li><span class="src-title">Agentic OS</span> <span class="desc">- Chase, vs Helios, which embeds DinoStack</span></li>
       <li><span class="src-title">In-context prompting vs orchestration</span> <span class="desc">- University of Melbourne</span></li>
       <li><span class="src-title">120x architect-builder method</span> <span class="desc">- ChatGPT/Claude + Codex/Claude Code (channel 120x-ai)</span></li>
-      <li><span class="src-title">AE self-audit against the 10 pillars</span> <span class="desc">- supporting context, not a head-to-head</span></li>
+      <li><span class="src-title">DinoStack self-audit against the 10 pillars</span> <span class="desc">- supporting context, not a head-to-head</span></li>
     </ul>
   </div>
 </section>
