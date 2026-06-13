@@ -406,6 +406,75 @@ else:
     })
     print(f"  + Added Stop hook: {STOP_CMD}")
 
+# ---- SessionEnd hook (deferred-wrap finalize) -------------------------------
+# Finalizes a cleanly-ended session's pending marker to `ready` so the daemon
+# can drain it. Find-or-create; re-running install must NOT duplicate it.
+SESSION_END_CMD = f"node {repo_dir}/hooks/session-end-wrap.js"
+
+session_end_list = hooks.setdefault("SessionEnd", [])
+
+session_end_star = None
+for block in session_end_list:
+    if block.get("matcher") == "*":
+        session_end_star = block
+        break
+
+if session_end_star is None:
+    session_end_star = {"matcher": "*", "hooks": []}
+    session_end_list.append(session_end_star)
+
+session_end_star.setdefault("hooks", [])
+
+already_has_session_end = any(
+    "session-end-wrap.js" in entry.get("command", "")
+    for entry in session_end_star["hooks"]
+)
+
+if already_has_session_end:
+    print("  = SessionEnd deferred-wrap hook already present")
+else:
+    session_end_star["hooks"].append({
+        "type": "command",
+        "command": SESSION_END_CMD,
+        "timeout": 5
+    })
+    print(f"  + Added SessionEnd hook: {SESSION_END_CMD}")
+
+# ---- SessionStart hook (version notice + deferred-wrap self-heal/launch) -----
+# First SessionStart registration: the wrapper composes the version-check
+# notice with the self-healing .claude-host sentinel and the guarded daemon
+# launch. Find-or-create; re-running install must NOT duplicate it.
+SESSION_START_CMD = f"bash {repo_dir}/hooks/session-start-wrap.sh"
+
+session_start_list = hooks.setdefault("SessionStart", [])
+
+session_start_star = None
+for block in session_start_list:
+    if block.get("matcher") == "*":
+        session_start_star = block
+        break
+
+if session_start_star is None:
+    session_start_star = {"matcher": "*", "hooks": []}
+    session_start_list.append(session_start_star)
+
+session_start_star.setdefault("hooks", [])
+
+already_has_session_start = any(
+    "session-start-wrap.sh" in entry.get("command", "")
+    for entry in session_start_star["hooks"]
+)
+
+if already_has_session_start:
+    print("  = SessionStart deferred-wrap hook already present")
+else:
+    session_start_star["hooks"].append({
+        "type": "command",
+        "command": SESSION_START_CMD,
+        "timeout": 5
+    })
+    print(f"  + Added SessionStart hook: {SESSION_START_CMD}")
+
 # ---- PreToolUse background-spawn enforcement hook ---------------------------
 ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
 
@@ -477,6 +546,23 @@ with open(settings_path, "w") as f:
 
 print("  settings.json written.")
 PYEOF
+
+# ---------------------------------------------------------------------------
+# Deferred-wrap .claude-host sentinel (belt; MAJOR-B)
+#
+# When install.sh runs INSIDE a project (a .agentic/ dir exists in the install
+# cwd), drop the .agentic/.claude-host sentinel for THAT project so the
+# deferred-wrap feature can activate immediately. This is the belt for the
+# install-cwd project only; the SessionStart self-heal (session-start-wrap.sh)
+# is the PRIMARY mechanism that covers every project on its next Claude session.
+# create-if-absent + fully fail-open; we never drop sentinels for arbitrary
+# projects.
+# ---------------------------------------------------------------------------
+if [[ -d "$PWD/.agentic" && ! -f "$PWD/.agentic/.claude-host" ]]; then
+  if : > "$PWD/.agentic/.claude-host" 2>/dev/null; then
+    echo "  + dropped deferred-wrap .claude-host sentinel in $PWD/.agentic"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Update ~/.claude/CLAUDE.md
