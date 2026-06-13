@@ -22,7 +22,7 @@
  *             writePendingBuffer(cwd, sessionId),
  *             appendIdentityNudgeToContextMd(repoRoot),
  *             detectCaptureGap(cwd, sessionId),
- *             appendCaptureGapNoticeToContextMd(cwd, sessionId, residualOnly).
+ *             appendCaptureGapNoticeToContextMd(cwd, residualOnly).
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
  *                dependencies. Reads from stdin (fd 0). Reads/writes
@@ -872,11 +872,10 @@ function detectCaptureGap(cwd, sessionId) {
  * capturing. When residualOnly === false the standard nudge fires.
  *
  * @param {string} cwd - Verified project root.
- * @param {string|null} sessionId - Current session uuid (used only for logging context).
  * @param {boolean} residualOnly - True when a guardrail was added but none were
  *   domain-proximate with the learning-worthy event.
  */
-function appendCaptureGapNoticeToContextMd(cwd, sessionId, residualOnly) {
+function appendCaptureGapNoticeToContextMd(cwd, residualOnly) {
   try {
     const contextPath = path.join(cwd, '.agentic', 'context.md');
     const cursorPath = path.join(cwd, '.agentic', '.capture-gap-last-sweep');
@@ -1188,7 +1187,7 @@ ${toolsLine}
       try {
         const gap = detectCaptureGap(cwd, sessionId);
         if (gap.shouldNudge) {
-          appendCaptureGapNoticeToContextMd(cwd, sessionId, gap.residualOnly);
+          appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
         }
       } catch (_) { /* silent */ }
       removeLearningsAgentSession(cwd, sessionId);

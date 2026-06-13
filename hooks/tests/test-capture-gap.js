@@ -19,6 +19,12 @@
  *   8. silent-fail-on-malformed-line: events.jsonl contains malformed JSON lines -> no throw
  *   9. residualOnly-text-differentiation: residualOnly=true -> nudge text contains residual wording
  *  10. no-fire-when-no-session-uuid-on-event: absent session_uuid deliberately excluded (MAJOR regression)
+ *  11. skeptic-trigger-fires: skeptic spawn_complete with signed_off=true AND critical>0
+ *      -> shouldNudge true (code path existed but had no test)
+ *  12. skeptic-no-critical-major-no-fire: skeptic spawn_complete with signed_off=true but
+ *      zero critical/major -> shouldNudge false (only non-trivial skeptic reviews are learning-worthy)
+ *  13. knw-dated-suppression: today-dated [KNW-YYYYMMDD-XXX] entry with Discovered: line
+ *      -> shouldNudge false (KNW + Discovered: branch was untested; only LRN was exercised by test 5)
  *
  * Run with: node hooks/tests/test-capture-gap.js
  */
@@ -401,8 +407,8 @@ console.log('\nTest 9: residualOnly text differentiation');
   fs.writeFileSync(ctx9a, '# Session Context\n', 'utf8');
   fs.writeFileSync(ctx9b, '# Session Context\n', 'utf8');
 
-  appendCaptureGapNoticeToContextMd(cwd9a, sessionId, false); // standard
-  appendCaptureGapNoticeToContextMd(cwd9b, sessionId, true);  // residual
+  appendCaptureGapNoticeToContextMd(cwd9a, false); // standard
+  appendCaptureGapNoticeToContextMd(cwd9b, true);  // residual
 
   const textStandard = fs.readFileSync(ctx9a, 'utf8');
   const textResidual = fs.readFileSync(ctx9b, 'utf8');
@@ -449,6 +455,140 @@ console.log('\nTest 10: no-fire-when-no-session-uuid-on-event (absent=exclude)')
 
   const result = detectCaptureGap(cwd, sessionId);
   assert(result.shouldNudge === false, 'shouldNudge false for events without session_uuid (deliberate exclusion)');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: skeptic-trigger-fires
+// A skeptic spawn_complete with signed_off=true AND critical > 0 must fire the nudge.
+// This path (agentName === 'skeptic' && findings_count.critical > 0 && signed_off)
+// existed in detectCaptureGap but had no test coverage until now.
+// ---------------------------------------------------------------------------
+console.log('\nTest 11: skeptic-trigger-fires (critical finding, signed_off)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-skeptic-011';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+
+  // Positive: skeptic with signed_off=true and critical=1 -> learning-worthy
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'skeptic', {
+    signed_off: true,
+    findings_count: { critical: 1, major: 0, minor: 0 },
+  }) + '\n', 'utf8');
+
+  const result = detectCaptureGap(cwd, sessionId);
+  assert(result.shouldNudge === true, 'shouldNudge true for skeptic with critical finding + signed_off');
+  assert(result.residualOnly === false, 'residualOnly false (no guardrails added)');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 11b: skeptic-trigger-fires (major finding only)
+// ---------------------------------------------------------------------------
+console.log('\nTest 11b: skeptic-trigger-fires (major finding, signed_off)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-skeptic-011b';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'skeptic', {
+    signed_off: true,
+    findings_count: { critical: 0, major: 2, minor: 1 },
+  }) + '\n', 'utf8');
+
+  const result = detectCaptureGap(cwd, sessionId);
+  assert(result.shouldNudge === true, 'shouldNudge true for skeptic with major finding + signed_off');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: skeptic-no-critical-major-no-fire
+// A skeptic spawn_complete with signed_off=true but ZERO critical/major findings
+// must NOT count as learning-worthy (no nudge).
+// ---------------------------------------------------------------------------
+console.log('\nTest 12: skeptic-no-critical-major-no-fire (minor-only findings)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-skeptic-012';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'skeptic', {
+    signed_off: true,
+    findings_count: { critical: 0, major: 0, minor: 3 },
+  }) + '\n', 'utf8');
+
+  const result = detectCaptureGap(cwd, sessionId);
+  assert(result.shouldNudge === false, 'shouldNudge false for skeptic with minor-only findings (no learning-worthy signal)');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12b: skeptic-not-signed-off-no-fire
+// A skeptic spawn_complete with critical findings but signed_off=false (or absent)
+// must NOT fire the nudge - the session is still unresolved.
+// ---------------------------------------------------------------------------
+console.log('\nTest 12b: skeptic-not-signed-off-no-fire');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-skeptic-012b';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'skeptic', {
+    signed_off: false,
+    findings_count: { critical: 2, major: 1, minor: 0 },
+  }) + '\n', 'utf8');
+
+  const result = detectCaptureGap(cwd, sessionId);
+  assert(result.shouldNudge === false, 'shouldNudge false for skeptic with critical findings but signed_off=false');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: knw-dated-suppression
+// A today-dated [KNW-YYYYMMDD-XXX] entry with a "Discovered: YYYY-MM-DD" line
+// must suppress the nudge. Test 5 only exercised the [LRN- prefix; the KNW +
+// Discovered: branch was untested.
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: knw-dated-suppression (KNW entry with Discovered: today)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-knw-013';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'debugger') + '\n', 'utf8');
+
+  const todayCompact = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const todayDash = new Date().toISOString().slice(0, 10);
+  const learningsPath = path.join(cwd, '.agentic', 'learnings.md');
+  // Write a KNW entry with the compact date tag AND a Discovered: line with dashed date.
+  fs.writeFileSync(learningsPath, [
+    `## [KNW-${todayCompact}-001] Workaround for git push --force`,
+    `**Discovered:** ${todayDash}`,
+    'Use --force-with-lease instead.',
+  ].join('\n') + '\n', 'utf8');
+
+  const result = detectCaptureGap(cwd, sessionId);
+  assert(result.shouldNudge === false, 'shouldNudge false when today-dated KNW entry with Discovered: line present');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13b: knw-tag-alone-suppresses
+// A [KNW-YYYYMMDD-XXX] prefix alone (without Discovered: line) must also suppress
+// the nudge - the code checks includes([KNW-${dateCompact}) independently.
+// ---------------------------------------------------------------------------
+console.log('\nTest 13b: knw-tag-alone-suppresses (KNW tag without Discovered: line)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-knw-013b';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'debugger') + '\n', 'utf8');
+
+  const todayCompact = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const learningsPath = path.join(cwd, '.agentic', 'learnings.md');
+  fs.writeFileSync(learningsPath, `## [KNW-${todayCompact}-001] A known workaround\nDetails here.\n`, 'utf8');
+
+  const result = detectCaptureGap(cwd, sessionId);
+  assert(result.shouldNudge === false, 'shouldNudge false when today-dated KNW tag present (no Discovered: line needed)');
   cleanup(cwd);
 }
 
