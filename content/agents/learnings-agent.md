@@ -162,8 +162,9 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 **Source:** <path:line | command | URL | context>
 ```
 
-If the file does not exist, create it using the header from the template at
-`content/templates/.agentic/learnings.md` followed by the entry.
+If the file does not exist, create it by copying the full template content from
+`content/templates/.agentic/learnings.md` (everything up to and including the
+`## Entries` line and its comment), then append the entry beneath it.
 
 **Append discipline:**
 - Read the existing file first (if it exists).
@@ -171,7 +172,7 @@ If the file does not exist, create it using the header from the template at
 - **KNW dedup:** before writing, check if the same fact already exists. Use case-insensitive substring match on the `Fact` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
 - Append new entries at the end of the file (before any trailing blank lines).
 
-**Cap at 5 entries per message.** If more generalizable findings exist (e.g., a compound event), prioritize by: LRN Critical > LRN Major > KNW > LRN Minor.
+**Cap at 5 entries per message.** If more generalizable findings exist (e.g., a compound event), prioritize by: LRN Critical > LRN Major > KNW > LRN Minor. (KNW ranks above LRN Minor by design - a knowledge fact a future agent would re-derive carries more future-token value than a low-severity bug-fix residual.)
 
 ### 5. Optionally append to MEMORY.md
 
