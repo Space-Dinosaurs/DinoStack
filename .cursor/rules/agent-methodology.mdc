@@ -472,6 +472,8 @@ The conductor reads `.agentic/config.json` to resolve eleven project-level orche
 
 Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
 
+**Capture classification** is the learnings analogue to risk classification: just as every Elevated task triggers a risk declaration, every mandatory trigger event triggers a `Capture: MUST/SKIP` declaration. See `content/references/capture-classification.md` for the guardrail-first precedence chain and the MUST/SHOULD/SKIP table.
+
 ### Declaration format
 
 ```
@@ -741,3 +743,6 @@ Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`,
 
 **Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
 Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in METHODOLOGY.md §Worktree Lifecycle.
+
+**Capture classification** - when deciding whether to write a learning entry at a mandatory trigger:
+Read `content/references/capture-classification.md` for the guardrail-first precedence chain, the two-gate MUST/SHOULD/SKIP table, and the per-trigger declaration format. Mandatory triggers and the `Capture:` block format are owned by `content/references/conductor-operating-rules.md §learnings-agent`.
