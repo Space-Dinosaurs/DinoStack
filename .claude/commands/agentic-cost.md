@@ -111,9 +111,9 @@ all files empty), the command prints "No operator-level session logs found." and
 Operator rollup (all projects)
 
 developer_id          project_slug          sessions   in       out      wall(s)
-fullmetalblanket      agentic-engineering         12   84210    37440   4812.1
-fullmetalblanket      helios                       4   21004     9310   1204.3
-alice                 helios                       7   31022    14200   2100.0
+alice                 my-project                  12   84210    37440   4812.1
+alice                 side-project                 4   21004     9310   1204.3
+bob                   my-project                   7   31022    14200   2100.0
 TOTAL                                             23  136236    60950   8116.4
 
 Note: V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
@@ -153,7 +153,7 @@ WARNING: External-source reconstruction. NOT Stage 1 telemetry.
 
 Per-author:
   AUTHOR                COMMITS   PRS  MERGED  AVG_MERGE_TIME  FILES_TOUCHED
-  fullmetalblanket           47    12      11            3.2 d           1240
+  alice                      47    12      11            3.2 d           1240
   TOTAL                      47    12      11            3.2 d           1240
 
 Top ticket prefixes (from commit messages):
