@@ -4,8 +4,6 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 This system is designed to evolve. As AI tooling matures and teams discover better patterns, the rules, agents, and workflows change with them. Nothing here is final - treat it as a living system, not a finished product.
 
-> **DinoStack and "agentic-engineering".** DinoStack is the product. *agentic-engineering* is the methodology package it ships - the engine. You'll see `agentic-engineering` throughout the internals: the `~/.claude/agentic-engineering.json` config, the `agentic-engineering: opt-in` marker, the `.agentic/` directory, the `/agentic-*` commands. Those names are deliberate and stable - renaming them would break every existing install. DinoStack is the name on the box; agentic-engineering is the name in the wiring.
-
 **Live docs:** https://docs.dinostack.ai/
 
 ## Getting started
@@ -307,6 +305,10 @@ This framework is a safety rail, not a complete boundary. The recommended permis
 Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR.
 
 After installation, offer the user a quick orientation: present the files listed in the **Documentation** section above, ask which ones they want to see, and `open` only those. Skipping all is a valid answer.
+
+## Naming
+
+DinoStack is the product; `agentic-engineering` is the package it ships. The `agentic-engineering` name appears throughout the internals - the `~/.claude/agentic-engineering.json` config, the `agentic-engineering: opt-in` marker, the `.agentic/` directory, the `/agentic-*` commands - and stays stable so existing installs keep working.
 
 ## Contributing
 
