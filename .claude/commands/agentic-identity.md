@@ -78,8 +78,8 @@ scope:         project
 Example output (provisional):
 
 ```
-developer_id:  tyson.hummel
-display_name:  Tyson Hummel
+developer_id:  jane.dev
+display_name:  Jane Dev
 created_at:    2026-06-04T10:00:00Z
 provisional:   true
 ```
@@ -87,8 +87,8 @@ provisional:   true
 Example output (confirmed):
 
 ```
-developer_id:  tyson.hummel
-display_name:  Tyson Hummel
+developer_id:  jane.dev
+display_name:  Jane Dev
 created_at:    2026-06-04T10:00:00Z
 ```
 

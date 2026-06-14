@@ -18,7 +18,7 @@ curl -fsSL https://docs.dinostack.ai/install.sh | bash
 
 This clones the repo into `agentic-engineering/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
 
-> **Note:** the one-liner requires the repo to be public. Until then, collaborators can use the SSH path below - the script automatically falls back to SSH on clone failure.
+> **Note:** if the one-liner clone fails (e.g. network or auth issue), the script automatically falls back to SSH.
 
 **Custom install location:** set `AE_DEST_DIR` before running. The default is `<current directory>/agentic-engineering`.
 

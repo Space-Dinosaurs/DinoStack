@@ -10,4 +10,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Community files for the open-source launch (SUPPORT, GOVERNANCE, ROADMAP, CHANGELOG, issue and PR templates).
 
-[Unreleased]: https://github.com/Space-Dinosaurs/DinoStack/compare/HEAD...HEAD
+[Unreleased]: https://github.com/Space-Dinosaurs/DinoStack/commits/main

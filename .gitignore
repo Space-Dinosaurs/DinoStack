@@ -1,6 +1,9 @@
 # Claude Code - local settings contain secrets
 .claude/settings.local.json
 
+# Claude Code runtime state (local-only, leaks absolute paths)
+.claude/compression-state.json
+
 # ScheduleWakeup runtime lock (per-session, not shared)
 .claude/scheduled_tasks.lock
 
