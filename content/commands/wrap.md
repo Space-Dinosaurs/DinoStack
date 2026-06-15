@@ -382,7 +382,7 @@ Inside the Part A `context.md` write window (the whole-flow `wrap.lock` acquired
 
 3. **Write `.agentic/.last-wrap`** = this session's `session_id` (atomic) - per `content/references/wrap-context-format.md` §"`.agentic/.last-wrap` write contract".
 
-The net behavior of Part A is unchanged by this extraction: the cited reference is byte-identical to the algorithm `/wrap` formerly inlined here, pinned by the golden-file byte-identity test (`hooks/tests/test-wrap-context-format-golden.js`).
+The net behavior of Part A is unchanged by this extraction: the cited reference is semantically identical to the algorithm `/wrap` formerly inlined here (identical aside from the Result/Return label), pinned by the golden-file parity test (`hooks/tests/test-wrap-context-format-golden.js`).
 
 **Part B — Write memory.md**
 
