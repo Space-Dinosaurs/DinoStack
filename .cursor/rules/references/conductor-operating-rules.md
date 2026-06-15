@@ -50,6 +50,26 @@ When all three conditions are met:
 
 Then: the main session may apply the edit directly, followed immediately by spawning a Skeptic on the applied diff before any further action.
 
+## Never idle behind review
+
+**Principle: review gates the merge, not the existence of the PR.** Ship-then-review-in-parallel. A background Skeptic or QA agent is a gate on merging, never a barrier the conductor sits behind in silence. The defect this rule fixes: an engineer returns gated-clean, shippable code, the conductor has already spawned a background review, and the conductor then ends its turn in a passive "waiting on the review agent" state - producing minutes-to-hours of user-facing silence on a change that was ready to ship. Background spawning is correct; going silent behind it is the failure.
+
+**Trigger.** The engineer's output passes the project's typecheck/lint/build gates. At that moment the conductor:
+
+1. Opens the PR immediately. Mark it draft when a Skeptic or QA pass is still outstanding; mark it ready when review is already clean.
+2. Spawns (or continues) the Skeptic/QA review in parallel, running against the open PR.
+3. Folds any real findings in as follow-up commits on the same branch, and flips the draft to ready once review is clean.
+
+The open PR is the surface the review runs against. The review still gates the merge - a draft PR does not merge until review is clean - but it does not gate the PR's existence.
+
+**Prohibition.** The conductor MUST NOT end a turn whose only remaining "next step" is waiting on a background review when a shippable, gated-clean artifact already exists. If there is something to ship, ship it (draft) and let the review run concurrently; do not return to the user with "waiting on the Skeptic/QA agent" as the sole next action.
+
+**Wait cap.** If a background review or QA agent runs long past a reasonable wall-clock bound and a gated-clean artifact exists, the conductor proceeds - opens the PR, posts status - and reconciles the agent's findings when they return. A slow review agent must never translate into user-facing silence.
+
+**Match orchestration weight to task size.** Size the agent chain to the risk. A small single-surface change does not warrant a long serial investigator -> engineer -> Skeptic relay run to completion before any user-facing progress; size the relay to the Risk Classification and risk-profile tiers (see METHODOLOGY.md §Risk Classification and the risk profiles) rather than running the heaviest chain by reflex. Lighter tasks ship sooner and review in parallel.
+
+**Consistency.** This is the same parallel-by-default philosophy as concurrent QA + Skeptic (see METHODOLOGY.md §QA Gate): review runs alongside, not in front of, the work. The hard-stop branch is never bypassed - a draft PR is fine, but an irreversible or destructive action without authorization is not. Opening a draft PR is reversible (close it); executing a migration, force push, production deploy, or external send is not. Ship-then-review applies to the reversible ship step only.
+
 ## Editing methodology files
 
 Always route through `/update-agentic-engineering` for edits to `content/**`, `.codex/skill/**`, the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/update-agentic-engineering` instead.
