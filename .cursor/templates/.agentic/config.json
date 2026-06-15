@@ -7,5 +7,11 @@
   "capability_preflight_mode": "advisory",
   "perceptual_diff_enabled": false,
   "theme_aware": false,
-  "storybook_enabled": false
+  "storybook_enabled": false,
+  "deferred_wrap_daemon": false,
+  "deferred_wrap_idle_minutes": 15,
+  "deferred_wrap_heartbeat_seconds": 120,
+  "deferred_wrap_timeout_minutes": 10,
+  "deferred_wrap_inprogress_reclaim_minutes": 30,
+  "deferred_wrap_pending_ttl_days": 7
 }
