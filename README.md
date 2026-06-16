@@ -94,6 +94,8 @@ DinoStack supports two global activation modes, chosen at install time and persi
 ```
 bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
+bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
+bash .claude/install.sh --no-identity          # skip the developer-identity prompt
 ```
 
 The same flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, `.pi/install.sh`, `.omp/install.sh`, and `.hermes/install.sh` - the config file is shared across adapters.

@@ -685,7 +685,7 @@ _ae_setup_identity() {
   echo "  Developer identity links telemetry to your handle across sessions."
   local typed_handle=""
   read -r -p "  GitHub handle [skip]: " typed_handle </dev/tty || typed_handle=""
-  typed_handle="$(echo "$typed_handle" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')"
   if [[ -z "$typed_handle" ]]; then
     echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
     return
