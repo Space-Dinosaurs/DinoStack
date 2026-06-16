@@ -122,6 +122,29 @@ function installMockClaude() {
     '  setTimeout(() => process.exit(0), ms);',
     '  return;',
     '}',
+    '// Multibyte boundary mode: write a known UTF-8 string whose multi-byte code points',
+    '// are SPLIT across two raw writes at a mid-sequence byte boundary, so the daemon',
+    '// receives the first half of a multi-byte char in one chunk and the rest in the',
+    '// next. A naive chunk.toString() would emit U+FFFD for the straddled byte; a',
+    '// StringDecoder buffers it. The sentinel is wrapped in MB_START/MB_END markers.',
+    'if (mode === "multibyte") {',
+    '  // "MB_START\\u00e9\\u20ac\\ud83d\\ude80MB_END\\n" - e-acute (2B), euro (3B), rocket (4B).',
+    '  const sentinel = "MB_START\\u00e9\\u20ac\\ud83d\\ude80MB_END\\n";',
+    '  const buf = Buffer.from(sentinel, "utf8");',
+    '  // Find a split index that lands INSIDE a multi-byte sequence (a continuation byte,',
+    '  // 0b10xxxxxx) so the first write ends mid-codepoint.',
+    '  let split = -1;',
+    '  for (let k = 1; k < buf.length; k++) { if ((buf[k] & 0xc0) === 0x80) { split = k; break; } }',
+    '  if (split < 0) split = Math.floor(buf.length / 2);',
+    '  const a = buf.subarray(0, split);',
+    '  const b = buf.subarray(split);',
+    '  // Write the first half, then the second half on the next tick so they arrive as',
+    '  // SEPARATE data chunks on the daemon side (straddling the boundary).',
+    '  process.stdout.write(a, () => {',
+    '    setTimeout(() => { process.stdout.write(b, () => process.exit(0)); }, 20);',
+    '  });',
+    '  return;',
+    '}',
     '// Optional flood: write N KB to stdout (used to prove the daemon\'s capture cap',
     '// and drain-and-discard keep a chatty child from wedging on a full OS pipe).',
     '// CRITICAL: write asynchronously and RESPECT BACKPRESSURE (wait for drain when',
@@ -820,6 +843,221 @@ console.log('\n[LOG-6/SEC-symlink] planted symlink at wrap-daemon.log: victim un
   const st = fs.lstatSync(logPath);
   assert(st.isFile() && !st.isSymbolicLink(), 'wrap-daemon.log self-healed to a REGULAR file (symlink removed)');
   assert(/\[wrap-daemon\]/.test(readDaemonLog(agenticDir)), 'self-healed regular log holds the daemon lines');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// Lock-clear helpers (Part F: LOCK-1..7)
+// ---------------------------------------------------------------------------
+// Plant a wrap.lock DIRECTORY with an optional owner file body.
+function plantLockDir(agenticDir, ownerBody) {
+  const lockDir = path.join(agenticDir, 'wrap.lock');
+  fs.mkdirSync(lockDir, { recursive: true });
+  if (ownerBody !== null && ownerBody !== undefined) {
+    fs.writeFileSync(path.join(lockDir, 'owner'), ownerBody, 'utf8');
+  }
+  return lockDir;
+}
+// A PID that is essentially guaranteed dead (very high, unlikely to be live).
+const DEAD_PID = '2147480000';
+
+// ---------------------------------------------------------------------------
+// (LOCK-1) dead-PID owner -> the daemon clears the stale wrap.lock before drain.
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-1] dead-PID owner: daemon clears stale wrap.lock before drain');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock1-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // wrap.lock dir + owner = a known-dead PID (2-line body, PID + recent ISO).
+  const lockDir = plantLockDir(agenticDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
+  assert(fs.existsSync(lockDir), 'precondition: stale wrap.lock dir planted');
+
+  const { code, stdout } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'daemon exits 0');
+  assert(!fs.existsSync(lockDir), 'stale wrap.lock dir was cleared (dead owner PID)');
+  assert(/cleared provably-stale wrap\.lock/.test(stdout)
+    || /cleared provably-stale wrap\.lock/.test(readDaemonLog(agenticDir)),
+    'daemon logged "cleared provably-stale wrap.lock"');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOCK-2) no-PID owner + old timestamp -> cleared.
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-2] no-PID owner + old timestamp: daemon clears stale wrap.lock');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock2-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // owner body = "\n<35-min-ago ISO>" -> line0 empty (no PID), line1 = old ts.
+  // Default reclaim window is 30 min, so 35 min is provably stale.
+  const lockDir = plantLockDir(agenticDir, '\n' + agoIso(35 * 60) + '\n');
+
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'daemon exits 0');
+  assert(!fs.existsSync(lockDir), 'stale wrap.lock dir cleared (no PID + owner ts older than staleMs)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOCK-3) symlink at wrap.lock is NOT followed: victim untouched, link removed.
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-3] symlink at wrap.lock: not followed, victim untouched, link removed (CWE-59)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock3-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // A sentinel dir+file OUTSIDE .agentic/ that the symlink points at.
+  const sentinelDir = path.join(base, 'sentinel-dir');
+  fs.mkdirSync(sentinelDir, { recursive: true });
+  const sentinelFile = path.join(sentinelDir, 'keep.txt');
+  const SENTINEL_CONTENT = 'DO-NOT-DELETE-' + 'z'.repeat(48);
+  fs.writeFileSync(sentinelFile, SENTINEL_CONTENT, 'utf8');
+  // Plant wrap.lock as a SYMLINK to the sentinel dir.
+  const lockPath = path.join(agenticDir, 'wrap.lock');
+  fs.symlinkSync(sentinelDir, lockPath);
+  assert(fs.lstatSync(lockPath).isSymbolicLink(), 'precondition: wrap.lock is a planted symlink');
+
+  const { code, signal } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0 && !signal, `daemon exits 0 / not killed (code=${code} signal=${signal})`);
+  // Sentinel must be byte-identical and still present (never followed/deleted through link).
+  assert(fs.existsSync(sentinelFile), 'sentinel file still present (symlink target never removed)');
+  assert(fs.readFileSync(sentinelFile, 'utf8') === SENTINEL_CONTENT,
+    'sentinel content byte-identical (symlink not followed)');
+  // The link itself is gone (unlinked as a hostile artifact).
+  let linkGone = false;
+  try { fs.lstatSync(lockPath); } catch (_) { linkGone = true; }
+  assert(linkGone, 'planted wrap.lock symlink removed (link only, target untouched)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOCK-4) live-PID owner + recent ts -> lock KEPT (must NEVER clear a live lock).
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-4] live-PID owner + recent ts: lock KEPT (never clears a live lock)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock4-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // owner = THIS test process PID (alive) + recent ts.
+  const lockDir = plantLockDir(agenticDir, String(process.pid) + '\n' + new Date().toISOString() + '\n');
+
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'daemon exits 0');
+  assert(fs.existsSync(lockDir), 'live lock KEPT (alive owner PID is authoritative)');
+  const ownerAfter = fs.readFileSync(path.join(lockDir, 'owner'), 'utf8');
+  assert(ownerAfter.startsWith(String(process.pid)), 'owner file unchanged (lock untouched)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOCK-5) no-owner race -> lock KEPT (no usable signal -> keep, covers the
+// interactive /wrap mkdir-before-owner window).
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-5] no-owner race: lock KEPT (no signal -> keep)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock5-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // mkdir wrap.lock with NO owner file at all.
+  const lockDir = plantLockDir(agenticDir, null);
+
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'daemon exits 0');
+  assert(fs.existsSync(lockDir), 'no-owner lock KEPT (no usable signal -> keep, mkdir-before-owner race)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOCK-6) alive-PID + OLD ts -> KEEP (the live-lock corruption guard: an alive
+// PID is authoritative; timestamp age does NOT override liveness).
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-6] alive-PID + OLD ts: KEEP (alive PID authoritative; age does not override)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock6-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // owner = alive PID (this process) + a 35-min-old ts (older than the 30-min window).
+  const lockDir = plantLockDir(agenticDir, String(process.pid) + '\n' + agoIso(35 * 60) + '\n');
+
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'daemon exits 0');
+  assert(fs.existsSync(lockDir),
+    'lock KEPT despite OLD ts (alive PID is authoritative; age does not drive the clear)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOCK-7) dead-PID + RECENT ts -> CLEAR (liveness, not age, drives the clear).
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-7] dead-PID + RECENT ts: CLEAR (liveness, not age, drives the clear)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock7-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // owner = dead PID + a FRESH ts (within the window). The PID liveness, not the
+  // timestamp, must drive the clear.
+  const lockDir = plantLockDir(agenticDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
+
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'daemon exits 0');
+  assert(!fs.existsSync(lockDir), 'lock CLEARED on a dead PID even with a recent ts (liveness drives)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (CAP-multibyte) a multi-byte UTF-8 string straddling a chunk/backpressure
+// boundary is captured byte-exact (no U+FFFD) thanks to the StringDecoder.
+// ---------------------------------------------------------------------------
+console.log('\n[CAP-multibyte] multi-byte UTF-8 straddling a chunk boundary captured byte-exact (no U+FFFD)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-multibyte-');
+  writeConfig(agenticDir, FAST_IDLE);
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
+
+  const { code } = runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'multibyte',
+  }, 40000);
+
+  assert(code === 0, 'daemon exits 0 after a multibyte drain');
+  const logTxt = readDaemonLog(agenticDir);
+  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+    .split('----- end output for ' + SID.a)[0] || '';
+  // The exact sentinel the mock emitted (e-acute 2B, euro 3B, rocket 4B), reassembled.
+  const expected = 'MB_STARTé€🚀MB_END';
+  assert(block.includes(expected),
+    'captured block contains the exact multi-byte sentinel reassembled across the chunk boundary');
+  assert(!block.includes('�'),
+    'captured block contains NO U+FFFD replacement char (StringDecoder reassembled the straddled bytes)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (WRITE-short) a long log line is present byte-complete in wrap-daemon.log after a
+// run (exercises the appendToLog partial-write loop on the captured-output block).
+// ---------------------------------------------------------------------------
+console.log('\n[WRITE-short] a long captured line is present byte-complete in wrap-daemon.log');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-write-');
+  writeConfig(agenticDir, FAST_IDLE);
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
+  // Flood ~200 KB (under the 256 KB capture cap) so a single large block line is
+  // written to the log; the partial-write loop must emit it whole.
+  const { code } = runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok', MOCK_CLAUDE_FLOOD_KB: '200',
+  }, 45000);
+
+  assert(code === 0, 'daemon exits 0 after the large-output drain');
+  const logTxt = readDaemonLog(agenticDir);
+  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+    .split('----- end output for ' + SID.a)[0] || '';
+  // Not truncated (200 KB < 256 KB cap), so the full ~200 KB of 'x' is byte-complete.
+  assert(!/\[output truncated at 256 KB\]/.test(block),
+    'precondition: 200 KB output is under the 256 KB cap (not truncated)');
+  const xCount = (block.match(/x/g) || []).length;
+  assert(xCount >= 200 * 1024,
+    `the full ~200 KB flood is byte-complete in the log (got ${xCount} x bytes; partial-write loop wrote it whole)`);
   cleanup(base);
 }
 

@@ -9,10 +9,13 @@
  *          markers and the highest-blast-radius unit of the feature: it spawns
  *          `claude` subprocesses, owns a PID-file singleton, reclaims markers a
  *          dead daemon abandoned in `in_progress` (MAJOR-C), deletes stale
- *          `pending` markers (MINOR-1, delete-only), and bounds every child with a
- *          timeout-and-kill of the whole process group. It NEVER promotes a
- *          `pending` marker to `ready` (that is SessionEnd's sole job - CRITICAL-A),
- *          so it can never resume a live/idle session.
+ *          `pending` markers (MINOR-1, delete-only), clears a provably-stale
+ *          `.agentic/wrap.lock` at the top of each drain tick (delegated to the lib's
+ *          symlink-safe clearProvablyStaleWrapLock - the headless child runs with Bash
+ *          removed and cannot `rm` the lock itself, and the predicate never clears a
+ *          live lock), and bounds every child with a timeout-and-kill of the whole
+ *          process group. It NEVER promotes a `pending` marker to `ready` (that is
+ *          SessionEnd's sole job - CRITICAL-A), so it can never resume a live/idle session.
  *
  * Public API: none (CLI script). Invoked as `node hooks/wrap-daemon.js <project_root>`
  *             by the SessionEnd / SessionStart hooks (detached) or manually. Not
@@ -92,9 +95,15 @@
  *                buffer (drain-and-discard past the cap - the stream listener stays
  *                attached so a chatty child cannot wedge on a full OS pipe) and
  *                flushed to wrap-daemon.log on EVERY terminal path (clean/non-zero
- *                exit, signal/timeout kill, child error). Capturing the child's
- *                pipes does NOT change the --disallowedTools "Bash" / childEnv git
- *                hardening boundary - those flags and env are passed verbatim.
+ *                exit, signal/timeout kill, child error). A per-run StringDecoder
+ *                reassembles UTF-8 across chunk/backpressure boundaries (a multi-byte
+ *                code point split across two chunks is buffered until complete, so no
+ *                U+FFFD for a straddled byte); its trailing bytes are flushed via
+ *                decoder.end() on every terminal path under the same 256 KB cap.
+ *                Capturing the child's pipes does NOT change the --disallowedTools
+ *                "Bash" / childEnv git hardening boundary - those flags and env are
+ *                passed verbatim. The wrap-daemon.log append uses a short-write loop so
+ *                a partial writeSync still writes the whole line.
  *                SEC (CWE-59/CWE-61, planted-symlink write-through): wrap-daemon.log is
  *                written via an O_NOFOLLOW open (O_WRONLY|O_CREAT|O_APPEND|O_NOFOLLOW,
  *                0o600), so the append REFUSES to follow a symlink - a hostile repo's
@@ -123,6 +132,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const { StringDecoder } = require('string_decoder');
 
 const wrapMarker = require('./lib/wrap-marker.js');
 
@@ -313,7 +323,18 @@ function appendToLog(line) {
       0o600,
     );
     // finally guarantees the fd is closed even if writeSync throws (no descriptor leak).
-    try { fs.writeSync(fd, line); } finally { fs.closeSync(fd); }
+    // writeSync may perform a SHORT write (return fewer bytes than requested) on a pipe
+    // or under signal interruption, so loop until the whole line is written. Encode once
+    // to a Buffer and advance the offset by the bytes actually written each iteration.
+    try {
+      const buf = Buffer.from(line, 'utf8');
+      let off = 0;
+      while (off < buf.length) {
+        const w = fs.writeSync(fd, buf, off, buf.length - off);
+        if (w <= 0) break; // defensive: never infinite-loop / hang the synchronous daemon
+        off += w;
+      }
+    } finally { fs.closeSync(fd); }
   } catch (_) { /* ignore - logging is best-effort and must never throw (incl. ELOOP) */ }
 }
 
@@ -517,17 +538,31 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
     // discarding) further chunks. If we instead removed the listener or paused the
     // stream at the cap, a chatty child would block on a full OS pipe buffer (~64 KB)
     // and wedge the daemon queue - the exact failure the daemon exists to prevent.
+    //
+    // A StringDecoder reassembles UTF-8 across chunk/backpressure boundaries: a
+    // multi-byte code point split across two chunks (or held back when the OS pipe
+    // applies backpressure mid-sequence) is buffered until the next chunk completes
+    // it, so the captured text never carries a U+FFFD replacement for a straddled
+    // byte. The decoder buffers at most a few trailing bytes - it cannot defeat the cap.
+    const decoder = new StringDecoder('utf8');
     let captured = '';
     let capturedBytes = 0;
     let capTruncated = false;
-    const onChunk = (chunk) => {
+    // Append an already-decoded string subject to the SAME cap check used by both the
+    // per-chunk path and the terminal decoder.end() flush (DRY - one cap rule).
+    const appendDecoded = (s) => {
+      if (!s) return;
       if (capturedBytes < wrapMarker.MAX_CHILD_CAPTURE_BYTES) {
-        const s = chunk.toString();
         captured += s;
         capturedBytes += Buffer.byteLength(s);
         if (capturedBytes >= wrapMarker.MAX_CHILD_CAPTURE_BYTES) capTruncated = true;
       }
       // else: drain-and-discard (listener stays attached; pipe never fills).
+    };
+    const onChunk = (chunk) => {
+      // decoder.write returns ONLY complete code points; a trailing partial multi-byte
+      // sequence is buffered until the next chunk arrives (no premature U+FFFD).
+      appendDecoded(decoder.write(chunk));
     };
     if (child.stdout) child.stdout.on('data', onChunk);
     if (child.stderr) child.stderr.on('data', onChunk);
@@ -537,6 +572,10 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      // Flush any bytes the decoder is still holding (a trailing partial sequence) on
+      // EVERY terminal path (clean / non-zero / timeout / error), BEFORE the capture is
+      // written out. Subject to the same cap so the flushed tail cannot exceed it.
+      appendDecoded(decoder.end());
       flushChildCapture(sessionId, captured, capTruncated, result);
       resolve(result);
     };
@@ -623,13 +662,22 @@ function killGroup(child) {
  * @param {Set<string>} attemptedThisRun - Session ids already drained this run.
  */
 async function drainOnce(cwd, cfg, attemptedThisRun) {
-  const ready = wrapMarker.listReadyMarkers(cwd); // already FIFO by staged_at asc
-  if (!ready.length) return 'idle';
-
   const heartbeatMs = cfg.deferred_wrap_heartbeat_seconds * 1000;
   const reclaimMs = cfg.deferred_wrap_inprogress_reclaim_minutes * 60 * 1000;
   const timeoutMs = cfg.deferred_wrap_timeout_minutes * 60 * 1000;
   const ownerToken = String(process.pid);
+
+  // Clear a PROVABLY-stale wrap.lock BEFORE any child spawn (the headless
+  // /wrap-deferred child runs with Bash removed and cannot `rm` it; the trusted
+  // daemon must). Clearing here means the child sees no stale lock and won't
+  // re-flag it on every run. The lib's predicate NEVER clears a live lock. Reuses
+  // reclaimMs as the staleness window (same 30-min reclaim semantics).
+  if (wrapMarker.clearProvablyStaleWrapLock(cwd, reclaimMs)) {
+    log('cleared provably-stale wrap.lock before drain');
+  }
+
+  const ready = wrapMarker.listReadyMarkers(cwd); // already FIFO by staged_at asc
+  if (!ready.length) return 'idle';
 
   let sawDeferral = false;
   for (const entry of ready) {
