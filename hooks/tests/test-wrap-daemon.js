@@ -1007,6 +1007,48 @@ console.log('\n[LOCK-7] dead-PID + RECENT ts: CLEAR (liveness, not age, drives t
 }
 
 // ---------------------------------------------------------------------------
+// (LOCK-8) readWrapLockOwner parent-symlink guard: when wrap.lock itself is a
+// symlink to an attacker-controlled directory that contains a real (non-symlink)
+// owner file, readWrapLockOwner must return {pid:null,ts:null} WITHOUT reading the
+// attacker's owner. The leaf lstat guard alone is insufficient here because the
+// attacker's owner is a regular file (isSymbolicLink()===false at the leaf level).
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-8] readWrapLockOwner parent-symlink guard: does not read owner through a parent wrap.lock symlink (CWE-59 defense-in-depth)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock8-');
+
+  // Plant an "attacker" directory OUTSIDE .agentic/ containing a real owner file
+  // with recognizable PID + far-future ISO timestamp.
+  const attackerDir = path.join(base, 'attacker-dir');
+  fs.mkdirSync(attackerDir, { recursive: true });
+  const ATTACKER_PID = '4242';
+  const ATTACKER_TS = '2099-01-01T00:00:00.000Z';
+  fs.writeFileSync(path.join(attackerDir, 'owner'),
+    ATTACKER_PID + '\n' + ATTACKER_TS + '\n', 'utf8');
+
+  // Plant .agentic/wrap.lock as a SYMLINK to the attacker directory.
+  const lockPath = path.join(agenticDir, 'wrap.lock');
+  fs.symlinkSync(attackerDir, lockPath);
+  assert(fs.lstatSync(lockPath).isSymbolicLink(),
+    'LOCK-8 precondition: wrap.lock is a symlink to the attacker dir');
+
+  // readWrapLockOwner must NOT resolve through the parent link and read the
+  // attacker's owner file; it must return {pid:null,ts:null}.
+  const result = lib.readWrapLockOwner(projectDir);
+  assert(result.pid === null && result.ts === null,
+    'LOCK-8: readWrapLockOwner returns {pid:null,ts:null} when wrap.lock is a parent symlink (did NOT read attacker owner through the link)');
+
+  // The attacker dir and its owner file must be completely untouched.
+  assert(fs.existsSync(path.join(attackerDir, 'owner')),
+    'LOCK-8: attacker dir/owner file is untouched (never followed into)');
+  const attackerOwnerContent = fs.readFileSync(path.join(attackerDir, 'owner'), 'utf8');
+  assert(attackerOwnerContent.startsWith(ATTACKER_PID),
+    'LOCK-8: attacker owner file content is unchanged (no side effects)');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
 // (CAP-multibyte) a multi-byte UTF-8 string straddling a chunk/backpressure
 // boundary is captured byte-exact (no U+FFFD) thanks to the StringDecoder.
 // ---------------------------------------------------------------------------

@@ -38,7 +38,8 @@
  *     cleanStalePending(cwd, ttlMs) -> {deleted:[]}
  *   Lock (NEVER prompts):
  *     acquireWrapLock(cwd, owner, staleMs) -> boolean, releaseWrapLock(cwd)
- *     readWrapLockOwner(cwd) -> { pid, ts } (symlink-guarded owner read),
+ *     readWrapLockOwner(cwd) -> { pid, ts } (symlink-guarded: guards both parent lock
+ *       dir AND leaf owner against symlinks, no-follow; safe for any caller),
  *     clearProvablyStaleWrapLock(cwd, staleMs) -> boolean (daemon-side stale-lock clear)
  *   Heartbeat:
  *     touchHeartbeat(cwd, sessionId) (NO-OP under guard), removeHeartbeat(cwd, sessionId)
@@ -91,8 +92,12 @@
  *                no-follow at the lock path, a symlink AT wrap.lock is unlinked (link
  *                only, never its target), a plain file is left alone, and rmSync runs
  *                ONLY on a confirmed real directory. readWrapLockOwner is likewise
- *                lstat-guarded - a planted `wrap.lock/owner -> /etc/passwd` is detected
- *                and never read through. Both are fail-open (never throw).
+ *                symlink-safe (CWE-59) at BOTH levels: (1) the parent lock dir is
+ *                lstat-guarded - a wrap.lock symlink returns {null,null} before any child
+ *                path is opened; (2) the leaf owner is lstat-guarded - a planted
+ *                `wrap.lock/owner -> /etc/passwd` is detected and never read through.
+ *                Both are fail-open (never throw), and (1) makes the reader self-sufficient
+ *                for any caller without requiring a prior parent-level lstat.
  *
  * Performance: standard. Synchronous fs only; no git, no network, no subprocess.
  *              listReadyMarkers / listInProgressMarkers glob one directory
@@ -801,17 +806,33 @@ const MAX_OWNER_BYTES = 4 * 1024;
  *   - line1 (if present) -> a trimmed non-empty ISO string, else null
  * Fail-open: { pid: null, ts: null } on any error.
  *
- * SECURITY (CWE-59 read-through): lstatSync the owner path FIRST (no-follow). If it
- * is a symlink, return { pid: null, ts: null } immediately WITHOUT reading - a planted
- * `wrap.lock/owner -> /etc/passwd` must NOT be followed during the read. This DIVERGES
- * from the sibling readers (readPidFile / readMarkerFile / readLastWrap do a bare
- * readFileSync with no guard); the guard is mandatory here because this read gates a
- * destructive rmSync in clearProvablyStaleWrapLock.
+ * SECURITY (CWE-59, defense-in-depth): this function guards against symlinks at
+ * BOTH levels so it is safe for any caller, not just the parent-validating one
+ * (clearProvablyStaleWrapLock does its own top-level lstat before the destructive
+ * rmSync; this reader is self-sufficient for callers that skip that pre-check).
+ *
+ *   (1) PARENT guard: lstatSync wrap.lock (no-follow) first. If the lock directory
+ *       itself is a symlink, return { pid: null, ts: null } immediately - do NOT
+ *       open any child path inside it. An attacker directory reachable via a parent
+ *       link could contain a real (non-symlink) owner file; without this guard the
+ *       leaf check would not detect it and the function would return attacker-
+ *       controlled {pid, ts}. This parent check closes that read-through vector.
+ *
+ *   (2) LEAF guard: lstatSync the owner path (no-follow). If it is a symlink,
+ *       return { pid: null, ts: null } - a planted `wrap.lock/owner -> /etc/passwd`
+ *       must NOT be followed. This guard is mandatory because this read gates the
+ *       destructive rmSync in clearProvablyStaleWrapLock.
  */
 function readWrapLockOwner(cwd) {
   const empty = { pid: null, ts: null };
   try {
+    // (1) PARENT guard: if wrap.lock itself is a symlink, bail immediately.
+    // Resolving into a parent-linked attacker dir could expose a real owner file.
+    const lockSt = fs.lstatSync(wrapLockPath(cwd)); // throws if absent -> caught -> empty
+    if (lockSt.isSymbolicLink()) return empty;
+
     const p = wrapLockOwnerPath(cwd);
+    // (2) LEAF guard: if the owner file is a symlink, bail without reading.
     const st = fs.lstatSync(p); // no-follow; throws ENOENT when absent -> caught -> empty
     if (st.isSymbolicLink()) return empty; // never readFileSync through a planted link
     if (!st.isFile()) return empty;
