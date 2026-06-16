@@ -46,6 +46,7 @@ Plan & build
 
 Maintain & curate
   /memory-update               Capture a stable project fact or decision into MEMORY.md.
+  /pull-and-install            Pull and reinstall agentic-engineering from upstream, or fresh-install if not yet set up.
   /wrap                        Summarize the current session into .agentic/context.md.
   /migrate-project             Apply scaffolding migrations to bring a project up to the current manifest version.
   /cleanup-worktrees           Remove stale subagent and feature worktrees.
