@@ -2,9 +2,9 @@
 
 ## Getting started
 
-1. Fork and clone the repo to `~/agentic-engineering/`:
+1. Fork and clone the repo to `~/DinoStack/`:
    ```bash
-   git clone git@github.com:Space-Dinosaurs/DinoStack.git ~/agentic-engineering
+   git clone git@github.com:Space-Dinosaurs/DinoStack.git ~/DinoStack
    ```
 2. Install the adapter for your tool:
    - Claude Code: `.claude/install.sh` (runs the initial build and wires up the pre-commit hook)

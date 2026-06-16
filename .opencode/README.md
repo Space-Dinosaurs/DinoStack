@@ -25,8 +25,8 @@ DinoStack adapter for [OpenCode](https://opencode.ai).
 ## Install
 
 ```bash
-git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
-bash ~/agentic-engineering/.opencode/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.opencode/install.sh
 ```
 
 This installs:

@@ -18,14 +18,14 @@ curl -fsSL https://docs.dinostack.ai/install.sh | bash
 **Or manually:**
 
 ```bash
-git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
-bash ~/agentic-engineering/.claude/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.claude/install.sh
 ```
 
 Then open Claude Code and ask your agent:
 
 ```
-Run ~/agentic-engineering/.claude/install.sh
+Run ~/DinoStack/.claude/install.sh
 ```
 
 Or run manually from the repo root:

@@ -154,9 +154,9 @@ Plan:
   Branch: main (clean, origin/main is N commit(s) ahead)
 
   Commands to run:
-    git -C /Users/you/agentic-engineering pull --ff-only origin main
-    bash /Users/you/agentic-engineering/.claude/install.sh --mode=opt-out --profile=default --identity=yourhandle
-    bash /Users/you/agentic-engineering/.codex/install.sh --mode=opt-out --profile=default --identity=yourhandle
+    git -C /Users/you/DinoStack pull --ff-only origin main
+    bash /Users/you/DinoStack/.claude/install.sh --mode=opt-out --profile=default --identity=yourhandle
+    bash /Users/you/DinoStack/.codex/install.sh --mode=opt-out --profile=default --identity=yourhandle
 
   Adapters: Claude (locked), Codex
   Mode: opt-out | Profile: default | Identity: yourhandle
@@ -205,9 +205,9 @@ On non-zero exit from any adapter: stop immediately, report which adapter failed
 
 **4a - Determine destination:**
 ```bash
-DEST="${AE_DEST_DIR:-$HOME/agentic-engineering}"
+DEST="${AE_DEST_DIR:-$HOME/DinoStack}"
 ```
-If `AE_DEST_DIR` is set in the environment, use it. Otherwise default to `$HOME/agentic-engineering`.
+If `AE_DEST_DIR` is set in the environment, use it. Otherwise default to `$HOME/DinoStack`.
 
 **4b - Clone (HTTPS with SSH fallback, same as bootstrap.sh):**
 

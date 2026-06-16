@@ -36,8 +36,8 @@ referencing the methodology guarantees it is active.
 ## Install
 
 ```bash
-git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
-bash ~/agentic-engineering/.omp/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.omp/install.sh
 ```
 
 This will:
