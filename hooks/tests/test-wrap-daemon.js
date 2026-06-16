@@ -33,6 +33,10 @@
  *   (LOG-5) SEC-C1 boundary intact after the stdio capture change: --disallowedTools
  *           Bash, --allowedTools file-tools, and the per-child GIT_CONFIG_* env are
  *           all unchanged.
+ *   (LOG-6) SEC-symlink (CWE-59): a planted tracked symlink at wrap-daemon.log pointing
+ *           at a victim OUTSIDE .agentic/ is NEVER written through (O_NOFOLLOW), the
+ *           victim content is unchanged, and the log self-heals to a regular file
+ *           (lstat-detect + unlink) - the daemon stays fail-open (exits normally).
  *
  * Hermetic: a MOCK `claude` (a stub node script placed FIRST on PATH) replaces the
  * real CLI - the daemon never invokes the real Claude. The mock's behavior is
@@ -777,6 +781,45 @@ console.log('\n[LOG-5/SEC-C1] boundary intact after stdio capture: --disallowedT
   assert(drainEnv && drainEnv.GIT_CONFIG_GLOBAL === '/dev/null'
     && drainEnv.GIT_CONFIG_SYSTEM === '/dev/null' && drainEnv.GIT_CONFIG_NOSYSTEM === '1',
     'drain child env still neutralizes global/system git config after stdio capture (SEC-C1)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOG-6/SEC-symlink) CWE-59 planted-symlink write-through is closed: a hostile repo
+// pre-plants a tracked symlink at .agentic/wrap-daemon.log pointing at a victim file
+// OUTSIDE .agentic/. The O_NOFOLLOW write + lstat self-heal must (a) NEVER write
+// through the link into the victim, (b) replace the link with a fresh REGULAR log
+// holding the daemon's own lines, and (c) keep the daemon fail-open (exits normally).
+// ---------------------------------------------------------------------------
+console.log('\n[LOG-6/SEC-symlink] planted symlink at wrap-daemon.log: victim untouched, log self-heals to a regular file (CWE-59)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-log-symlink-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // A victim sentinel OUTSIDE .agentic/ (in the test's own tmp base) with known content.
+  const victim = path.join(base, 'victim.txt');
+  const VICTIM_CONTENT = 'DO-NOT-OVERWRITE-' + 'x'.repeat(64);
+  fs.writeFileSync(victim, VICTIM_CONTENT, 'utf8');
+  // Pre-plant the hostile symlink where the daemon will append its log.
+  const logPath = daemonLogPath(agenticDir);
+  fs.symlinkSync(victim, logPath);
+  assert(fs.lstatSync(logPath).isSymbolicLink(), 'precondition: wrap-daemon.log is a planted symlink');
+
+  // No ready markers -> the daemon idle-self-exits, but it still log()s lifecycle lines
+  // (startup/self-exit), which exercises appendToLog against the planted link.
+  const { code, signal } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  // (c) fail-open: the daemon exited normally, it did NOT crash on the planted link.
+  assert(code === 0 && !signal, `daemon exits 0 / not killed despite the planted symlink (code=${code} signal=${signal})`);
+  // (a) the victim was NEVER written through the link - content byte-identical, and no
+  // daemon log line leaked into it.
+  const victimAfter = fs.readFileSync(victim, 'utf8');
+  assert(victimAfter === VICTIM_CONTENT, 'victim file content UNCHANGED (never written through the symlink)');
+  assert(!/\[wrap-daemon\]/.test(victimAfter), 'no [wrap-daemon] line leaked into the victim via the link');
+  // (b) the log self-healed: wrap-daemon.log is now a REGULAR file (link removed) holding
+  // the daemon's own lines.
+  const st = fs.lstatSync(logPath);
+  assert(st.isFile() && !st.isSymbolicLink(), 'wrap-daemon.log self-healed to a REGULAR file (symlink removed)');
+  assert(/\[wrap-daemon\]/.test(readDaemonLog(agenticDir)), 'self-healed regular log holds the daemon lines');
   cleanup(base);
 }
 

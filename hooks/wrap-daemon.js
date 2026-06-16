@@ -95,6 +95,17 @@
  *                exit, signal/timeout kill, child error). Capturing the child's
  *                pipes does NOT change the --disallowedTools "Bash" / childEnv git
  *                hardening boundary - those flags and env are passed verbatim.
+ *                SEC (CWE-59/CWE-61, planted-symlink write-through): wrap-daemon.log is
+ *                written via an O_NOFOLLOW open (O_WRONLY|O_CREAT|O_APPEND|O_NOFOLLOW,
+ *                0o600), so the append REFUSES to follow a symlink - a hostile repo's
+ *                tracked symlink at .agentic/wrap-daemon.log (which the .agentic/*
+ *                gitignore does NOT cover) cannot redirect attacker-influenced child
+ *                output through the link into ~/.bashrc / a git hook / authorized_keys.
+ *                A pre-write lstat (does not follow) detects + unlinks a planted link
+ *                (self-heal to a fresh regular file), and the O_NOFOLLOW open closes the
+ *                residual race (a link raced in after the lstat fails the open with
+ *                ELOOP). 0o600 keeps the log owner-only (it may carry session content).
+ *                All fail-open: an ELOOP/error silently drops the line, never crashes.
  *
  * Performance: long-running but near-idle. Polls the marker directory on a fixed
  *              interval; each tick is a single readdir + a few stat/read calls.
@@ -261,20 +272,49 @@ function readConfig(cwd) {
  * single-generation size rotation. Fail-open: the WHOLE body is wrapped so it NEVER
  * throws (a logging failure must never crash the daemon or suppress stdout). A no-op
  * until logFilePath is bound (pre-init lines stay stdout-only).
+ *
+ * SECURITY (CWE-59 / CWE-61, symlink write-through): a hostile cloned repo can ship a
+ * TRACKED symlink at .agentic/wrap-daemon.log (the .agentic/* gitignore does NOT cover
+ * a tracked path, so it materializes on clone) pointing OUTSIDE .agentic/ - e.g. at
+ * ~/.bashrc, a git hook, or ~/.ssh/authorized_keys. A symlink-following append would
+ * write attacker-influenced child output THROUGH the link into the victim file (a
+ * persistence/exec primitive). Two layers close this: (1) lstatSync (does NOT follow)
+ * detects a planted link and unlinkSync removes ONLY the link (not its target) so a
+ * fresh regular file is created on open; (2) the write itself uses an O_NOFOLLOW open,
+ * so even a link raced in AFTER the lstat fails the open with ELOOP rather than writing
+ * through. Both paths fail-open: on ELOOP/any error the line is silently dropped.
  */
 function appendToLog(line) {
   if (logFilePath === null) return;
   try {
+    // Detect + self-heal a planted symlink, then run the existing size rotation. lstat
+    // does NOT follow the link, so an attacker-planted symlink is observed AS a symlink.
     try {
-      const st = fs.statSync(logFilePath);
-      if (st.size > wrapMarker.MAX_DAEMON_LOG_BYTES) {
-        // Single-generation rotation: overwrite any prior .log.1. A rename failure is
-        // swallowed (fail-open) - the append below still proceeds onto the live file.
+      const st = fs.lstatSync(logFilePath);
+      if (st.isSymbolicLink()) {
+        // Remove ONLY the link (unlink never follows), so the O_NOFOLLOW open below
+        // creates a fresh regular file in its place instead of touching the target.
+        fs.unlinkSync(logFilePath);
+      } else if (st.size > wrapMarker.MAX_DAEMON_LOG_BYTES) {
+        // Single-generation rotation: rename the live log onto .log.1. renameSync
+        // REPLACES the destination NAME atomically - it does not open/follow a .log.1
+        // symlink - so the rotation target needs no separate O_NOFOLLOW guard. A rename
+        // failure is swallowed (fail-open) - the open below still proceeds on the live file.
         try { fs.renameSync(logFilePath, logFilePath + '.1'); } catch (_) { /* ignore */ }
       }
-    } catch (_) { /* statSync throws when the log is absent yet - just append below */ }
-    fs.appendFileSync(logFilePath, line);
-  } catch (_) { /* ignore - logging is best-effort and must never throw */ }
+    } catch (_) { /* lstat throws ENOENT when the log is absent yet - just open below */ }
+    // O_NOFOLLOW makes the open fail with ELOOP if logFilePath is a symlink (even one
+    // raced in after the lstat above), so a write-through the link is impossible. The
+    // open is O_WRONLY|O_CREAT|O_APPEND (append semantics, create on first run) with
+    // 0o600 perms - the log may carry session content, so least-privilege owner-only.
+    const fd = fs.openSync(
+      logFilePath,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW,
+      0o600,
+    );
+    // finally guarantees the fd is closed even if writeSync throws (no descriptor leak).
+    try { fs.writeSync(fd, line); } finally { fs.closeSync(fd); }
+  } catch (_) { /* ignore - logging is best-effort and must never throw (incl. ELOOP) */ }
 }
 
 /**
