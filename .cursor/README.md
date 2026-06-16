@@ -1,4 +1,4 @@
-# Agentic Engineering - Cursor Adapter
+# DinoStack - Cursor Adapter
 
 ## What this provides
 
@@ -9,7 +9,11 @@
 
 ## Setup
 
-To install, see the Quickstart in the [root README](../README.md).
+First, clone the repo if you haven't already:
+
+```bash
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
+```
 
 ### Project-level (team use)
 
@@ -26,13 +30,13 @@ Commit `.cursor/` so the whole team gets the methodology. Rules, commands, and h
 Run the installer from the repo root:
 
 ```bash
-~/agentic-engineering/.cursor/install.sh
+bash ~/agentic-engineering/.cursor/install.sh
 ```
 
 This symlinks rules, reference docs, and commands into `~/.cursor/` and copies `hooks.json`. To remove:
 
 ```bash
-~/agentic-engineering/.cursor/uninstall.sh
+bash ~/agentic-engineering/.cursor/uninstall.sh
 ```
 
 ## How rules load

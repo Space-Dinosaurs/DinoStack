@@ -1,10 +1,10 @@
-# Agentic Engineering — Hermes Adapter
+# DinoStack - Hermes Adapter
 
 ## What this provides
 
-- **SKILL.md** — A Hermes skill containing the full agentic engineering methodology (rules, references, agents, commands)
-- **Global config** — `~/.hermes/agentic-engineering.json` stores the activation mode (`opt-out` or `opt-in`)
-- **Auto-loading** — The skill loads automatically when Hermes detects software-development context, or manually via `skill_view(name="agentic-engineering")`
+- **SKILL.md** - A Hermes skill containing the full DinoStack methodology (rules, references, agents, commands)
+- **Global config** - `~/.hermes/agentic-engineering.json` stores the activation mode (`opt-out` or `opt-in`)
+- **Auto-loading** - The skill loads automatically when Hermes detects software-development context, or manually via `skill_view(name="agentic-engineering")`
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@
 Clone the repo (if you haven't):
 
 ```bash
-git clone git@github.com:Solara6/agentic-engineering.git ~/agentic-engineering
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
 ```
 
 Run the installer:
@@ -50,7 +50,7 @@ bash ~/agentic-engineering/.hermes/install.sh --mode=opt-in
    ```
    skill_view(name="agentic-engineering")
    ```
-   Then ask: "What risk tiers does the agentic engineering protocol define?"
+   Then ask: "What risk tiers does the DinoStack protocol define?"
    The answer should reference Trivial/Low/Elevated/Elevated+Cleanup.
 
 3. **Activation mode set:**
@@ -69,7 +69,7 @@ Removes the skill symlink and optionally the config file.
 
 ## Updating
 
-Pull and re-run the installer — it is idempotent:
+Pull and re-run the installer - it is idempotent:
 
 ```bash
 cd ~/agentic-engineering
@@ -102,7 +102,7 @@ If inactive for the current project, the skill no-ops gracefully.
 
 ### Commands
 
-Hermes does not have "slash commands" like Claude Code. Instead, the commands from `content/commands/` are included as documented workflow patterns. Invoke them by asking the agent to run the workflow (e.g., "Run the skeptic workflow" or "Initialize this project with agentic engineering").
+Hermes does not have "slash commands" like Claude Code. Instead, the commands from `content/commands/` are included as documented workflow patterns. Invoke them by asking the agent to run the workflow (e.g., "Run the skeptic workflow" or "Initialize this project with DinoStack").
 
 ### Hooks
 
