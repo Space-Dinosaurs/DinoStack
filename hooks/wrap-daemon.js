@@ -29,6 +29,9 @@
  *                the child env so the child's own hooks no-op (loop-guard).
  *                Writes/owns [project_root]/.agentic/wrap-daemon.pid (O_EXCL
  *                singleton) and may write [project_root]/.agentic/wrap-daemon-auth-failed.
+ *                Also writes an always-on bounded operator log at
+ *                [project_root]/.agentic/wrap-daemon.log (rotation target
+ *                .agentic/wrap-daemon.log.1), each rotated at MAX_DAEMON_LOG_BYTES.
  *
  * Downstream consumers: none (terminal process). Its side effects - the canonical
  *                       context.md / memory.md / AGENTS.md writes - are performed by
@@ -84,12 +87,24 @@
  *                size-bounded (SEC-M2 / SEC-M3) so a planted multi-GB file or a
  *                directory of tens of thousands of marker files cannot wedge a poll
  *                tick.
+ *                LOGGING (bounded, does NOT alter the boundary): the headless child's
+ *                stdout/stderr is captured into a per-run 256 KB-capped in-memory
+ *                buffer (drain-and-discard past the cap - the stream listener stays
+ *                attached so a chatty child cannot wedge on a full OS pipe) and
+ *                flushed to wrap-daemon.log on EVERY terminal path (clean/non-zero
+ *                exit, signal/timeout kill, child error). Capturing the child's
+ *                pipes does NOT change the --disallowedTools "Bash" / childEnv git
+ *                hardening boundary - those flags and env are passed verbatim.
  *
  * Performance: long-running but near-idle. Polls the marker directory on a fixed
  *              interval; each tick is a single readdir + a few stat/read calls.
  *              Heavy work (the `claude` subprocess) is bounded by the configured
  *              per-child timeout (default 10 min). Self-exits when idle (default
- *              15 min) so an unused daemon does not linger.
+ *              15 min) so an unused daemon does not linger. The wrap-daemon.log is
+ *              bounded to ~2 MB live + one prior `.log.1` rotation (~4 MB max); on a
+ *              persistent rename failure the live log may exceed 2 MB by accumulated
+ *              appends until the next successful rotation - the in-memory capture
+ *              buffer is hard-capped at 256 KB and never grows unbounded.
  */
 
 'use strict';
@@ -241,11 +256,37 @@ function readConfig(cwd) {
 // PID-file singleton
 // ---------------------------------------------------------------------------
 
-/** Best-effort logger - the daemon's diagnostics go to stdout; never throws. */
+/**
+ * Append a pre-formatted line to the daemon-owned .agentic/wrap-daemon.log, with a
+ * single-generation size rotation. Fail-open: the WHOLE body is wrapped so it NEVER
+ * throws (a logging failure must never crash the daemon or suppress stdout). A no-op
+ * until logFilePath is bound (pre-init lines stay stdout-only).
+ */
+function appendToLog(line) {
+  if (logFilePath === null) return;
+  try {
+    try {
+      const st = fs.statSync(logFilePath);
+      if (st.size > wrapMarker.MAX_DAEMON_LOG_BYTES) {
+        // Single-generation rotation: overwrite any prior .log.1. A rename failure is
+        // swallowed (fail-open) - the append below still proceeds onto the live file.
+        try { fs.renameSync(logFilePath, logFilePath + '.1'); } catch (_) { /* ignore */ }
+      }
+    } catch (_) { /* statSync throws when the log is absent yet - just append below */ }
+    fs.appendFileSync(logFilePath, line);
+  } catch (_) { /* ignore - logging is best-effort and must never throw */ }
+}
+
+/**
+ * Best-effort logger - the daemon's diagnostics go to BOTH stdout (unchanged) and the
+ * persistent .agentic/wrap-daemon.log (once bound). Never throws: each sink has its own
+ * guard so one failing must not suppress the other.
+ */
 function log(msg) {
   try {
     process.stdout.write('[wrap-daemon] ' + msg + '\n');
   } catch (_) { /* ignore */ }
+  appendToLog('[' + new Date().toISOString() + '] [wrap-daemon] ' + msg + '\n');
 }
 
 /**
@@ -419,7 +460,10 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
         // the WHOLE group (-pid) on timeout - this kills any grandchildren the
         // headless run spawned, not just the immediate child.
         detached: true,
-        stdio: 'ignore',
+        // Capture the headless child's stdout+stderr (previously discarded) so the
+        // /wrap-deferred output lands in .agentic/wrap-daemon.log. The boundary is
+        // UNCHANGED: --disallowedTools Bash + childEnv() git hardening still apply.
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: childEnv(),
       });
     } catch (err) {
@@ -427,11 +471,33 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
       return;
     }
 
+    // Per-run capture of the child's stdout/stderr, hard-capped at
+    // MAX_CHILD_CAPTURE_BYTES. CRITICAL anti-wedge: once the cap is reached we STOP
+    // growing `captured` but the listener STAYS attached and keeps consuming (and
+    // discarding) further chunks. If we instead removed the listener or paused the
+    // stream at the cap, a chatty child would block on a full OS pipe buffer (~64 KB)
+    // and wedge the daemon queue - the exact failure the daemon exists to prevent.
+    let captured = '';
+    let capturedBytes = 0;
+    let capTruncated = false;
+    const onChunk = (chunk) => {
+      if (capturedBytes < wrapMarker.MAX_CHILD_CAPTURE_BYTES) {
+        const s = chunk.toString();
+        captured += s;
+        capturedBytes += Buffer.byteLength(s);
+        if (capturedBytes >= wrapMarker.MAX_CHILD_CAPTURE_BYTES) capTruncated = true;
+      }
+      // else: drain-and-discard (listener stays attached; pipe never fills).
+    };
+    if (child.stdout) child.stdout.on('data', onChunk);
+    if (child.stderr) child.stderr.on('data', onChunk);
+
     let settled = false;
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      flushChildCapture(sessionId, captured, capTruncated, result);
       resolve(result);
     };
 
@@ -455,6 +521,28 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
       }
     });
   });
+}
+
+/**
+ * Flush one headless /wrap-deferred child's captured output to the log as a single
+ * delimited block (via log(), so it also appears on stdout). Called on EVERY terminal
+ * path - clean exit, non-zero exit, signal/timeout kill, and child error. The
+ * spawn-failure early-return has no child object and nothing to flush, so it is the
+ * only terminal path that does not call this.
+ *
+ * @param {string} sessionId - Validated session UUID.
+ * @param {string} captured - The (bounded) child stdout+stderr.
+ * @param {boolean} capTruncated - Whether the 256 KB cap was hit.
+ * @param {{ok:boolean, error:string|null}} result - The drain outcome.
+ */
+function flushChildCapture(sessionId, captured, capTruncated, result) {
+  const status = result && result.ok ? 'ok' : ('FAILED: ' + ((result && result.error) || 'unknown'));
+  let block = '----- /wrap-deferred output for ' + sessionId + ' [' + status + '] -----\n';
+  block += captured;
+  if (captured && !captured.endsWith('\n')) block += '\n';
+  if (capTruncated) block += '[output truncated at 256 KB]\n';
+  block += '----- end output for ' + sessionId + ' -----';
+  log(block);
 }
 
 /** Kill a detached child's whole process group (SIGKILL), best-effort. */
@@ -537,20 +625,24 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
 
     // (c)+(d) Run /wrap-deferred in the MAIN project dir, bounded by timeout-kill.
     log('draining session ' + sessionId + ' (attempt ' + claimed.attempts + ')');
+    const startedAt = Date.now();
     const result = await runDeferredWrap(sessionId, cwd, timeoutMs);
 
     if (result.ok) {
       // (e) Clean exit -> done (unlinks marker + heartbeat in the lib).
       wrapMarker.transitionDone(cwd, sessionId);
-      log('session ' + sessionId + ' wrapped -> done');
+      log('session ' + sessionId + ' done (code:0 dur:' + (Date.now() - startedAt) + 'ms)');
     } else {
       // (f) Failure/timeout. The claim already incremented attempts. At the cap,
       // give up; otherwise reset to `ready` so a FUTURE daemon run retries it.
       const attempts = Number.isInteger(claimed.attempts) ? claimed.attempts : 0;
       const lastError = result.error || 'unknown';
       if (attempts >= MAX_ATTEMPTS) {
+        // Pass the SAME lastError to both the marker transition and the log line so
+        // the log and the marker's last_error agree by construction (do NOT re-derive).
         wrapMarker.transitionGaveUp(cwd, sessionId, lastError);
-        log('session ' + sessionId + ' gave_up after ' + attempts + ' attempts (' + lastError + ')');
+        log('session ' + sessionId + ' gave_up after ' + attempts + ' attempts (last_error:'
+          + lastError + '; dur:' + (Date.now() - startedAt) + 'ms)');
       } else {
         // Reset in_progress -> ready, preserving the bumped attempts and recording
         // last_error. Use the claimed marker object verbatim and only flip the
@@ -564,7 +656,8 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
         });
         wrapMarker.writeMarker(cwd, retry);
         log('session ' + sessionId + ' failed (' + lastError + '); reset to ready (attempt '
-          + attempts + '/' + MAX_ATTEMPTS + '; retried on next daemon launch)');
+          + attempts + '/' + MAX_ATTEMPTS + '; retried on next daemon launch; dur:'
+          + (Date.now() - startedAt) + 'ms)');
       }
     }
     return 'processed';
@@ -581,6 +674,10 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
 
 let pidPathForCleanup = null;
 let cleanedUp = false;
+// Bound to the resolved log path once main() has validated project_root (so the path
+// derives from a clean absolute existing dir). Null before that -> appendToLog no-ops,
+// keeping pre-init lifecycle lines stdout-only.
+let logFilePath = null;
 
 /** Release the pid singleton (unlink the EXACT path). Idempotent. */
 function releaseSingleton() {
@@ -632,6 +729,11 @@ async function main() {
     log('project_root does not exist; exiting');
     process.exit(0);
   }
+
+  // Bind the persistent log path ONLY after project_root passed its validity and
+  // existing-directory guards, so the path derives from a clean absolute existing dir.
+  // From here on, log()/appendToLog also persist to .agentic/wrap-daemon.log.
+  logFilePath = wrapMarker.wrapDaemonLogPath(projectRoot);
 
   // --- 2. Loop-guard: a daemon must NEVER spawn from inside a daemon run ---
   if (wrapMarker.daemonGuardActive()) {

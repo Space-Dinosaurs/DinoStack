@@ -19,12 +19,28 @@
  *   (16) timeout-and-kill -> the hung child is killed and the marker is reset
  *        (attempts incremented), not left in_progress.
  *
+ * Daemon-logging cases (.agentic/wrap-daemon.log):
+ *   (LOG-1) success capture: the log holds the done outcome line + the child's
+ *           captured stdout (WRAP_OK_MARKER) inside the delimited block.
+ *   (LOG-2) gave_up + stderr capture + log/marker agreement: the log carries
+ *           gave_up + last_error:exit:7 + the captured stderr, and the marker's
+ *           last_error equals exit:7 (agree by construction).
+ *   (LOG-3) ANTI-WEDGE cap: a 512 KB stdout flood is bounded at ~256 KB with the
+ *           truncation notice, AND the child exits NORMALLY (no timeout/kill) -
+ *           proving drain-and-discard keeps the listener attached so the child
+ *           never wedges on a full OS pipe.
+ *   (LOG-4) rotation: a >2 MB log rotates to .log.1; the live log becomes smaller.
+ *   (LOG-5) SEC-C1 boundary intact after the stdio capture change: --disallowedTools
+ *           Bash, --allowedTools file-tools, and the per-child GIT_CONFIG_* env are
+ *           all unchanged.
+ *
  * Hermetic: a MOCK `claude` (a stub node script placed FIRST on PATH) replaces the
  * real CLI - the daemon never invokes the real Claude. The mock's behavior is
- * driven by env vars (MOCK_CLAUDE_AUTH / MOCK_CLAUDE_WRAP / MOCK_CLAUDE_HANG_MS)
- * that the daemon forwards into the child env. Project dirs live under the OS
- * tmpdir, realpath'd so the daemon's own `path.resolve(root) === root` guard
- * accepts them. No network.
+ * driven by env vars (MOCK_CLAUDE_AUTH / MOCK_CLAUDE_WRAP / MOCK_CLAUDE_HANG_MS /
+ * MOCK_CLAUDE_FLOOD_KB) that the daemon forwards into the child env. The drain mock
+ * emits WRAP_OK_MARKER on stdout (success) or WRAP_ERR_MARKER on stderr (failure) so
+ * tests can assert output capture. Project dirs live under the OS tmpdir, realpath'd
+ * so the daemon's own `path.resolve(root) === root` guard accepts them. No network.
  *
  * Run with: node hooks/tests/test-wrap-daemon.js
  */
@@ -97,13 +113,44 @@ function installMockClaude() {
     '}',
     '// Otherwise treat as a --resume drain.',
     'const mode = process.env.MOCK_CLAUDE_WRAP || "ok";',
-    'if (mode === "fail") { process.exit(7); }',
     'if (mode === "hang") {',
     '  const ms = parseInt(process.env.MOCK_CLAUDE_HANG_MS || "60000", 10);',
     '  setTimeout(() => process.exit(0), ms);',
     '  return;',
     '}',
-    'process.exit(0);',
+    '// Optional flood: write N KB to stdout (used to prove the daemon\'s capture cap',
+    '// and drain-and-discard keep a chatty child from wedging on a full OS pipe).',
+    '// CRITICAL: write asynchronously and RESPECT BACKPRESSURE (wait for drain when',
+    '// the OS pipe buffer fills) so the FULL flood is actually delivered to the daemon',
+    '// before we exit - a synchronous write loop + immediate process.exit() would',
+    '// discard everything past the first ~64 KB pipe buffer and never exercise the cap.',
+    'const floodKb = parseInt(process.env.MOCK_CLAUDE_FLOOD_KB || "0", 10);',
+    'function finish() {',
+    '  if (mode === "fail") {',
+    '    // On failure, emit a known marker on STDERR so a test can assert stderr capture.',
+    '    try { process.stderr.write("WRAP_ERR_MARKER\\n"); } catch (_) {}',
+    '    process.exit(7);',
+    '  }',
+    '  // Success: emit a known marker on STDOUT so a test can assert stdout capture.',
+    '  try { process.stdout.write("WRAP_OK_MARKER\\n", () => process.exit(0)); }',
+    '  catch (_) { process.exit(0); }',
+    '}',
+    'if (floodKb > 0) {',
+    '  const chunk = "x".repeat(1024);',
+    '  let i = 0;',
+    '  function pump() {',
+    '    while (i < floodKb) {',
+    '      i++;',
+    '      // write() returns false when the kernel pipe buffer is full -> stop and',
+    '      // resume on drain (the daemon consuming the pipe is what unblocks us).',
+    '      if (!process.stdout.write(chunk)) { process.stdout.once("drain", pump); return; }',
+    '    }',
+    '    finish();',
+    '  }',
+    '  pump();',
+    '} else {',
+    '  finish();',
+    '}',
     '',
   ].join('\n');
   fs.writeFileSync(mockPath, body, 'utf8');
@@ -148,6 +195,13 @@ function writeConfig(agenticDir, obj) {
   fs.writeFileSync(path.join(agenticDir, 'config.json'), JSON.stringify(obj, null, 2), 'utf8');
 }
 function agoIso(seconds) { return new Date(Date.now() - seconds * 1000).toISOString(); }
+
+// The always-on daemon log + its single-generation rotation target.
+function daemonLogPath(agenticDir) { return path.join(agenticDir, 'wrap-daemon.log'); }
+function readDaemonLog(agenticDir) {
+  const p = daemonLogPath(agenticDir);
+  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+}
 
 // Plausible-UUID session ids (the daemon rejects non-UUID ids before --resume).
 const SID = {
@@ -550,6 +604,179 @@ console.log('\n[SEC-M2] oversized config.json is skipped (size cap, defaults, fa
     'daemon ignored the oversized config (used default 15-min idle; killed by watchdog, did not fast self-exit)');
   assert(!/self-exiting/.test(stdout),
     'daemon did NOT log a fast self-exit (oversized fast-idle override was skipped)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOG-1) success capture: clean drain writes the daemon log with the done line
+// AND the child's captured stdout (WRAP_OK_MARKER) inside the delimited block.
+// ---------------------------------------------------------------------------
+console.log('\n[LOG-1] success capture: wrap-daemon.log contains the done line + child stdout (WRAP_OK_MARKER)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-log-ok-');
+  writeConfig(agenticDir, FAST_IDLE);
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
+
+  const { code } = runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok',
+  }, 40000);
+
+  assert(code === 0, 'daemon exits 0 after a clean drain');
+  assert(fs.existsSync(daemonLogPath(agenticDir)), '.agentic/wrap-daemon.log exists after a run');
+  const logTxt = readDaemonLog(agenticDir);
+  assert(new RegExp(SID.a + ' done').test(logTxt),
+    'log records the per-run outcome line (session <id> done)');
+  // The captured child stdout must be inside the delimited block for this session.
+  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+    .split('----- end output for ' + SID.a)[0] || '';
+  assert(/WRAP_OK_MARKER/.test(block),
+    'child stdout (WRAP_OK_MARKER) captured inside the delimited /wrap-deferred block');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOG-2) gave_up + stderr capture + log/marker agreement: a marker pre-seeded at
+// attempts:2 fails (exit 7, stderr WRAP_ERR_MARKER) -> the daemon transitions it to
+// gave_up. The log carries `gave_up` + `last_error:exit:7` + the captured stderr,
+// AND readMarker(...).last_error === 'exit:7' (log and marker agree by construction).
+// ---------------------------------------------------------------------------
+console.log('\n[LOG-2] gave_up + stderr capture + log/marker last_error agreement');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-log-giveup-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // attempts:2 so the claim bumps it to 3 (the cap) -> gave_up on this failure.
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600), attempts: 2 });
+
+  const { code } = runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'fail',
+  }, 40000);
+
+  assert(code === 0, 'daemon exits 0 after a failing drain reaches the cap');
+  const m = readMarker(agenticDir, SID.a);
+  assert(m && m.status === 'gave_up', 'marker transitioned to gave_up at the attempts cap');
+  // Log/marker agreement: the marker last_error is exactly exit:7 ...
+  assert(m && m.last_error === 'exit:7',
+    `marker last_error is exit:7 (got: ${m && m.last_error})`);
+  const logTxt = readDaemonLog(agenticDir);
+  // ... and the log line carries the SAME last_error and a gave_up outcome.
+  assert(/gave_up/.test(logTxt), 'log records the gave_up outcome line');
+  assert(/last_error:exit:7/.test(logTxt),
+    'log gave_up line carries last_error:exit:7 (agrees with the marker)');
+  // The child stderr is captured inside the delimited block.
+  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+    .split('----- end output for ' + SID.a)[0] || '';
+  assert(/WRAP_ERR_MARKER/.test(block), 'child stderr (WRAP_ERR_MARKER) captured in the block');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOG-3) ANTI-WEDGE cap (highest-risk): a child floods 512 KB to stdout (>256 KB cap
+// AND >>OS pipe buffer ~64 KB). Assert (a) the captured block is bounded at ~256 KB +
+// the truncation notice, AND (b) the daemon observed a NORMAL child exit (the `done`
+// outcome line) - proving the stream listener stayed attached (drain-and-discard) and
+// the child did NOT wedge on a full pipe. (b) is the point of this test.
+// ---------------------------------------------------------------------------
+console.log('\n[LOG-3] anti-wedge cap: 512 KB flood is bounded at ~256 KB AND the child exits normally (no pipe wedge)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-log-flood-');
+  // Generous per-child timeout so a wedge would manifest as a timeout/kill (NOT a
+  // normal exit). 0.5 min = 30 s; the flood child should finish in well under that
+  // IF the daemon keeps draining the pipe. If it wedged, it would be killed at 30 s.
+  writeConfig(agenticDir, { deferred_wrap_idle_minutes: 0.02, deferred_wrap_timeout_minutes: 0.5 });
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
+
+  const start = Date.now();
+  const { code } = runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok', MOCK_CLAUDE_FLOOD_KB: '512',
+  }, 45000);
+  const elapsed = Date.now() - start;
+
+  assert(code === 0, 'daemon exits 0 after the flood drain');
+  const m = readMarker(agenticDir, SID.a);
+  // (b) THE point: the child reached the normal `done` outcome (clean exit:0). A wedge
+  // would have stranded/reset the marker via the timeout path instead of unlinking it.
+  assert(m === null, 'flood marker unlinked (done) - child exited NORMALLY, no pipe wedge');
+  const logTxt = readDaemonLog(agenticDir);
+  assert(new RegExp(SID.a + ' done').test(logTxt),
+    'log shows the normal done outcome (child exited cleanly under the flood; listener stayed attached)');
+  assert(!/timeout|signal:SIGKILL/.test(logTxt.split(SID.a + ' done')[0] || logTxt),
+    'no timeout/kill recorded for the flood drain (proves drain-and-discard, not a wedge)');
+  // It also finished well under the 30 s per-child timeout (a wedge would hit ~30 s).
+  assert(elapsed < 25000, `flood drain finished promptly (no wedge); took ${elapsed} ms`);
+  // (a) The captured block is bounded at ~256 KB + delimiters and carries the notice.
+  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+    .split('----- end output for ' + SID.a)[0] || '';
+  assert(/\[output truncated at 256 KB\]/.test(block),
+    'captured block carries the [output truncated at 256 KB] notice');
+  // Bounded: the captured payload is ~256 KB, NOT the full 512 KB flood. Allow slack
+  // for the delimiter/notice lines (well under the full 512 KB = 524288 bytes).
+  assert(Buffer.byteLength(block) < 300 * 1024,
+    `captured block bounded near 256 KB, not the full 512 KB flood (got ${Buffer.byteLength(block)} bytes)`);
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOG-4) rotation: a pre-seeded >2 MB wrap-daemon.log is rotated to .log.1 on the
+// next log() call, and the live wrap-daemon.log becomes the smaller current file.
+// ---------------------------------------------------------------------------
+console.log('\n[LOG-4] rotation: a >2 MB wrap-daemon.log rotates to .log.1, live log becomes smaller');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-log-rot-');
+  writeConfig(agenticDir, FAST_IDLE);
+  // Pre-seed the live log just over the 2 MB cap so the very first log() rotates it.
+  const bigLog = daemonLogPath(agenticDir);
+  fs.writeFileSync(bigLog, 'y'.repeat(2 * 1024 * 1024 + 16), 'utf8');
+  const seededSize = fs.statSync(bigLog).size;
+  // No markers -> the daemon idle-self-exits, but it logs at least once (self-exit),
+  // which triggers the rotation check.
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'daemon exits 0');
+  const rotated = bigLog + '.1';
+  assert(fs.existsSync(rotated), '.agentic/wrap-daemon.log.1 exists after rotation');
+  assert(fs.existsSync(bigLog), '.agentic/wrap-daemon.log (live) still exists after rotation');
+  const liveSize = fs.statSync(bigLog).size;
+  assert(liveSize < seededSize,
+    `live log is the smaller current file after rotation (live ${liveSize} < seeded ${seededSize})`);
+  assert(fs.statSync(rotated).size === seededSize,
+    'rotation target .log.1 holds the prior (large) contents');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOG-5/SEC-C1) the security boundary is UNCHANGED after the stdio capture change:
+// the drain spawn still passes --disallowedTools Bash + --allowedTools file-tools, and
+// every spawned child env still neutralizes global/system git config.
+// ---------------------------------------------------------------------------
+console.log('\n[LOG-5/SEC-C1] boundary intact after stdio capture: --disallowedTools Bash + GIT_CONFIG_* still present');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-log-sec-');
+  writeConfig(agenticDir, FAST_IDLE);
+  const logPath = path.join(base, 'mock.log');
+  const envLogPath = path.join(base, 'mock-env.log');
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
+
+  runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok',
+    MOCK_CLAUDE_LOG: logPath, MOCK_CLAUDE_ENV_LOG: envLogPath,
+  }, 40000);
+
+  const drainLine = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
+    .split('\n').find((l) => l.includes('--resume')) || '';
+  const drainArgv = drainLine.trim().split(/\s+/);
+  const disallowIdx = drainArgv.indexOf('--disallowedTools');
+  assert(disallowIdx >= 0 && drainArgv[disallowIdx + 1] === 'Bash',
+    '--disallowedTools Bash still present on the drain spawn after stdio capture (SEC-C1)');
+  const allowIdx = drainArgv.indexOf('--allowedTools');
+  assert(allowIdx >= 0 && drainArgv[allowIdx + 1] === 'Read,Edit,Write,Glob,Grep',
+    '--allowedTools file-tools unchanged after stdio capture (SEC-C1)');
+  const envLines = (fs.existsSync(envLogPath) ? fs.readFileSync(envLogPath, 'utf8') : '')
+    .split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return null; } })
+    .filter(Boolean);
+  const drainEnv = envLines.find((e) => e.kind === '--resume');
+  assert(drainEnv && drainEnv.GIT_CONFIG_GLOBAL === '/dev/null'
+    && drainEnv.GIT_CONFIG_SYSTEM === '/dev/null' && drainEnv.GIT_CONFIG_NOSYSTEM === '1',
+    'drain child env still neutralizes global/system git config after stdio capture (SEC-C1)');
   cleanup(base);
 }
 
