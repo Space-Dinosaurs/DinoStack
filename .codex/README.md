@@ -1,4 +1,4 @@
-# Agentic Engineering - Codex Adapter
+# DinoStack - Codex Adapter
 
 ## What this provides
 
@@ -12,10 +12,9 @@
 
 ## Installation
 
-To install, see the Quickstart in the [root README](../README.md). Then run the installer:
-
 ```bash
-~/agentic-engineering/.codex/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
+bash ~/agentic-engineering/.codex/install.sh
 ```
 
 This:
@@ -39,7 +38,7 @@ To remove:
 
 ### Always-loaded rules (AGENTS.md)
 
-Codex automatically reads `AGENTS.md` from the project root. The `.codex/AGENTS.md` in this repo contains the full agentic engineering methodology (all 3 rules files concatenated).
+Codex automatically reads `AGENTS.md` from the project root. The `.codex/AGENTS.md` in this repo contains the full DinoStack methodology (all 3 rules files concatenated).
 
 For projects outside this repo that want the methodology, either:
 1. Add an `AGENTS.md` to your project root referencing or copying the rules, or

@@ -1,4 +1,4 @@
-# Agentic Engineering - Claude Code Adapter
+# DinoStack - Claude Code Adapter
 
 ## What this provides
 
@@ -9,7 +9,18 @@
 
 ## Installation
 
-To install, see the Quickstart in the [root README](../README.md).
+**One-liner (clone + Claude setup in one step):**
+
+```bash
+curl -fsSL https://docs.dinostack.ai/install.sh | bash
+```
+
+**Or manually:**
+
+```bash
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
+bash ~/agentic-engineering/.claude/install.sh
+```
 
 Then open Claude Code and ask your agent:
 
@@ -51,7 +62,7 @@ All tools are optional. Declining does not affect the core install.
 
 ## Permissions
 
-The install script offers to configure `bypassPermissions` mode in `~/.claude/settings.json`. This is the recommended setup for agentic-engineering — agents need uninterrupted access to Bash, Edit, and Write to work effectively. Constant permission prompts break agent flow and cause subagents to stall.
+The install script offers to configure `bypassPermissions` mode in `~/.claude/settings.json`. This is the recommended setup for DinoStack - agents need uninterrupted access to Bash, Edit, and Write to work effectively. Constant permission prompts break agent flow and cause subagents to stall.
 
 **What it configures:**
 

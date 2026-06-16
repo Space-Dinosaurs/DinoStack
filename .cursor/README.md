@@ -1,4 +1,4 @@
-# Agentic Engineering - Cursor Adapter
+# DinoStack - Cursor Adapter
 
 ## What this provides
 
@@ -9,7 +9,11 @@
 
 ## Setup
 
-To install, see the Quickstart in the [root README](../README.md).
+First, clone the repo if you haven't already:
+
+```bash
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
+```
 
 ### Project-level (team use)
 
