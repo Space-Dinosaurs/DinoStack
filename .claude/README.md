@@ -66,14 +66,14 @@ The install script offers to configure `bypassPermissions` mode in `~/.claude/se
 
 **What it configures:**
 
-- `defaultMode: "bypassPermissions"` — agents can use tools without prompting
-- **Allow list** — `Bash(*)`, `Write`, `Edit`, and write access to `~/.claude/` directories
-- **Deny list** — blocks destructive commands as a safety net:
+- `defaultMode: "bypassPermissions"` - agents can use tools without prompting
+- **Allow list** - `Bash(*)`, `Write`, `Edit`, and write access to `~/.claude/` directories
+- **Deny list** - blocks destructive commands as a safety net:
   - `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`
   - `sudo rm`, `dd if=`, `shutdown`, `reboot`
-- **Additional directories** — `~/.claude/projects` for cross-session context
+- **Additional directories** - `~/.claude/projects` for cross-session context
 
-The deny list is merged with any existing deny rules — it won't overwrite rules you've already added. You can edit `~/.claude/settings.json` directly to customize.
+The deny list is merged with any existing deny rules - it won't overwrite rules you've already added. You can edit `~/.claude/settings.json` directly to customize.
 
 ## Uninstallation
 
@@ -81,7 +81,7 @@ The deny list is merged with any existing deny rules — it won't overwrite rule
 .claude/uninstall.sh
 ```
 
-Removes all symlinks and hook entries added by install. Permissions configuration (`bypassPermissions` mode, allow/deny rules) is intentionally preserved — edit `~/.claude/settings.json` manually to revert.
+Removes all symlinks and hook entries added by install. Permissions configuration (`bypassPermissions` mode, allow/deny rules) is intentionally preserved - edit `~/.claude/settings.json` manually to revert.
 
 ## How it works
 
