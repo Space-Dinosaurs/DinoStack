@@ -38,6 +38,8 @@
  *     cleanStalePending(cwd, ttlMs) -> {deleted:[]}
  *   Lock (NEVER prompts):
  *     acquireWrapLock(cwd, owner, staleMs) -> boolean, releaseWrapLock(cwd)
+ *     readWrapLockOwner(cwd) -> { pid, ts } (symlink-guarded owner read),
+ *     clearProvablyStaleWrapLock(cwd, staleMs) -> boolean (daemon-side stale-lock clear)
  *   Heartbeat:
  *     touchHeartbeat(cwd, sessionId) (NO-OP under guard), removeHeartbeat(cwd, sessionId)
  *
@@ -79,6 +81,18 @@
  *                caps the number processed per tick (MAX_MARKERS_PER_SCAN, SEC-M3),
  *                so a hostile repo cannot wedge a poll tick with a giant marker or a
  *                directory of tens of thousands of files. Both remain fail-open.
+ *                LOCK CLEAR (daemon-side): clearProvablyStaleWrapLock removes the
+ *                wrap.lock DIRECTORY (so the headless deferred-`/wrap` child, which runs
+ *                with Bash removed and cannot `rm`, no longer re-flags a stale lock) but
+ *                ONLY when the lock is PROVABLY dead/stale: a dead owner PID, OR (no PID)
+ *                an owner timestamp older than staleMs. An ALIVE owner PID is
+ *                authoritative-LIVE and the lock is KEPT regardless of timestamp age, so
+ *                it NEVER removes a live lock. It is symlink-safe (CWE-59): lstat
+ *                no-follow at the lock path, a symlink AT wrap.lock is unlinked (link
+ *                only, never its target), a plain file is left alone, and rmSync runs
+ *                ONLY on a confirmed real directory. readWrapLockOwner is likewise
+ *                lstat-guarded - a planted `wrap.lock/owner -> /etc/passwd` is detected
+ *                and never read through. Both are fail-open (never throw).
  *
  * Performance: standard. Synchronous fs only; no git, no network, no subprocess.
  *              listReadyMarkers / listInProgressMarkers glob one directory
@@ -774,6 +788,104 @@ function releaseWrapLock(cwd) {
   }
 }
 
+// Local cap on the wrap.lock/owner read. The owner file is at most two short lines
+// (a PID and an ISO timestamp); cap the read so a giant planted owner file cannot
+// wedge a daemon tick. Mirrors the SEC-M2 stat-then-read discipline.
+const MAX_OWNER_BYTES = 4 * 1024;
+
+/**
+ * Read the wrap.lock/owner file into { pid, ts }. The owner body is 2-line
+ * (PID + ISO timestamp, written by the interactive `/wrap`), 1-line (PID-only,
+ * written by acquireWrapLock), empty, or absent.
+ *   - line0 -> a positive integer PID, else null
+ *   - line1 (if present) -> a trimmed non-empty ISO string, else null
+ * Fail-open: { pid: null, ts: null } on any error.
+ *
+ * SECURITY (CWE-59 read-through): lstatSync the owner path FIRST (no-follow). If it
+ * is a symlink, return { pid: null, ts: null } immediately WITHOUT reading - a planted
+ * `wrap.lock/owner -> /etc/passwd` must NOT be followed during the read. This DIVERGES
+ * from the sibling readers (readPidFile / readMarkerFile / readLastWrap do a bare
+ * readFileSync with no guard); the guard is mandatory here because this read gates a
+ * destructive rmSync in clearProvablyStaleWrapLock.
+ */
+function readWrapLockOwner(cwd) {
+  const empty = { pid: null, ts: null };
+  try {
+    const p = wrapLockOwnerPath(cwd);
+    const st = fs.lstatSync(p); // no-follow; throws ENOENT when absent -> caught -> empty
+    if (st.isSymbolicLink()) return empty; // never readFileSync through a planted link
+    if (!st.isFile()) return empty;
+    if (st.size > MAX_OWNER_BYTES) return empty; // giant planted owner -> fail-open
+    const raw = fs.readFileSync(p, 'utf8');
+    const lines = raw.split('\n');
+    const pidNum = Number((lines[0] || '').trim());
+    const pid = (Number.isInteger(pidNum) && pidNum > 0) ? pidNum : null;
+    const tsRaw = (lines.length > 1 ? lines[1] : '').trim();
+    const ts = tsRaw ? tsRaw : null;
+    return { pid, ts };
+  } catch (_) {
+    return empty;
+  }
+}
+
+/**
+ * Clear a PROVABLY-stale wrap.lock DIRECTORY (the headless deferred-`/wrap` child
+ * runs with Bash removed and cannot `rm` it; the trusted daemon clears it instead).
+ * Returns true IFF a real stale lock directory was removed; false otherwise. Never
+ * throws (fail-open).
+ *
+ * Stale predicate (exact): CLEAR iff
+ *   (owner.pid !== null && pidIsDead(owner.pid))                                 -- dead owner PID
+ *   OR (owner.pid === null && owner.ts !== null && tsMs(owner.ts) !== null
+ *       && (Date.now() - tsMs(owner.ts)) > staleMs)                              -- no PID + old timestamp
+ * An ALIVE pid is authoritative-LIVE -> KEEP regardless of timestamp age (this is the
+ * live-lock corruption guard: liveness, not age, drives the clear). No usable owner
+ * signal (no PID and no parseable timestamp) -> KEEP, covering the interactive `/wrap`
+ * mkdir-before-owner race. This must NEVER clear a live lock.
+ *
+ * SECURITY (CWE-59, models appendToLog's symlink discipline): the removal sequence
+ * lstats the lock path no-follow and refuses to rmSync anything that is not a confirmed
+ * real directory. A symlink AT wrap.lock is unlinked (link only, never its target); a
+ * plain file is left alone. readWrapLockOwner is itself symlink-guarded.
+ */
+function clearProvablyStaleWrapLock(cwd, staleMs) {
+  try {
+    const lockPath = wrapLockPath(cwd);
+    let st;
+    try {
+      st = fs.lstatSync(lockPath); // no-follow; ENOENT -> caught -> return false
+    } catch (_) {
+      return false; // no lock present
+    }
+    if (st.isSymbolicLink()) {
+      // A symlink AT wrap.lock is a hostile artifact, not our lock. unlink removes ONLY
+      // the link (never follows it / touches the target). Do NOT rmSync.
+      try { fs.unlinkSync(lockPath); } catch (_) {}
+      return false; // removed a hostile artifact, not a real lock
+    }
+    if (!st.isDirectory()) {
+      return false; // a plain file at wrap.lock is not our (mkdir-created) lock; leave it
+    }
+    // Real directory: evaluate the stale predicate via the symlink-guarded owner read.
+    const owner = readWrapLockOwner(cwd);
+    let stale = false;
+    if (owner.pid !== null) {
+      stale = pidIsDead(owner.pid); // alive -> KEEP; dead -> CLEAR
+    } else if (owner.ts !== null) {
+      const tms = tsMs(owner.ts);
+      stale = (tms !== null) && ((Date.now() - tms) > staleMs);
+    }
+    if (!stale) return false; // live / no usable signal -> KEEP
+    // Confirmed real, stale directory. Step's lstat already proved the top-level path is
+    // a directory (not a symlink), so rmSync(recursive) recurses into a directory we own;
+    // any symlinks encountered DURING recursion are unlinked, not followed (rm -rf semantics).
+    fs.rmSync(lockPath, { recursive: true, force: true });
+    return true;
+  } catch (_) {
+    return false; // fail-open: never throw, never wrongly report a clear
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Heartbeat
 // ---------------------------------------------------------------------------
@@ -858,6 +970,8 @@ module.exports = {
   // lock
   acquireWrapLock,
   releaseWrapLock,
+  readWrapLockOwner,
+  clearProvablyStaleWrapLock,
   // heartbeat
   touchHeartbeat,
   removeHeartbeat,
