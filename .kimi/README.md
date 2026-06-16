@@ -39,8 +39,8 @@ loading it guarantees the methodology is active.
 ## Install
 
 ```bash
-git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
-bash ~/agentic-engineering/.kimi/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.kimi/install.sh
 ```
 
 This will:

@@ -8,7 +8,7 @@ prompt = """
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/agentic-engineering`).
+Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/DinoStack`).
 
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
@@ -55,11 +55,11 @@ except Exception:
 " "$AE_CONFIG" 2>/dev/null)"
 fi
 if [[ -z "$AE_REPO_DIR" ]] || ! git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  AE_REPO_DIR="$HOME/agentic-engineering"
+  AE_REPO_DIR="$HOME/DinoStack"
 fi
 ```
 
-Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/agentic-engineering` exactly as before.
+Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
 
 1. `cd "$AE_REPO_DIR" && git fetch origin`
 2. Run `git status --porcelain` to check for uncommitted changes.

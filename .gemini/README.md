@@ -18,8 +18,8 @@
 ## Installation
 
 ```bash
-git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
-bash ~/agentic-engineering/.gemini/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.gemini/install.sh
 ```
 
 This:
@@ -49,7 +49,7 @@ After running the installer, verify the following:
 ## Uninstall
 
 ```bash
-~/agentic-engineering/.gemini/uninstall.sh
+~/DinoStack/.gemini/uninstall.sh
 ```
 
 This removes the three symlinks and surgically removes the `BeforeAgent` and `SessionEnd` hook entries from `~/.gemini/settings.json` without touching any other user settings. Backups are restored if present.
@@ -96,7 +96,7 @@ Reference docs are available in `.gemini/references/` as hardlinks to `content/r
 The build script generates `GEMINI.md`, command TOML files, agent markdown files, and hardlinks reference docs:
 
 ```bash
-bash ~/agentic-engineering/.gemini/build.sh
+bash ~/DinoStack/.gemini/build.sh
 ```
 
 Run after `git pull` to regenerate artifacts from updated source files. The pre-commit hook in this repo runs `.gemini/build.sh` automatically whenever `content/` files are staged.
@@ -106,7 +106,7 @@ Run after `git pull` to regenerate artifacts from updated source files. The pre-
 The `BeforeAgent` and `SessionEnd` hook commands in `~/.gemini/settings.json` embed **absolute paths** to the hook scripts at install time:
 
 ```json
-"command": "bash /path/to/agentic-engineering/.gemini/hooks/risk-reminder.sh"
+"command": "bash /path/to/DinoStack/.gemini/hooks/risk-reminder.sh"
 ```
 
 If you move the repo after install, these paths become stale and hooks will silently fail. To fix, re-run `.gemini/install.sh` from the new repo location - it will update the embedded paths.
@@ -116,7 +116,7 @@ If you move the repo after install, these paths become stale and hooks will sile
 Pull and re-run the installer - it is idempotent:
 
 ```bash
-cd ~/agentic-engineering
+cd ~/DinoStack
 git pull
 bash .gemini/install.sh
 ```

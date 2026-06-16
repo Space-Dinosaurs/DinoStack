@@ -12,7 +12,7 @@
 First, clone the repo if you haven't already:
 
 ```bash
-git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
 ```
 
 ### Project-level (team use)
@@ -20,7 +20,7 @@ git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
 Copy the `.cursor/` directory into your project repo:
 
 ```bash
-cp -r ~/agentic-engineering/.cursor/ /path/to/your/project/.cursor/
+cp -r ~/DinoStack/.cursor/ /path/to/your/project/.cursor/
 ```
 
 Commit `.cursor/` so the whole team gets the methodology. Rules, commands, and hooks are picked up automatically by Cursor.
@@ -30,13 +30,13 @@ Commit `.cursor/` so the whole team gets the methodology. Rules, commands, and h
 Run the installer from the repo root:
 
 ```bash
-bash ~/agentic-engineering/.cursor/install.sh
+bash ~/DinoStack/.cursor/install.sh
 ```
 
 This symlinks rules, reference docs, and commands into `~/.cursor/` and copies `hooks.json`. To remove:
 
 ```bash
-bash ~/agentic-engineering/.cursor/uninstall.sh
+bash ~/DinoStack/.cursor/uninstall.sh
 ```
 
 ## How rules load

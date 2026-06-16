@@ -9,20 +9,20 @@
 ## Prerequisites
 
 - Hermes Agent installed and configured
-- The agentic-engineering repo cloned to `~/agentic-engineering/` (expected by references)
+- The DinoStack repo cloned to `~/DinoStack/` (expected by references)
 
 ## Installation
 
 Clone the repo (if you haven't):
 
 ```bash
-git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/agentic-engineering
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
 ```
 
 Run the installer:
 
 ```bash
-~/agentic-engineering/.hermes/install.sh
+~/DinoStack/.hermes/install.sh
 ```
 
 This:
@@ -33,8 +33,8 @@ This:
 ### Non-interactive install
 
 ```bash
-bash ~/agentic-engineering/.hermes/install.sh --mode=opt-out
-bash ~/agentic-engineering/.hermes/install.sh --mode=opt-in
+bash ~/DinoStack/.hermes/install.sh --mode=opt-out
+bash ~/DinoStack/.hermes/install.sh --mode=opt-in
 ```
 
 ## Post-install verification
@@ -43,7 +43,7 @@ bash ~/agentic-engineering/.hermes/install.sh --mode=opt-in
    ```bash
    ls -la ~/.hermes/skills/agentic-engineering/SKILL.md
    ```
-   Should show a symlink pointing to `~/agentic-engineering/.hermes/SKILL.md`.
+   Should show a symlink pointing to `~/DinoStack/.hermes/SKILL.md`.
 
 2. **Skill loads correctly:**
    In a Hermes session, run:
@@ -62,7 +62,7 @@ bash ~/agentic-engineering/.hermes/install.sh --mode=opt-in
 ## Uninstall
 
 ```bash
-~/agentic-engineering/.hermes/uninstall.sh
+~/DinoStack/.hermes/uninstall.sh
 ```
 
 Removes the skill symlink and optionally the config file.
@@ -72,7 +72,7 @@ Removes the skill symlink and optionally the config file.
 Pull and re-run the installer - it is idempotent:
 
 ```bash
-cd ~/agentic-engineering
+cd ~/DinoStack
 git pull
 bash .hermes/install.sh
 ```
@@ -117,7 +117,7 @@ For now, use the `/wrap` workflow pattern before ending a session to capture con
 Regenerate `SKILL.md` from updated source files:
 
 ```bash
-bash ~/agentic-engineering/.hermes/build.sh
+bash ~/DinoStack/.hermes/build.sh
 ```
 
 Run after `git pull` to pick up upstream changes. The build script concatenates all rules, references, agents, and commands into a single skill file.

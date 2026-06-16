@@ -48,7 +48,7 @@ SSH_URL="${AE_SSH_URL:-git@github.com:Space-Dinosaurs/DinoStack.git}"
 # ---------------------------------------------------------------------------
 # Destination directory resolution
 # ---------------------------------------------------------------------------
-AE_DEST_DIR="${AE_DEST_DIR:-$BOOTSTRAP_PWD/agentic-engineering}"
+AE_DEST_DIR="${AE_DEST_DIR:-$BOOTSTRAP_PWD/DinoStack}"
 
 # Normalize to absolute path via python3 (required dep anyway)
 AE_DEST_DIR="$(python3 -c "import os,sys;print(os.path.abspath(sys.argv[1]))" "$AE_DEST_DIR")"
@@ -108,7 +108,7 @@ if [ -d "$AE_DEST_DIR" ]; then
   fi
 else
   # Fresh clone: HTTPS first, SSH fallback - set -e-safe via if/!
-  echo "Cloning agentic-engineering to $AE_DEST_DIR ..."
+  echo "Cloning DinoStack to $AE_DEST_DIR ..."
   if ! git clone "$HTTPS_URL" "$AE_DEST_DIR"; then
     echo "HTTPS clone failed (repo may be private); trying SSH..." >&2
     if ! git clone "$SSH_URL" "$AE_DEST_DIR"; then

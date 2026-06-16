@@ -22,7 +22,7 @@ A portable methodology for AI-assisted software development. Provides structured
 
 **Live docs:** https://docs.dinostack.ai
 
-**Repo:** `~/agentic-engineering/`
+**Repo:** `~/DinoStack/`
 
 ---
 
@@ -1054,11 +1054,11 @@ Performance: Standard.
 
 ## Permission-blocked fallback
 
-This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents - installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/agentic-engineering/` - those are governed by `/update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location - any file under `~/agentic-engineering/` is governed by /update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
+This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents - installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/DinoStack/` - those are governed by `/update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location - any file under `~/DinoStack/` is governed by /update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
 
 When all three conditions are met:
 
-1. A Worker was spawned to apply an Edit to an infrastructure file outside `~/agentic-engineering/`.
+1. A Worker was spawned to apply an Edit to an infrastructure file outside `~/DinoStack/`.
 2. The Worker's return output begins with or contains a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED - Edit permission was denied by the permission system").
 3. No other unblocked edit path is available.
 
@@ -3086,7 +3086,7 @@ The Worker's responsibility:
 - Implement the specific assigned change and return the complete output
 - Return output for main-agent-orchestrated Skeptic review - Workers do not self-review for Elevated tasks
 
-Full specification of The Skeptic Protocol: `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+Full specification of The Skeptic Protocol: `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 ### Rule 6 — Check in, don't disappear
 
@@ -3181,7 +3181,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
-**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` Section 0 when the two differ.
+**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` Section 0 when the two differ.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -3435,11 +3435,11 @@ This document is the canonical source for The Subagent Protocol. **When this doc
 **Document hierarchy:**
 - **This document** - canonical specification; governs all conflicts
 - **`~/.claude/CLAUDE.md`** - inline risk classification and delegation decision table; procedural details read from this document via trigger-condition pointers
-- **`~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
+- **`~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
 1. If the change affects the risk signal list or delegation decision table, update `~/.claude/CLAUDE.md` to match. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
-2. Check `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
+2. Check `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
 
 ## 13. Conductor context budget
 
@@ -4861,12 +4861,12 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **Never commit or push.** Implement and report. The orchestrator handles version control.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
-- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
+- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
 - **Regression discipline.** Two symmetric obligations apply when fixing a flagged failure mode:
-  - When fixing a Critical or Major Skeptic finding: see `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for the regression-test obligation (also stated above).
-  - When fixing a qa-engineer FAIL: see `~/agentic-engineering/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
-- **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
-- **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
+  - When fixing a Critical or Major Skeptic finding: see `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for the regression-test obligation (also stated above).
+  - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
+- **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
+- **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
 
 ## Front-end discipline
 
@@ -9480,7 +9480,7 @@ Factor these into the implementation plan. Ensure the plan explicitly addresses 
 
 Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
 
-**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `METHODOLOGY.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `METHODOLOGY.md` for resolution paths. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -9577,7 +9577,7 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified must carry module manifests per `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
+**Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
 ### If work is a single logical unit (or units must be sequential):
 
@@ -9773,7 +9773,7 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 
-For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -12535,9 +12535,9 @@ Plan:
   Branch: main (clean, origin/main is N commit(s) ahead)
 
   Commands to run:
-    git -C /Users/you/agentic-engineering pull --ff-only origin main
-    bash /Users/you/agentic-engineering/.claude/install.sh --mode=opt-out --profile=default --identity=yourhandle
-    bash /Users/you/agentic-engineering/.codex/install.sh --mode=opt-out --profile=default --identity=yourhandle
+    git -C /Users/you/DinoStack pull --ff-only origin main
+    bash /Users/you/DinoStack/.claude/install.sh --mode=opt-out --profile=default --identity=yourhandle
+    bash /Users/you/DinoStack/.codex/install.sh --mode=opt-out --profile=default --identity=yourhandle
 
   Adapters: Claude (locked), Codex
   Mode: opt-out | Profile: default | Identity: yourhandle
@@ -12586,9 +12586,9 @@ On non-zero exit from any adapter: stop immediately, report which adapter failed
 
 **4a - Determine destination:**
 ```bash
-DEST="${AE_DEST_DIR:-$HOME/agentic-engineering}"
+DEST="${AE_DEST_DIR:-$HOME/DinoStack}"
 ```
-If `AE_DEST_DIR` is set in the environment, use it. Otherwise default to `$HOME/agentic-engineering`.
+If `AE_DEST_DIR` is set in the environment, use it. Otherwise default to `$HOME/DinoStack`.
 
 **4b - Clone (HTTPS with SSH fallback, same as bootstrap.sh):**
 
@@ -12741,7 +12741,7 @@ The analyst applies each signal to every file in scope and flags candidates as t
 
 Candidate if a rule is stated with 4+ qualifier clauses chained in a single sentence or paragraph ("unless A, unless B, unless C, does not apply when D..."). The structure signals a Python-shaped approach: rules are expressed by adding exception branches rather than by restating the positive principle more precisely.
 
-Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/DinoStack/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
 
 **Signal R2 - nested conditional prose.**
 
@@ -13245,7 +13245,7 @@ In single-ticket mode, print the before/after state. In `--all` mode, print a on
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/agentic-engineering`).
+Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/DinoStack`).
 
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
@@ -13292,11 +13292,11 @@ except Exception:
 " "$AE_CONFIG" 2>/dev/null)"
 fi
 if [[ -z "$AE_REPO_DIR" ]] || ! git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  AE_REPO_DIR="$HOME/agentic-engineering"
+  AE_REPO_DIR="$HOME/DinoStack"
 fi
 ```
 
-Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/agentic-engineering` exactly as before.
+Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
 
 1. `cd "$AE_REPO_DIR" && git fetch origin`
 2. Run `git status --porcelain` to check for uncommitted changes.

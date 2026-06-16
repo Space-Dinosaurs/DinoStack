@@ -451,7 +451,7 @@ async function main() {
   // Preflight: repo check
   const claudeInstall = path.join(resolvedRepoDir, '.claude', 'install.sh');
   if (!fs.existsSync(claudeInstall)) {
-    console.error(`error: ${resolvedRepoDir} does not look like an agentic-engineering checkout`);
+    console.error(`error: ${resolvedRepoDir} does not look like a DinoStack checkout`);
     console.error(`       (expected ${claudeInstall}).`);
     process.exit(1);
   }

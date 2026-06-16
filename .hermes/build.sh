@@ -38,7 +38,7 @@ A portable methodology for AI-assisted software development. Provides structured
 
 **Live docs:** https://docs.dinostack.ai
 
-**Repo:** `~/agentic-engineering/`
+**Repo:** `~/DinoStack/`
 
 ---
 
