@@ -141,7 +141,7 @@ console.log('\n[C] wrap.md keeps the whole-flow lock (no lock-narrowing graft)')
     'wrap.md retains the Pre-flight lock acquisition block (whole-flow lock acquire)');
   assert(wrapText.includes('Lock release is mandatory on every exit path'),
     'wrap.md retains the mandatory lock-release block');
-  assert(wrapText.includes('Release the pre-flight lock: `rm -rf <cwd>/.agentic/wrap.lock`'),
+  assert(wrapText.includes('Release the pre-flight lock: run `agentic-wrap-release-lock`'),
     'wrap.md retains the Step 6 pre-flight lock release line');
 }
 

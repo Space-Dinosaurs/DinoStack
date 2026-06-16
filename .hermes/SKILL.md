@@ -3626,7 +3626,7 @@ This is what the `/wrap`-coexistence `existing.startsWith('# Session Context\n*W
 
 A single line containing the `session_id` of the session whose `/wrap` (sync, background enrichment, or `/wrap-deferred`) last successfully wrote `context.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `.last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker).
 
-The `.last-wrap` write is performed inside the same narrow lock window as the `context.md` write: it is the last write before the lock is released (after the merged `context.md` write, before `rm -rf .agentic/wrap.lock`).
+The `.last-wrap` write is performed inside the same narrow lock window as the `context.md` write: it is the last write before the lock is released (after the merged `context.md` write, before lock release). The interactive `/wrap` releases the lock itself (via the `agentic-wrap-release-lock` helper); on the headless `/wrap-deferred` path the lock is cleared out-of-band by the daemon's stale-lock backstop, since that child has no Bash — so `.last-wrap` is the child's last write.
 
 ## Spillover-drain procedure (NORMATIVE, 3-step rename-first)
 
@@ -7483,7 +7483,7 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 }
 ```
 
-**Lock release is mandatory on every exit path.** Before returning, run `rm -rf .agentic/wrap.lock` regardless of whether the run succeeded, partially succeeded, or skipped.
+**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `agentic-wrap-release-lock`) at /implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
 
 ### 2. Read the inputs
 
@@ -7571,7 +7571,7 @@ Otherwise leave `size_advisory: null`.
 
 ### 7. Release the lock
 
-`rm -rf .agentic/wrap.lock`. This is mandatory on every exit path.
+The conductor releases the lock (via `agentic-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
 ### 8. Return
 
@@ -7629,7 +7629,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to context.md - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** Every exit path runs `rm -rf .agentic/wrap.lock`.
+- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.
@@ -10881,7 +10881,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock is released before timeout.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Lock release: `rm -rf .agentic/wrap.lock` runs unconditionally on every Phase 11b exit path before advancing to Phase 12.
+Lock release: the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every Phase 11b exit path before advancing to Phase 12.
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
@@ -13207,7 +13207,7 @@ The daemon enriches in the main project dir (no worktree, no copy-back, no merge
 
 **Step 2 - Write `.agentic/context.md` (Part A; the only lock-touching write).**
 
-Acquire `wrap.lock` around the NARROW Part-A window only, exactly as `/wrap` Part A does, and run the shared algorithm cited in `content/references/wrap-context-format.md`: (1) the 3-step rename-first spillover drain; (2) the rolling-session-label merge write (file-absent / non-/wrap / merge branches, duplicate-claim dedup, 1-to-5 label rolling window, per-section merge rules) - the merged write begins with the pinned header prefix `# Session Context\n*Written by /wrap`; (3) write `.agentic/.last-wrap` = this `session_id`; (4) release the lock (`rm -rf .agentic/wrap.lock`) as the last action.
+Acquire `wrap.lock` around the NARROW Part-A window only, exactly as `/wrap` Part A does, and run the shared algorithm cited in `content/references/wrap-context-format.md`: (1) the 3-step rename-first spillover drain; (2) the rolling-session-label merge write (file-absent / non-/wrap / merge branches, duplicate-claim dedup, 1-to-5 label rolling window, per-section merge rules) - the merged write begins with the pinned header prefix `# Session Context\n*Written by /wrap`; (3) write `.agentic/.last-wrap` = this `session_id`; (4) the lock is NOT released by this headless child — it runs with Bash removed and can neither `rm` nor shell a release helper. The per-project deferred-wrap daemon clears the lock out-of-band via its per-tick `clearProvablyStaleWrapLock` backstop (it removes the wrap.lock directory only when the lock is provably dead/stale, never when live). The child simply exits after the `.last-wrap` write.
 
 **Lock handling is non-interactive (no wait-loop, no prompt).** Acquire the lock via `acquireWrapLock` (from `hooks/lib/wrap-marker.js`), which auto-clears a stale lock (>30 min) in code without prompting. If the lock STILL cannot be acquired after the auto-stale-clear (a live `/wrap` or `wrap-ticket` holds it), do NOT wait and do NOT prompt: instead append this session's would-be context.md activity to the spillover log `.agentic/.stop-deferred-activity.jsonl` (the same JSONL the Stop hook spills to under contention, per `content/references/wrap-context-format.md`) and exit cleanly. The live lock-holder's drain folds the spilled record into context.md on its next Part-A window. Release the lock on EVERY exit path that acquired it.
 
@@ -13314,7 +13314,7 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 
 The 30-minute staleness heuristic exists because a crashed or force-killed /wrap may leave the lock dir behind. The timestamp backstop is the reliable signal; PID checks are omitted because Claude Code process hierarchies make `ps -p` results unreliable.
 
-**Lock release is mandatory on every exit path.** The lock dir MUST be removed (`rm -rf <cwd>/.agentic/wrap.lock`) before /wrap returns control to the user, on ALL of:
+**Lock release is mandatory on every exit path.** The lock dir MUST be removed (run `agentic-wrap-release-lock` — the PATH-wired helper that releases `<cwd>/.agentic/wrap.lock`) before /wrap returns control to the user, on ALL of:
 - successful completion at Step 6;
 - escalation to the user at Step 3 (format re-invocation limit or contested finding);
 - compression failure or escalation at Part E;
@@ -13747,7 +13747,7 @@ If the project is a git repository with a `/cleanup-worktrees` skill available, 
 
 **Step 6 — Terminal marker transition + confirm completion.**
 
-Release the pre-flight lock: `rm -rf <cwd>/.agentic/wrap.lock`. This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
+Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired helper that releases `<cwd>/.agentic/wrap.lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
 
 **Terminal marker transition (cleared on full success only).** When Step 0a staged a per-session `.agentic/wrap-pending-<session_id>.json` marker (the daemon guard passed), this synchronous `/wrap` clears its OWN marker on completion so the daemon does not later re-wrap a session the user already wrapped manually. When the Step 0a guard was false (off-Claude, toggle-off, or under the daemon guard), no marker was staged and there is nothing to transition - skip this block entirely. Transition the marker ONLY at true completion:
 

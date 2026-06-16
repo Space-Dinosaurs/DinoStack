@@ -117,7 +117,7 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 }
 ```
 
-**Lock release is mandatory on every exit path.** Before returning, run `rm -rf .agentic/wrap.lock` regardless of whether the run succeeded, partially succeeded, or skipped.
+**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `agentic-wrap-release-lock`) at /implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
 
 ### 2. Read the inputs
 
@@ -205,7 +205,7 @@ Otherwise leave `size_advisory: null`.
 
 ### 7. Release the lock
 
-`rm -rf .agentic/wrap.lock`. This is mandatory on every exit path.
+The conductor releases the lock (via `agentic-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
 ### 8. Return
 
@@ -263,7 +263,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to context.md - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** Every exit path runs `rm -rf .agentic/wrap.lock`.
+- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.

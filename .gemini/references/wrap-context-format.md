@@ -18,7 +18,7 @@ This is what the `/wrap`-coexistence `existing.startsWith('# Session Context\n*W
 
 A single line containing the `session_id` of the session whose `/wrap` (sync, background enrichment, or `/wrap-deferred`) last successfully wrote `context.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `.last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker).
 
-The `.last-wrap` write is performed inside the same narrow lock window as the `context.md` write: it is the last write before the lock is released (after the merged `context.md` write, before `rm -rf .agentic/wrap.lock`).
+The `.last-wrap` write is performed inside the same narrow lock window as the `context.md` write: it is the last write before the lock is released (after the merged `context.md` write, before lock release). The interactive `/wrap` releases the lock itself (via the `agentic-wrap-release-lock` helper); on the headless `/wrap-deferred` path the lock is cleared out-of-band by the daemon's stale-lock backstop, since that child has no Bash — so `.last-wrap` is the child's last write.
 
 ## Spillover-drain procedure (NORMATIVE, 3-step rename-first)
 
