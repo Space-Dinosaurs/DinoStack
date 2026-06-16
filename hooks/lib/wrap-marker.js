@@ -15,8 +15,11 @@
  *   Paths:
  *     markerPath(cwd, sessionId) -> .agentic/wrap-pending-<sessionId>.json
  *     lastWrapPath(cwd), wrapLockPath(cwd), wrapLockOwnerPath(cwd),
- *     daemonPidPath(cwd), authFailedPath(cwd), claudeHostPath(cwd),
- *     heartbeatPath(cwd, sessionId)
+ *     daemonPidPath(cwd), wrapDaemonLogPath(cwd), authFailedPath(cwd),
+ *     claudeHostPath(cwd), heartbeatPath(cwd, sessionId)
+ *   Constants:
+ *     SCHEMA_VERSION, MAX_DAEMON_LOG_BYTES (2 MB log rotation cap),
+ *     MAX_CHILD_CAPTURE_BYTES (256 KB per-run child-output cap)
  *   Reads (unguarded):
  *     readMarker(cwd, sessionId), listReadyMarkers(cwd), listInProgressMarkers(cwd),
  *     liveMarkerForSession(cwd, sessionId), readLastWrap(cwd), wrapLockHeld(cwd),
@@ -41,7 +44,9 @@
  * Upstream deps: Node built-ins only (fs, path). No npm dependencies.
  *                Reads/writes under [cwd]/.agentic/: wrap-pending-<id>.json markers,
  *                .last-wrap, wrap.lock (directory) + wrap.lock/owner, wrap-daemon.pid,
- *                wrap-daemon-auth-failed, .claude-host, .heartbeats/<id>.
+ *                wrap-daemon-auth-failed, .claude-host, .heartbeats/<id>. Also exposes
+ *                a path helper for the daemon-owned wrap-daemon.log (this lib does NOT
+ *                write that log - the daemon does; the helper only derives the path).
  *
  * Downstream consumers: hooks/stop-context.js (require this lib; stagePending,
  *                        touchHeartbeat, lock-aware reads), hooks/session-end-wrap.js
@@ -111,6 +116,16 @@ const SESSION_UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-
 // handful; this only bites a pathologically large (likely hostile) directory, where
 // reading every file each tick would be the DoS. We log when truncated.
 const MAX_MARKERS_PER_SCAN = 1000;
+// Rotation cap for the daemon-owned .agentic/wrap-daemon.log. The daemon (not this
+// lib) writes the log; when the live file crosses this size it is renamed to
+// .log.1 (single generation) and a fresh live file is started. 2 MB is generous for
+// human-readable lifecycle + per-run outcome + captured child output lines.
+const MAX_DAEMON_LOG_BYTES = 2 * 1024 * 1024;
+// Per-run hard cap on the in-memory buffer that captures one headless /wrap-deferred
+// child's stdout/stderr before it is flushed to the log. The daemon keeps the stream
+// listener attached past the cap (drain-and-discard) so a chatty child cannot wedge
+// on a full OS pipe; it just stops growing this buffer. 256 KB is ample for a wrap run.
+const MAX_CHILD_CAPTURE_BYTES = 256 * 1024;
 
 // ---------------------------------------------------------------------------
 // Internal helpers (not exported)
@@ -228,6 +243,10 @@ function wrapLockOwnerPath(cwd) {
 
 function daemonPidPath(cwd) {
   return path.join(agenticDir(cwd), 'wrap-daemon.pid');
+}
+
+function wrapDaemonLogPath(cwd) {
+  return path.join(agenticDir(cwd), 'wrap-daemon.log');
 }
 
 function authFailedPath(cwd) {
@@ -800,12 +819,15 @@ function removeHeartbeat(cwd, sessionId) {
 module.exports = {
   // constants (exported for consumers/tests)
   SCHEMA_VERSION,
+  MAX_DAEMON_LOG_BYTES,
+  MAX_CHILD_CAPTURE_BYTES,
   // paths
   markerPath,
   lastWrapPath,
   wrapLockPath,
   wrapLockOwnerPath,
   daemonPidPath,
+  wrapDaemonLogPath,
   authFailedPath,
   claudeHostPath,
   heartbeatPath,
