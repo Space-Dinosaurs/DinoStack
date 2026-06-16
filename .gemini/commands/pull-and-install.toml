@@ -191,6 +191,8 @@ fi
 ```
 If `IDENTITY_SUPPORTED=0`, skip identity flags and note: "This install.sh version does not support `--identity`. Re-run after a future update to configure identity."
 
+Note: `.claude/install.sh` is used as a proxy for all adapters in this repo - all adapters track the same install.sh template, so the flag presence in `.claude/install.sh` is a reliable indicator for the full set. If a selected non-Claude adapter's installer predates the flag (e.g., an older pinned fork), that single install invocation may warn or fail but will not corrupt other adapters' state.
+
 **4c - Run adapters (fail-fast):**
 
 For each selected adapter in the resolved list:
@@ -227,13 +229,29 @@ Do NOT use anonymous `curl | bash` of bootstrap.sh (fails for private repos) and
    ```
    If the user provided a custom URL before this step, substitute it for `HTTPS_URL` (no SSH fallback for custom URLs unless user specifies one).
 
-**4c - Delegate to bootstrap.sh:**
+**4c - Run adapters (same loop as UPDATE-FLOW):**
 
-After the clone lands, delegate to the cloned repo's bootstrap.sh to handle adapter install and config write:
+After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW Step 4c. Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed.
+
+bootstrap.sh may be invoked for global PATH wiring / config-dir setup if needed, but adapter installation must use the loop below:
+
 ```bash
-bash "$DEST/bootstrap.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+# Detect --identity flag support from the freshly cloned install.sh
+INSTALL_SH="$DEST/.claude/install.sh"
+if grep -q -- '--identity' "$INSTALL_SH" 2>/dev/null; then
+  IDENTITY_SUPPORTED=1
+else
+  IDENTITY_SUPPORTED=0
+fi
+
+# Run each selected adapter's install.sh (fail-fast)
+for adapter in "${SELECTED_ADAPTERS[@]}"; do
+  bash "$DEST/${adapter}/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+  # On non-zero exit: stop immediately, report which adapter failed and its exit code.
+done
 ```
-Surface bootstrap.sh's error messages verbatim on failure. Do not re-implement bootstrap.sh's logic in this flow.
+
+On non-zero exit from any adapter: stop immediately, report which adapter failed and its exit code. Do not run remaining adapters. Surface error messages verbatim.
 
 ## Step 5 - Persist config and report
 
@@ -243,6 +261,11 @@ Read the existing config, update only the keys this command owns (`repo_dir` for
 
 ```python3
 import json, os, sys, datetime, tempfile
+
+# Context vars resolved during Step 4 routing (conductor-set pseudocode, not runtime literals):
+#   fresh_install: bool  - True when FRESH-CLONE-FLOW was taken; False for UPDATE-FLOW
+#   dest: str            - DEST from FRESH-CLONE-FLOW (AE_REPO_DIR for UPDATE-FLOW)
+#   selected_adapters: list[str] - adapter directory names selected in Step 1a
 
 cfg_path = os.path.expanduser("~/.agentic/agentic-engineering-config.json")
 os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
