@@ -75,7 +75,7 @@ timeout = 5
 
 [[hooks]]
 event = "Stop"
-command = "bash /path/to/agentic-engineering/hooks/stop-context.sh"
+command = "bash /path/to/DinoStack/hooks/stop-context.sh"
 timeout = 10
 ```
 
