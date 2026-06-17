@@ -19,29 +19,13 @@ node_modules/
 .DS_Store
 .vercel
 
-# Local agent runtime state is ignored, but committed project-intent config
-# (.agentic/config.json) is carved out - it is portable, like qa.md/deploy.md.
-# A bare `.agentic/` ignore cannot be overridden by a later negation (git does
-# not descend into an ignored directory), so use the `.agentic/*` form and then
-# re-ignore the runtime artifacts explicitly.
-.agentic/*
-!.agentic/config.json
-!.agentic/qa-regressions.md
-!.agentic/session-log/
-!.agentic/learnings.md
-# session-log/: per-developer telemetry, committed so `agentic-cost team` works
-# across machines. Other .agentic/* runtime files stay local under the umbrella.
-.agentic/worktrees/
-.agentic/loop-state.json
-.agentic/tasks.jsonl
-.agentic/batch-state.json
-.agentic/events.jsonl
-.agentic/events-prev.jsonl
-.agentic/.activated
-.agentic/.meta-divergence-surfaced
-.agentic/.meta-divergence-last-sweep
-.agentic/wrap.lock
-.agentic/learnings-agent.session
+# DinoStack IS the methodology, not a consumer of it. Its own .agentic/ runtime
+# state — config, per-developer telemetry/session logs, learnings, qa-regressions,
+# worktrees, task/loop/event state — is strictly local and never committed. The
+# carve-outs that consumer projects use to track this state deliberately do not
+# apply to this repo. Root-anchored (leading slash) so it matches only the repo's
+# own .agentic/ and never nested template .agentic/ dirs shipped to consumers.
+/.agentic/
 
 # Generated Kimi per-command skills (built by .kimi/build.sh from content/commands/)
 .kimi/skills/*/
