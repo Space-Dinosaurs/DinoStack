@@ -40,6 +40,8 @@ export REPO_DIR
 
 AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
+AE_IDENTITY_FLAG=""
+AE_NO_IDENTITY=false
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -53,6 +55,12 @@ for arg in "$@"; do
       ;;
     --profile=*)
       echo "  ! ignoring unknown --profile value: ${arg#--profile=} (expected relaxed, default, or strict)"
+      ;;
+    --identity=*)
+      AE_IDENTITY_FLAG="${arg#--identity=}"
+      ;;
+    --no-identity)
+      AE_NO_IDENTITY=true
       ;;
   esac
 done
@@ -686,6 +694,107 @@ for tool_entry in "${CLI_TOOLS[@]}"; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# Developer identity
+# ---------------------------------------------------------------------------
+
+_ae_setup_identity() {
+  # Branch 1: --no-identity flag
+  if [[ "$AE_NO_IDENTITY" == "true" ]]; then
+    echo "  - identity setup skipped (--no-identity)"
+    return
+  fi
+
+  # Branch 2: agentic-identity not on PATH
+  if ! command -v agentic-identity &>/dev/null; then
+    echo "  ! agentic-identity not found on PATH - set later with 'agentic-identity init <handle>'"
+    return
+  fi
+
+  # Branch 3: detect existing identity
+  local show_out
+  show_out="$(agentic-identity show --scope effective 2>/dev/null)" || show_out=""
+  local existing_handle
+  existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')"
+  if [[ -n "$existing_handle" ]]; then
+    if echo "$show_out" | grep -q 'provisional:'; then
+      echo "  = identity already set to '$existing_handle' (provisional - run 'agentic-identity confirm' to lock it in)"
+    else
+      echo "  = identity already set to '$existing_handle' (confirmed)"
+    fi
+    return
+  fi
+
+  # Branch 4: --identity=<handle> flag set (explicit intent, use --force)
+  if [[ -n "$AE_IDENTITY_FLAG" ]]; then
+    local rc=0
+    agentic-identity init "$AE_IDENTITY_FLAG" --force >/dev/null 2>&1 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+      echo "  + identity set to '$AE_IDENTITY_FLAG' via --identity flag"
+    else
+      echo "  ! identity init failed for '$AE_IDENTITY_FLAG' (invalid handle?) - set manually with 'agentic-identity init <handle>'"
+    fi
+    return
+  fi
+
+  # Branch 5: non-TTY
+  if [[ ! -r /dev/tty ]]; then
+    echo "  - non-interactive install: skipped identity setup (run 'agentic-identity auto' or 'agentic-identity init <handle>')"
+    return
+  fi
+
+  # Branch 6: interactive + gh present and authenticated
+  local gh_login=""
+  if command -v gh &>/dev/null; then
+    gh_login="$(gh api user --jq .login 2>/dev/null | tr '[:upper:]' '[:lower:]')" || gh_login=""
+  fi
+
+  if [[ -n "$gh_login" ]] && echo "$gh_login" | grep -qE '^[a-z0-9._-]{1,64}$'; then
+    echo "  Detected GitHub handle: $gh_login"
+    if ae_confirm "  Set developer identity to '$gh_login'? [y/N] "; then
+      local rc=0
+      agentic-identity init "$gh_login" >/dev/null 2>&1 || rc=$?
+      if [[ "$rc" -eq 0 ]]; then
+        echo "  + identity set to '$gh_login' (confirmed)"
+      elif [[ "$rc" -eq 2 ]]; then
+        echo "  = identity already set (use 'agentic-identity init $gh_login --force' to change)"
+      else
+        echo "  ! identity init failed - set manually with 'agentic-identity init <handle>'"
+      fi
+    else
+      echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
+    fi
+    return
+  fi
+
+  # Branch 7: gh absent or unauthenticated - prompt manually
+  echo "  Developer identity links telemetry to your handle across sessions."
+  local typed_handle=""
+  read -r -p "  GitHub handle [skip]: " typed_handle </dev/tty || typed_handle=""
+  typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')"
+  if [[ -z "$typed_handle" ]]; then
+    echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
+    return
+  fi
+  if ! echo "$typed_handle" | grep -qE '^[a-z0-9._-]{1,64}$'; then
+    echo "  ! '$typed_handle' is not a valid handle (must match ^[a-z0-9._-]{1,64}\$) - skipping"
+    return
+  fi
+  local rc=0
+  agentic-identity init "$typed_handle" >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
+    echo "  + identity set to '$typed_handle' (confirmed)"
+  elif [[ "$rc" -eq 2 ]]; then
+    echo "  = identity already set (use 'agentic-identity init $typed_handle --force' to change)"
+  else
+    echo "  ! identity init failed - set manually with 'agentic-identity init <handle>'"
+  fi
+}
+
+echo ""
+echo "Developer identity..."
+_ae_setup_identity
+
 # chrome-devtools MCP
 echo ""
 CLAUDE_JSON="$HOME/.claude.json"
@@ -966,6 +1075,10 @@ ae_install_bins
 
 echo ""
 echo "Install complete."
+echo ""
+echo "  agentic-engineering is installed. Open a new Claude Code session in any project,"
+echo "  add 'agentic-engineering: opt-in' to its AGENTS.md, and the methodology activates."
+echo "  Run 'agentic-identity show' to confirm your identity was saved."
 echo ""
 echo "Next steps (for the agent running this installer):"
 echo ""

@@ -1,4 +1,4 @@
-# Agentic Engineering - Codex Adapter
+# DinoStack - Codex Adapter
 
 ## What this provides
 
@@ -12,10 +12,9 @@
 
 ## Installation
 
-To install, see the Quickstart in the [root README](../README.md). Then run the installer:
-
 ```bash
-~/agentic-engineering/.codex/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.codex/install.sh
 ```
 
 This:
@@ -32,14 +31,14 @@ Existing installs that still point `~/.codex/hooks.json` at the legacy `.codex/h
 To remove:
 
 ```bash
-~/agentic-engineering/.codex/uninstall.sh
+~/DinoStack/.codex/uninstall.sh
 ```
 
 ## How it works
 
 ### Always-loaded rules (AGENTS.md)
 
-Codex automatically reads `AGENTS.md` from the project root. The `.codex/AGENTS.md` in this repo contains the full agentic engineering methodology (all 3 rules files concatenated).
+Codex automatically reads `AGENTS.md` from the project root. The `.codex/AGENTS.md` in this repo contains the full DinoStack methodology (all 3 rules files concatenated).
 
 For projects outside this repo that want the methodology, either:
 1. Add an `AGENTS.md` to your project root referencing or copying the rules, or
@@ -128,7 +127,7 @@ Reference docs are available in two places:
 The build script generates `AGENTS.md` and hardlinks reference/command files:
 
 ```bash
-bash ~/agentic-engineering/.codex/build.sh
+bash ~/DinoStack/.codex/build.sh
 ```
 
 Run after `git pull` to regenerate artifacts from updated source files. The pre-commit hook in this repo runs `.claude/build.sh`, `.cursor/build.sh`, and `.codex/build.sh` automatically whenever `content/` files are staged.
@@ -147,7 +146,7 @@ This adapter is designed to run alongside the Claude Code adapter without collis
 Pull and re-run the installer - it is idempotent:
 
 ```bash
-cd ~/agentic-engineering
+cd ~/DinoStack
 git pull
 bash .codex/install.sh
 ```
@@ -176,7 +175,7 @@ bash .codex/install.sh
 To add the methodology to a project that doesn't have `.codex/AGENTS.md` checked in, create an `AGENTS.md` at your project root:
 
 ```bash
-cp ~/agentic-engineering/.codex/AGENTS.md /path/to/your/project/AGENTS.md
+cp ~/DinoStack/.codex/AGENTS.md /path/to/your/project/AGENTS.md
 ```
 
 Or reference the methodology from your project's `AGENTS.md`:
@@ -188,5 +187,5 @@ Or reference the methodology from your project's `AGENTS.md`:
 
 ---
 
-[Paste relevant sections from ~/agentic-engineering/.codex/AGENTS.md]
+[Paste relevant sections from ~/DinoStack/.codex/AGENTS.md]
 ```

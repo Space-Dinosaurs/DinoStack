@@ -22,7 +22,7 @@ A portable methodology for AI-assisted software development. Provides structured
 
 **Live docs:** https://docs.dinostack.ai
 
-**Repo:** `~/agentic-engineering/`
+**Repo:** `~/DinoStack/`
 
 ---
 
@@ -1078,11 +1078,11 @@ Performance: Standard.
 
 ## Permission-blocked fallback
 
-This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents - installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/agentic-engineering/` - those are governed by `/update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location - any file under `~/agentic-engineering/` is governed by /update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
+This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents - installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/DinoStack/` - those are governed by `/update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location - any file under `~/DinoStack/` is governed by /update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
 
 When all three conditions are met:
 
-1. A Worker was spawned to apply an Edit to an infrastructure file outside `~/agentic-engineering/`.
+1. A Worker was spawned to apply an Edit to an infrastructure file outside `~/DinoStack/`.
 2. The Worker's return output begins with or contains a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED - Edit permission was denied by the permission system").
 3. No other unblocked edit path is available.
 
@@ -3114,7 +3114,7 @@ The Worker's responsibility:
 - Implement the specific assigned change and return the complete output
 - Return output for main-agent-orchestrated Skeptic review - Workers do not self-review for Elevated tasks
 
-Full specification of The Skeptic Protocol: `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+Full specification of The Skeptic Protocol: `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 ### Rule 6 — Check in, don't disappear
 
@@ -3209,7 +3209,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
-**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` Section 0 when the two differ.
+**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` Section 0 when the two differ.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -3463,11 +3463,11 @@ This document is the canonical source for The Subagent Protocol. **When this doc
 **Document hierarchy:**
 - **This document** - canonical specification; governs all conflicts
 - **`~/.claude/CLAUDE.md`** - inline risk classification and delegation decision table; procedural details read from this document via trigger-condition pointers
-- **`~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
+- **`~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
 1. If the change affects the risk signal list or delegation decision table, update `~/.claude/CLAUDE.md` to match. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
-2. Check `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
+2. Check `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
 
 ## 13. Conductor context budget
 
@@ -4968,12 +4968,12 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **Never commit or push.** Implement and report. The orchestrator handles version control.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
-- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
+- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
 - **Regression discipline.** Two symmetric obligations apply when fixing a flagged failure mode:
-  - When fixing a Critical or Major Skeptic finding: see `~/agentic-engineering/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for the regression-test obligation (also stated above).
-  - When fixing a qa-engineer FAIL: see `~/agentic-engineering/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
-- **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/agentic-engineering/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
-- **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
+  - When fixing a Critical or Major Skeptic finding: see `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for the regression-test obligation (also stated above).
+  - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
+- **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
+- **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
 
 ## Front-end discipline
 
@@ -9592,7 +9592,7 @@ Factor these into the implementation plan. Ensure the plan explicitly addresses 
 
 Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
 
-**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `METHODOLOGY.md` for resolution paths. For the full adversarial brief menu, see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every open question before proceeding - see `METHODOLOGY.md` for resolution paths. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -9689,7 +9689,7 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified must carry module manifests per `~/agentic-engineering/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
+**Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
 ### If work is a single logical unit (or units must be sequential):
 
@@ -9885,7 +9885,7 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 
-For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/agentic-engineering/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -12504,6 +12504,320 @@ If you want to avoid publishing a given proposal, move or delete the file from `
 
 ---
 
+### /pull-and-install
+
+# /pull-and-install
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+Pull the latest agentic-engineering (DinoStack) release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Use this when you want to update an existing install to the current `main`, or when setting up agentic-engineering for the first time inside a Claude Code session.
+
+**Distinct from related commands:**
+- `/update-agentic-engineering` - edits methodology source files and pushes them upstream; this command pulls changes *down* from upstream.
+- `/init-project` - scaffolds a project's `AGENTS.md` hierarchy; this command installs or updates the agentic-engineering tool itself.
+- `update.sh` (shell TUI) - the non-agent interactive updater; this command provides the same capability through a guided agent flow.
+
+## Step 0 - Detect install state and route
+
+Resolve `AE_REPO_DIR` and decide which flow to run.
+
+```bash
+AE_REPO_DIR=""
+AE_CONFIG="$HOME/.agentic/agentic-engineering-config.json"
+if [[ -f "$AE_CONFIG" ]]; then
+  AE_REPO_DIR="$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('repo_dir', ''))
+except Exception:
+    print('')
+" "$AE_CONFIG" 2>/dev/null)"
+fi
+```
+
+**Routing logic (first match wins):**
+
+1. If `AE_REPO_DIR` is non-empty AND `git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1` succeeds -> **UPDATE-FLOW** against `AE_REPO_DIR`.
+2. Else, check the conventional fallback `$HOME/agentic-engineering`: if `git -C "$HOME/agentic-engineering" rev-parse --git-dir >/dev/null 2>&1` succeeds, treat it as **UPDATE-FLOW** against `$HOME/agentic-engineering` (the config entry may be stale or missing).
+3. Else -> **FRESH-CLONE-FLOW**.
+
+Report the detected route to the user before proceeding: "Detected existing install at `<path>` - running update flow." or "No existing install found - running fresh install."
+
+## Step 1 - Guided questions (both flows)
+
+Ask only what is needed. Lead with what is already known from config. For each question, show the current saved value and let the user press Enter to accept it.
+
+**Load existing config** from `~/.agentic/agentic-engineering-config.json` to pre-fill defaults:
+
+```python3
+import json, os
+cfg_path = os.path.expanduser("~/.agentic/agentic-engineering-config.json")
+config = {}
+if os.path.exists(cfg_path):
+    try:
+        with open(cfg_path) as f:
+            config = json.load(f)
+    except Exception:
+        config = {}
+saved_adapters = config.get("adapters", {})
+```
+
+### 1a - Adapters
+
+Discover available adapters by scanning the resolved repo directory (UPDATE-FLOW) or `$HOME/agentic-engineering` placeholder note for FRESH-CLONE-FLOW (adapters are discovered after clone; proceed with saved adapter config as the default selection and re-confirm after clone lands).
+
+Adapter discovery logic (mirrors `update.js` exactly - use for UPDATE-FLOW; apply same logic post-clone for FRESH-CLONE-FLOW):
+
+- Scan for dot-directories containing `install.sh`, skipping: `.`, `..`, `.git`, `.github`, `.vscode`, `.idea`, `.cache`, `.venv`, `.mypy_cache`, `.pytest_cache`, `.ruff_cache`
+- `.claude` is always included (locked; cannot be deselected)
+- Sort case-insensitively
+
+Display names use the same `DISPLAY_NAMES` map as `update.js`:
+
+```
+{ claude: "Claude", codex: "Codex", cursor: "Cursor", gemini: "Gemini",
+  opencode: "OpenCode", kimi: "Kimi", omp: "Pi" }
+```
+
+For adapter names not in the map, apply the generic capitalizer: strip the leading `.`, then capitalize the first character and lowercase the rest (e.g. `.hermes` -> `Hermes`, `.pi` -> `Pi`).
+
+If two adapters resolve to the same display name (e.g. both `.omp` and `.pi` would show as `Pi`), disambiguate by appending the raw directory name in parentheses: `Pi (.omp)` / `Pi (.pi)`.
+
+Default each adapter to its saved state in `config.adapters[<adapter>]` (true/false). If no saved state, default to unselected (except `.claude` which is always selected).
+
+Show the adapter list with checkboxes and current defaults. Let the user confirm or change the selection.
+
+### 1b - Activation mode and risk profile
+
+Ask for activation mode (`opt-in` / `opt-out`, default from saved config or `opt-out`) and risk profile (`relaxed` / `default` / `strict`, default from saved config or `default`). Show the current values if known.
+
+### 1c - Developer identity
+
+Run `agentic-identity show --scope effective` to check the current identity state:
+
+- **Confirmed identity found:** "Identity: `<handle>` (confirmed). Keep or change? [Enter = keep]"
+- **Provisional identity found:** "Identity: `<handle>` (provisional - not yet confirmed). Options: (c)onfirm as-is, (e)dit handle, (s)kip. [c]"
+- **No identity found:** "No developer identity set. Options: (a)uto-detect from GitHub, (m)anual entry, (s)kip."
+  - Auto-detect: run `gh api user --jq .login` (suppress if `gh` is not on PATH); show the detected handle and confirm.
+  - Manual: prompt for handle string.
+  - Skip: proceed without identity.
+
+Resolve to either a handle (pass `--identity=<handle>` to install.sh in Step 4) or skip (pass `--no-identity`).
+
+## Step 2 - Git safety (UPDATE-FLOW only)
+
+Skip this step for FRESH-CLONE-FLOW.
+
+**2a - Fetch:**
+```bash
+git -C "$AE_REPO_DIR" fetch origin
+```
+If fetch fails, stop and report the error. Network issues are surfaced verbatim.
+
+**2b - Branch check (hard block):**
+```bash
+CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
+```
+If `CURRENT_BRANCH != "main"`, **hard-block** with:
+
+> "Cannot pull: the repo at `<AE_REPO_DIR>` is on branch `<CURRENT_BRANCH>`, not `main`. Running `git pull --ff-only origin main` on a non-main branch can silently fast-forward it into a broken state. Check out `main` and re-run: `git -C \"<AE_REPO_DIR>\" checkout main`"
+
+Do NOT offer a Y/N prompt. Do NOT proceed.
+
+**2c - Dirty tree check:**
+```bash
+DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
+```
+If non-empty, **stop** (no auto-stash) with:
+
+> "Cannot pull: the repo at `<AE_REPO_DIR>` has uncommitted changes. Commit, stash, or discard them first, then re-run."
+
+Show the `git status --porcelain` output.
+
+**2d - Divergence check:**
+```bash
+COUNTS="$(git -C "$AE_REPO_DIR" rev-list --left-right --count HEAD...origin/main)"
+LOCAL_AHEAD="$(echo "$COUNTS" | awk '{print $1}')"
+REMOTE_AHEAD="$(echo "$COUNTS" | awk '{print $2}')"
+```
+- Local ahead only: note it ("local has N commits not on origin") but proceed.
+- Remote ahead only: expected; proceed.
+- Both ahead (diverged): stop. "Local and origin have diverged (N local commits, M origin commits). Resolve manually before re-running."
+- Neither ahead: note "already up to date" and proceed (will still re-run adapters).
+
+## Step 3 - Confirm plan
+
+Before executing any side effects, show the user exactly what will run. Example:
+
+```
+Plan:
+  Flow: UPDATE (repo: /Users/you/agentic-engineering)
+  Branch: main (clean, origin/main is N commit(s) ahead)
+
+  Commands to run:
+    git -C /Users/you/DinoStack pull --ff-only origin main
+    bash /Users/you/DinoStack/.claude/install.sh --mode=opt-out --profile=default --identity=yourhandle
+    bash /Users/you/DinoStack/.codex/install.sh --mode=opt-out --profile=default --identity=yourhandle
+
+  Adapters: Claude (locked), Codex
+  Mode: opt-out | Profile: default | Identity: yourhandle
+
+Proceed? [Y/n]
+```
+
+If the user enters `n` or `no`, cancel with no changes made. Any other input (including Enter) confirms and proceeds.
+
+This explicit confirmation is what authorizes the side-effecting Step 4 as a conductor-direct action.
+
+## Step 4 - Execute
+
+### UPDATE-FLOW
+
+**4a - Pull:**
+```bash
+OLD_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
+git -C "$AE_REPO_DIR" pull --ff-only origin main
+NEW_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
+```
+On non-zero exit: stop and show the error verbatim. Do not proceed to adapter installs.
+
+**4b - Detect `--identity` flag support** (after pull, not before, so the check reflects the newly pulled install.sh):
+```bash
+INSTALL_SH="$AE_REPO_DIR/.claude/install.sh"
+if grep -q -- '--identity' "$INSTALL_SH" 2>/dev/null; then
+  IDENTITY_SUPPORTED=1
+else
+  IDENTITY_SUPPORTED=0
+fi
+```
+If `IDENTITY_SUPPORTED=0`, skip identity flags and note: "This install.sh version does not support `--identity`. Re-run after a future update to configure identity."
+
+Note: `.claude/install.sh` is used as a proxy for all adapters in this repo - all adapters track the same install.sh template, so the flag presence in `.claude/install.sh` is a reliable indicator for the full set. If a selected non-Claude adapter's installer predates the flag (e.g., an older pinned fork), that single install invocation may warn or fail but will not corrupt other adapters' state.
+
+**4c - Run adapters (fail-fast):**
+
+For each selected adapter in the resolved list:
+```bash
+bash "$AE_REPO_DIR/<adapter>/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+```
+On non-zero exit from any adapter: stop immediately, report which adapter failed and its exit code. Do not run remaining adapters.
+
+### FRESH-CLONE-FLOW
+
+**4a - Determine destination:**
+```bash
+DEST="${AE_DEST_DIR:-$HOME/DinoStack}"
+```
+If `AE_DEST_DIR` is set in the environment, use it. Otherwise default to `$HOME/DinoStack`.
+
+**4b - Clone (HTTPS with SSH fallback, same as bootstrap.sh):**
+
+Do NOT use anonymous `curl | bash` of bootstrap.sh (fails for private repos) and do NOT use a bare `git clone` without an existing-dir check.
+
+1. If `$DEST` already exists and is not a git repo: stop with "Directory `<DEST>` exists but is not a git repository. Move or remove it, or set `AE_DEST_DIR` to a different path."
+2. If `$DEST` already exists and is a valid git repo: treat as UPDATE-FLOW against that path instead (re-route; inform the user).
+3. Otherwise clone:
+   ```bash
+   HTTPS_URL="https://github.com/Space-Dinosaurs/DinoStack.git"
+   SSH_URL="git@github.com:Space-Dinosaurs/DinoStack.git"
+   if ! git clone "$HTTPS_URL" "$DEST"; then
+     echo "HTTPS clone failed (repo may be private); trying SSH..."
+     if ! git clone "$SSH_URL" "$DEST"; then
+       echo "Both HTTPS and SSH clone failed. If the repo is private, ensure SSH access is configured."
+       # STOP - report failure
+     fi
+   fi
+   ```
+   If the user provided a custom URL before this step, substitute it for `HTTPS_URL` (no SSH fallback for custom URLs unless user specifies one).
+
+**4c - Run adapters (same loop as UPDATE-FLOW):**
+
+After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW Step 4c. Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed.
+
+bootstrap.sh may be invoked for global PATH wiring / config-dir setup if needed, but adapter installation must use the loop below:
+
+```bash
+# Detect --identity flag support from the freshly cloned install.sh
+INSTALL_SH="$DEST/.claude/install.sh"
+if grep -q -- '--identity' "$INSTALL_SH" 2>/dev/null; then
+  IDENTITY_SUPPORTED=1
+else
+  IDENTITY_SUPPORTED=0
+fi
+
+# Run each selected adapter's install.sh (fail-fast)
+for adapter in "${SELECTED_ADAPTERS[@]}"; do
+  bash "$DEST/${adapter}/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+  # On non-zero exit: stop immediately, report which adapter failed and its exit code.
+done
+```
+
+On non-zero exit from any adapter: stop immediately, report which adapter failed and its exit code. Do not run remaining adapters. Surface error messages verbatim.
+
+## Step 5 - Persist config and report
+
+**5a - Merged config write:**
+
+Read the existing config, update only the keys this command owns (`repo_dir` for fresh install, `adapters`, `updatedAt`), and write back atomically (tmp + rename). Preserve ALL other keys including any the user or other tools may have written.
+
+```python3
+import json, os, sys, datetime, tempfile
+
+# Context vars resolved during Step 4 routing (conductor-set pseudocode, not runtime literals):
+#   fresh_install: bool  - True when FRESH-CLONE-FLOW was taken; False for UPDATE-FLOW
+#   dest: str            - DEST from FRESH-CLONE-FLOW (AE_REPO_DIR for UPDATE-FLOW)
+#   selected_adapters: list[str] - adapter directory names selected in Step 1a
+
+cfg_path = os.path.expanduser("~/.agentic/agentic-engineering-config.json")
+os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+
+# Read existing config (preserves unknown keys)
+data = {}
+if os.path.exists(cfg_path):
+    try:
+        with open(cfg_path) as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+
+# Update only the keys this command owns
+if fresh_install:
+    data["repo_dir"] = dest  # DEST from FRESH-CLONE-FLOW
+# Always update adapters and timestamp
+data["adapters"] = {adapter: True for adapter in selected_adapters}
+data["updatedAt"] = datetime.datetime.utcnow().isoformat() + "Z"
+
+# Atomic write (tmp + rename)
+dir_ = os.path.dirname(cfg_path)
+with tempfile.NamedTemporaryFile("w", dir=dir_, delete=False, suffix=".tmp") as tf:
+    json.dump(data, tf, indent=2)
+    tf.write("\n")
+    tmp_path = tf.name
+os.replace(tmp_path, cfg_path)
+```
+
+If the config write fails, warn the user (non-fatal) and continue.
+
+**5b - Summary report:**
+
+```
+Done.
+
+  Flow: UPDATE | FRESH INSTALL
+  Repo: /path/to/agentic-engineering
+  Commits pulled: N  (or "already up to date" / "fresh install")
+  Adapters installed: Claude, Codex
+  Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)
+
+Next steps:
+  - Run /agentic-status to verify the install is active in this project.
+  - Run agentic-identity show to confirm your developer identity.
+  - Open a new shell if adapters added shell integrations.
+```
+
+---
+
 ### /representation-audit
 
 # /representation-audit
@@ -12548,7 +12862,7 @@ The analyst applies each signal to every file in scope and flags candidates as t
 
 Candidate if a rule is stated with 4+ qualifier clauses chained in a single sentence or paragraph ("unless A, unless B, unless C, does not apply when D..."). The structure signals a Python-shaped approach: rules are expressed by adding exception branches rather than by restating the positive principle more precisely.
 
-Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/DinoStack/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
 
 **Signal R2 - nested conditional prose.**
 
@@ -13052,7 +13366,7 @@ In single-ticket mode, print the before/after state. In `--all` mode, print a on
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/agentic-engineering`).
+Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/DinoStack`).
 
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
@@ -13099,11 +13413,11 @@ except Exception:
 " "$AE_CONFIG" 2>/dev/null)"
 fi
 if [[ -z "$AE_REPO_DIR" ]] || ! git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  AE_REPO_DIR="$HOME/agentic-engineering"
+  AE_REPO_DIR="$HOME/DinoStack"
 fi
 ```
 
-Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/agentic-engineering` exactly as before.
+Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
 
 1. `cd "$AE_REPO_DIR" && git fetch origin`
 2. Run `git status --porcelain` to check for uncommitted changes.

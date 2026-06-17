@@ -1,4 +1,4 @@
-# Agentic Engineering - Kimi Code CLI Adapter
+# DinoStack - Kimi Code CLI Adapter
 
 Adapter for [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli).
 
@@ -8,9 +8,9 @@ Kimi Code CLI does **not** support custom slash commands like `/init-project`.
 Instead, use one of these methods:
 
 - **Direct command load (preferred):** `/skill:wrap`, `/skill:skeptic`, `/skill:implement-ticket`, etc.
-  Each agentic-engineering command is available as its own skill.
+  Each DinoStack command is available as its own skill.
 - **Full skill load:** `/skill:agentic-engineering init-project` (loads the complete methodology)
-- **Natural language:** "run init-project" or "initialize agentic-engineering in this repo"
+- **Natural language:** "run init-project" or "initialize DinoStack in this repo"
 
 The skill auto-triggers when you mention software development tasks, but explicitly
 loading it guarantees the methodology is active.
@@ -30,7 +30,7 @@ loading it guarantees the methodology is active.
 ## What's adapted
 
 - **AGENTS.md**: Auto-generated from `content/sections/`, loaded automatically by Kimi Code CLI via `${KIMI_AGENTS_MD}`.
-- **Skill**: `agentic-engineering` SKILL.md with Kimi-compatible guidance. Includes subagent mapping (coder/explore/plan to agentic-engineering roles) and command index.
+- **Skill**: `agentic-engineering` SKILL.md with Kimi-compatible guidance. Includes subagent mapping (coder/explore/plan to DinoStack roles) and command index.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Sections**: Symlinked from `content/sections/` into the skill directory for easy access.
 - **Commands**: Symlinked from `content/commands/` into the skill directory. Invoked via `/skill:agentic-engineering <command-name>` or by asking the agent to run a specific command.
@@ -39,7 +39,8 @@ loading it guarantees the methodology is active.
 ## Install
 
 ```bash
-bash .kimi/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.kimi/install.sh
 ```
 
 This will:

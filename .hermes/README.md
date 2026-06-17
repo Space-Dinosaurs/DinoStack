@@ -1,28 +1,28 @@
-# Agentic Engineering — Hermes Adapter
+# DinoStack - Hermes Adapter
 
 ## What this provides
 
-- **SKILL.md** — A Hermes skill containing the full agentic engineering methodology (rules, references, agents, commands)
-- **Global config** — `~/.hermes/agentic-engineering.json` stores the activation mode (`opt-out` or `opt-in`)
-- **Auto-loading** — The skill loads automatically when Hermes detects software-development context, or manually via `skill_view(name="agentic-engineering")`
+- **SKILL.md** - A Hermes skill containing the full DinoStack methodology (rules, references, agents, commands)
+- **Global config** - `~/.hermes/agentic-engineering.json` stores the activation mode (`opt-out` or `opt-in`)
+- **Auto-loading** - The skill loads automatically when Hermes detects software-development context, or manually via `skill_view(name="agentic-engineering")`
 
 ## Prerequisites
 
 - Hermes Agent installed and configured
-- The agentic-engineering repo cloned to `~/agentic-engineering/` (expected by references)
+- The DinoStack repo cloned to `~/DinoStack/` (expected by references)
 
 ## Installation
 
 Clone the repo (if you haven't):
 
 ```bash
-git clone git@github.com:Solara6/agentic-engineering.git ~/agentic-engineering
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
 ```
 
 Run the installer:
 
 ```bash
-~/agentic-engineering/.hermes/install.sh
+~/DinoStack/.hermes/install.sh
 ```
 
 This:
@@ -33,8 +33,8 @@ This:
 ### Non-interactive install
 
 ```bash
-bash ~/agentic-engineering/.hermes/install.sh --mode=opt-out
-bash ~/agentic-engineering/.hermes/install.sh --mode=opt-in
+bash ~/DinoStack/.hermes/install.sh --mode=opt-out
+bash ~/DinoStack/.hermes/install.sh --mode=opt-in
 ```
 
 ## Post-install verification
@@ -43,14 +43,14 @@ bash ~/agentic-engineering/.hermes/install.sh --mode=opt-in
    ```bash
    ls -la ~/.hermes/skills/agentic-engineering/SKILL.md
    ```
-   Should show a symlink pointing to `~/agentic-engineering/.hermes/SKILL.md`.
+   Should show a symlink pointing to `~/DinoStack/.hermes/SKILL.md`.
 
 2. **Skill loads correctly:**
    In a Hermes session, run:
    ```
    skill_view(name="agentic-engineering")
    ```
-   Then ask: "What risk tiers does the agentic engineering protocol define?"
+   Then ask: "What risk tiers does the DinoStack protocol define?"
    The answer should reference Trivial/Low/Elevated/Elevated+Cleanup.
 
 3. **Activation mode set:**
@@ -62,17 +62,17 @@ bash ~/agentic-engineering/.hermes/install.sh --mode=opt-in
 ## Uninstall
 
 ```bash
-~/agentic-engineering/.hermes/uninstall.sh
+~/DinoStack/.hermes/uninstall.sh
 ```
 
 Removes the skill symlink and optionally the config file.
 
 ## Updating
 
-Pull and re-run the installer — it is idempotent:
+Pull and re-run the installer - it is idempotent:
 
 ```bash
-cd ~/agentic-engineering
+cd ~/DinoStack
 git pull
 bash .hermes/install.sh
 ```
@@ -102,7 +102,7 @@ If inactive for the current project, the skill no-ops gracefully.
 
 ### Commands
 
-Hermes does not have "slash commands" like Claude Code. Instead, the commands from `content/commands/` are included as documented workflow patterns. Invoke them by asking the agent to run the workflow (e.g., "Run the skeptic workflow" or "Initialize this project with agentic engineering").
+Hermes does not have "slash commands" like Claude Code. Instead, the commands from `content/commands/` are included as documented workflow patterns. Invoke them by asking the agent to run the workflow (e.g., "Run the skeptic workflow" or "Initialize this project with DinoStack").
 
 ### Hooks
 
@@ -117,7 +117,7 @@ For now, use the `/wrap` workflow pattern before ending a session to capture con
 Regenerate `SKILL.md` from updated source files:
 
 ```bash
-bash ~/agentic-engineering/.hermes/build.sh
+bash ~/DinoStack/.hermes/build.sh
 ```
 
 Run after `git pull` to pick up upstream changes. The build script concatenates all rules, references, agents, and commands into a single skill file.

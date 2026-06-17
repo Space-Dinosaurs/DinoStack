@@ -14,17 +14,17 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
-This clones the repo into `agentic-engineering/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
+This clones the repo into `DinoStack/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
 
 > **Note:** if the one-liner clone fails (e.g. network or auth issue), the script automatically falls back to SSH.
 
-**Custom install location:** set `AE_DEST_DIR` before running. The default is `<current directory>/agentic-engineering`.
+**Custom install location:** set `AE_DEST_DIR` before running. The default is `<current directory>/DinoStack`.
 
-> **Folder naming:** the one-liner lands in `agentic-engineering/` (the package name); a plain `git clone` of the repo creates `DinoStack/` (the repo name). Either works - override the one-liner's location with `AE_DEST_DIR`.
+> **Folder naming:** both the one-liner and a plain `git clone` land in `DinoStack/`. Use `AE_DEST_DIR` to install elsewhere.
 
 ```bash
-# Install to ~/tools/agentic-engineering instead of the current directory
-AE_DEST_DIR=~/tools/agentic-engineering curl -fsSL https://docs.dinostack.ai/install.sh | bash
+# Install to ~/tools/DinoStack instead of the current directory
+AE_DEST_DIR=~/tools/DinoStack curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
 **Pass flags through to the installer** (e.g. to set activation mode without prompts):
@@ -96,7 +96,14 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The same flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, `.pi/install.sh`, `.omp/install.sh`, and `.hermes/install.sh` - the config file is shared across adapters.
+The `--mode=` flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, `.pi/install.sh`, `.omp/install.sh`, and `.hermes/install.sh` - the config file is shared across adapters.
+
+The following flags are currently supported by `.claude/install.sh` only:
+
+```
+bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
+bash .claude/install.sh --no-identity          # skip the developer-identity prompt
+```
 
 **Per-project marker:** add a single line to the project's root `AGENTS.md`:
 
@@ -132,7 +139,7 @@ The deny list merges with any existing deny rules. See [.claude/README.md](.clau
 **Or update manually:**
 
 ```
-cd ~/agentic-engineering
+cd ~/DinoStack
 git pull
 bash .claude/install.sh    # and/or .cursor/install.sh, .opencode/install.sh
 ```
@@ -196,8 +203,8 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 **Agents** (16) - named specialist roles:
 adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
 
-**Commands** (15) - workflow shortcuts:
-agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, prune-harness, representation-audit, skeptic, test-suite-comprehension, update-agentic-engineering, wrap
+**Commands** (19) - workflow shortcuts:
+agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
@@ -256,7 +263,7 @@ agentic-identity show --scope effective
 ## Repo structure
 
 ```
-agentic-engineering/
+DinoStack/
   .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
   .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
@@ -275,17 +282,17 @@ agentic-engineering/
 
 ## Documentation
 
-- `~/agentic-engineering/docs/index.html` - visual reference document describing the full system architecture
-- `~/agentic-engineering/docs/slides/how-it-works-slides.html` - what DinoStack is and how it works
-- `~/agentic-engineering/docs/slides/getting-started-slides.html` - install flow and the first focused session
-- `~/agentic-engineering/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
-- `~/agentic-engineering/docs/slides/agent-team-slides.html` - the agent team and how they compose
-- `~/agentic-engineering/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.agentic/qa.md` (legacy `.claude/qa.md` fallback) as project QA memory
-- `~/agentic-engineering/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / `.agentic/loop-state.json`
-- `~/agentic-engineering/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
-- `~/agentic-engineering/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
-- `~/agentic-engineering/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
-- `~/agentic-engineering/docs/slides/contributing-slides.html` - how to contribute to the repo
+- `~/DinoStack/docs/index.html` - visual reference document describing the full system architecture
+- `~/DinoStack/docs/slides/how-it-works-slides.html` - what DinoStack is and how it works
+- `~/DinoStack/docs/slides/getting-started-slides.html` - install flow and the first focused session
+- `~/DinoStack/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
+- `~/DinoStack/docs/slides/agent-team-slides.html` - the agent team and how they compose
+- `~/DinoStack/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.agentic/qa.md` (legacy `.claude/qa.md` fallback) as project QA memory
+- `~/DinoStack/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / `.agentic/loop-state.json`
+- `~/DinoStack/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
+- `~/DinoStack/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
+- `~/DinoStack/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
+- `~/DinoStack/docs/slides/contributing-slides.html` - how to contribute to the repo
 
 ## Safety model
 

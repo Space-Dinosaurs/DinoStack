@@ -1,14 +1,14 @@
-# Pi (oh-my-pi) Adapter
+# DinoStack - Pi (oh-my-pi) Adapter
 
-Agentic Engineering adapter for [Pi](https://github.com/oh-my-pi/pi-coding-agent) (oh-my-pi).
+DinoStack adapter for [Pi](https://github.com/oh-my-pi/pi-coding-agent) (oh-my-pi).
 
 ## Quick start
 
 Pi does **not** support custom slash commands like `/init-project`.
 Instead, use natural language to invoke the methodology:
 
-- **Explicit skill load:** Ask the agent to use the agentic-engineering skill
-- **Natural language:** "run init-project" or "initialize agentic-engineering in this repo"
+- **Explicit skill load:** Ask the agent to use the DinoStack skill
+- **Natural language:** "run init-project" or "initialize DinoStack in this repo"
 
 The skill auto-triggers when you mention software development tasks, but explicitly
 referencing the methodology guarantees it is active.
@@ -27,7 +27,7 @@ referencing the methodology guarantees it is active.
 
 ## What's adapted
 
-- **Skill**: `agentic-engineering` SKILL.md with Pi-compatible guidance. Includes subagent mapping (task/explore/plan/designer/reviewer to agentic-engineering roles) and methodology overview.
+- **Skill**: `agentic-engineering` SKILL.md with Pi-compatible guidance. Includes subagent mapping (task/explore/plan/designer/reviewer to DinoStack roles) and methodology overview.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Rules**: Symlinked from `content/rules/` into the skill directory for easy access.
 - **Commands**: Not adapted as markdown files. Pi commands are native TypeScript. Use natural language to invoke methodology commands ("run init-project", "do a wrap", "run skeptic review").
@@ -36,7 +36,8 @@ referencing the methodology guarantees it is active.
 ## Install
 
 ```bash
-bash .omp/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.omp/install.sh
 ```
 
 This will:

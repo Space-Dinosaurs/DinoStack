@@ -1,6 +1,6 @@
-# OpenCode Adapter
+# DinoStack - OpenCode Adapter
 
-Agentic Engineering adapter for [OpenCode](https://opencode.ai).
+DinoStack adapter for [OpenCode](https://opencode.ai).
 
 ## Concept mapping
 
@@ -25,16 +25,25 @@ Agentic Engineering adapter for [OpenCode](https://opencode.ai).
 ## Install
 
 ```bash
-bash .opencode/install.sh
+git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
+bash ~/DinoStack/.opencode/install.sh
 ```
 
-This will:
-1. Build the adapter (generates agents/commands from content/)
-2. Configure activation mode (opt-out or opt-in)
-3. Symlink the skill, agents, and commands to `~/.config/opencode/`
-4. Update `~/.config/opencode/AGENTS.md` with the skill loading signal
-5. Configure `~/.config/opencode/opencode.json` with permissions and rule instructions
-6. Install the pre-commit hook
+This installs:
+- `agentic-engineering` skill into `~/.config/opencode/skills/`
+- 13 named agent definitions into `~/.config/opencode/agents/`
+- 9 workflow commands into `~/.config/opencode/commands/`
+- Rule instructions wired into `~/.config/opencode/opencode.json`
+
+It also configures the activation mode (opt-out or opt-in) and installs the pre-commit hook.
+
+## Post-install verification
+
+```bash
+ls ~/.config/opencode/skills/agentic-engineering/SKILL.md
+```
+
+Should show the skill file. Then open OpenCode and ask: "What risk tiers does DinoStack define?" - it should reference Trivial/Low/Elevated/Elevated+Cleanup.
 
 ## Uninstall
 

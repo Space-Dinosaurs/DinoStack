@@ -169,7 +169,7 @@ new_stop_list = []
 for block in stop_list:
     new_hooks = [
         e for e in block.get("hooks", [])
-        if "agentic-engineering/hooks/stop-context.js" not in e.get("command", "")
+        if "hooks/stop-context.js" not in e.get("command", "")
     ]
     removed_count = len(block.get("hooks", [])) - len(new_hooks)
     if removed_count:

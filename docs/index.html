@@ -393,7 +393,7 @@
   .persistence-layer .section-title h2 { color: var(--gold);   text-shadow: 0 0 26px var(--gold-glow); }
 
   /* ── Node grid ── */
-  .node-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+  .node-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
   .node {
     padding: 6px 12px;
     border-radius: var(--radius-sm);
@@ -699,6 +699,7 @@
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 14px;
+    margin-bottom: 20px;
   }
   .atlas-chip {
     font-family: 'JetBrains Mono', monospace;
@@ -868,7 +869,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 12, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 16, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -994,13 +995,13 @@
     <div>
       <div class="rel-card">
         <h4 style="color: var(--cyan);">~/.claude/skills/agentic-engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
-        <p class="desc">The <code>/agentic-engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/agentic-engineering/.claude/skills/agentic-engineering/</code>. Content detailed in the Protocol Layer below.</p>
+        <p class="desc">The <code>/agentic-engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/DinoStack/.claude/skills/agentic-engineering/</code>. Content detailed in the Protocol Layer below.</p>
       </div>
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/agentic-engineering/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/agentic-engineering/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
-    <strong>Multi-adapter:</strong> The <code>~/agentic-engineering</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), and Hermes (<code>.hermes/</code>) - the same methodology in each tool's native format.<br>
+    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
+    <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), and Hermes (<code>.hermes/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
@@ -1088,7 +1089,7 @@
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section">
-  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/agentic-engineering/.claude/skills/agentic-engineering/references/</h3></div>
+  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/DinoStack/.claude/skills/agentic-engineering/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>
@@ -1956,7 +1957,7 @@
         <h4>Core Rules</h4>
         <ul>
           <li><strong>Conductor delegates every shippable edit to a worktree-isolated engineer.</strong> The conductor never edits shippable artifacts in its own checkout; worktrees are the execution location for all shippable changes. The conductor edits only exempt artifacts directly.</li>
-          <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/agentic-engineering</code> may commit and push directly to <code>main</code>.</li>
+          <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/DinoStack</code> may commit and push directly to <code>main</code>.</li>
           <li><strong>Base branch resolution:</strong> use <code>main</code> if it exists, fall back to <code>master</code>, then <code>develop</code>, then <code>development</code>.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
           <li><strong>Commit each fix immediately.</strong> Never accumulate uncommitted changes. After each validated fix: create branch, commit, PR, merge, pull - then start the next fix.</li>

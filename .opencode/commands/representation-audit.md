@@ -44,7 +44,7 @@ The analyst applies each signal to every file in scope and flags candidates as t
 
 Candidate if a rule is stated with 4+ qualifier clauses chained in a single sentence or paragraph ("unless A, unless B, unless C, does not apply when D..."). The structure signals a Python-shaped approach: rules are expressed by adding exception branches rather than by restating the positive principle more precisely.
 
-Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/agentic-engineering/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the "documentation-only file creation" bullet chains six qualifiers in a single parenthetical: "new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/DinoStack/; overrides the 'new file creation' Elevated signal for this case only." That sentence is the calibration specimen for R1 intensity. Flag at or above that density. Confidence: MEDIUM-HIGH depending on intensity.
 
 **Signal R2 - nested conditional prose.**
 
