@@ -100,6 +100,19 @@ function makeWrapLock(projectDir) {
   fs.mkdirSync(lockDir, { recursive: true });
 }
 
+// Write a flag-on config.json so stageWrapPending / touchHeartbeat fire.
+// Required for tests that assert markers or heartbeats ARE created, since those
+// paths are now gated on deferredDaemonEnabled(cwd).
+function writeFlagOnConfig(projectDir) {
+  const agenticDir = path.join(projectDir, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(agenticDir, 'config.json'),
+    JSON.stringify({ deferred_wrap_daemon: true }),
+    'utf8',
+  );
+}
+
 // A transcript fragment with an Edit tool_use (substantive activity).
 const EDIT_TRANSCRIPT = [
   {
@@ -226,6 +239,8 @@ console.log('\n[d] substantive payload: per-session pending marker staged (schem
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-d-');
   const markerPath = lib.markerPath(projectDir, 'sess-d');
+  // Flag-on config required: stageWrapPending is now gated on deferredDaemonEnabled(cwd).
+  writeFlagOnConfig(projectDir);
 
   try {
     runHook(projectDir, fakeHome, 'sess-d', EDIT_TRANSCRIPT);
@@ -326,6 +341,8 @@ console.log('\n[g] per-turn heartbeat: a substantive Stop touches .agentic/wrap/
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-g-');
   const heartbeatPath = lib.heartbeatPath(projectDir, 'sess-g');
+  // Flag-on config required: touchHeartbeat is now gated on deferredDaemonEnabled(cwd).
+  writeFlagOnConfig(projectDir);
 
   try {
     runHook(projectDir, fakeHome, 'sess-g', EDIT_TRANSCRIPT);
@@ -348,6 +365,8 @@ console.log('\n[h] per-session staging: two distinct sessions stage two distinct
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-h-');
   const m1 = lib.markerPath(projectDir, 'sess-h1');
   const m2 = lib.markerPath(projectDir, 'sess-h2');
+  // Flag-on config required: stageWrapPending is now gated on deferredDaemonEnabled(cwd).
+  writeFlagOnConfig(projectDir);
 
   try {
     runHook(projectDir, fakeHome, 'sess-h1', EDIT_TRANSCRIPT);
@@ -403,6 +422,76 @@ console.log('\n[i] loop-guard: under AGENTIC_WRAP_DAEMON=1 the Stop hook stages 
     'no marker staged under the loop-guard (case 13)');
   assert(!fs.existsSync(heartbeatPath),
     'no heartbeat touched under the loop-guard (case 13)');
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// (j) flag-OFF: no config (default) -> ZERO markers + ZERO heartbeats across N turns;
+//     context.md IS still written (gate must not break normal context writing).
+// (k) flag-ON companion: with config flag true, markers + heartbeats DO appear.
+//
+// These cases ARE regression tests: they MUST fail against pre-fix code
+// (where staging/heartbeat ran regardless of the flag) and pass after the fix.
+// ---------------------------------------------------------------------------
+console.log('\n[j] flag-OFF (no config): N turns produce zero pending markers, zero heartbeats; context.md written');
+{
+  const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-j-');
+  // NO config.json written - deferred_wrap_daemon defaults to false.
+  const contextPath = path.join(agenticDir, 'context.md');
+  const markerPath1 = lib.markerPath(projectDir, 'sess-j1');
+  const markerPath2 = lib.markerPath(projectDir, 'sess-j2');
+  const markerPath3 = lib.markerPath(projectDir, 'sess-j3');
+  const hb1 = lib.heartbeatPath(projectDir, 'sess-j1');
+  const hb2 = lib.heartbeatPath(projectDir, 'sess-j2');
+  const hb3 = lib.heartbeatPath(projectDir, 'sess-j3');
+
+  try {
+    runHook(projectDir, fakeHome, 'sess-j1', EDIT_TRANSCRIPT);
+    runHook(projectDir, fakeHome, 'sess-j2', EDIT_TRANSCRIPT);
+    runHook(projectDir, fakeHome, 'sess-j3', EDIT_TRANSCRIPT);
+  } catch (err) {
+    assert(false, `hook must not throw with flag off (got: ${err.message})`);
+    cleanup(tmpDir);
+    process.exit(1);
+  }
+
+  // ZERO markers staged when flag is off.
+  assert(!fs.existsSync(markerPath1), 'flag-OFF: no marker staged for sess-j1');
+  assert(!fs.existsSync(markerPath2), 'flag-OFF: no marker staged for sess-j2');
+  assert(!fs.existsSync(markerPath3), 'flag-OFF: no marker staged for sess-j3');
+
+  // ZERO heartbeats written when flag is off.
+  assert(!fs.existsSync(hb1), 'flag-OFF: no heartbeat for sess-j1');
+  assert(!fs.existsSync(hb2), 'flag-OFF: no heartbeat for sess-j2');
+  assert(!fs.existsSync(hb3), 'flag-OFF: no heartbeat for sess-j3');
+
+  // context.md STILL written (gate must not break normal context writing).
+  assert(fs.existsSync(contextPath), 'flag-OFF: context.md IS still written');
+  if (fs.existsSync(contextPath)) {
+    const c = fs.readFileSync(contextPath, 'utf8');
+    assert(c.startsWith('# Session Context'), 'flag-OFF: context.md has expected header');
+  }
+  cleanup(tmpDir);
+}
+
+console.log('\n[k] flag-ON (deferred_wrap_daemon:true): markers + heartbeats DO appear');
+{
+  const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-k-');
+  // Flag-on config written.
+  writeFlagOnConfig(projectDir);
+  const markerPath = lib.markerPath(projectDir, 'sess-k');
+  const hb = lib.heartbeatPath(projectDir, 'sess-k');
+
+  try {
+    runHook(projectDir, fakeHome, 'sess-k', EDIT_TRANSCRIPT);
+  } catch (err) {
+    assert(false, `hook must not throw with flag on (got: ${err.message})`);
+    cleanup(tmpDir);
+    process.exit(1);
+  }
+
+  assert(fs.existsSync(markerPath), 'flag-ON: marker staged for substantive session');
+  assert(fs.existsSync(hb), 'flag-ON: heartbeat written for session');
   cleanup(tmpDir);
 }
 
