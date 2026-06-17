@@ -50,9 +50,9 @@
  *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor; atomic
  *                tmp+rename on write).
- *                Via wrap-marker.js it also touches [cwd]/.agentic/.heartbeats/<session_id>
+ *                Via wrap-marker.js it also touches [cwd]/.agentic/wrap/heartbeats/<session_id>
  *                (per-turn liveness mtime) and may stage
- *                [cwd]/.agentic/wrap-pending-<session_id>.json (per-session marker).
+ *                [cwd]/.agentic/wrap/pending-<session_id>.json (per-session marker).
  *
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
@@ -96,14 +96,14 @@
  *                fs error is swallowed independently. The .capture-gap-last-sweep
  *                cursor update is also best-effort and never blocks exit.
  *                (10) appendSpilloverRecord appends one JSONL record to
- *                .agentic/.stop-deferred-activity.jsonl when wrapLockHeld(cwd) is
- *                true (a /wrap holds .agentic/wrap.lock); in that case BOTH
+ *                .agentic/wrap/deferred-activity.jsonl when wrapLockHeld(cwd) is
+ *                true (a /wrap holds .agentic/wrap/lock); in that case BOTH
  *                context.md write paths (path 1) are skipped so the background
  *                enrichment's locked Part-A merge is not clobbered, and the
  *                skipped activity is spilled instead for the enrichment to drain.
  *                Append-only, fail-open.
  *                (11) wrapMarker.touchHeartbeat writes/utimes
- *                .agentic/.heartbeats/<session_id> once per turn (per-session
+ *                .agentic/wrap/heartbeats/<session_id> once per turn (per-session
  *                liveness mtime); no-op under the AGENTIC_WRAP_DAEMON loop-guard;
  *                any fs error swallowed independently of all other paths.
  *                Marker staging (stageWrapPending -> wrap-marker lib) shares this
@@ -115,15 +115,15 @@
  *                batch-state writes (defence in depth).
  *
  *                Lock-aware interactions: wrapLockHeld(cwd) (a single fail-open
- *                fs.existsSync on .agentic/wrap.lock, a DIRECTORY created by
+ *                fs.existsSync on .agentic/wrap/lock, a DIRECTORY created by
  *                /wrap) gates path 1; it is re-checked immediately before each
  *                context.md writeFileSync to minimize TOCTOU. stageWrapPending
  *                (delegated to wrap-marker lib stagePending) stages a per-session
- *                .agentic/wrap-pending-<session_id>.json marker (schema_version 3,
+ *                .agentic/wrap/pending-<session_id>.json marker (schema_version 3,
  *                atomic tmp+rename, NORMATIVE schema in content/commands/wrap.md)
  *                so the next session or the daemon can complete enrichment for an
  *                un-wrapped session; staging is suppressed when the current
- *                session_id equals .agentic/.last-wrap (this session already
+ *                session_id equals .agentic/wrap/last-wrap (this session already
  *                wrapped), when this session's marker is already ready / pending /
  *                in_progress (MAJOR-3), when the session had no substantive
  *                activity, or under the AGENTIC_WRAP_DAEMON loop-guard. Staging is
@@ -704,7 +704,7 @@ function wrapLockHeld(cwd) {
 }
 
 /**
- * Append one spillover record to .agentic/.stop-deferred-activity.jsonl.
+ * Append one spillover record to .agentic/wrap/deferred-activity.jsonl.
  * Called only when wrapLockHeld(cwd) is true and a context.md write was therefore
  * skipped; the background enrichment drains this file into the context.md activity
  * block when it next writes (inside the held Part-A lock). Append-only, fail-open.
@@ -714,9 +714,8 @@ function wrapLockHeld(cwd) {
  */
 function appendSpilloverRecord(cwd, record) {
   try {
-    const agenticDir = path.join(cwd, '.agentic');
-    fs.mkdirSync(agenticDir, { recursive: true });
-    const spilloverPath = path.join(agenticDir, '.stop-deferred-activity.jsonl');
+    const spilloverPath = wrapMarker.stopDeferredActivityPath(cwd);
+    fs.mkdirSync(path.dirname(spilloverPath), { recursive: true });
     fs.appendFileSync(spilloverPath, JSON.stringify(record) + '\n', 'utf8');
   } catch (_) {
     // Silent failure - spillover is best-effort; a missed record is tolerated.
@@ -758,7 +757,7 @@ function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecor
 }
 
 /**
- * Stage a per-session .agentic/wrap-pending-<session_id>.json enrichment marker
+ * Stage a per-session .agentic/wrap/pending-<session_id>.json enrichment marker
  * (schema_version 3) so the next session in this project (or the daemon) can
  * complete enrichment for a session that exited un-wrapped. The full staging
  * predicate, the MAJOR-3 ready/pending/in_progress suppression, the .last-wrap

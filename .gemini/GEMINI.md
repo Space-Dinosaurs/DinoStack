@@ -83,7 +83,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification. On Claude Code this rule is enforced by a `PreToolUse` hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that denies any `Task` spawn lacking `run_in_background: true` (except documented foreground-exempt agents like `wrap-ticket`, which must block on `wrap.lock` before Phase 12 cleanup proceeds) and feeds the reason back so the conductor re-issues the call correctly; other adapters rely on the prose rule until equivalent enforcement lands.
+**All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification. On Claude Code this rule is enforced by a `PreToolUse` hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that denies any `Task` spawn lacking `run_in_background: true` (except documented foreground-exempt agents like `wrap-ticket`, which must block on `wrap/lock` before Phase 12 cleanup proceeds) and feeds the reason back so the conductor re-issues the call correctly; other adapters rely on the prose rule until equivalent enforcement lands.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated.
 
@@ -927,7 +927,7 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; auto-injected by Claude Code at startup. Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
 - `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (conductor-discretionary).
 - `decisions.md` - the project's decision log, where used.
-- `.agentic/findings.md` - curated Skeptic-finding patterns; committed. Written by `findings-curator` at Phase 6 loop exit.
+- `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
 - `.agentic/qa-regressions.md` - curated QA regression patterns; committed. Written by `qa-regressions-curator` at Phase 6b QA FAIL.
 - `qa.md` - QA triggers and project-specific quirks the QA engineer needs to know.
 - Module manifests - file-level intent embedded in the source itself (see `module-manifest.md`).

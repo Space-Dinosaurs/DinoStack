@@ -37,7 +37,7 @@ Failure modes:
   Phase 12 or PR completion.
 - JSON parse failure (bad return shape): conductor warns and proceeds with no
   appends.
-- Lock contention: if .agentic/wrap.lock is held by another session (e.g., /wrap
+- Lock contention: if .agentic/wrap/lock is held by another session (e.g., /wrap
   is running concurrently), return immediately with skipped_reason set to
   "wrap-lock-contention" and writer_actions: [].
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
@@ -64,7 +64,7 @@ You are a **constrained automated subset of `/wrap`**. The differences are inten
 | Skeptic review | None | Required |
 | Rolling session labels | None | Yes (5-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
-| Lock | `.agentic/wrap.lock` (shared with /wrap) | `.agentic/wrap.lock` (shared with wrap-ticket) |
+| Lock | `.agentic/wrap/lock` (shared with /wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
 You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only).
@@ -91,12 +91,12 @@ Your spawn prompt provides the following inputs (all required unless noted):
 
 ### 1. Acquire the wrap lock
 
-Before any read or write, attempt to acquire `.agentic/wrap.lock`:
+Before any read or write, attempt to acquire `.agentic/wrap/lock`:
 
 ```bash
-mkdir -p .agentic
-mkdir .agentic/wrap.lock 2>/dev/null && {
-  printf '%s\\n%s\\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap.lock/owner
+mkdir -p .agentic/wrap
+mkdir .agentic/wrap/lock 2>/dev/null && {
+  printf '%s\\n%s\\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap/lock/owner
 } || {
   # Lock is held by another session (likely /wrap). Return immediately with
   # skipped_reason: "wrap-lock-contention" and writer_actions: [].

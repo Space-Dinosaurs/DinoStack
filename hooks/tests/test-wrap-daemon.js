@@ -19,7 +19,7 @@
  *   (16) timeout-and-kill -> the hung child is killed and the marker is reset
  *        (attempts incremented), not left in_progress.
  *
- * Daemon-logging cases (.agentic/wrap-daemon.log):
+ * Daemon-logging cases (.agentic/wrap/daemon.log):
  *   (LOG-1) success capture: the log holds the done outcome line + the child's
  *           captured stdout (WRAP_OK_MARKER) inside the delimited block.
  *   (LOG-2) gave_up + stderr capture + log/marker agreement: the log carries
@@ -195,26 +195,27 @@ function makeProject(prefix) {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   const projectDir = path.join(base, 'project');
   const agenticDir = path.join(projectDir, '.agentic');
-  const heartbeatDir = path.join(agenticDir, '.heartbeats');
-  fs.mkdirSync(heartbeatDir, { recursive: true });
+  // Create .agentic/wrap/heartbeats/ (new layout).
+  fs.mkdirSync(path.join(agenticDir, 'wrap', 'heartbeats'), { recursive: true });
+  const heartbeatDir = path.join(agenticDir, 'wrap', 'heartbeats');
   return { base, projectDir, agenticDir, heartbeatDir };
 }
 function cleanup(base) { try { fs.rmSync(base, { recursive: true, force: true }); } catch (_) {} }
 
-function markerPath(agenticDir, sessionId) {
-  return path.join(agenticDir, 'wrap-pending-' + sessionId + '.json');
-}
 function writeMarkerRaw(agenticDir, sessionId, overrides) {
+  const projectDir = path.dirname(agenticDir);
   const marker = Object.assign({
     schema_version: 3, session_id: sessionId, staged_at: new Date().toISOString(),
     status: 'pending', claimed_by: null, claimed_kind: null, claimed_at: null,
-    attempts: 0, project_root: path.dirname(agenticDir), last_error: null,
+    attempts: 0, project_root: projectDir, last_error: null,
   }, overrides || {});
-  fs.writeFileSync(markerPath(agenticDir, sessionId), JSON.stringify(marker, null, 2), 'utf8');
+  const p = lib.markerPath(projectDir, sessionId);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(marker, null, 2), 'utf8');
   return marker;
 }
 function readMarker(agenticDir, sessionId) {
-  const p = markerPath(agenticDir, sessionId);
+  const p = lib.markerPath(path.dirname(agenticDir), sessionId);
   if (!fs.existsSync(p)) return null;
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
 }
@@ -224,7 +225,7 @@ function writeConfig(agenticDir, obj) {
 function agoIso(seconds) { return new Date(Date.now() - seconds * 1000).toISOString(); }
 
 // The always-on daemon log + its single-generation rotation target.
-function daemonLogPath(agenticDir) { return path.join(agenticDir, 'wrap-daemon.log'); }
+function daemonLogPath(agenticDir) { return lib.wrapDaemonLogPath(path.dirname(agenticDir)); }
 function readDaemonLog(agenticDir) {
   const p = daemonLogPath(agenticDir);
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
@@ -279,8 +280,8 @@ console.log('\n[15] auth pre-flight non-zero -> wrap-daemon-auth-failed written,
   }, 30000);
 
   assert(code === 0, 'daemon exits 0 after auth failure');
-  assert(fs.existsSync(path.join(agenticDir, 'wrap-daemon-auth-failed')),
-    'wrap-daemon-auth-failed notice written on non-zero auth');
+  assert(fs.existsSync(lib.authFailedPath(projectDir)),
+    'wrap/daemon-auth-failed notice written on non-zero auth');
   const m = readMarker(agenticDir, SID.a);
   assert(m && m.status === 'ready', 'ready marker left untouched (still ready) on auth failure');
   assert(m && m.attempts === 0, 'marker attempts NOT incremented on auth failure');
@@ -486,7 +487,7 @@ console.log('\n[7] singleton: a LIVE pid file blocks a second launch; a stale+de
 console.log('\n[10] acquireWrapLock: auto-clears a stale lock, defers on a fresh one');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock-');
-  const lockDir = path.join(agenticDir, 'wrap.lock');
+  const lockDir = lib.wrapLockPath(projectDir);
   const STALE_MS = 30 * 60 * 1000;
 
   // (a) No lock -> acquire succeeds.
@@ -653,7 +654,7 @@ console.log('\n[LOG-1] success capture: wrap-daemon.log contains the done line +
   }, 40000);
 
   assert(code === 0, 'daemon exits 0 after a clean drain');
-  assert(fs.existsSync(daemonLogPath(agenticDir)), '.agentic/wrap-daemon.log exists after a run');
+  assert(fs.existsSync(daemonLogPath(agenticDir)), '.agentic/wrap/daemon.log exists after a run');
   const logTxt = readDaemonLog(agenticDir);
   assert(new RegExp(SID.a + ' done').test(logTxt),
     'log records the per-run outcome line (session <id> done)');
@@ -765,8 +766,8 @@ console.log('\n[LOG-4] rotation: a >2 MB wrap-daemon.log rotates to .log.1, live
 
   assert(code === 0, 'daemon exits 0');
   const rotated = bigLog + '.1';
-  assert(fs.existsSync(rotated), '.agentic/wrap-daemon.log.1 exists after rotation');
-  assert(fs.existsSync(bigLog), '.agentic/wrap-daemon.log (live) still exists after rotation');
+  assert(fs.existsSync(rotated), '.agentic/wrap/daemon.log.1 exists after rotation');
+  assert(fs.existsSync(bigLog), '.agentic/wrap/daemon.log (live) still exists after rotation');
   const liveSize = fs.statSync(bigLog).size;
   assert(liveSize < seededSize,
     `live log is the smaller current file after rotation (live ${liveSize} < seeded ${seededSize})`);
@@ -814,12 +815,12 @@ console.log('\n[LOG-5/SEC-C1] boundary intact after stdio capture: --disallowedT
 
 // ---------------------------------------------------------------------------
 // (LOG-6/SEC-symlink) CWE-59 planted-symlink write-through is closed: a hostile repo
-// pre-plants a tracked symlink at .agentic/wrap-daemon.log pointing at a victim file
+// pre-plants a tracked symlink at .agentic/wrap/daemon.log pointing at a victim file
 // OUTSIDE .agentic/. The O_NOFOLLOW write + lstat self-heal must (a) NEVER write
 // through the link into the victim, (b) replace the link with a fresh REGULAR log
 // holding the daemon's own lines, and (c) keep the daemon fail-open (exits normally).
 // ---------------------------------------------------------------------------
-console.log('\n[LOG-6/SEC-symlink] planted symlink at wrap-daemon.log: victim untouched, log self-heals to a regular file (CWE-59)');
+console.log('\n[LOG-6/SEC-symlink] planted symlink at wrap/daemon.log: victim untouched, log self-heals to a regular file (CWE-59)');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-log-symlink-');
   writeConfig(agenticDir, FAST_IDLE);
@@ -854,9 +855,9 @@ console.log('\n[LOG-6/SEC-symlink] planted symlink at wrap-daemon.log: victim un
 // ---------------------------------------------------------------------------
 // Lock-clear helpers (Part F: LOCK-1..7)
 // ---------------------------------------------------------------------------
-// Plant a wrap.lock DIRECTORY with an optional owner file body.
-function plantLockDir(agenticDir, ownerBody) {
-  const lockDir = path.join(agenticDir, 'wrap.lock');
+// Plant a wrap/lock DIRECTORY with an optional owner file body.
+function plantLockDir(projectDir, ownerBody) {
+  const lockDir = lib.wrapLockPath(projectDir);
   fs.mkdirSync(lockDir, { recursive: true });
   if (ownerBody !== null && ownerBody !== undefined) {
     fs.writeFileSync(path.join(lockDir, 'owner'), ownerBody, 'utf8');
@@ -869,46 +870,46 @@ const DEAD_PID = '2147480000';
 // ---------------------------------------------------------------------------
 // (LOCK-1) dead-PID owner -> the daemon clears the stale wrap.lock before drain.
 // ---------------------------------------------------------------------------
-console.log('\n[LOCK-1] dead-PID owner: daemon clears stale wrap.lock before drain');
+console.log('\n[LOCK-1] dead-PID owner: daemon clears stale wrap/lock before drain');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock1-');
   writeConfig(agenticDir, FAST_IDLE);
-  // wrap.lock dir + owner = a known-dead PID (2-line body, PID + recent ISO).
-  const lockDir = plantLockDir(agenticDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
-  assert(fs.existsSync(lockDir), 'precondition: stale wrap.lock dir planted');
+  // wrap/lock dir + owner = a known-dead PID (2-line body, PID + recent ISO).
+  const lockDir = plantLockDir(projectDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
+  assert(fs.existsSync(lockDir), 'precondition: stale wrap/lock dir planted');
 
   const { code, stdout } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
 
   assert(code === 0, 'daemon exits 0');
-  assert(!fs.existsSync(lockDir), 'stale wrap.lock dir was cleared (dead owner PID)');
-  assert(/cleared provably-stale wrap\.lock/.test(stdout)
-    || /cleared provably-stale wrap\.lock/.test(readDaemonLog(agenticDir)),
-    'daemon logged "cleared provably-stale wrap.lock"');
+  assert(!fs.existsSync(lockDir), 'stale wrap/lock dir was cleared (dead owner PID)');
+  assert(/cleared provably-stale wrap[./]lock/.test(stdout)
+    || /cleared provably-stale wrap[./]lock/.test(readDaemonLog(agenticDir)),
+    'daemon logged "cleared provably-stale wrap/lock"');
   cleanup(base);
 }
 
 // ---------------------------------------------------------------------------
 // (LOCK-2) no-PID owner + old timestamp -> cleared.
 // ---------------------------------------------------------------------------
-console.log('\n[LOCK-2] no-PID owner + old timestamp: daemon clears stale wrap.lock');
+console.log('\n[LOCK-2] no-PID owner + old timestamp: daemon clears stale wrap/lock');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock2-');
   writeConfig(agenticDir, FAST_IDLE);
   // owner body = "\n<35-min-ago ISO>" -> line0 empty (no PID), line1 = old ts.
   // Default reclaim window is 30 min, so 35 min is provably stale.
-  const lockDir = plantLockDir(agenticDir, '\n' + agoIso(35 * 60) + '\n');
+  const lockDir = plantLockDir(projectDir, '\n' + agoIso(35 * 60) + '\n');
 
   const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
 
   assert(code === 0, 'daemon exits 0');
-  assert(!fs.existsSync(lockDir), 'stale wrap.lock dir cleared (no PID + owner ts older than staleMs)');
+  assert(!fs.existsSync(lockDir), 'stale wrap/lock dir cleared (no PID + owner ts older than staleMs)');
   cleanup(base);
 }
 
 // ---------------------------------------------------------------------------
 // (LOCK-3) symlink at wrap.lock is NOT followed: victim untouched, link removed.
 // ---------------------------------------------------------------------------
-console.log('\n[LOCK-3] symlink at wrap.lock: not followed, victim untouched, link removed (CWE-59)');
+console.log('\n[LOCK-3] symlink at wrap/lock: not followed, victim untouched, link removed (CWE-59)');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock3-');
   writeConfig(agenticDir, FAST_IDLE);
@@ -918,10 +919,11 @@ console.log('\n[LOCK-3] symlink at wrap.lock: not followed, victim untouched, li
   const sentinelFile = path.join(sentinelDir, 'keep.txt');
   const SENTINEL_CONTENT = 'DO-NOT-DELETE-' + 'z'.repeat(48);
   fs.writeFileSync(sentinelFile, SENTINEL_CONTENT, 'utf8');
-  // Plant wrap.lock as a SYMLINK to the sentinel dir.
-  const lockPath = path.join(agenticDir, 'wrap.lock');
+  // Plant wrap/lock as a SYMLINK to the sentinel dir.
+  const lockPath = lib.wrapLockPath(projectDir);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.symlinkSync(sentinelDir, lockPath);
-  assert(fs.lstatSync(lockPath).isSymbolicLink(), 'precondition: wrap.lock is a planted symlink');
+  assert(fs.lstatSync(lockPath).isSymbolicLink(), 'precondition: wrap/lock is a planted symlink');
 
   const { code, signal } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
 
@@ -933,7 +935,7 @@ console.log('\n[LOCK-3] symlink at wrap.lock: not followed, victim untouched, li
   // The link itself is gone (unlinked as a hostile artifact).
   let linkGone = false;
   try { fs.lstatSync(lockPath); } catch (_) { linkGone = true; }
-  assert(linkGone, 'planted wrap.lock symlink removed (link only, target untouched)');
+  assert(linkGone, 'planted wrap/lock symlink removed (link only, target untouched)');
   cleanup(base);
 }
 
@@ -945,7 +947,7 @@ console.log('\n[LOCK-4] live-PID owner + recent ts: lock KEPT (never clears a li
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock4-');
   writeConfig(agenticDir, FAST_IDLE);
   // owner = THIS test process PID (alive) + recent ts.
-  const lockDir = plantLockDir(agenticDir, String(process.pid) + '\n' + new Date().toISOString() + '\n');
+  const lockDir = plantLockDir(projectDir, String(process.pid) + '\n' + new Date().toISOString() + '\n');
 
   const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
 
@@ -964,8 +966,8 @@ console.log('\n[LOCK-5] no-owner race: lock KEPT (no signal -> keep)');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock5-');
   writeConfig(agenticDir, FAST_IDLE);
-  // mkdir wrap.lock with NO owner file at all.
-  const lockDir = plantLockDir(agenticDir, null);
+  // mkdir wrap/lock with NO owner file at all.
+  const lockDir = plantLockDir(projectDir, null);
 
   const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
 
@@ -983,7 +985,7 @@ console.log('\n[LOCK-6] alive-PID + OLD ts: KEEP (alive PID authoritative; age d
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock6-');
   writeConfig(agenticDir, FAST_IDLE);
   // owner = alive PID (this process) + a 35-min-old ts (older than the 30-min window).
-  const lockDir = plantLockDir(agenticDir, String(process.pid) + '\n' + agoIso(35 * 60) + '\n');
+  const lockDir = plantLockDir(projectDir, String(process.pid) + '\n' + agoIso(35 * 60) + '\n');
 
   const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
 
@@ -1002,7 +1004,7 @@ console.log('\n[LOCK-7] dead-PID + RECENT ts: CLEAR (liveness, not age, drives t
   writeConfig(agenticDir, FAST_IDLE);
   // owner = dead PID + a FRESH ts (within the window). The PID liveness, not the
   // timestamp, must drive the clear.
-  const lockDir = plantLockDir(agenticDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
+  const lockDir = plantLockDir(projectDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
 
   const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
 
@@ -1018,7 +1020,7 @@ console.log('\n[LOCK-7] dead-PID + RECENT ts: CLEAR (liveness, not age, drives t
 // attacker's owner. The leaf lstat guard alone is insufficient here because the
 // attacker's owner is a regular file (isSymbolicLink()===false at the leaf level).
 // ---------------------------------------------------------------------------
-console.log('\n[LOCK-8] readWrapLockOwner parent-symlink guard: does not read owner through a parent wrap.lock symlink (CWE-59 defense-in-depth)');
+console.log('\n[LOCK-8] readWrapLockOwner parent-symlink guard: does not read owner through a parent wrap/lock symlink (CWE-59 defense-in-depth)');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock8-');
 
@@ -1031,17 +1033,18 @@ console.log('\n[LOCK-8] readWrapLockOwner parent-symlink guard: does not read ow
   fs.writeFileSync(path.join(attackerDir, 'owner'),
     ATTACKER_PID + '\n' + ATTACKER_TS + '\n', 'utf8');
 
-  // Plant .agentic/wrap.lock as a SYMLINK to the attacker directory.
-  const lockPath = path.join(agenticDir, 'wrap.lock');
+  // Plant .agentic/wrap/lock as a SYMLINK to the attacker directory.
+  const lockPath = lib.wrapLockPath(projectDir);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.symlinkSync(attackerDir, lockPath);
   assert(fs.lstatSync(lockPath).isSymbolicLink(),
-    'LOCK-8 precondition: wrap.lock is a symlink to the attacker dir');
+    'LOCK-8 precondition: wrap/lock is a symlink to the attacker dir');
 
   // readWrapLockOwner must NOT resolve through the parent link and read the
   // attacker's owner file; it must return {pid:null,ts:null}.
   const result = lib.readWrapLockOwner(projectDir);
   assert(result.pid === null && result.ts === null,
-    'LOCK-8: readWrapLockOwner returns {pid:null,ts:null} when wrap.lock is a parent symlink (did NOT read attacker owner through the link)');
+    'LOCK-8: readWrapLockOwner returns {pid:null,ts:null} when wrap/lock is a parent symlink (did NOT read attacker owner through the link)');
 
   // The attacker dir and its owner file must be completely untouched.
   assert(fs.existsSync(path.join(attackerDir, 'owner')),

@@ -3,7 +3,7 @@
 
 /**
  * Purpose: Portable, permission-safe release of the /wrap directory lock
- *          (.agentic/wrap.lock). Replaces the inline `rm -rf .agentic/wrap.lock`
+ *          (.agentic/wrap/lock). Replaces the inline `rm -rf .agentic/wrap/lock`
  *          that Claude Code's permission system denies even under bypass. Invoked
  *          by BARE NAME (PATH-wired like agentic-migrate) from any project root.
  *
@@ -31,6 +31,8 @@
  *   block), content/commands/implement-ticket.md Phase 11b (conductor-run lock
  *   release after wrap-ticket returns). NOT the deferred path: /wrap-deferred and
  *   the daemon clear the lock via clearProvablyStaleWrapLock (Bash removed there).
+ *   Lock path: .agentic/wrap/lock (resolved via lib.wrapLockPath; fallback to
+ *   hardcoded path.join(cwd, '.agentic', 'wrap', 'lock')).
  *
  * Failure modes: fail-open. Any error (require failure, fs error, bad cwd) is
  *   swallowed and the process still exits 0 so a release failure never aborts the
@@ -59,7 +61,7 @@ function main() {
     process.exit(0);
   }
 
-  let lockPath = path.join(cwd, '.agentic', 'wrap.lock');
+  let lockPath = path.join(cwd, '.agentic', 'wrap', 'lock');
   try {
     if (typeof lib.wrapLockPath === 'function') lockPath = lib.wrapLockPath(cwd) || lockPath;
   } catch (_) { /* fall back to the joined path */ }

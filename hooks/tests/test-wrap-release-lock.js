@@ -4,7 +4,7 @@
 /**
  * Unit tests for bin/agentic-wrap-release-lock.
  *
- * Tests the CLI helper that replaces the inline `rm -rf .agentic/wrap.lock`
+ * Tests the CLI helper that replaces the inline `rm -rf .agentic/wrap/lock`
  * denied by Claude Code's permission system. Four cases:
  *   1. Planted lock - lock exists, gets released, stdout says "released <path>"
  *   2. No lock     - nothing to remove, stdout says "no lock present"
@@ -18,6 +18,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const lib = require('../lib/wrap-marker.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'bin', 'agentic-wrap-release-lock');
@@ -43,7 +44,7 @@ function makeTmp(prefix) {
 }
 
 function plantLock(dir) {
-  const lockDir = path.join(dir, '.agentic', 'wrap.lock');
+  const lockDir = lib.wrapLockPath(dir);
   fs.mkdirSync(lockDir, { recursive: true });
   fs.writeFileSync(path.join(lockDir, 'owner'), '12345\n' + new Date().toISOString() + '\n');
   return lockDir;
@@ -130,7 +131,7 @@ console.log('\n[4] bare-name via symlink from non-repo cwd');
   const symlinkPath = path.join(bindir, 'agentic-wrap-release-lock');
   fs.symlinkSync(SCRIPT_PATH, symlinkPath);
   plantLock(proj);
-  const lockDir = path.join(proj, '.agentic', 'wrap.lock');
+  const lockDir = lib.wrapLockPath(proj);
 
   let stdout;
   let threw = false;

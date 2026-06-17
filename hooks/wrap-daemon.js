@@ -10,7 +10,7 @@
  *          `claude` subprocesses, owns a PID-file singleton, reclaims markers a
  *          dead daemon abandoned in `in_progress` (MAJOR-C), deletes stale
  *          `pending` markers (MINOR-1, delete-only), clears a provably-stale
- *          `.agentic/wrap.lock` at the top of each drain tick (delegated to the lib's
+ *          `.agentic/wrap/lock` at the top of each drain tick (delegated to the lib's
  *          symlink-safe clearProvablyStaleWrapLock - the headless child runs with Bash
  *          removed and cannot `rm` the lock itself, and the predicate never clears a
  *          live lock), and bounds every child with a timeout-and-kill of the whole
@@ -30,11 +30,11 @@
  *                (`claude auth status` for the pre-flight; `claude --resume <id> -p
  *                "/wrap-deferred" ...` for each drain) with AGENTIC_WRAP_DAEMON=1 in
  *                the child env so the child's own hooks no-op (loop-guard).
- *                Writes/owns [project_root]/.agentic/wrap-daemon.pid (O_EXCL
- *                singleton) and may write [project_root]/.agentic/wrap-daemon-auth-failed.
+ *                Writes/owns [project_root]/.agentic/wrap/daemon.pid (O_EXCL
+ *                singleton) and may write [project_root]/.agentic/wrap/daemon-auth-failed.
  *                Also writes an always-on bounded operator log at
- *                [project_root]/.agentic/wrap-daemon.log (rotation target
- *                .agentic/wrap-daemon.log.1), each rotated at MAX_DAEMON_LOG_BYTES.
+ *                [project_root]/.agentic/wrap/daemon.log (rotation target
+ *                .agentic/wrap/daemon.log.1), each rotated at MAX_DAEMON_LOG_BYTES.
  *
  * Downstream consumers: none (terminal process). Its side effects - the canonical
  *                       context.md / memory.md / AGENTS.md writes - are performed by
@@ -104,10 +104,10 @@
  *                "Bash" / childEnv git hardening boundary - those flags and env are
  *                passed verbatim. The wrap-daemon.log append uses a short-write loop so
  *                a partial writeSync still writes the whole line.
- *                SEC (CWE-59/CWE-61, planted-symlink write-through): wrap-daemon.log is
+ *                SEC (CWE-59/CWE-61, planted-symlink write-through): wrap/daemon.log is
  *                written via an O_NOFOLLOW open (O_WRONLY|O_CREAT|O_APPEND|O_NOFOLLOW,
  *                0o600), so the append REFUSES to follow a symlink - a hostile repo's
- *                tracked symlink at .agentic/wrap-daemon.log (which the .agentic/*
+ *                tracked symlink at .agentic/wrap/daemon.log (which the .agentic/*
  *                gitignore does NOT cover) cannot redirect attacker-influenced child
  *                output through the link into ~/.bashrc / a git hook / authorized_keys.
  *                A pre-write lstat (does not follow) detects + unlinks a planted link
@@ -278,13 +278,13 @@ function readConfig(cwd) {
 // ---------------------------------------------------------------------------
 
 /**
- * Append a pre-formatted line to the daemon-owned .agentic/wrap-daemon.log, with a
+ * Append a pre-formatted line to the daemon-owned .agentic/wrap/daemon.log, with a
  * single-generation size rotation. Fail-open: the WHOLE body is wrapped so it NEVER
  * throws (a logging failure must never crash the daemon or suppress stdout). A no-op
  * until logFilePath is bound (pre-init lines stay stdout-only).
  *
  * SECURITY (CWE-59 / CWE-61, symlink write-through): a hostile cloned repo can ship a
- * TRACKED symlink at .agentic/wrap-daemon.log (the .agentic/* gitignore does NOT cover
+ * TRACKED symlink at .agentic/wrap/daemon.log (the .agentic/* gitignore does NOT cover
  * a tracked path, so it materializes on clone) pointing OUTSIDE .agentic/ - e.g. at
  * ~/.bashrc, a git hook, or ~/.ssh/authorized_keys. A symlink-following append would
  * write attacker-influenced child output THROUGH the link into the victim file (a
@@ -340,7 +340,7 @@ function appendToLog(line) {
 
 /**
  * Best-effort logger - the daemon's diagnostics go to BOTH stdout (unchanged) and the
- * persistent .agentic/wrap-daemon.log (once bound). Never throws: each sink has its own
+ * persistent .agentic/wrap/daemon.log (once bound). Never throws: each sink has its own
  * guard so one failing must not suppress the other.
  */
 function log(msg) {
@@ -522,7 +522,7 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
         // headless run spawned, not just the immediate child.
         detached: true,
         // Capture the headless child's stdout+stderr (previously discarded) so the
-        // /wrap-deferred output lands in .agentic/wrap-daemon.log. The boundary is
+        // /wrap-deferred output lands in .agentic/wrap/daemon.log. The boundary is
         // UNCHANGED: --disallowedTools Bash + childEnv() git hardening still apply.
         stdio: ['ignore', 'pipe', 'pipe'],
         env: childEnv(),
@@ -667,13 +667,13 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
   const timeoutMs = cfg.deferred_wrap_timeout_minutes * 60 * 1000;
   const ownerToken = String(process.pid);
 
-  // Clear a PROVABLY-stale wrap.lock BEFORE any child spawn (the headless
+  // Clear a PROVABLY-stale wrap/lock BEFORE any child spawn (the headless
   // /wrap-deferred child runs with Bash removed and cannot `rm` it; the trusted
   // daemon must). Clearing here means the child sees no stale lock and won't
   // re-flag it on every run. The lib's predicate NEVER clears a live lock. Reuses
   // reclaimMs as the staleness window (same 30-min reclaim semantics).
   if (wrapMarker.clearProvablyStaleWrapLock(cwd, reclaimMs)) {
-    log('cleared provably-stale wrap.lock before drain');
+    log('cleared provably-stale wrap/lock before drain');
   }
 
   const ready = wrapMarker.listReadyMarkers(cwd); // already FIFO by staged_at asc
@@ -820,7 +820,7 @@ async function main() {
 
   // Bind the persistent log path ONLY after project_root passed its validity and
   // existing-directory guards, so the path derives from a clean absolute existing dir.
-  // From here on, log()/appendToLog also persist to .agentic/wrap-daemon.log.
+  // From here on, log()/appendToLog also persist to .agentic/wrap/daemon.log.
   logFilePath = wrapMarker.wrapDaemonLogPath(projectRoot);
 
   // --- 2. Loop-guard: a daemon must NEVER spawn from inside a daemon run ---

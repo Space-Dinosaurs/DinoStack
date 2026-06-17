@@ -66,6 +66,7 @@ function cleanup(base) {
 // Build + write a marker directly to disk (bypassing the guarded transitions so a
 // test can set up arbitrary fixture state regardless of the loop-guard).
 function writeMarkerRaw(agenticDir, sessionId, overrides) {
+  const projectDir = path.dirname(agenticDir);
   const marker = Object.assign({
     schema_version: 3,
     session_id: sessionId,
@@ -75,25 +76,24 @@ function writeMarkerRaw(agenticDir, sessionId, overrides) {
     claimed_kind: null,
     claimed_at: null,
     attempts: 0,
-    project_root: path.dirname(agenticDir),
+    project_root: projectDir,
     last_error: null,
   }, overrides || {});
-  fs.writeFileSync(
-    path.join(agenticDir, 'wrap-pending-' + sessionId + '.json'),
-    JSON.stringify(marker, null, 2),
-    'utf8'
-  );
+  const p = lib.markerPath(projectDir, sessionId);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(marker, null, 2), 'utf8');
   return marker;
 }
 
 function readRaw(agenticDir, sessionId) {
-  const p = path.join(agenticDir, 'wrap-pending-' + sessionId + '.json');
+  const p = lib.markerPath(path.dirname(agenticDir), sessionId);
   if (!fs.existsSync(p)) return null;
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
 }
 
 function markerExists(agenticDir, sessionId) {
-  return fs.existsSync(path.join(agenticDir, 'wrap-pending-' + sessionId + '.json'));
+  const p = lib.markerPath(path.dirname(agenticDir), sessionId);
+  return fs.existsSync(p);
 }
 
 // A timestamp `seconds` in the past, ISO8601.
@@ -247,7 +247,9 @@ console.log('\n[5/MAJOR-3] stagePending suppresses on a live (ready/pending/in_p
 
   // .last-wrap == sid -> suppressed (already wrapped).
   const SID3 = '44444444-4444-4444-4444-444444444444';
-  fs.writeFileSync(path.join(agenticDir, '.last-wrap'), SID3 + '\n', 'utf8');
+  const lastWrapDir3 = path.dirname(lib.lastWrapPath(projectDir));
+  fs.mkdirSync(lastWrapDir3, { recursive: true });
+  fs.writeFileSync(lib.lastWrapPath(projectDir), SID3 + '\n', 'utf8');
   assert(lib.stagePending(projectDir, SID3, substantive) === false, 'stage suppressed when .last-wrap names this session');
   assert(!markerExists(agenticDir, SID3), 'no marker for an already-wrapped session');
 
@@ -443,10 +445,9 @@ console.log('\n[SEC-M2] oversized marker file is skipped (treated as unreadable)
     attempts: 0, project_root: projectDir, last_error: null,
     _pad: 'x'.repeat(70 * 1024), // > MAX_MARKER_BYTES (64 KB)
   };
-  fs.writeFileSync(
-    path.join(agenticDir, 'wrap-pending-' + BIG + '.json'),
-    JSON.stringify(bigMarker, null, 2), 'utf8'
-  );
+  const bigPath = lib.markerPath(projectDir, BIG);
+  fs.mkdirSync(path.dirname(bigPath), { recursive: true });
+  fs.writeFileSync(bigPath, JSON.stringify(bigMarker, null, 2), 'utf8');
   // A normal small `ready` marker.
   writeMarkerRaw(agenticDir, SMALL, { status: 'ready' });
 
@@ -469,20 +470,22 @@ console.log('\n[SEC-M2] oversized marker file is skipped (treated as unreadable)
 // ---------------------------------------------------------------------------
 // (SEC-M3a) non-UUID marker filenames are short-circuited (never read)
 // ---------------------------------------------------------------------------
-console.log('\n[SEC-M3a] non-UUID wrap-pending-*.json filenames are filtered before any read');
+console.log('\n[SEC-M3a] non-UUID pending-*.json filenames are filtered before any read');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-mr-uuidfilter-');
   const VALID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  const scanDir = path.join(agenticDir, 'wrap');
 
   // A valid ready marker (UUID session component).
   writeMarkerRaw(agenticDir, VALID, { status: 'ready' });
-  // Hostile non-UUID filenames carrying a `ready` payload - MUST be ignored because
-  // their session component does not match the UUID shape (filtered before read).
+  // Hostile non-UUID filenames carrying a `ready` payload in the scan dir -
+  // MUST be ignored because their session component does not match the UUID shape
+  // (filtered before read). Use the new 'pending-' prefix.
   for (const bad of ['not-a-uuid', '../escape', 'x'.repeat(300), 'short', '']) {
     // Guard against an empty component producing the bare prefix file; skip empty.
-    const fname = 'wrap-pending-' + bad + '.json';
+    const fname = 'pending-' + bad + '.json';
     try {
-      fs.writeFileSync(path.join(agenticDir, fname),
+      fs.writeFileSync(path.join(scanDir, fname),
         JSON.stringify({ status: 'ready', session_id: bad }, null, 2), 'utf8');
     } catch (_) { /* '../escape' may be rejected by the fs; that is fine */ }
   }
@@ -588,7 +591,9 @@ console.log('\n[A] A-B-A end-to-end: tombstone suppresses re-staging after .last
   assert(Number.isFinite(Date.parse(aDone.wrapped_at)), '[A] A done marker has parseable wrapped_at');
 
   // Simulate .last-wrap rolling to B (another session wrapped after A).
-  fs.writeFileSync(path.join(agenticDir, '.last-wrap'), SID_B + '\n', 'utf8');
+  const lastWrapDirA = path.dirname(lib.lastWrapPath(projectDir));
+  fs.mkdirSync(lastWrapDirA, { recursive: true });
+  fs.writeFileSync(lib.lastWrapPath(projectDir), SID_B + '\n', 'utf8');
 
   // A should NOT be re-staged even though .last-wrap != A.
   assert(lib.stagePending(projectDir, SID_A, substantive) === false,

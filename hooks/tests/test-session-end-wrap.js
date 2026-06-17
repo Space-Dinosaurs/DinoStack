@@ -29,6 +29,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
+const lib = require('../lib/wrap-marker.js');
 
 const hookScript = path.resolve(__dirname, '..', 'session-end-wrap.js');
 if (!fs.existsSync(hookScript)) {
@@ -54,7 +55,7 @@ function makeProject(prefix) {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   const projectDir = path.join(base, 'project');
   const agenticDir = path.join(projectDir, '.agentic');
-  const heartbeatDir = path.join(agenticDir, '.heartbeats');
+  const heartbeatDir = path.join(agenticDir, 'wrap', 'heartbeats');
   fs.mkdirSync(heartbeatDir, { recursive: true });
   return { base, projectDir, agenticDir, heartbeatDir };
 }
@@ -63,11 +64,10 @@ function cleanup(base) {
   try { fs.rmSync(base, { recursive: true, force: true }); } catch (_) {}
 }
 
-function markerPath(agenticDir, sessionId) {
-  return path.join(agenticDir, 'wrap-pending-' + sessionId + '.json');
-}
-
 function writeMarkerRaw(agenticDir, sessionId, overrides) {
+  const projectDir = path.dirname(agenticDir);
+  const p = lib.markerPath(projectDir, sessionId);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
   const marker = Object.assign({
     schema_version: 3,
     session_id: sessionId,
@@ -77,15 +77,15 @@ function writeMarkerRaw(agenticDir, sessionId, overrides) {
     claimed_kind: null,
     claimed_at: null,
     attempts: 0,
-    project_root: path.dirname(agenticDir),
+    project_root: projectDir,
     last_error: null,
   }, overrides || {});
-  fs.writeFileSync(markerPath(agenticDir, sessionId), JSON.stringify(marker, null, 2), 'utf8');
+  fs.writeFileSync(p, JSON.stringify(marker, null, 2), 'utf8');
   return marker;
 }
 
 function readMarker(agenticDir, sessionId) {
-  const p = markerPath(agenticDir, sessionId);
+  const p = lib.markerPath(path.dirname(agenticDir), sessionId);
   if (!fs.existsSync(p)) return null;
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
 }

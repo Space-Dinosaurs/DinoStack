@@ -40,7 +40,7 @@ node_modules/
 .agentic/.activated
 .agentic/.meta-divergence-surfaced
 .agentic/.meta-divergence-last-sweep
-.agentic/wrap.lock
+.agentic/wrap/
 .agentic/learnings-agent.session
 
 # Generated Kimi per-command skills (built by .kimi/build.sh from content/commands/)

@@ -3,19 +3,19 @@
  * Smoke tests: stop-context.js deferred-wrap behavior (U2 + U3).
  *
  * Sub-tests:
- *   (a) wrap.lock DIRECTORY present (normal write path) -> context.md NOT
+ *   (a) wrap/lock DIRECTORY present (normal write path) -> context.md NOT
  *       written + exactly one spillover record appended to
- *       .agentic/.stop-deferred-activity.jsonl (valid JSON, correct shape).
+ *       .agentic/wrap/deferred-activity.jsonl (valid JSON, correct shape).
  *   (b) lock absent -> context.md written as today (no regression); no
  *       spillover file created.
- *   (c) .agentic/.last-wrap contains the current session_id -> no marker staged
+ *   (c) .agentic/wrap/last-wrap contains the current session_id -> no marker staged
  *       (this session already wrapped).
  *   (d) substantive payload (an Edit tool_use in the transcript) + lock absent
- *       + no .last-wrap -> per-session wrap-pending-<session_id>.json marker
+ *       + no last-wrap -> per-session pending-<session_id>.json marker
  *       staged with valid JSON and the NORMATIVE schema_version 3 fields.
  *   (e) read-only/clean session (transcript with only a Read tool_use, clean
  *       tree, no .last-wrap) -> no marker staged.
- *   (f) wrap.lock present on the /wrap-coexistence path (existing context.md
+ *   (f) wrap/lock present on the /wrap-coexistence path (existing context.md
  *       authored by /wrap) -> /wrap content preserved (NOT overwritten) + one
  *       spillover record appended.
  *
@@ -33,6 +33,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
+const lib = require('../lib/wrap-marker.js');
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -93,9 +94,10 @@ function cleanup(tmpDir) {
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
 }
 
-// .agentic/wrap.lock is a DIRECTORY (atomic mkdir lock) - create it as such.
-function makeWrapLock(agenticDir) {
-  fs.mkdirSync(path.join(agenticDir, 'wrap.lock'), { recursive: true });
+// .agentic/wrap/lock is a DIRECTORY (atomic mkdir lock) - create it as such.
+function makeWrapLock(projectDir) {
+  const lockDir = lib.wrapLockPath(projectDir);
+  fs.mkdirSync(lockDir, { recursive: true });
 }
 
 // A transcript fragment with an Edit tool_use (substantive activity).
@@ -124,12 +126,12 @@ const READONLY_TRANSCRIPT = [
 // ---------------------------------------------------------------------------
 // (a) wrap.lock present (normal path) -> context.md NOT written + one spillover
 // ---------------------------------------------------------------------------
-console.log('\n[a] wrap.lock present (normal path): context.md skipped + spillover appended');
+console.log('\n[a] wrap/lock present (normal path): context.md skipped + spillover appended');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-a-');
-  makeWrapLock(agenticDir);
+  makeWrapLock(projectDir);
   const contextPath = path.join(agenticDir, 'context.md');
-  const spilloverPath = path.join(agenticDir, '.stop-deferred-activity.jsonl');
+  const spilloverPath = lib.stopDeferredActivityPath(projectDir);
 
   try {
     runHook(projectDir, fakeHome, 'sess-a', EDIT_TRANSCRIPT);
@@ -139,7 +141,7 @@ console.log('\n[a] wrap.lock present (normal path): context.md skipped + spillov
     process.exit(1);
   }
 
-  assert(!fs.existsSync(contextPath), 'context.md NOT written while wrap.lock held');
+  assert(!fs.existsSync(contextPath), 'context.md NOT written while wrap/lock held');
   assert(fs.existsSync(spilloverPath), 'spillover file created');
   if (fs.existsSync(spilloverPath)) {
     const lines = fs.readFileSync(spilloverPath, 'utf8').trim().split('\n').filter(Boolean);
@@ -173,7 +175,7 @@ console.log('\n[b] lock absent: context.md written, no spillover');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-b-');
   const contextPath = path.join(agenticDir, 'context.md');
-  const spilloverPath = path.join(agenticDir, '.stop-deferred-activity.jsonl');
+  const spilloverPath = lib.stopDeferredActivityPath(projectDir);
 
   try {
     runHook(projectDir, fakeHome, 'sess-b', EDIT_TRANSCRIPT);
@@ -195,12 +197,14 @@ console.log('\n[b] lock absent: context.md written, no spillover');
 // ---------------------------------------------------------------------------
 // (c) .last-wrap == current session_id -> no marker staged
 // ---------------------------------------------------------------------------
-console.log('\n[c] .last-wrap == current session_id: no marker staged');
+console.log('\n[c] last-wrap == current session_id: no marker staged');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-c-');
-  // .last-wrap names the CURRENT session - it already wrapped.
-  fs.writeFileSync(path.join(agenticDir, '.last-wrap'), 'sess-c\n', 'utf8');
-  const markerPath = path.join(agenticDir, 'wrap-pending-sess-c.json');
+  // last-wrap names the CURRENT session - it already wrapped.
+  const lastWrapP = lib.lastWrapPath(projectDir);
+  fs.mkdirSync(path.dirname(lastWrapP), { recursive: true });
+  fs.writeFileSync(lastWrapP, 'sess-c\n', 'utf8');
+  const markerPath = lib.markerPath(projectDir, 'sess-c');
 
   try {
     runHook(projectDir, fakeHome, 'sess-c', EDIT_TRANSCRIPT);
@@ -216,12 +220,12 @@ console.log('\n[c] .last-wrap == current session_id: no marker staged');
 }
 
 // ---------------------------------------------------------------------------
-// (d) substantive payload (Edit) + lock absent + no .last-wrap -> marker staged
+// (d) substantive payload (Edit) + lock absent + no last-wrap -> marker staged
 // ---------------------------------------------------------------------------
-console.log('\n[d] substantive payload: per-session wrap-pending marker staged (schema_version 3)');
+console.log('\n[d] substantive payload: per-session pending marker staged (schema_version 3)');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-d-');
-  const markerPath = path.join(agenticDir, 'wrap-pending-sess-d.json');
+  const markerPath = lib.markerPath(projectDir, 'sess-d');
 
   try {
     runHook(projectDir, fakeHome, 'sess-d', EDIT_TRANSCRIPT);
@@ -256,7 +260,7 @@ console.log('\n[d] substantive payload: per-session wrap-pending marker staged (
     }
   }
   // No leftover tmp file from the atomic write.
-  assert(!fs.existsSync(markerPath + '.tmp'), 'no leftover wrap-pending-sess-d.json.tmp');
+  assert(!fs.existsSync(markerPath + '.tmp'), 'no leftover pending-sess-d.json.tmp');
   cleanup(tmpDir);
 }
 
@@ -266,7 +270,7 @@ console.log('\n[d] substantive payload: per-session wrap-pending marker staged (
 console.log('\n[e] read-only/clean session: no marker staged');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-e-');
-  const markerPath = path.join(agenticDir, 'wrap-pending-sess-e.json');
+  const markerPath = lib.markerPath(projectDir, 'sess-e');
 
   try {
     // READONLY_TRANSCRIPT: a Bash `echo hi` with no file paths, no user message,
@@ -286,12 +290,12 @@ console.log('\n[e] read-only/clean session: no marker staged');
 // ---------------------------------------------------------------------------
 // (f) wrap.lock present on /wrap-coexistence path -> /wrap content preserved
 // ---------------------------------------------------------------------------
-console.log('\n[f] wrap.lock present (/wrap-coexistence path): /wrap content preserved + spillover');
+console.log('\n[f] wrap/lock present (/wrap-coexistence path): /wrap content preserved + spillover');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-f-');
-  makeWrapLock(agenticDir);
+  makeWrapLock(projectDir);
   const contextPath = path.join(agenticDir, 'context.md');
-  const spilloverPath = path.join(agenticDir, '.stop-deferred-activity.jsonl');
+  const spilloverPath = lib.stopDeferredActivityPath(projectDir);
 
   // Pre-seed a /wrap-authored context.md (pinned header prefix).
   const wrapBody = '# Session Context\n*Written by /wrap on 2026-06-11. Preserved by Stop hook. Not committed to git.*\n\n## Recent Focus\n- prior wrap content\n';
@@ -318,10 +322,10 @@ console.log('\n[f] wrap.lock present (/wrap-coexistence path): /wrap content pre
 // ---------------------------------------------------------------------------
 // (g) per-turn heartbeat touch (U1 liveness signal)
 // ---------------------------------------------------------------------------
-console.log('\n[g] per-turn heartbeat: a substantive Stop touches .agentic/.heartbeats/<session_id>');
+console.log('\n[g] per-turn heartbeat: a substantive Stop touches .agentic/wrap/heartbeats/<session_id>');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-g-');
-  const heartbeatPath = path.join(agenticDir, '.heartbeats', 'sess-g');
+  const heartbeatPath = lib.heartbeatPath(projectDir, 'sess-g');
 
   try {
     runHook(projectDir, fakeHome, 'sess-g', EDIT_TRANSCRIPT);
@@ -332,7 +336,7 @@ console.log('\n[g] per-turn heartbeat: a substantive Stop touches .agentic/.hear
   }
 
   assert(fs.existsSync(heartbeatPath),
-    'Stop hook touches this session heartbeat (daemon liveness signal)');
+    'Stop hook touches this session heartbeat under wrap/heartbeats/ (daemon liveness signal)');
   cleanup(tmpDir);
 }
 
@@ -342,8 +346,8 @@ console.log('\n[g] per-turn heartbeat: a substantive Stop touches .agentic/.hear
 console.log('\n[h] per-session staging: two distinct sessions stage two distinct markers (no collision)');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-h-');
-  const m1 = path.join(agenticDir, 'wrap-pending-sess-h1.json');
-  const m2 = path.join(agenticDir, 'wrap-pending-sess-h2.json');
+  const m1 = lib.markerPath(projectDir, 'sess-h1');
+  const m2 = lib.markerPath(projectDir, 'sess-h2');
 
   try {
     runHook(projectDir, fakeHome, 'sess-h1', EDIT_TRANSCRIPT);
@@ -375,8 +379,8 @@ console.log('\n[h] per-session staging: two distinct sessions stage two distinct
 console.log('\n[i] loop-guard: under AGENTIC_WRAP_DAEMON=1 the Stop hook stages no marker + touches no heartbeat');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-i-');
-  const markerPath = path.join(agenticDir, 'wrap-pending-sess-i.json');
-  const heartbeatPath = path.join(agenticDir, '.heartbeats', 'sess-i');
+  const markerPath = lib.markerPath(projectDir, 'sess-i');
+  const heartbeatPath = lib.heartbeatPath(projectDir, 'sess-i');
 
   const payload = JSON.stringify({
     cwd: projectDir, session_id: 'sess-i', transcript: EDIT_TRANSCRIPT,
