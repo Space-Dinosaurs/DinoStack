@@ -1,28 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# ae_confirm: TTY-safe yes/no prompt for optional installs.
-#
-# When /dev/tty is available (interactive or curl|bash in a real terminal),
-# prompts the user exactly as a bare `read -p` would. When /dev/tty is not
-# available (headless/piped/CI), defaults to "no" and returns 1 without
-# aborting under set -e.
-#
-# Usage: if ae_confirm "  Install foo? [y/N] "; then ...
-# ---------------------------------------------------------------------------
-ae_confirm() {
-  local prompt="$1"
-  local reply=""
-  if [[ -r /dev/tty ]]; then
-    read -p "$prompt" -n 1 -r reply </dev/tty || reply=""
-    echo
-  fi
-  [[ "$reply" =~ ^[Yy]$ ]]
-}
-
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export REPO_DIR
+
+# shellcheck source=scripts/lib/identity.sh
+[[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
+  echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
+}
 
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters)
@@ -612,102 +597,12 @@ done
 # Developer identity
 # ---------------------------------------------------------------------------
 
-_ae_setup_identity() {
-  # Branch 1: --no-identity flag
-  if [[ "$AE_NO_IDENTITY" == "true" ]]; then
-    echo "  - identity setup skipped (--no-identity)"
-    return
-  fi
-
-  # Branch 2: agentic-identity not on PATH
-  if ! command -v agentic-identity &>/dev/null; then
-    echo "  ! agentic-identity not found on PATH - set later with 'agentic-identity init <handle>'"
-    return
-  fi
-
-  # Branch 3: detect existing identity
-  local show_out
-  show_out="$(agentic-identity show --scope effective 2>/dev/null)" || show_out=""
-  local existing_handle
-  existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')"
-  if [[ -n "$existing_handle" ]]; then
-    if echo "$show_out" | grep -q 'provisional:'; then
-      echo "  = identity already set to '$existing_handle' (provisional - run 'agentic-identity confirm' to lock it in)"
-    else
-      echo "  = identity already set to '$existing_handle' (confirmed)"
-    fi
-    return
-  fi
-
-  # Branch 4: --identity=<handle> flag set (explicit intent, use --force)
-  if [[ -n "$AE_IDENTITY_FLAG" ]]; then
-    local rc=0
-    agentic-identity init "$AE_IDENTITY_FLAG" --force >/dev/null 2>&1 || rc=$?
-    if [[ "$rc" -eq 0 ]]; then
-      echo "  + identity set to '$AE_IDENTITY_FLAG' via --identity flag"
-    else
-      echo "  ! identity init failed for '$AE_IDENTITY_FLAG' (invalid handle?) - set manually with 'agentic-identity init <handle>'"
-    fi
-    return
-  fi
-
-  # Branch 5: non-TTY
-  if [[ ! -r /dev/tty ]]; then
-    echo "  - non-interactive install: skipped identity setup (run 'agentic-identity auto' or 'agentic-identity init <handle>')"
-    return
-  fi
-
-  # Branch 6: interactive + gh present and authenticated
-  local gh_login=""
-  if command -v gh &>/dev/null; then
-    gh_login="$(gh api user --jq .login 2>/dev/null | tr '[:upper:]' '[:lower:]')" || gh_login=""
-  fi
-
-  if [[ -n "$gh_login" ]] && echo "$gh_login" | grep -qE '^[a-z0-9._-]{1,64}$'; then
-    echo "  Detected GitHub handle: $gh_login"
-    if ae_confirm "  Set developer identity to '$gh_login'? [y/N] "; then
-      local rc=0
-      agentic-identity init "$gh_login" >/dev/null 2>&1 || rc=$?
-      if [[ "$rc" -eq 0 ]]; then
-        echo "  + identity set to '$gh_login' (confirmed)"
-      elif [[ "$rc" -eq 2 ]]; then
-        echo "  = identity already set (use 'agentic-identity init $gh_login --force' to change)"
-      else
-        echo "  ! identity init failed - set manually with 'agentic-identity init <handle>'"
-      fi
-    else
-      echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
-    fi
-    return
-  fi
-
-  # Branch 7: gh absent or unauthenticated - prompt manually
-  echo "  Developer identity links telemetry to your handle across sessions."
-  local typed_handle=""
-  read -r -p "  GitHub handle [skip]: " typed_handle </dev/tty || typed_handle=""
-  typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')"
-  if [[ -z "$typed_handle" ]]; then
-    echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
-    return
-  fi
-  if ! echo "$typed_handle" | grep -qE '^[a-z0-9._-]{1,64}$'; then
-    echo "  ! '$typed_handle' is not a valid handle (must match ^[a-z0-9._-]{1,64}\$) - skipping"
-    return
-  fi
-  local rc=0
-  agentic-identity init "$typed_handle" >/dev/null 2>&1 || rc=$?
-  if [[ "$rc" -eq 0 ]]; then
-    echo "  + identity set to '$typed_handle' (confirmed)"
-  elif [[ "$rc" -eq 2 ]]; then
-    echo "  = identity already set (use 'agentic-identity init $typed_handle --force' to change)"
-  else
-    echo "  ! identity init failed - set manually with 'agentic-identity init <handle>'"
-  fi
-}
-
-echo ""
-echo "Developer identity..."
-_ae_setup_identity
+if declare -f _ae_setup_identity >/dev/null; then
+  echo ""
+  echo "Developer identity..."
+  _ae_setup_identity
+  echo "  Run 'agentic-identity show' to confirm your identity."
+fi
 
 # chrome-devtools MCP
 echo ""
