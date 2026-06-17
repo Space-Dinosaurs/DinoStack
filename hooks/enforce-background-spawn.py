@@ -6,6 +6,10 @@ Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation background-b
          Claude Code. Feeds the deny reason back to the model so it can re-issue
          the call correctly. Documented foreground-exempt agents (see
          FOREGROUND_EXEMPT) are allowed regardless of run_in_background.
+         Confirmed-supported floor: Claude Code 2.1.178+ (the modern
+         permissionDecision: "deny" path this hook emits is stable from that
+         release). The hook fails open on parse error, so older builds degrade
+         to no-enforcement rather than breaking.
 
 Public API: Run as a Claude Code PreToolUse hook. Reads JSON from stdin,
             writes hookSpecificOutput JSON to stdout when denying, exits 0 always.

@@ -2,6 +2,7 @@
 name: qa-engineer
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -38,7 +39,7 @@ capabilities:
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 

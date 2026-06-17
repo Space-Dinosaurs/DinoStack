@@ -777,6 +777,8 @@ Reserve `Bash` exclusively for: builds, installs, git operations, network calls,
 
 Exception: `sg` (AST-grep) for structural symbol-level searches is run via Bash - no dedicated harness tool wraps it. Check availability with `which sg 2>/dev/null` before use.
 
+**Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
+
 ## Context Window Management
 
 **When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.

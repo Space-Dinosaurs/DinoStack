@@ -2,6 +2,7 @@
 name: skeptic
 description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a "## Global-context inputs" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format.
 tools: Read, Grep, Glob, Bash
+disallowedTools: [Edit, Write, Task]
 kind: local
 ---
 
@@ -11,7 +12,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 

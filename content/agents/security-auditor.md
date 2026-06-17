@@ -2,6 +2,7 @@
 name: security-auditor
 description: Specialized security reviewer. Spawn when a deep, threat-model-driven security audit is needed on code changes. Applies OWASP Top 10 and CWE-category analysis systematically, assumes a capable attacker, and produces a structured findings report with severity ratings, specific code locations, and remediation guidance. The spawn prompt provides the files or code to audit, the security domain, and any known prior mitigations.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -15,7 +16,7 @@ capabilities:
       install_hint: "pip install semgrep"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 

@@ -8,6 +8,10 @@ Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation AskUserQuest
          The recommended option must carry a label ending in "(Recommended)";
          that token is what this hook keys on. Feeds the deny reason back to the
          model so it can re-issue correctly or proceed without AskUserQuestion.
+         Confirmed-supported floor: Claude Code 2.1.178+ (the modern
+         permissionDecision: "deny" path this hook emits is stable from that
+         release). The hook fails open on parse error, so older builds degrade
+         to no-enforcement rather than breaking.
 
 Public API: Run as a Claude Code PreToolUse hook. Reads JSON from stdin,
             writes hookSpecificOutput JSON to stdout when denying, exits 0 always.

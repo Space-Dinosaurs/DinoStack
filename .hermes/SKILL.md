@@ -73,6 +73,8 @@ Reserve `Bash` exclusively for: builds, installs, git operations, network calls,
 
 Exception: `sg` (AST-grep) for structural symbol-level searches is run via Bash - no dedicated harness tool wraps it. Check availability with `which sg 2>/dev/null` before use.
 
+**Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
+
 ## Context Window Management
 
 **When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
@@ -3071,6 +3073,8 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 
 **When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
 
+**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Task` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Task` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; and qa-engineer's `.agentic/qa.md` append uses Bash redirection, not `Write`, so the deny does not affect it.)
+
 ### Rule 5 — The Skeptic Protocol is orchestrated by the main agent
 
 **When any agent - Worker or named specialist - returns output that produces a document, plan, or artifact that will drive decisions or be acted on by others, the main agent applies The Skeptic Protocol.** This includes architect plans: an architect plan is a high-leverage artifact and must receive Skeptic review before the conductor acts on it (spawning engineers, running the orchestration-planner, or any other downstream action). A flawed plan compounds errors through every Worker that follows it.
@@ -3563,6 +3567,10 @@ git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
 done
 ```
 
+## Version floor: isolated-worktree own-file edits (load-bearing)
+
+DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
+
 ## Pre-spawn stash fallback
 
 Pre-spawn safety net (fallback, not a substitute for isolation): before any non-isolated spawn that the conductor cannot avoid, the conductor stashes its scaffolding to keep it out of the subagent's working tree:
@@ -3587,8 +3595,9 @@ Named specialist agents available for delegation. Spawn via `delegate_task` or u
 name: adr-drift-detector
 description: Audits codebase compliance against Architecture Decision Records (ADRs). Invoke when the user mentions ADR compliance, architecture drift, "does code match ADRs", architectural audit, or wants to verify decisions are being followed. Automatically finds ADRs, extracts decisions, searches code for evidence, and produces a structured drift report.
 tools: Read, Bash, Grep, Glob
+disallowedTools: [Edit, Write, Task]
 ---
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -4102,6 +4111,7 @@ Your work is complete when:
 name: architect
 description: Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -4113,7 +4123,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -4347,6 +4357,7 @@ Runs at Tier 3 because grill mode demands the widest design-question aperture; s
 name: debugger
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -4363,7 +4374,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -4458,6 +4469,7 @@ Use this exact structure:
 name: dependency-auditor
 description: Supply-chain review specialist. Spawn when the user says "audit our dependencies", "is this upgrade safe", "any CVEs in our lockfile", "check license compliance", "review this new dependency", "do we have vulnerable packages", or "check our supply chain". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -4478,7 +4490,7 @@ capabilities:
       check: "command -v cargo"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -4891,6 +4903,7 @@ See `content/references/frontend-discipline.md` for full rules and canonical vio
 name: investigator
 description: Codebase investigation agent. Spawn when you need to understand code before deciding how to change it - tracing data flow, mapping blast radius, understanding feature behavior without a stack trace, or exploring an unfamiliar area. Returns a structured investigation brief the conductor can hand directly to architect or engineer. Does NOT implement changes or write to disk.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -4902,7 +4915,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -5439,6 +5452,7 @@ The only files you may write are:
 name: orchestration-planner
 description: Agent team composition planner. Spawn when you have a complex goal or task and need to determine the optimal combination of agents, their sequencing, handoff points, and parallelization strategy before executing. Use when the right agent team is not obvious, when multiple phases are involved, when a high-level requirement needs decomposing into a concrete execution plan, or when you want to avoid costly mid-task reclassification. Returns a structured orchestration plan the conductor can execute directly. Does not implement anything - planning only.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -5447,7 +5461,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -5653,6 +5667,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 name: perf-analyst
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -5670,7 +5685,7 @@ capabilities:
       install_hint: "see k6 install docs at https://k6.io/docs/get-started/installation/"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -5847,6 +5862,7 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 name: qa-engineer
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -5883,7 +5899,7 @@ capabilities:
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -7029,6 +7045,7 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 name: security-auditor
 description: Specialized security reviewer. Spawn when a deep, threat-model-driven security audit is needed on code changes. Applies OWASP Top 10 and CWE-category analysis systematically, assumes a capable attacker, and produces a structured findings report with severity ratings, specific code locations, and remediation guidance. The spawn prompt provides the files or code to audit, the security domain, and any known prior mitigations.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -7042,7 +7059,7 @@ capabilities:
       install_hint: "pip install semgrep"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -7150,6 +7167,7 @@ Use this exact structure. Do not paraphrase the section headers.
 name: skeptic
 description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a "## Global-context inputs" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format.
 tools: Read, Grep, Glob, Bash
+disallowedTools: [Edit, Write, Task]
 ---
 
 ```yaml
@@ -7158,7 +7176,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 

@@ -2,6 +2,7 @@
 name: debugger
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 kind: local
 ---
 
@@ -19,7 +20,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 

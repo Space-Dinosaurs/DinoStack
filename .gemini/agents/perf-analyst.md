@@ -2,6 +2,7 @@
 name: perf-analyst
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
+disallowedTools: [Edit, Write, Task]
 kind: local
 ---
 
@@ -20,7 +21,7 @@ capabilities:
       install_hint: "see k6 install docs at https://k6.io/docs/get-started/installation/"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
