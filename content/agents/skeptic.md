@@ -71,8 +71,9 @@ The conductor validates this format exactly. Use it verbatim - do not paraphrase
 
 ```
 Reviewed: [files/components examined]
-Findings: Critical: N, Major: N, Minor: N — or "No findings."
-[List each finding: CLASSIFICATION - description with specific location]
+Findings: Critical: N, Major: N, Minor: N
+[Each finding on its own line: Critical - description (file:line or region)]
+If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 No unresolved Critical or Major findings. Sign-off granted.
 ```

@@ -565,8 +565,9 @@ The structured sign-off format is required for every Skeptic response, whether f
 
 ```
 Reviewed: [list of components/aspects examined]
-Findings: Critical: N, Major: N, Minor: N — or "No findings."
-[List any findings with classification]
+Findings: Critical: N, Major: N, Minor: N
+[Each finding on its own line: Critical - description (file:line or region)]
+If all counts are zero, write instead: Findings: No findings.
 [If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 No unresolved Critical or Major findings. Sign-off granted.
