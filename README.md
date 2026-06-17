@@ -96,11 +96,11 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The `--mode=` flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, `.pi/install.sh`, `.omp/install.sh`, and `.hermes/install.sh` - the config file is shared across adapters.
-
-The following flags are currently supported by `.claude/install.sh` only:
+The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gemini`, `.opencode`, `.pi`, `.omp`, `.kimi`, and `.hermes`) - the config file is shared across adapters:
 
 ```
+bash .claude/install.sh --mode=opt-in
+bash .claude/install.sh --mode=opt-out
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
 bash .claude/install.sh --no-identity          # skip the developer-identity prompt
 ```
