@@ -597,7 +597,6 @@ done
 # Developer identity
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
 if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."

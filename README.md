@@ -99,8 +99,6 @@ bash .claude/install.sh --mode=opt-out
 The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gemini`, `.opencode`, `.pi`, `.omp`, `.kimi`, and `.hermes`) - the config file is shared across adapters:
 
 ```
-bash .claude/install.sh --mode=opt-in
-bash .claude/install.sh --mode=opt-out
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
 bash .claude/install.sh --no-identity          # skip the developer-identity prompt
 ```
