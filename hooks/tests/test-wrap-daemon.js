@@ -1057,6 +1057,63 @@ console.log('\n[LOCK-8] readWrapLockOwner parent-symlink guard: does not read ow
 }
 
 // ---------------------------------------------------------------------------
+// (LOCK-M1) daemon owns the wrap lock: a live lock WITH a ready marker present
+// causes the daemon to skip the drain (return 'idle') and self-exit cleanly
+// (code 0, no watchdog SIGKILL); after release the daemon drains normally and
+// leaves no wrap/lock dir behind.
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-M1] daemon owns wrap lock: live lock + ready marker -> idle self-exit; release -> drain; no lock residue');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lockm1-');
+  writeConfig(agenticDir, FAST_IDLE);
+  writeMarkerRaw(agenticDir, SID.a, { status: 'ready', staged_at: agoIso(600) });
+  const logPath = path.join(base, 'mock.log');
+
+  // (i) Hold the lock from the test process, then run the daemon.
+  // The daemon must detect the held lock, NOT drain, NOT SIGKILL-spin.
+  const STALE_MS = 30 * 60 * 1000;
+  const lockAcquiredByTest = lib.acquireWrapLock(projectDir, String(process.pid), STALE_MS);
+  assert(lockAcquiredByTest === true, 'LOCK-M1 precondition: test process acquired the wrap lock');
+
+  const r1 = runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok', MOCK_CLAUDE_LOG: logPath,
+  }, 30000);
+  assert(r1.code === 0, 'LOCK-M1(i): daemon exits 0 (not killed by watchdog) when a live lock is held');
+  assert(r1.signal !== 'SIGKILL', 'LOCK-M1(i): daemon was NOT SIGKILLed (idle self-exit, not spin)');
+
+  // Marker must still be ready (daemon did not drain).
+  const mAfterBlock = readMarker(agenticDir, SID.a);
+  assert(mAfterBlock && mAfterBlock.status === 'ready',
+    'LOCK-M1(i): ready marker stays ready when lock is held (daemon skipped drain)');
+  assert(!fs.existsSync(logPath) || !/--resume/.test(fs.readFileSync(logPath, 'utf8')),
+    'LOCK-M1(i): no --resume drain issued when the lock was held');
+
+  // (ii) Release the lock - daemon should now drain normally.
+  lib.releaseWrapLock(projectDir);
+  // Reset the mock log so we can assert a new drain.
+  try { fs.unlinkSync(logPath); } catch (_) {}
+
+  const r2 = runDaemonToExit(projectDir, {
+    MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok', MOCK_CLAUDE_LOG: logPath,
+  }, 40000);
+  assert(r2.code === 0, 'LOCK-M1(ii): daemon exits 0 after lock is released');
+  const mAfterDrain = readMarker(agenticDir, SID.a);
+  assert(mAfterDrain && mAfterDrain.status === 'done',
+    'LOCK-M1(ii): marker transitioned to done tombstone after lock was released');
+  assert(Number.isFinite(Date.parse(mAfterDrain && mAfterDrain.wrapped_at)),
+    'LOCK-M1(ii): done tombstone has parseable wrapped_at');
+  const drains = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
+    .split('\n').filter((l) => l.includes('--resume'));
+  assert(drains.length >= 1, 'LOCK-M1(ii): at least one --resume drain occurred after lock release');
+
+  // (iii) No wrap/lock dir persists after the daemon acquired and released it.
+  assert(!fs.existsSync(lib.wrapLockPath(projectDir)),
+    'LOCK-M1(iii): no wrap/lock dir persists after the daemon ran (daemon released what it acquired)');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
 // (CAP-multibyte) a multi-byte UTF-8 string straddling a chunk/backpressure
 // boundary is captured byte-exact (no U+FFFD) thanks to the StringDecoder.
 // ---------------------------------------------------------------------------

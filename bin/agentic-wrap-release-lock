@@ -66,6 +66,15 @@ function main() {
     if (typeof lib.wrapLockPath === 'function') lockPath = lib.wrapLockPath(cwd) || lockPath;
   } catch (_) { /* fall back to the joined path */ }
 
+  // Defense-in-depth: reject any resolved path not ending in the expected suffix.
+  // safeCwd/releaseWrapLock already block traversal; this is an additional guard
+  // so a misconfigured or tampered lib cannot redirect the release to an unexpected path.
+  const LOCK_SUFFIX = path.join('.agentic', 'wrap', 'lock');
+  if (!lockPath.endsWith(LOCK_SUFFIX)) {
+    process.stdout.write('WARNING: resolved lock path does not end in ' + LOCK_SUFFIX + '; refusing release (path: ' + lockPath + ')\n');
+    process.exit(0);
+  }
+
   // Stat BEFORE release so we can label the outcome accurately. releaseWrapLock
   // returns true for both "removed" and "already absent" (ENOENT suppressed), so
   // the lib's return alone cannot distinguish them.

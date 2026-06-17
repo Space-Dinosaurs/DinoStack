@@ -13,9 +13,12 @@
  *          `.agentic/wrap/lock` at the top of each drain tick (delegated to the lib's
  *          symlink-safe clearProvablyStaleWrapLock - the headless child runs with Bash
  *          removed and cannot `rm` the lock itself, and the predicate never clears a
- *          live lock), and bounds every child with a timeout-and-kill of the whole
- *          process group. It NEVER promotes a `pending` marker to `ready` (that is
- *          SessionEnd's sole job - CRITICAL-A), so it can never resume a live/idle session.
+ *          live lock), OWNS the `.agentic/wrap/lock` around each child spawn
+ *          (acquireWrapLock before claimMarker, releaseWrapLock on every post-acquire
+ *          terminal path; the headless child never touches the lock directly), and
+ *          bounds every child with a timeout-and-kill of the whole process group.
+ *          It NEVER promotes a `pending` marker to `ready` (that is SessionEnd's sole
+ *          job - CRITICAL-A), so it can never resume a live/idle session.
  *
  * Public API: none (CLI script). Invoked as `node hooks/wrap-daemon.js <project_root>`
  *             by the SessionEnd / SessionStart hooks (detached) or manually. Not
@@ -679,6 +682,24 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
   const ready = wrapMarker.listReadyMarkers(cwd); // already FIFO by staged_at asc
   if (!ready.length) return 'idle';
 
+  // Acquire the wrap lock NOW, after confirming a ready marker exists but BEFORE
+  // claiming any marker. Acquire-before-claim is deliberate: on acquire-fail the
+  // marker was never claimed so it stays `ready` with no revert needed (M1 fix).
+  // acquireWrapLock is intentionally NOT daemonGuardActive()-guarded - the daemon
+  // MUST call it. On fail (a foreign/live lock is held, e.g. an interactive /wrap):
+  // return 'idle' (not 'deferred') so the daemon's idle self-exit fires; a planted
+  // live lock must NOT spin the daemon until the watchdog SIGKILLs it.
+  const lockAcquired = wrapMarker.acquireWrapLock(cwd, ownerToken, reclaimMs);
+  if (!lockAcquired) {
+    log('wrap/lock is held by another process; skipping drain this tick (ready markers will be picked up on next launch)');
+    return 'idle';
+  }
+
+  // Helper: release the lock on every post-acquire terminal path. Fail-open.
+  const releaseLock = () => {
+    try { wrapMarker.releaseWrapLock(cwd); } catch (_) {}
+  };
+
   let sawDeferral = false;
   for (const entry of ready) {
     const sessionId = entry.sessionId;
@@ -748,8 +769,14 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
           + (Date.now() - startedAt) + 'ms)');
       }
     }
+    // Release the lock on this terminal path (processed one marker).
+    releaseLock();
     return 'processed';
   }
+
+  // Walked the whole ready list without claiming (all heartbeat-fresh, already attempted,
+  // or lost the race). Release the lock we acquired before walking the list.
+  releaseLock();
 
   // We walked the whole ready list without claiming anything: either every head
   // was heartbeat-fresh (deferred), already attempted this run, or lost the race.
