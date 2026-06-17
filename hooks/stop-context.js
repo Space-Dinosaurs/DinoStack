@@ -46,6 +46,7 @@
  *                ~/.agentic/identity.yml (read-only, global),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
  *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
+ *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon toggle),
  *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop),
  *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor; atomic
