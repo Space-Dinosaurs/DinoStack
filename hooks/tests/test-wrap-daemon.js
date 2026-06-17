@@ -309,9 +309,13 @@ console.log('\n[9] FIFO drain by staged_at: oldest ready marker wrapped first, t
   }, 40000);
 
   assert(code === 0, 'daemon exits 0 after draining the queue');
-  // Both markers should end as `done` (unlinked) after a clean drain.
-  assert(!fs.existsSync(markerPath(agenticDir, SID.a)), 'marker a unlinked (done) after clean drain');
-  assert(!fs.existsSync(markerPath(agenticDir, SID.b)), 'marker b unlinked (done) after clean drain');
+  // Both markers should be retained as `done` tombstones with a parseable wrapped_at.
+  const mA = readMarker(agenticDir, SID.a);
+  const mB = readMarker(agenticDir, SID.b);
+  assert(mA !== null && mA.status === 'done', 'marker a retained as done tombstone after clean drain');
+  assert(Number.isFinite(Date.parse(mA && mA.wrapped_at)), 'marker a done tombstone has parseable wrapped_at');
+  assert(mB !== null && mB.status === 'done', 'marker b retained as done tombstone after clean drain');
+  assert(Number.isFinite(Date.parse(mB && mB.wrapped_at)), 'marker b done tombstone has parseable wrapped_at');
 
   // FIFO: the FIRST --resume in the mock log must target b (the older marker).
   const drains = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
@@ -721,8 +725,9 @@ console.log('\n[LOG-3] anti-wedge cap: 512 KB flood is bounded at ~256 KB AND th
   assert(code === 0, 'daemon exits 0 after the flood drain');
   const m = readMarker(agenticDir, SID.a);
   // (b) THE point: the child reached the normal `done` outcome (clean exit:0). A wedge
-  // would have stranded/reset the marker via the timeout path instead of unlinking it.
-  assert(m === null, 'flood marker unlinked (done) - child exited NORMALLY, no pipe wedge');
+  // would have stranded/reset the marker via the timeout path instead of leaving a tombstone.
+  assert(m !== null && m.status === 'done', 'flood marker retained as done tombstone - child exited NORMALLY, no pipe wedge');
+  assert(Number.isFinite(Date.parse(m && m.wrapped_at)), 'flood done tombstone has parseable wrapped_at');
   const logTxt = readDaemonLog(agenticDir);
   assert(new RegExp(SID.a + ' done').test(logTxt),
     'log shows the normal done outcome (child exited cleanly under the flood; listener stayed attached)');

@@ -232,10 +232,12 @@ console.log('\n[5/MAJOR-3] stagePending suppresses on a live (ready/pending/in_p
   writeMarkerRaw(agenticDir, SID, { status: 'in_progress', claimed_kind: 'daemon', claimed_by: LIVE_PID, claimed_at: agoIso(5) });
   assert(lib.stagePending(projectDir, SID, substantive) === false, 'stage suppressed when marker is in_progress');
 
-  // done -> NOT suppressed (re-staging allowed); a substantive new session re-stages.
+  // done WITHOUT wrapped_at -> NOT suppressed (re-staging allowed); back-compat +
+  // recycled-id carve-out regression guard: a `done` marker lacking `wrapped_at`
+  // must never be treated as a completion tombstone.
   writeMarkerRaw(agenticDir, SID, { status: 'done' });
-  assert(lib.stagePending(projectDir, SID, substantive) === true, 'stage allowed when prior marker is done');
-  assert(readRaw(agenticDir, SID).status === 'pending', 'done marker re-staged to pending');
+  assert(lib.stagePending(projectDir, SID, substantive) === true, 'stage allowed when prior marker is done without wrapped_at');
+  assert(readRaw(agenticDir, SID).status === 'pending', 'done-without-wrapped_at marker re-staged to pending');
 
   // non-substantive -> suppressed regardless.
   const SID2 = '33333333-3333-3333-3333-333333333333';
@@ -331,9 +333,13 @@ console.log('\n[18] per-session marker isolation: two sessions never collide');
   assert(readRaw(agenticDir, S1).status === 'pending', 'S1 marker is pending (isolated)');
   assert(readRaw(agenticDir, S2).status === 'ready', 'S2 marker is ready (isolated)');
 
-  // transitionDone(S1) must not affect S2.
+  // transitionDone(S1) must not affect S2; S1 marker RETAINED as done+wrapped_at tombstone.
   lib.transitionDone(projectDir, S1);
-  assert(!markerExists(agenticDir, S1), 'S1 marker unlinked after done');
+  const s1Done = readRaw(agenticDir, S1);
+  assert(markerExists(agenticDir, S1) && s1Done && s1Done.status === 'done',
+    'S1 marker RETAINED as done tombstone after transitionDone');
+  assert(Number.isFinite(Date.parse(s1Done.wrapped_at)),
+    'S1 done tombstone has a parseable wrapped_at timestamp');
   assert(readRaw(agenticDir, S2).status === 'ready', 'S2 marker untouched by S1 transitionDone');
 
   // listReadyMarkers sees only S2.
@@ -556,6 +562,186 @@ console.log('\n[PERF] cleanStalePending co-deletes a deleted stale marker\'s sib
   // The fresh marker and its heartbeat are untouched.
   assert(markerExists(agenticDir, FRESH), 'fresh pending marker kept');
   assert(fs.existsSync(freshHb), 'fresh session heartbeat NOT deleted (only stale co-deleted)');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (A) A-B-A end-to-end: same session not re-staged after .last-wrap rolls
+// ---------------------------------------------------------------------------
+console.log('\n[A] A-B-A end-to-end: tombstone suppresses re-staging after .last-wrap rolls to B');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-aba-');
+  const SID_A = 'aaaaaaaa-aaaa-4aaa-aaaa-000000000001';
+  const SID_B = 'bbbbbbbb-bbbb-4bbb-bbbb-000000000002';
+  const substantive = { uncommittedCount: 1, pathsReferencedCount: 1, recentFocusCount: 0 };
+
+  // Stage A's marker.
+  assert(lib.stagePending(projectDir, SID_A, substantive) === true, '[A] stagePending(A) succeeds');
+
+  // Transition A to done (retention path).
+  assert(lib.transitionDone(projectDir, SID_A) === true, '[A] transitionDone(A) succeeds');
+
+  // A is retained as done+wrapped_at.
+  const aDone = readRaw(agenticDir, SID_A);
+  assert(aDone && aDone.status === 'done', '[A] A marker retained as done');
+  assert(Number.isFinite(Date.parse(aDone.wrapped_at)), '[A] A done marker has parseable wrapped_at');
+
+  // Simulate .last-wrap rolling to B (another session wrapped after A).
+  fs.writeFileSync(path.join(agenticDir, '.last-wrap'), SID_B + '\n', 'utf8');
+
+  // A should NOT be re-staged even though .last-wrap != A.
+  assert(lib.stagePending(projectDir, SID_A, substantive) === false,
+    '[A] stagePending(A) suppressed by done+wrapped_at tombstone after .last-wrap rolled to B');
+
+  // A's marker is still done (not regressed to pending).
+  assert(readRaw(agenticDir, SID_A).status === 'done',
+    '[A] A done tombstone not regressed to pending by attempted re-staging');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (B) recycled-id: done WITHOUT wrapped_at is still stageable
+// ---------------------------------------------------------------------------
+console.log('\n[B] recycled-id: done without wrapped_at is NOT a tombstone; staging proceeds');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-recycle-');
+  const SID_C = 'cccccccc-cccc-4ccc-cccc-000000000003';
+  const substantive = { uncommittedCount: 1, pathsReferencedCount: 1, recentFocusCount: 0 };
+
+  // Write a done marker WITHOUT wrapped_at (legacy / recycled-id).
+  writeMarkerRaw(agenticDir, SID_C, { status: 'done' /* no wrapped_at */ });
+
+  // Must be stageable (not suppressed).
+  assert(lib.stagePending(projectDir, SID_C, substantive) === true,
+    '[B] stagePending(C) allowed: done without wrapped_at is not a tombstone');
+  assert(readRaw(agenticDir, SID_C).status === 'pending',
+    '[B] C marker became pending (recycled from done-without-wrapped_at)');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (C) janitor done-sweep: keeps ready/gave_up/in_progress; skips both-unparseable done
+// ---------------------------------------------------------------------------
+console.log('\n[C] janitor done-sweep: old done deleted, fresh kept, ready/gave_up/in_progress untouched');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-donesweep-');
+  const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  // Old done+wrapped_at: should be DELETED.
+  const OLD_DONE = 'dddddddd-dddd-4ddd-dddd-000000000004';
+  writeMarkerRaw(agenticDir, OLD_DONE, {
+    status: 'done',
+    wrapped_at: agoIso(8 * 24 * 60 * 60),
+    staged_at: agoIso(8 * 24 * 60 * 60),
+  });
+
+  // Fresh done+wrapped_at: should be KEPT.
+  const FRESH_DONE = 'eeeeeeee-eeee-4eee-eeee-000000000005';
+  writeMarkerRaw(agenticDir, FRESH_DONE, {
+    status: 'done',
+    wrapped_at: agoIso(60),
+    staged_at: agoIso(60),
+  });
+
+  // Old pending: should be DELETED (existing behavior).
+  const OLD_PEND = 'ffffffff-ffff-4fff-ffff-000000000006';
+  writeMarkerRaw(agenticDir, OLD_PEND, {
+    status: 'pending',
+    staged_at: agoIso(8 * 24 * 60 * 60),
+  });
+
+  // Old ready: should NOT be touched.
+  const OLD_READY = '11111111-1111-4111-1111-000000000007';
+  writeMarkerRaw(agenticDir, OLD_READY, {
+    status: 'ready',
+    staged_at: agoIso(8 * 24 * 60 * 60),
+  });
+
+  // Old gave_up: should NOT be touched.
+  const OLD_GAVEUP = '22222222-2222-4222-2222-000000000008';
+  writeMarkerRaw(agenticDir, OLD_GAVEUP, {
+    status: 'gave_up',
+    staged_at: agoIso(8 * 24 * 60 * 60),
+  });
+
+  // Old in_progress: should NOT be touched.
+  const OLD_INPROG = '33333333-3333-4333-3333-000000000009';
+  writeMarkerRaw(agenticDir, OLD_INPROG, {
+    status: 'in_progress',
+    staged_at: agoIso(8 * 24 * 60 * 60),
+  });
+
+  // Done with BOTH timestamps unparseable: should be SKIPPED (kept).
+  const BOTH_UNPARSE = '44444444-4444-4444-4444-000000000010';
+  writeMarkerRaw(agenticDir, BOTH_UNPARSE, {
+    status: 'done',
+    wrapped_at: 'not-a-date',
+    staged_at: 'also-not-a-date',
+  });
+
+  // Done with unparseable wrapped_at but parseable old staged_at: age falls back to
+  // staged_at -> should be DELETED.
+  const UNPARSE_WAT = '55555555-5555-4555-5555-000000000011';
+  writeMarkerRaw(agenticDir, UNPARSE_WAT, {
+    status: 'done',
+    wrapped_at: 'not-a-date',
+    staged_at: agoIso(8 * 24 * 60 * 60),
+  });
+
+  const res = lib.cleanStalePending(projectDir, TTL_MS);
+
+  // Old done deleted.
+  assert(res.deleted.includes(OLD_DONE), '[C] old done tombstone reported deleted');
+  assert(!markerExists(agenticDir, OLD_DONE), '[C] old done tombstone removed from disk');
+
+  // Fresh done kept.
+  assert(markerExists(agenticDir, FRESH_DONE), '[C] fresh done tombstone kept');
+
+  // Old pending deleted (existing behavior preserved).
+  assert(res.deleted.includes(OLD_PEND), '[C] old pending marker reported deleted');
+  assert(!markerExists(agenticDir, OLD_PEND), '[C] old pending marker removed from disk');
+
+  // ready / gave_up / in_progress all untouched.
+  assert(markerExists(agenticDir, OLD_READY) && readRaw(agenticDir, OLD_READY).status === 'ready',
+    '[C] old ready marker NOT touched by janitor');
+  assert(markerExists(agenticDir, OLD_GAVEUP) && readRaw(agenticDir, OLD_GAVEUP).status === 'gave_up',
+    '[C] old gave_up marker NOT touched by janitor');
+  assert(markerExists(agenticDir, OLD_INPROG) && readRaw(agenticDir, OLD_INPROG).status === 'in_progress',
+    '[C] old in_progress marker NOT touched by janitor');
+
+  // Both-unparseable done: SKIPPED (kept on disk).
+  assert(markerExists(agenticDir, BOTH_UNPARSE),
+    '[C] done with both timestamps unparseable is SKIPPED (not deleted)');
+
+  // Unparseable wrapped_at but parseable old staged_at: DELETED (age derived from staged_at).
+  assert(!markerExists(agenticDir, UNPARSE_WAT),
+    '[C] done with unparseable wrapped_at but old staged_at is DELETED (age from staged_at)');
+
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (D) un-guarded retention: transitionDone without daemon env retains tombstone
+// ---------------------------------------------------------------------------
+console.log('\n[D] un-guarded transitionDone: marker retained as done+wrapped_at');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-mr-ungrd-');
+  const SID_D = '66666666-6666-4666-6666-000000000012';
+
+  // Ensure guard is OFF.
+  delete process.env.AGENTIC_WRAP_DAEMON;
+
+  writeMarkerRaw(agenticDir, SID_D, { status: 'ready' });
+  assert(lib.transitionDone(projectDir, SID_D) === true,
+    '[D] transitionDone returns true when unguarded');
+  const dDone = readRaw(agenticDir, SID_D);
+  assert(dDone && dDone.status === 'done',
+    '[D] marker retained as done tombstone');
+  assert(Number.isFinite(Date.parse(dDone.wrapped_at)),
+    '[D] done tombstone has parseable wrapped_at');
 
   cleanup(base);
 }

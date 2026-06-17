@@ -717,7 +717,7 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
     const result = await runDeferredWrap(sessionId, cwd, timeoutMs);
 
     if (result.ok) {
-      // (e) Clean exit -> done (unlinks marker + heartbeat in the lib).
+      // (e) Clean exit -> done (lib retains a `wrapped_at` tombstone, removes heartbeat).
       wrapMarker.transitionDone(cwd, sessionId);
       log('session ' + sessionId + ' done (code:0 dur:' + (Date.now() - startedAt) + 'ms)');
     } else {

@@ -72,10 +72,12 @@
  *                reclaimAbandonedInProgress acts ONLY on daemon-claimed dead-PID
  *                stale in_progress markers and NEVER touches pending markers, so it
  *                cannot resume a live/idle session. cleanStalePending DELETES old
- *                pending markers (never status-mutates them), so it likewise cannot
- *                promote a live session, and co-deletes each deleted marker's sibling
- *                heartbeat (PERF-Minor) inside the per-marker try/catch so a
- *                heartbeat-unlink error never aborts the sweep.
+ *                pending markers AND stale `done` tombstones (never status-mutates any
+ *                marker), so it likewise cannot promote a live session, and co-deletes
+ *                each deleted marker's sibling heartbeat (PERF-Minor) inside the
+ *                per-marker try/catch so a heartbeat-unlink error never aborts the
+ *                sweep. done-tombstone age key: wrapped_at ?? staged_at;
+ *                both-unparseable = skip; never touches ready / in_progress / gave_up.
  *                SECURITY (DoS hardening): every marker read is size-bounded
  *                (MAX_MARKER_BYTES, SEC-M2) and every directory scan filters
  *                filenames to the session-UUID shape BEFORE opening any file and
@@ -481,6 +483,11 @@ function writeMarker(cwd, marker) {
  *   - this session already wrapped (.last-wrap === sessionId)
  *   - this session's marker is already ready / pending / in_progress (MAJOR-3)
  *     (a done / gave_up / absent marker does NOT suppress - re-staging is allowed)
+ *   - this session's marker is `done` WITH a parseable `wrapped_at` (tombstone
+ *     suppression: this session already completed /wrap; .last-wrap may have rolled
+ *     to a different session but the tombstone remains as the durable backstop)
+ *     NOTE: a `done` marker WITHOUT a parseable `wrapped_at` does NOT suppress
+ *     (back-compat + recycled-id carve-out)
  *   - the session had no substantive activity
  * Uses only the already-computed scan counts (no git/subprocess). Fail-open.
  */
@@ -497,6 +504,13 @@ function stagePending(cwd, sessionId, scan) {
   // MAJOR-3: suppress on a LIVE marker (ready / pending / in_progress) for THIS
   // session. done / gave_up / absent do not suppress.
   if (liveMarkerForSession(safe, sid)) return false;
+
+  // Tombstone suppression: a `done` marker WITH a parseable `wrapped_at` means this
+  // session already completed /wrap; suppress re-staging even if .last-wrap has rolled
+  // to a different session. A `done` marker WITHOUT a parseable `wrapped_at` (legacy /
+  // recycled-id) does NOT suppress - re-staging proceeds normally.
+  const self = readMarker(safe, sid);
+  if (self && self.status === 'done' && tsMs(self.wrapped_at) !== null) return false;
 
   // Require substantive activity.
   const s = scan || {};
@@ -595,8 +609,11 @@ function claimMarker(cwd, sessionId, owner, kind, staleMs) {
 }
 
 /**
- * Mark this session's marker `done`, then unlink both the marker and the
- * session's heartbeat. Guarded NO-OP. Fail-open.
+ * Mark this session's marker `done`, stamp `wrapped_at`, RETAIN the marker as a
+ * per-session `wrapped_at`-stamped tombstone, and remove only the heartbeat.
+ * The retained tombstone suppresses same-session re-staging (stagePending checks
+ * for it) and is reaped by cleanStalePending after `deferred_wrap_pending_ttl_days`.
+ * Guarded NO-OP. Fail-open.
  */
 function transitionDone(cwd, sessionId) {
   if (daemonGuardActive()) return false;
@@ -607,17 +624,17 @@ function transitionDone(cwd, sessionId) {
 
   const p = markerPath(safe, sid);
   if (!p) return false;
-  // Best-effort: write `done` (records the terminal status before unlink), then
-  // unlink the marker and heartbeat. A crash between the two still leaves a
-  // `done` marker, which is harmless (no consumer acts on `done`).
+  // RETAIN the marker as a per-session `wrapped_at`-stamped tombstone; remove only
+  // the heartbeat. The tombstone prevents this session being re-staged after
+  // .agentic/.last-wrap rolls to a different session.
   const existing = readMarker(safe, sid) || { session_id: sid, project_root: safe };
   const marker = Object.assign({}, existing, {
     schema_version: SCHEMA_VERSION,
     session_id: sid,
     status: 'done',
+    wrapped_at: new Date().toISOString(),
   });
   atomicWriteJson(p, marker);
-  try { fs.unlinkSync(p); } catch (_) {}
   removeHeartbeat(safe, sid);
   return true;
 }
@@ -710,8 +727,15 @@ function reclaimAbandonedInProgress(cwd, staleMs) {
 
 /**
  * Bounded janitor (MINOR-1): DELETE `pending` markers whose staged_at is older
- * than ttlMs. DELETE-ONLY - it NEVER status-mutates a pending marker, so it
- * cannot promote a live/idle session (CRITICAL-A). Touches ONLY pending markers.
+ * than ttlMs, AND DELETE `done` tombstones whose wrapped_at (or staged_at as
+ * fallback) is older than ttlMs. DELETE-ONLY - it NEVER status-mutates any marker,
+ * so it cannot promote a live/idle session (CRITICAL-A). Touches ONLY pending and
+ * done markers; never touches ready / in_progress / gave_up.
+ *
+ * done-tombstone age key: tsMs(marker.wrapped_at) ?? tsMs(marker.staged_at).
+ * When BOTH are unparseable, the tombstone is SKIPPED (left on disk) - same
+ * conservative behavior as the pending fallback above.
+ *
  * Guarded NO-OP -> {deleted:[]}. Fail-open per marker.
  * Returns { deleted: [sessionId...] }.
  */
@@ -739,6 +763,24 @@ function cleanStalePending(cwd, ttlMs) {
       // Fail-open per marker.
     }
   }
+
+  // Sweep done tombstones older than ttlMs. Age key: wrapped_at ?? staged_at.
+  // Both-unparseable -> SKIP (leave on disk). NEVER touches ready/in_progress/gave_up.
+  const done = listMarkersByStatus(safe, 'done');
+  for (const entry of done) {
+    try {
+      const m = entry.marker;
+      const ageMs = tsMs(m && m.wrapped_at) ?? tsMs(m && m.staged_at);
+      if (ageMs === null) continue;               // both timestamps unparseable -> skip
+      if ((Date.now() - ageMs) <= ttlMs) continue; // still within TTL -> keep
+      fs.unlinkSync(entry.path);                   // DELETE-ONLY
+      removeHeartbeat(safe, entry.sessionId);      // idempotent co-delete
+      result.deleted.push(entry.sessionId);
+    } catch (_) {
+      // Fail-open per marker.
+    }
+  }
+
   return result;
 }
 
