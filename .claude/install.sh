@@ -559,16 +559,17 @@ PYEOF
 # Deferred-wrap .claude-host sentinel (belt; MAJOR-B)
 #
 # When install.sh runs INSIDE a project (a .agentic/ dir exists in the install
-# cwd), drop the .agentic/.claude-host sentinel for THAT project so the
+# cwd), drop the .agentic/wrap/claude-host sentinel for THAT project so the
 # deferred-wrap feature can activate immediately. This is the belt for the
 # install-cwd project only; the SessionStart self-heal (session-start-wrap.sh)
 # is the PRIMARY mechanism that covers every project on its next Claude session.
 # create-if-absent + fully fail-open; we never drop sentinels for arbitrary
 # projects.
 # ---------------------------------------------------------------------------
-if [[ -d "$PWD/.agentic" && ! -f "$PWD/.agentic/.claude-host" ]]; then
-  if : > "$PWD/.agentic/.claude-host" 2>/dev/null; then
-    echo "  + dropped deferred-wrap .claude-host sentinel in $PWD/.agentic"
+if [[ -d "$PWD/.agentic" && ! -f "$PWD/.agentic/wrap/claude-host" ]]; then
+  mkdir -p "$PWD/.agentic/wrap" 2>/dev/null || true
+  if : > "$PWD/.agentic/wrap/claude-host" 2>/dev/null; then
+    echo "  + dropped deferred-wrap .agentic/wrap/claude-host sentinel in $PWD"
   fi
 fi
 

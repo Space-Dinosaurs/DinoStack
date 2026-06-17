@@ -108,6 +108,7 @@ console.log('\n[M1] full relocation: all old-layout artifacts moved to .agentic/
   fs.writeFileSync(path.join(wd, 'wrap-daemon-auth-failed'), '', 'utf8');
   fs.writeFileSync(path.join(wd, '.stop-deferred-activity.jsonl'),
     JSON.stringify({ schema_version: 1 }) + '\n', 'utf8');
+  fs.writeFileSync(path.join(wd, '.claude-host'), '', 'utf8');
 
   // Old-layout marker (wrap-pending-<sid>.json -> pending-<sid>.json).
   const SID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
@@ -129,6 +130,8 @@ console.log('\n[M1] full relocation: all old-layout artifacts moved to .agentic/
   assert(fs.existsSync(path.join(wd, 'wrap', 'daemon.log.1')),  'M1: wrap-daemon.log.1 moved to wrap/daemon.log.1');
   assert(fs.existsSync(path.join(wd, 'wrap', 'daemon-auth-failed')), 'M1: daemon-auth-failed moved');
   assert(fs.existsSync(path.join(wd, 'wrap', 'deferred-activity.jsonl')), 'M1: spillover moved to wrap/deferred-activity.jsonl');
+  assert(fs.existsSync(lib.claudeHostPath(projectDir)), 'M1: .claude-host migrated to wrap/claude-host');
+  assert(!fs.existsSync(path.join(wd, '.claude-host')), 'M1: old .agentic/.claude-host gone after migration');
 
   // Marker: new basename is pending-<sid>.json (wrap- prefix stripped).
   const newMarker = lib.markerPath(projectDir, SID);

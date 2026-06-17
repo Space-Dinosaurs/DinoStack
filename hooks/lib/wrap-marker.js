@@ -20,7 +20,7 @@
  *     daemonPidPath(cwd) -> .agentic/wrap/daemon.pid
  *     wrapDaemonLogPath(cwd) -> .agentic/wrap/daemon.log
  *     authFailedPath(cwd) -> .agentic/wrap/daemon-auth-failed
- *     claudeHostPath(cwd) -> .agentic/.claude-host  (NOT moved)
+ *     claudeHostPath(cwd) -> .agentic/wrap/claude-host
  *     heartbeatPath(cwd, sessionId) -> .agentic/wrap/heartbeats/<sessionId>
  *     stopDeferredActivityPath(cwd) -> .agentic/wrap/deferred-activity.jsonl
  *   Constants:
@@ -58,14 +58,16 @@
  *                daemon-auth-failed, heartbeats/<id>, deferred-activity.jsonl.
  *                Also exposes a path helper for daemon.log (this lib does NOT
  *                write that log - the daemon does; the helper only derives the path).
- *                claudeHostPath stays at [cwd]/.agentic/.claude-host (NOT moved).
+ *                claudeHostPath resolves to [cwd]/.agentic/wrap/claude-host.
  *
  * Downstream consumers: hooks/stop-context.js (require this lib; stagePending,
  *                        touchHeartbeat, lock-aware reads), hooks/session-end-wrap.js
  *                        (finalizeReady, removeHeartbeat - U2), hooks/wrap-daemon.js
  *                        (listReadyMarkers, claimMarker, reclaimAbandonedInProgress,
  *                        cleanStalePending, acquireWrapLock, transitionDone/GaveUp - U3),
- *                        hooks/session-start-wrap.sh (ensureClaudeHost via node - U4).
+ *                        hooks/session-start-wrap.sh (self-heals the sentinel in bash;
+ *                        ensureClaudeHost is the Node-callable equivalent, exported for
+ *                        adapter use - U4).
  *
  * Failure modes: Every function is fail-open and NEVER throws to a hook - all fs
  *                errors are swallowed and a safe default is returned (false/null/[]
@@ -291,9 +293,8 @@ function authFailedPath(cwd) {
   return path.join(wrapDir(cwd), 'daemon-auth-failed');
 }
 
-/** claudeHostPath stays at .agentic/.claude-host - it is NOT moved into wrap/. */
 function claudeHostPath(cwd) {
-  return path.join(agenticDir(cwd), '.claude-host');
+  return path.join(wrapDir(cwd), 'claude-host');
 }
 
 function heartbeatPath(cwd, sessionId) {
@@ -469,15 +470,14 @@ function isClaudeHost(cwd) {
 // ---------------------------------------------------------------------------
 
 /**
- * Create the .agentic/.claude-host sentinel if absent (create-if-absent via the
- * 'wx' flag). Intentionally UNGUARDED: writing a true fact is harmless and this
- * self-heals existing installs that never re-ran install.sh (MAJOR-B). Idempotent;
- * swallows EEXIST and every other fs error.
+ * Create the .agentic/wrap/claude-host sentinel if absent (create-if-absent via
+ * the 'wx' flag). Intentionally UNGUARDED: writing a true fact is harmless and
+ * this self-heals existing installs that never re-ran install.sh (MAJOR-B).
+ * Idempotent; swallows EEXIST and every other fs error.
  */
 function ensureClaudeHost(cwd) {
   try {
-    const dir = agenticDir(cwd);
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(wrapDir(cwd), { recursive: true });
     fs.writeFileSync(claudeHostPath(cwd), '', { flag: 'wx' });
   } catch (_) {
     // EEXIST (already present) or any fs error - swallow; fail-open.

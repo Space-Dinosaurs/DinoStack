@@ -411,7 +411,7 @@ console.log('\n[i] loop-guard: under AGENTIC_WRAP_DAEMON=1 the Stop hook stages 
 // ---------------------------------------------------------------------------
 // Verification-gate case (12) ("non-Claude / no .claude-host sentinel -> no marker
 // staged") is enforced at the `/wrap` Step 0a sentinel gate
-// (`[ -f "$cwd/.agentic/.claude-host" ]`), which is PROSE executed by the model -
+// (`[ -f "$cwd/.agentic/wrap/claude-host" ]`), which is PROSE executed by the model -
 // it is NOT a gate in this Node Stop hook. The Stop hook only ever runs on Claude
 // Code in the first place; it stages a marker on any substantive, unlocked,
 // not-already-wrapped session regardless of the sentinel (verified empirically:

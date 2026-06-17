@@ -399,7 +399,7 @@ console.log('\n[13] loop-guard (AGENTIC_WRAP_DAEMON=1) no-ops every transition')
 console.log('\n[20] ensureClaudeHost: create-if-absent, idempotent, UNGUARDED, fail-open');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-mr-host-');
-  const hostPath = path.join(agenticDir, '.claude-host');
+  const hostPath = lib.claudeHostPath(projectDir);
 
   // absent -> created (guard OFF).
   assert(!fs.existsSync(hostPath), 'sentinel absent at start');
@@ -415,7 +415,7 @@ console.log('\n[20] ensureClaudeHost: create-if-absent, idempotent, UNGUARDED, f
 
   // UNGUARDED: writes even under the loop-guard (writing a true fact is harmless).
   const { base: base2, projectDir: proj2, agenticDir: ag2 } = makeProject('ae-mr-host2-');
-  const host2 = path.join(ag2, '.claude-host');
+  const host2 = lib.claudeHostPath(proj2);
   process.env.AGENTIC_WRAP_DAEMON = '1';
   try {
     assert(!fs.existsSync(host2), 'second sentinel absent at start');

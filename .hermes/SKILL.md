@@ -13681,11 +13681,11 @@ This is what `hooks/stop-context.js` and `.opencode/plugins/session-context.ts` 
 
 `/wrap` is synchronous: it runs the body inline and returns control only after Step 6 completes. Step 0a stages a per-session marker that is consumed by the deferred-wrap DAEMON, not by any in-session pipeline - so that if THIS session is later force-killed or ends without finishing a manual `/wrap`, the daemon can complete enrichment headlessly. Staging is GATED: it runs ONLY on the Claude host with the daemon enabled and not inside a daemon run.
 
-**Claude-host + opt-in + non-daemon guard (MAJOR-1).** Wrap both the toggle read and the marker staging in this guard. Off-Claude (no `.agentic/.claude-host` sentinel - the sentinel is written only by the Claude SessionStart hook and `.claude/install.sh`), toggle off, or inside a daemon run (`AGENTIC_WRAP_DAEMON=1`) -> stage NOTHING, and `/wrap` runs byte-identical to the classic synchronous wrap (no marker, no daemon involvement, exactly today's pre-feature behavior):
+**Claude-host + opt-in + non-daemon guard (MAJOR-1).** Wrap both the toggle read and the marker staging in this guard. Off-Claude (no `.agentic/wrap/claude-host` sentinel - the sentinel is written only by the Claude SessionStart hook and `.claude/install.sh`), toggle off, or inside a daemon run (`AGENTIC_WRAP_DAEMON=1`) -> stage NOTHING, and `/wrap` runs byte-identical to the classic synchronous wrap (no marker, no daemon involvement, exactly today's pre-feature behavior):
 
-    # Claude-host + opt-in + non-daemon guard. Off-Claude (no .claude-host sentinel),
+    # Claude-host + opt-in + non-daemon guard. Off-Claude (no .agentic/wrap/claude-host sentinel),
     # toggle off, or inside a daemon run -> stage nothing, /wrap runs byte-identical to today.
-    if [ -f "$cwd/.agentic/.claude-host" ] && [ "$AGENTIC_WRAP_DAEMON" != "1" ] && <deferred_wrap_daemon toggle is true in .agentic/config.json>; then
+    if [ -f "$cwd/.agentic/wrap/claude-host" ] && [ "$AGENTIC_WRAP_DAEMON" != "1" ] && <deferred_wrap_daemon toggle is true in .agentic/config.json>; then
         <stage the per-session pending-<session_id>.json marker (per the schema below)>
     fi
 

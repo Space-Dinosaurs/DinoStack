@@ -6,7 +6,7 @@
 #          daemon previously could not authenticate; (c) a one-time migration of
 #          deferred-wrap artifacts from the old top-level .agentic/ layout to the
 #          new .agentic/wrap/ subdirectory; and (d) the self-healing
-#          `.agentic/.claude-host` sentinel write (MAJOR-B) plus a guarded,
+#          `.agentic/wrap/claude-host` sentinel write (MAJOR-B) plus a guarded,
 #          detached launch of the deferred-wrap daemon. It is the FIRST and only
 #          SessionStart registration install.sh makes; the version-check script
 #          is no longer wired directly - it is invoked from here.
@@ -113,6 +113,7 @@ fi
   [ -e "$wd/wrap-daemon.log.1"       ] && [ ! -e "$wd/wrap/daemon.log.1"          ] && mv "$wd/wrap-daemon.log.1"       "$wd/wrap/daemon.log.1"           || true
   [ -e "$wd/wrap-daemon-auth-failed" ] && [ ! -e "$wd/wrap/daemon-auth-failed"    ] && mv "$wd/wrap-daemon-auth-failed" "$wd/wrap/daemon-auth-failed"     || true
   [ -e "$wd/.stop-deferred-activity.jsonl" ] && [ ! -e "$wd/wrap/deferred-activity.jsonl" ] && mv "$wd/.stop-deferred-activity.jsonl" "$wd/wrap/deferred-activity.jsonl" || true
+  [ -e "$wd/.claude-host"                  ] && [ ! -e "$wd/wrap/claude-host"              ] && mv "$wd/.claude-host"                  "$wd/wrap/claude-host"              || true
 
   # --- Marker relocation: wrap-pending-<sid>.json -> wrap/pending-<sid>.json ---
   # Strip the "wrap-" prefix from the basename when moving into the new directory.
@@ -154,15 +155,15 @@ if [[ -f "$cwd/.agentic/wrap/daemon-auth-failed" ]]; then
   auth_msg="deferred-wrap daemon could not authenticate; run \`claude auth login\` (see .agentic/wrap/daemon-auth-failed)."
 fi
 
-# --- (c) Self-heal the .claude-host sentinel (MAJOR-B) ---
+# --- (c) Self-heal the .agentic/wrap/claude-host sentinel (MAJOR-B) ---
 # UNCONDITIONAL: not suppressed by the AGENTIC_WRAP_DAEMON loop-guard. Writing a
 # true fact is harmless; it only gates Step-0a staging (itself guard-suppressed).
 # create-if-absent, fully fail-open. This is what activates the feature on
 # existing installs without an install.sh re-run.
 {
-  mkdir -p "$cwd/.agentic" 2>/dev/null || true
-  if [[ ! -f "$cwd/.agentic/.claude-host" ]]; then
-    : > "$cwd/.agentic/.claude-host" 2>/dev/null || true
+  mkdir -p "$cwd/.agentic/wrap" 2>/dev/null || true
+  if [[ ! -f "$cwd/.agentic/wrap/claude-host" ]]; then
+    : > "$cwd/.agentic/wrap/claude-host" 2>/dev/null || true
   fi
 } || true
 

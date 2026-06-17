@@ -13,7 +13,7 @@ The feature is gated behind `.agentic/config.json` `deferred_wrap_daemon` (defau
 ## Procedure
 1. **Pre-merge (feature branch):** abandon the branch - nothing shipped. The branch is `feature/deferred-background-wrap` (evolving PR #184).
 2. **Post-merge, behavioral issue:** flip `deferred_wrap_daemon: false` (config-only; instant). The daemon stops; `/wrap` Step 0a stages nothing.
-3. **Post-merge, code defect:** `git revert` the offending unit's squash-merge commit (each unit is a distinct file set), regenerate adapters (`*/build.sh`), open a revert PR. The marker/sentinel/pid/heartbeat files are gitignored runtime artifacts - safe to remove: `rm -rf .agentic/wrap-pending-*.json .agentic/.claude-host .agentic/wrap-daemon.pid .agentic/.heartbeats .agentic/wrap-daemon-auth-failed`.
+3. **Post-merge, code defect:** `git revert` the offending unit's squash-merge commit (each unit is a distinct file set), regenerate adapters (`*/build.sh`), open a revert PR. The marker/sentinel/pid/heartbeat files are gitignored runtime artifacts - safe to remove: `rm -rf .agentic/wrap-pending-*.json .agentic/wrap/claude-host .agentic/wrap-daemon.pid .agentic/.heartbeats .agentic/wrap-daemon-auth-failed`.
 
 ## Partial-landing safety (the 10-unit merge order)
 Every prefix of the merge order is safe because the daemon path is toggle-gated (default off) and the units write disjoint file sets:
