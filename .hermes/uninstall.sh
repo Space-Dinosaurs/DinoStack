@@ -26,9 +26,13 @@ if [[ -d "$SKILL_DST" ]]; then
   rmdir "$SKILL_DST" 2>/dev/null || true
 fi
 
-# Optionally remove config
+# Optionally remove config (TTY-safe: defaults to keep when non-interactive)
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  read -p "Remove activation mode config ($AE_CONFIG_PATH)? [y/N]: " confirm
+  confirm="n"
+  # Test that /dev/tty is actually openable (not just stat-readable) before prompting.
+  if { true </dev/tty; } 2>/dev/null; then
+    read -r -p "Remove activation mode config ($AE_CONFIG_PATH)? [y/N]: " confirm </dev/tty || confirm="n"
+  fi
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
     rm "$AE_CONFIG_PATH"
     echo "  - removed $AE_CONFIG_PATH"

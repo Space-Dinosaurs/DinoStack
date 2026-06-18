@@ -8,7 +8,7 @@
 #
 # Upstream deps: content/sections/[0-9][0-9]-*.md files; bash; coreutils sort+ls.
 #
-# Downstream consumers: .claude/build.sh, scripts/check-methodology-drift.sh,
+# Downstream consumers: .claude/build.sh, .hermes/build.sh, scripts/check-methodology-drift.sh,
 #                       future .codex/build.sh, future .cursor/build.sh.
 #
 # Failure modes: exits non-zero if no section files match the glob (catches
