@@ -1,0 +1,28 @@
+# Per-role + adversarial-reviewer model routing — Pi / oh-my-pi only.
+# Copy to ~/.agentic/role-models.yml (global) or .agentic/role-models.yml (project).
+# Model names below are EXAMPLES — edit to match the models you have in Pi.
+# This file is NOT read on Claude/Codex/Gemini. If absent, Pi uses session defaults.
+
+roles:
+  conductor: opus              # advisory; applies only if the harness re-roots the main agent
+  investigator: glm-4.6
+  architect: opus
+  orchestration-planner: opus
+  engineer: sonnet
+  debugger: sonnet
+  qa-engineer: glm-4.6
+  skeptic: gpt-5
+  security-auditor: gpt-5
+
+reviewers:
+  strategy: distinct-from-author   # distinct-from-author | round-robin | by-task
+  pool:
+    - gpt-5
+    - glm-4.6
+    - sonnet
+  fallback: gpt-5
+  # by_task:                       # used only when strategy: by-task
+  #   security: gpt-5
+  #   architecture: opus
+  #   correctness: glm-4.6
+  #   default: sonnet
