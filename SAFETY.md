@@ -27,7 +27,7 @@ The recommended Claude Code permission setup pairs `bypassPermissions` mode with
 a deny-list that blocks eight destructive command patterns (force push,
 `rm -rf`, hard reset, and so on). It is configured by
 [`.claude/install.sh`](.claude/install.sh) and the full listing lives in
-[docs/safe-configuration.md](docs/safe-configuration.md#deny-list). The deny-list
+[docs/safe-configuration.md](docs/safe-configuration.md#the-deny-list). The deny-list
 matches **specific command patterns**. A destructive action expressed in a form
 the patterns do not cover is not blocked. It is a rail against the common cases,
 not a comprehensive filter.
@@ -82,7 +82,7 @@ For the structured view of who can attack what and which gaps remain, read
 
 - **Keep the deny-list configured.** Accept the recommended permissions during
   install, or merge the eight rules in manually
-  ([docs/safe-configuration.md](docs/safe-configuration.md#deny-list)).
+  ([docs/safe-configuration.md](docs/safe-configuration.md#the-deny-list)).
 - **Match the risk profile to the context.** Use a stricter profile on shared or
   sensitive repos; see
   [docs/safe-configuration.md](docs/safe-configuration.md#risk-profiles-and-recommended-configs).

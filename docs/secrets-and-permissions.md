@@ -60,7 +60,8 @@ The framework writes telemetry as agents run:
 telemetry schema enumerates a fixed set of fields and explicitly excludes prompt
 content, file paths, tool I/O, user messages, finding text, commit messages, and
 environment variable values
-([content/sections/09-events-log.md](../content/sections/09-events-log.md)).
+([content/references/events-log.md](../content/references/events-log.md),
+PII boundary; see also [content/sections/09-events-log.md](../content/sections/09-events-log.md)).
 That is the **intended** boundary. It is not runtime-enforced redaction:
 nothing scans these writes and strips a secret that slipped into a free-text
 field such as a `note`. Treat the boundary as a design contract that a bug could
@@ -93,7 +94,7 @@ machine. The mitigation is to limit what the secret can do.
   ([safe-configuration.md](safe-configuration.md#risk-profiles)).
 - **Keep the deny-list configured.** It rails off the destructive command forms
   most likely to do collateral damage
-  ([safe-configuration.md](safe-configuration.md#deny-list)).
+  ([safe-configuration.md](safe-configuration.md#the-deny-list)).
 - **Constrain the environment** for untrusted work - a throwaway checkout or a
   machine without production credentials limits what a misused secret reaches.
 
