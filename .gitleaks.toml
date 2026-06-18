@@ -1,0 +1,25 @@
+# gitleaks configuration
+#
+# Purpose: extend the bundled default ruleset and allowlist the intentional
+# fake-secret corpora used by the eval harness. These fixtures plant fake
+# credentials and real public git SHAs by design (e.g. to test the
+# security-auditor's detection, or to pin task base commits). They are not
+# real secrets. Without this allowlist, `gitleaks git .` scans full history
+# and fails every PR on these by-design fixtures.
+#
+# Scope discipline: allowlist ONLY eval fixture corpora, never real-code paths.
+#   - evals/fixtures/**            : per-agent eval fixture corpora (entirely
+#                                    fixture data; safe to allowlist wholesale)
+#   - evals/skill-comparison/tasks/: task corpus (git SHAs misread as api keys);
+#                                    the rest of skill-comparison is real harness
+#                                    code and is deliberately NOT allowlisted.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional fake secrets / public git SHAs in eval fixture corpora - not real credentials"
+paths = [
+  '''evals/fixtures/.*''',
+  '''evals/skill-comparison/tasks/.*''',
+]
