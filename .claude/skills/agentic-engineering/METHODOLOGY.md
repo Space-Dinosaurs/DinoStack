@@ -61,11 +61,20 @@ Run this check once at the top of the first skill invocation in a session (and a
    c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/migrate-project --include-destructive` only).
    d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/migrate-project --include-destructive`.
 
-7. **When no-opping, print one line and stop:**
-   `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
-   Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
+6.5. **Role-models bootstrap (Pi/oh-my-pi only).** Runs only when Step 4 resolved to active AND the harness is Pi or oh-my-pi (the conductor determines this from its own runtime identity, the same way it does for the role-models layer; if unsure, treat as not-Pi and skip this step). Silent-fail: any error swallowed; methodology proceeds.
 
-**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none, profile=default, preset=null" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
+   a. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists OR `~/.agentic/.role-models-bootstrap` exists, no-op (the user has already configured or explicitly skipped).
+   b. If `NINEROUTER_URL` is unset, no-op (no probe URL means we cannot suggest models; the user can run `bin/agentic-configure` later when they have one).
+   c. Otherwise: invoke `bin/agentic-configure --non-interactive` with a 30-second timeout. Failure is swallowed -- the bootstrap is best-effort and must never block the activation. On success or no-op, create-only-write the sentinel at `~/.agentic/.role-models-bootstrap` (same race-safe O_EXCL / link contract as the activation sentinel above).
+
+   **Sentinel body (exactly three lines, plain text):**
+   ```
+   # agentic-engineering: role-models bootstrap ran for the first time on this machine.
+   # Deleting this file re-arms the bootstrap for the next session only.
+   # Re-run manually with: bin/agentic-configure --force
+   ```
+
+7. **When no-opping, print one line and stop:**
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -524,7 +533,7 @@ Spawning security-auditor.
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
 
-**Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role — and the adversarial reviewer — to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model` field from it: `roles[<role>]` for forward roles, and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits `model` and Pi uses its session default — there are no hardcoded model IDs. See `content/references/role-models.md` for the schema, resolution algorithm, and reviewer-diversity rules.
+**Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. The `bin/agentic-models` binary probes the harness (`NINEROUTER_URL /v1/models`) and ranks the discovered models per role; the `hooks/role-models-bootstrap.py` UserPromptSubmit hook runs `bin/agentic-configure --non-interactive` on the first prompt when no file exists, so users on Pi/omp get a harness-aware default without typing strings from memory. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the probe protocol and the per-role ranking heuristics.
 
 ### Spawn presets (per-spawn capability bundles)
 
