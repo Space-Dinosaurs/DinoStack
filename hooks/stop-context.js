@@ -46,6 +46,7 @@
  *                ~/.agentic/identity.yml (read-only, global),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
  *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
+ *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon toggle),
  *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop),
  *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor; atomic
@@ -171,6 +172,27 @@ const { execSync } = require('child_process');
 // delegated to this lib so stop-context.js, the SessionEnd hook, and the daemon
 // share one atomic, fail-open implementation.
 const wrapMarker = require('./lib/wrap-marker.js');
+
+/**
+ * Read the `deferred_wrap_daemon` toggle from [cwd]/.agentic/config.json.
+ * Fail-open: absent file, unreadable file, parse error, or absent key all
+ * resolve to false. This is an OUTER config gate; the in-lib daemonGuardActive()
+ * inner guard inside touchHeartbeat is PRESERVED (they serve different purposes).
+ * Sister implementation: hooks/session-end-wrap.js deferredDaemonEnabled (keep in sync).
+ *
+ * @param {string} cwd - Project root directory.
+ * @returns {boolean}
+ */
+function deferredDaemonEnabled(cwd) {
+  try {
+    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(raw);
+    return config && config.deferred_wrap_daemon === true;
+  } catch (_) {
+    return false;
+  }
+}
 
 /**
  * Write interrupted status to loop-state.json if an active loop exists.
@@ -696,7 +718,7 @@ function writePendingBuffer(cwd, sessionId) {
   }
 }
 
-// keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+// OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
 // Thin alias: the implementation lives in hooks/lib/wrap-marker.js so the lock
 // gate is shared with the SessionEnd hook and the daemon. Fail-open in the lib.
 function wrapLockHeld(cwd) {
@@ -738,7 +760,7 @@ function appendSpilloverRecord(cwd, record) {
  * @param {object} spilloverRecord - Record to spill when the lock is held.
  */
 function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecord) {
-  // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
   if (wrapLockHeld(cwd)) {
     appendSpilloverRecord(cwd, spilloverRecord);
     return;
@@ -1078,7 +1100,8 @@ function run() {
   // Pure wastefulness defense: the daemon defers claiming a `ready` marker whose
   // session still emits turns. Local fs only (no git/network); no-op under the
   // loop-guard; fail-open. Never blocks exit.
-  if (sessionId) wrapMarker.touchHeartbeat(cwd, sessionId);
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+  if (sessionId && deferredDaemonEnabled(cwd)) wrapMarker.touchHeartbeat(cwd, sessionId);
 
   const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
 
@@ -1215,7 +1238,7 @@ function run() {
     : '(working tree clean)';
 
   // --- 8b. Deferred-wrap inputs (lock-aware skip + marker staging) ---
-  // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
   // The spillover record (NORMATIVE schema in content/commands/wrap.md) is built
   // from the already-computed scan vars - no new git/subprocess calls. It is
   // appended only when wrapLockHeld(cwd) is true and the context.md write is
@@ -1326,7 +1349,7 @@ ${toolsLine}
         } else {
           // Provisional or no identity: pending buffer
           writePendingBuffer(cwd, sessionId);
-          // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+          // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
           // The identity nudge is a context.md writer; defer it while a /wrap
           // holds the lock so the locked Part-A merge is not clobbered. The
           // sentinel is consumed atomically with the nudge, so skipping both
@@ -1357,8 +1380,10 @@ ${toolsLine}
       } catch (_) { /* silent */ }
       removeLearningsAgentSession(cwd, sessionId);
       // Stage the wrap-pending marker (after the context.md decision, on every
-      // exit path). Fail-open; never blocks exit.
-      stageWrapPending(cwd, sessionId, spilloverScan);
+      // exit path). Gated on deferredDaemonEnabled so the flag-off default never
+      // accumulates markers. Fail-open; never blocks exit.
+      // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+      if (deferredDaemonEnabled(cwd)) stageWrapPending(cwd, sessionId, spilloverScan);
       process.exit(0);
     }
   } catch (_) {
@@ -1411,7 +1436,7 @@ ${toolsLine}
     } else {
       // Provisional or no identity: pending buffer
       writePendingBuffer(cwd, sessionId);
-      // keep in sync with .opencode/plugins/session-context.ts — deferred-wrap lock-gate
+      // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
       // Defer the identity nudge (a context.md writer) while a /wrap holds the
       // lock; the sentinel is consumed atomically with the nudge, so skipping
       // both defers the one-time nudge to a later unlocked session.
@@ -1446,10 +1471,13 @@ ${toolsLine}
   } catch (_) { /* silent */ }
 
   // --- 16. Stage the wrap-pending marker (deferred-wrap safety-net) ---
-  // Runs after the context.md decision, on this exit path. Fail-open; never
-  // blocks exit. Staged only when no live marker exists, this session has not
-  // already wrapped (.last-wrap), and the session had substantive activity.
-  stageWrapPending(cwd, sessionId, spilloverScan);
+  // Runs after the context.md decision, on this exit path. Gated on
+  // deferredDaemonEnabled so the flag-off default never accumulates markers.
+  // Fail-open; never blocks exit. Staged only when no live marker exists, this
+  // session has not already wrapped (.last-wrap), and the session had substantive
+  // activity.
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+  if (deferredDaemonEnabled(cwd)) stageWrapPending(cwd, sessionId, spilloverScan);
 
   process.exit(0);
 }

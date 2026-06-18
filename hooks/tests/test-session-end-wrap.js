@@ -139,6 +139,13 @@ console.log('\n[1] terminal reason finalizes a pending marker to ready (no branc
     const { base, projectDir, agenticDir } = makeProject('ae-se-fin-');
     const SID = '11111111-1111-1111-1111-111111111111';
     writeMarkerRaw(agenticDir, SID, { status: 'pending' });
+    // Flag-on config required: finalizeReady + removeHeartbeat are now gated on
+    // deferredDaemonEnabled(cwd). Without this config the gate would suppress them.
+    fs.writeFileSync(
+      path.join(agenticDir, 'config.json'),
+      JSON.stringify({ deferred_wrap_daemon: true }),
+      'utf8',
+    );
 
     const code = runHook(projectDir, payload({
       session_id: SID, cwd: projectDir, hook_event_name: 'SessionEnd', reason,
@@ -234,6 +241,12 @@ console.log('\n[hb] heartbeat removed on terminal finalize, retained on resume')
   const SID = '55555555-5555-5555-5555-555555555555';
   writeMarkerRaw(agenticDir, SID, { status: 'pending' });
   touchHeartbeat(heartbeatDir, SID);
+  // Flag-on config required: removeHeartbeat is gated on deferredDaemonEnabled(cwd).
+  fs.writeFileSync(
+    path.join(agenticDir, 'config.json'),
+    JSON.stringify({ deferred_wrap_daemon: true }),
+    'utf8',
+  );
   runHook(projectDir, payload({ session_id: SID, cwd: projectDir, hook_event_name: 'SessionEnd', reason: 'clear' }));
   assert(!heartbeatExists(heartbeatDir, SID), 'heartbeat removed on terminal finalize');
   cleanup(base);
@@ -271,6 +284,57 @@ console.log('\n[fo] fail-open: malformed / empty / non-object stdin all exit 0 w
   // None of the malformed inputs should have finalized the pending marker.
   assert(readMarker(agenticDir, SID).status === 'pending',
     'no malformed input finalized the marker (all left it pending)');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (flag-off) deferred_wrap_daemon:false (default) -> finalizeReady + removeHeartbeat
+//            suppressed; context.md / other paths unaffected.
+// (flag-on)  deferred_wrap_daemon:true -> finalizeReady + removeHeartbeat fire normally.
+//
+// These ARE regression tests: they MUST fail against pre-fix code (where finalizeReady
+// and removeHeartbeat ran unconditionally) and pass after the fix.
+// ---------------------------------------------------------------------------
+console.log('\n[flag-off] no config -> finalizeReady suppressed; marker stays pending, heartbeat retained');
+{
+  const { base, projectDir, agenticDir, heartbeatDir } = makeProject('ae-se-foff-');
+  const SID = '88888888-8888-8888-8888-888888888888';
+  writeMarkerRaw(agenticDir, SID, { status: 'pending' });
+  touchHeartbeat(heartbeatDir, SID);
+  // NO config.json - deferredDaemonEnabled defaults to false.
+
+  const code = runHook(projectDir, payload({
+    session_id: SID, cwd: projectDir, hook_event_name: 'SessionEnd', reason: 'logout',
+  }));
+  assert(code === 0, 'flag-off: hook still exits 0');
+  assert(readMarker(agenticDir, SID).status === 'pending',
+    'flag-off: marker stays pending (finalizeReady suppressed)');
+  assert(heartbeatExists(heartbeatDir, SID),
+    'flag-off: heartbeat retained (removeHeartbeat suppressed)');
+  cleanup(base);
+}
+
+console.log('\n[flag-on] deferred_wrap_daemon:true -> finalizeReady fires; marker becomes ready');
+{
+  const { base, projectDir, agenticDir, heartbeatDir } = makeProject('ae-se-fon-');
+  const SID = '99999999-9999-9999-9999-999999999999';
+  writeMarkerRaw(agenticDir, SID, { status: 'pending' });
+  touchHeartbeat(heartbeatDir, SID);
+  // Flag-on config.
+  fs.writeFileSync(
+    path.join(agenticDir, 'config.json'),
+    JSON.stringify({ deferred_wrap_daemon: true }),
+    'utf8',
+  );
+
+  const code = runHook(projectDir, payload({
+    session_id: SID, cwd: projectDir, hook_event_name: 'SessionEnd', reason: 'logout',
+  }));
+  assert(code === 0, 'flag-on: hook exits 0');
+  assert(readMarker(agenticDir, SID).status === 'ready',
+    'flag-on: marker finalized to ready');
+  assert(!heartbeatExists(heartbeatDir, SID),
+    'flag-on: heartbeat removed after terminal finalize');
   cleanup(base);
 }
 

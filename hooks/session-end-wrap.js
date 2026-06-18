@@ -151,7 +151,8 @@ function run() {
   // any non-pending marker. `resume` is non-terminal: the marker stays `pending`
   // and is recovered only by a manual `/wrap` (never auto-wrapped). Both
   // finalizeReady and removeHeartbeat require a session id.
-  if (sessionId && TERMINAL_REASONS.has(reason)) {
+  // Gated on deferredDaemonEnabled so the flag-off default never accumulates markers.
+  if (sessionId && TERMINAL_REASONS.has(reason) && deferredDaemonEnabled(cwd)) {
     wrapMarker.finalizeReady(cwd, sessionId);
     wrapMarker.removeHeartbeat(cwd, sessionId);
   }
