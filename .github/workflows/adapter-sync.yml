@@ -20,9 +20,10 @@ jobs:
           bash .omp/build.sh
           bash .pi/build.sh
           bash .hermes/build.sh
+          bash .openclaw/build.sh
       - name: Fail on adapter drift
         run: |
-          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes; then
+          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw; then
             echo "::error::Adapter output is out of sync with content/. Run the build scripts locally and commit the regenerated adapter files." >&2
             exit 1
           fi
