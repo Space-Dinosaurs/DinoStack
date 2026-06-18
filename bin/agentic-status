@@ -317,14 +317,14 @@ def _role_models_status_block() -> list[str]:
         text = ""
 
     strategy = "unset"
-    m = re.search(r"(?m)^\s{2}strategy:\s*([^#\n]+)", text)
+    m = re.search(r"(?m)^[ \t]{2}strategy:\s*([^#\n]+)", text)
     if m:
-        strategy = m.group(1).strip().strip('"\'')
+        strategy = m.group(1).strip().strip("'\"")
 
     role_count = 0
     in_roles = False
     for line in text.splitlines():
-        if re.match(r"^roles:\s*(?:#.*)?$", line):
+        if re.match(r"^roles:\s*(?:#.*)?$", line) or re.match(r"^roles:\s*#", line):
             in_roles = True
             continue
         if in_roles:
@@ -344,6 +344,9 @@ def _role_models_status_block() -> list[str]:
     lines.append(f"  roles entries: {role_count}")
     lines.append(f"  source file(s): {', '.join(sources)}")
     lines.append("  How to adjust: Edit ~/.agentic/role-models.yml (or .agentic/role-models.yml); see content/references/role-models.md.")
+    bootstrap = Path(os.path.expanduser("~/.agentic/.role-models-bootstrap"))
+    if bootstrap.is_file():
+        lines.append("  bootstrap sentinel: present (pre-prompt hook has run at least once)")
     return lines
 
 
