@@ -278,13 +278,16 @@ desc = desc_match.group(1).strip().replace('\n', ' ') if desc_match else f"Agent
 # Collapse multiple spaces from multiline join
 desc = re.sub(r'\s+', ' ', desc).strip()
 
+# Always quote the description value for YAML safety (mirrors command path)
+desc_escaped = desc.replace('"', '\\"')
+
 # Strip the prerequisite blockquote from body
 body = re.sub(r'\n*>\s*\*\*Prerequisite:\*\*[^\n]*\n*', '\n', body, count=1)
 body = body.lstrip('\n')
 
 new_skill = f"""---
 name: {skill_name}
-description: {desc}
+description: "{desc_escaped}"
 user-invocable: false
 disable-model-invocation: true
 ---
