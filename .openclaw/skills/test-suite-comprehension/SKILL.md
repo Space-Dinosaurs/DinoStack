@@ -1,6 +1,6 @@
 ---
 name: test-suite-comprehension
-description: /test-suite-comprehension
+description: "Map a project's test suite against its source files and surface where verification gaps live. Returns a coverage summary, a gap report ranked by risk, and the specific test files that are highest-leve"
 user-invocable: true
 ---
 # /test-suite-comprehension

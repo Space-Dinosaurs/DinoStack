@@ -1,6 +1,6 @@
 ---
 name: ticket-status-sync
-description: /ticket-status-sync
+description: "Reconciles a ticket's tracker column with the actual state of its code. Fires the Done (or other appropriate) transition that /implement-ticket leaves unfired on the default human-merge path"
 user-invocable: true
 ---
 # /ticket-status-sync

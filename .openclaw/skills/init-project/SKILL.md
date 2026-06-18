@@ -1,6 +1,6 @@
 ---
 name: init-project
-description: /init-project
+description: "Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, and gitignore."
 user-invocable: true
 ---
 # /init-project

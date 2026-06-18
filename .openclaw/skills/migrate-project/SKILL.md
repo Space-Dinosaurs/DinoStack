@@ -1,6 +1,6 @@
 ---
 name: migrate-project
-description: /migrate-project
+description: "Conductor-facing command to inspect and apply project scaffolding migrations from the canonical manifest (content/project-scaffolding.yml)."
 user-invocable: true
 ---
 # /migrate-project

@@ -153,7 +153,7 @@ elif [[ -t 0 ]]; then
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
   echo "    [2] opt-in           - dormant until a project's AGENTS.md opts in"
   while true; do
-    read -p "  Choice [1]: " AE_CHOICE
+    read -r -p "  Choice [1]: " AE_CHOICE
     AE_CHOICE="${AE_CHOICE:-1}"
     case "$AE_CHOICE" in
       1) ae_write_mode "opt-out"; echo "  + mode=opt-out written to $AE_CONFIG_PATH"; break ;;

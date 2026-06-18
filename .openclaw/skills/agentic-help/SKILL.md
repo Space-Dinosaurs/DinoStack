@@ -1,6 +1,6 @@
 ---
 name: agentic-help
-description: /agentic-help
+description: "Static, zero-token command reference for the agentic-engineering skill."
 user-invocable: true
 ---
 # /agentic-help

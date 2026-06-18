@@ -163,29 +163,71 @@ import sys, re
 src_path, dst_path, cmd_name = sys.argv[1], sys.argv[2], sys.argv[3]
 
 with open(src_path) as f:
-    content = f.read()
+    raw = f.read()
 
 # Strip the prerequisite blockquote
-content = re.sub(r'\n*>\s*\*\*Prerequisite:\*\*[^\n]*\n*', '\n', content, count=1)
+content = re.sub(r'\n*>\s*\*\*Prerequisite:\*\*[^\n]*\n*', '\n', raw, count=1)
 
-# Extract description: first # Heading text, or first non-empty non-blockquote line
-lines = content.strip().split('\n')
+# Extract description - priority order:
+# 1. Purpose: field from a LEADING HTML comment block (within first 2000 chars)
+# 2. First real prose line (not heading, not blockquote, not comment fence)
+# 3. Heading text fallback
+
 desc = ""
-for line in lines:
-    stripped = line.strip()
-    if stripped.startswith('# '):
-        desc = stripped.lstrip('# ').strip()
+
+# Priority 1: Purpose field from a leading HTML comment (<!-- ... -->) in the first 2000 chars.
+# Only matches comments that open before the main body to avoid inline comments deeper in the file.
+leading_text = raw[:2000]
+comment_match = re.search(r'<!--(.*?)-->', leading_text, re.DOTALL)
+if comment_match:
+    comment_body = comment_match.group(1)
+    # Stop at any "FieldName:" label on its own line (allowing spaces in the field name)
+    purpose_match = re.search(r'Purpose:\s*(.*?)(?=\n\s*[\w][\w\s]*:\s|\Z)', comment_body, re.DOTALL)
+    if purpose_match:
+        purpose_text = purpose_match.group(1)
+        # Collapse whitespace and newlines to a single space
+        purpose_text = re.sub(r'\s+', ' ', purpose_text).strip()
+        # Trim to ~200 chars at a word boundary
+        if len(purpose_text) > 200:
+            trimmed = purpose_text[:200]
+            last_space = trimmed.rfind(' ')
+            purpose_text = trimmed[:last_space] if last_space > 0 else trimmed
+        if purpose_text:
+            desc = purpose_text
+
+# Priority 2: First real prose line
+if not desc:
+    lines = content.strip().split('\n')
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith('# '):
+            continue
+        if stripped.startswith('>'):
+            continue
+        if stripped.startswith('<!--') or stripped.startswith('-->'):
+            continue
+        desc = stripped[:200]
         break
-    elif stripped and not stripped.startswith('>'):
-        desc = stripped[:120]
-        break
+
+# Priority 3: Heading text fallback
+if not desc:
+    for line in content.strip().split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('# '):
+            desc = stripped.lstrip('# ').strip()
+            break
 
 if not desc:
     desc = f"Run the {cmd_name} command"
 
+# Always quote the description value for YAML safety
+desc_escaped = desc.replace('"', '\\"')
+
 skill_content = f"""---
 name: {cmd_name}
-description: {desc}
+description: "{desc_escaped}"
 user-invocable: true
 ---
 {content.strip()}

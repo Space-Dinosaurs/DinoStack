@@ -1,6 +1,6 @@
 ---
 name: representation-audit
-description: /representation-audit
+description: "Performs a periodic prose quality pass over methodology files to surface Python-shaped writing and propose cleaner natural-language rewrites."
 user-invocable: true
 ---
 # /representation-audit

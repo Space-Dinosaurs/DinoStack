@@ -1,6 +1,6 @@
 ---
 name: agentic-cost
-description: /agentic-cost
+description: "Render token and wall-time rollups from `.agentic/events.jsonl`. Optionally"
 user-invocable: true
 ---
 # /agentic-cost

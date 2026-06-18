@@ -1,6 +1,6 @@
 ---
 name: brief
-description: /brief
+description: "Interactive planning dialogue that produces a Brief artifact before architect and engineer are spawned. Translates operator planning-intent into a committed, Skeptic-eligible Brief at"
 user-invocable: true
 ---
 # /brief

@@ -1,6 +1,6 @@
 ---
 name: memory-update
-description: /memory-update - Memory Protocol: Capture a Decision
+description: "When a project-affecting decision has been confirmed in conversation, the main agent invokes this command with the decision context passed as `$ARGUMENTS`."
 user-invocable: true
 ---
 # /memory-update - Memory Protocol: Capture a Decision

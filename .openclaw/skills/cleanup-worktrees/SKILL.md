@@ -1,6 +1,6 @@
 ---
 name: cleanup-worktrees
-description: /cleanup-worktrees
+description: "Clean up stale git worktrees and local branches in the current repository."
 user-invocable: true
 ---
 # /cleanup-worktrees

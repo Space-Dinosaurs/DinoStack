@@ -80,7 +80,7 @@ cd DinoStack
 bash .claude/install.sh
 ```
 
-For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes), see the install instructions in each adapter's README.
+For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw), see the install instructions in each adapter's README.
 
 ## Installation modes
 
@@ -278,6 +278,7 @@ DinoStack/
   .pi/                  Pi coding agent adapter (skill, prompts, install/uninstall)
   .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
   .hermes/               Hermes Agent adapter (skill, METHODOLOGY.md, install/uninstall)
+  .openclaw/            OpenClaw adapter (skill tree, METHODOLOGY.md, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters

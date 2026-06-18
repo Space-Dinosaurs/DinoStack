@@ -1,6 +1,6 @@
 ---
 name: pull-and-install
-description: /pull-and-install
+description: "Pull the latest agentic-engineering (DinoStack) release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Use this when you want to update an ex"
 user-invocable: true
 ---
 # /pull-and-install

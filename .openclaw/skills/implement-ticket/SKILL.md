@@ -1,6 +1,6 @@
 ---
 name: implement-ticket
-description: Implement Ticket
+description: "Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted bac"
 user-invocable: true
 ---
 # Implement Ticket

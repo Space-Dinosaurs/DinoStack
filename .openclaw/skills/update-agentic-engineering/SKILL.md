@@ -1,6 +1,6 @@
 ---
 name: update-agentic-engineering
-description: /update-agentic-engineering
+description: "Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo"
 user-invocable: true
 ---
 # /update-agentic-engineering

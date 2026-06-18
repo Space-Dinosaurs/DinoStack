@@ -100,7 +100,7 @@ echo "Removing activation config..."
 AE_CONFIG_PATH="$HOME/.openclaw/agentic-engineering.json"
 if [[ -f "$AE_CONFIG_PATH" ]]; then
   if [[ -t 0 ]]; then
-    read -p "  Remove $AE_CONFIG_PATH? [y/N] " yn
+    read -r -p "  Remove $AE_CONFIG_PATH? [y/N] " yn
     yn="${yn:-N}"
     case "$yn" in
       y|Y|yes|YES)

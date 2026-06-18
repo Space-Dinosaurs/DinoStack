@@ -1,6 +1,6 @@
 ---
 name: skeptic
-description: /skeptic - The Skeptic Protocol Invocation
+description: "Orchestrate adversarial review for `$ARGUMENTS`. The main agent drives the loop: spawn Worker, spawn Skeptic, route findings, repeat until sign-off."
 user-invocable: true
 ---
 # /skeptic - The Skeptic Protocol Invocation

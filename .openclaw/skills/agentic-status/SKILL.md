@@ -1,6 +1,6 @@
 ---
 name: agentic-status
-description: /agentic-status
+description: "Read-only inspection of the agentic-engineering activation resolver."
 user-invocable: true
 ---
 # /agentic-status

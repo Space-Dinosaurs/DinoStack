@@ -1,6 +1,6 @@
 ---
 name: agentic-identity
-description: /agentic-identity
+description: "Manage the developer identity used for session telemetry attribution."
 user-invocable: true
 ---
 # /agentic-identity

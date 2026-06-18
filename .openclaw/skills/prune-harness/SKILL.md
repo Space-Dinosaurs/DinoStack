@@ -1,6 +1,6 @@
 ---
 name: prune-harness
-description: /prune-harness
+description: "Performs a periodic analysis pass over methodology files to surface deletion candidates - rules whose motivating assumptions have expired as Claude has become more capable."
 user-invocable: true
 ---
 # /prune-harness

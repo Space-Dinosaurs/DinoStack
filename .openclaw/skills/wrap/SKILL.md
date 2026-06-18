@@ -1,6 +1,6 @@
 ---
 name: wrap
-description: /wrap — On-Demand Session Context Enrichment
+description: "Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session."
 user-invocable: true
 ---
 # /wrap — On-Demand Session Context Enrichment

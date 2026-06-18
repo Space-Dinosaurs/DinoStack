@@ -1,6 +1,6 @@
 ---
 name: agentic-disable
-description: /agentic-disable
+description: "Append the agentic-engineering opt-out marker to the project"
 user-invocable: true
 ---
 # /agentic-disable
