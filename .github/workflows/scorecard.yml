@@ -1,0 +1,41 @@
+name: scorecard
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    # Weekly on Saturdays at 01:30 UTC.
+    - cron: '30 1 * * 6'
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # OpenSSF Scorecard's publish_results API only accepts an approved step
+      # list and forbids workflow-level write permissions; do not add
+      # non-allowlisted steps or broaden permissions or publish_results breaks.
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
