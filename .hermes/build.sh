@@ -42,27 +42,26 @@ A portable methodology for AI-assisted software development. Provides structured
 
 ---
 
-## Activation Preflight
+HEADER
 
-Before applying this methodology in any project, run this check once per session. It governs whether the protocol is active for the current project.
+# ---------------------------------------------------------------------------
+# Methodology (assembled from content/sections/ via build-methodology.sh)
+# ---------------------------------------------------------------------------
 
-1. **Read the global mode.** Load `~/.hermes/agentic-engineering.json`. If missing, assume `mode=opt-out`. Expected shape: `{ "mode": "opt-out" | "opt-in", "set_at": "<ISO8601>" }`.
-2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory.
-3. **Scan for the marker line.** Case-insensitive whole-line match (allow leading `- `):
-   - `agentic-engineering: opt-in`
-   - `agentic-engineering: opt-out`
-   If both appear, the first one wins. Warn: `both opt-in and opt-out markers found - using the first one (<value>)`.
-4. **Activation decision:**
-   - `mode=opt-out` AND `marker=opt-out` → inactive
-   - `mode=opt-in` AND `marker != opt-in` → inactive
-   - All other combinations → **active**
-5. **When inactive:** print one line and stop: `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
+echo "  + embedding methodology sections..."
 
-**Graceful defaults:** missing config, missing AGENTS.md, malformed JSON all resolve to "proceed active" (mode=opt-out, marker=none).
+cat >> "$HERMES_DIR/SKILL.md" <<'METHODOLOGY_HEADER'
+## Methodology
+
+METHODOLOGY_HEADER
+
+bash "$REPO_DIR/scripts/build-methodology.sh" >> "$HERMES_DIR/SKILL.md"
+
+cat >> "$HERMES_DIR/SKILL.md" <<'METHODOLOGY_FOOTER'
 
 ---
 
-HEADER
+METHODOLOGY_FOOTER
 
 # ---------------------------------------------------------------------------
 # Rules

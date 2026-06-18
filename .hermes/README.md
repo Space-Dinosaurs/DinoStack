@@ -62,7 +62,7 @@ bash ~/DinoStack/.hermes/install.sh --mode=opt-in
 ## Uninstall
 
 ```bash
-~/DinoStack/.hermes/uninstall.sh
+bash ~/DinoStack/.hermes/uninstall.sh
 ```
 
 Removes the skill symlink and optionally the config file.
