@@ -25,6 +25,9 @@ jobs:
         with:
           persist-credentials: false
 
+      # OpenSSF Scorecard's publish_results API only accepts an approved step
+      # list and forbids workflow-level write permissions; do not add
+      # non-allowlisted steps or broaden permissions or publish_results breaks.
       - name: Run analysis
         uses: ossf/scorecard-action@v2
         with:
