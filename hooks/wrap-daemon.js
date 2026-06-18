@@ -689,6 +689,14 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
   // MUST call it. On fail (a foreign/live lock is held, e.g. an interactive /wrap):
   // return 'idle' (not 'deferred') so the daemon's idle self-exit fires; a planted
   // live lock must NOT spin the daemon until the watchdog SIGKILLs it.
+  //
+  // Invariant: timeoutMs MUST remain strictly below reclaimMs. The daemon holds
+  // the wrap lock for up to timeoutMs (deferred_wrap_timeout_minutes, default 10 min)
+  // while the stale-lock reclaim window is reclaimMs (deferred_wrap_inprogress_reclaim_minutes,
+  // default 30 min). If timeoutMs >= reclaimMs, a concurrent daemon launch could
+  // treat the live lock as stale and force-clear it mid-run, enabling a double-acquire
+  // and a corrupt marker state. The defaults (10 < 30) satisfy the invariant; ensure
+  // any operator override preserves it.
   const lockAcquired = wrapMarker.acquireWrapLock(cwd, ownerToken, reclaimMs);
   if (!lockAcquired) {
     log('wrap/lock is held by another process; skipping drain this tick (ready markers will be picked up on next launch)');
@@ -696,91 +704,94 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
   }
 
   // Helper: release the lock on every post-acquire terminal path. Fail-open.
+  // Called exclusively from the finally block below - do not call it manually.
   const releaseLock = () => {
     try { wrapMarker.releaseWrapLock(cwd); } catch (_) {}
   };
 
-  let sawDeferral = false;
-  for (const entry of ready) {
-    const sessionId = entry.sessionId;
+  // try/finally guarantees releaseLock() fires on every post-acquire exit path -
+  // both the 'processed' return (one marker claimed) and the end-of-list return
+  // (nothing claimed). The acquire-FAIL -> 'idle' path above is outside this block
+  // intentionally: no lock was acquired, so no release should be attempted.
+  try {
+    let sawDeferral = false;
+    for (const entry of ready) {
+      const sessionId = entry.sessionId;
 
-    // SECURITY: never pass a non-UUID session id to `claude --resume`.
-    if (!UUID_RE.test(sessionId)) {
-      log('skipping marker with non-UUID session id: ' + JSON.stringify(sessionId));
-      continue;
-    }
-
-    // Skip sessions already attempted this run (a failed-and-reset marker is left
-    // `ready` for a FUTURE daemon launch, not hot-retried here).
-    if (attemptedThisRun.has(sessionId)) {
-      continue;
-    }
-
-    // (a) Defer if the session still emits turns (heartbeat fresh).
-    if (wrapMarker.heartbeatFresh(cwd, sessionId, heartbeatMs)) {
-      sawDeferral = true;
-      continue;
-    }
-
-    // (b) Claim (ready -> in_progress; attempts++ happens in the lib).
-    const claimed = wrapMarker.claimMarker(cwd, sessionId, ownerToken, 'daemon', reclaimMs);
-    if (!claimed) {
-      // Lost the race / no longer ready - move on.
-      continue;
-    }
-
-    // From here on this session has been attempted this run, regardless of outcome.
-    attemptedThisRun.add(sessionId);
-
-    // (c)+(d) Run /wrap-deferred in the MAIN project dir, bounded by timeout-kill.
-    log('draining session ' + sessionId + ' (attempt ' + claimed.attempts + ')');
-    const startedAt = Date.now();
-    const result = await runDeferredWrap(sessionId, cwd, timeoutMs);
-
-    if (result.ok) {
-      // (e) Clean exit -> done (lib retains a `wrapped_at` tombstone, removes heartbeat).
-      wrapMarker.transitionDone(cwd, sessionId);
-      log('session ' + sessionId + ' done (code:0 dur:' + (Date.now() - startedAt) + 'ms)');
-    } else {
-      // (f) Failure/timeout. The claim already incremented attempts. At the cap,
-      // give up; otherwise reset to `ready` so a FUTURE daemon run retries it.
-      const attempts = Number.isInteger(claimed.attempts) ? claimed.attempts : 0;
-      const lastError = result.error || 'unknown';
-      if (attempts >= MAX_ATTEMPTS) {
-        // Pass the SAME lastError to both the marker transition and the log line so
-        // the log and the marker's last_error agree by construction (do NOT re-derive).
-        wrapMarker.transitionGaveUp(cwd, sessionId, lastError);
-        log('session ' + sessionId + ' gave_up after ' + attempts + ' attempts (last_error:'
-          + lastError + '; dur:' + (Date.now() - startedAt) + 'ms)');
-      } else {
-        // Reset in_progress -> ready, preserving the bumped attempts and recording
-        // last_error. Use the claimed marker object verbatim and only flip the
-        // fields we own. writeMarker is atomic + fail-open in the lib.
-        const retry = Object.assign({}, claimed, {
-          status: 'ready',
-          claimed_by: null,
-          claimed_kind: null,
-          claimed_at: null,
-          last_error: lastError,
-        });
-        wrapMarker.writeMarker(cwd, retry);
-        log('session ' + sessionId + ' failed (' + lastError + '); reset to ready (attempt '
-          + attempts + '/' + MAX_ATTEMPTS + '; retried on next daemon launch; dur:'
-          + (Date.now() - startedAt) + 'ms)');
+      // SECURITY: never pass a non-UUID session id to `claude --resume`.
+      if (!UUID_RE.test(sessionId)) {
+        log('skipping marker with non-UUID session id: ' + JSON.stringify(sessionId));
+        continue;
       }
+
+      // Skip sessions already attempted this run (a failed-and-reset marker is left
+      // `ready` for a FUTURE daemon launch, not hot-retried here).
+      if (attemptedThisRun.has(sessionId)) {
+        continue;
+      }
+
+      // (a) Defer if the session still emits turns (heartbeat fresh).
+      if (wrapMarker.heartbeatFresh(cwd, sessionId, heartbeatMs)) {
+        sawDeferral = true;
+        continue;
+      }
+
+      // (b) Claim (ready -> in_progress; attempts++ happens in the lib).
+      const claimed = wrapMarker.claimMarker(cwd, sessionId, ownerToken, 'daemon', reclaimMs);
+      if (!claimed) {
+        // Lost the race / no longer ready - move on.
+        continue;
+      }
+
+      // From here on this session has been attempted this run, regardless of outcome.
+      attemptedThisRun.add(sessionId);
+
+      // (c)+(d) Run /wrap-deferred in the MAIN project dir, bounded by timeout-kill.
+      log('draining session ' + sessionId + ' (attempt ' + claimed.attempts + ')');
+      const startedAt = Date.now();
+      const result = await runDeferredWrap(sessionId, cwd, timeoutMs);
+
+      if (result.ok) {
+        // (e) Clean exit -> done (lib retains a `wrapped_at` tombstone, removes heartbeat).
+        wrapMarker.transitionDone(cwd, sessionId);
+        log('session ' + sessionId + ' done (code:0 dur:' + (Date.now() - startedAt) + 'ms)');
+      } else {
+        // (f) Failure/timeout. The claim already incremented attempts. At the cap,
+        // give up; otherwise reset to `ready` so a FUTURE daemon run retries it.
+        const attempts = Number.isInteger(claimed.attempts) ? claimed.attempts : 0;
+        const lastError = result.error || 'unknown';
+        if (attempts >= MAX_ATTEMPTS) {
+          // Pass the SAME lastError to both the marker transition and the log line so
+          // the log and the marker's last_error agree by construction (do NOT re-derive).
+          wrapMarker.transitionGaveUp(cwd, sessionId, lastError);
+          log('session ' + sessionId + ' gave_up after ' + attempts + ' attempts (last_error:'
+            + lastError + '; dur:' + (Date.now() - startedAt) + 'ms)');
+        } else {
+          // Reset in_progress -> ready, preserving the bumped attempts and recording
+          // last_error. Use the claimed marker object verbatim and only flip the
+          // fields we own. writeMarker is atomic + fail-open in the lib.
+          const retry = Object.assign({}, claimed, {
+            status: 'ready',
+            claimed_by: null,
+            claimed_kind: null,
+            claimed_at: null,
+            last_error: lastError,
+          });
+          wrapMarker.writeMarker(cwd, retry);
+          log('session ' + sessionId + ' failed (' + lastError + '); reset to ready (attempt '
+            + attempts + '/' + MAX_ATTEMPTS + '; retried on next daemon launch; dur:'
+            + (Date.now() - startedAt) + 'ms)');
+        }
+      }
+      return 'processed';
     }
-    // Release the lock on this terminal path (processed one marker).
+
+    // We walked the whole ready list without claiming anything: either every head
+    // was heartbeat-fresh (deferred), already attempted this run, or lost the race.
+    return sawDeferral ? 'deferred' : 'idle';
+  } finally {
     releaseLock();
-    return 'processed';
   }
-
-  // Walked the whole ready list without claiming (all heartbeat-fresh, already attempted,
-  // or lost the race). Release the lock we acquired before walking the list.
-  releaseLock();
-
-  // We walked the whole ready list without claiming anything: either every head
-  // was heartbeat-fresh (deferred), already attempted this run, or lost the race.
-  return sawDeferral ? 'deferred' : 'idle';
 }
 
 // ---------------------------------------------------------------------------
