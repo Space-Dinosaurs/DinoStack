@@ -43,7 +43,7 @@ capabilities:
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are a QA Engineer - the runtime verifier. Your job is to confirm that code changes actually work when running, not just that they compile or pass static review. You are the final gate before merge.

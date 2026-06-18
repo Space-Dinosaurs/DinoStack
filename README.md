@@ -96,9 +96,7 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The `--mode=` flag works for `.cursor/install.sh`, `.codex/install.sh`, `.gemini/install.sh`, `.opencode/install.sh`, `.pi/install.sh`, `.omp/install.sh`, and `.hermes/install.sh` - the config file is shared across adapters.
-
-The following flags are currently supported by `.claude/install.sh` only:
+The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gemini`, `.opencode`, `.pi`, `.omp`, `.kimi`, and `.hermes`) - the config file is shared across adapters:
 
 ```
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
@@ -135,6 +133,12 @@ The deny list merges with any existing deny rules. See [.claude/README.md](.clau
 ## Updating
 
 **Run `./update.sh`:** interactive updater that pulls the latest `main` branch and refreshes selected adapters. Uses a native Node.js TUI—arrow keys to navigate, space to toggle adapters, enter to confirm. The `.claude` adapter is always-on (locked, non-toggleable); the TUI is for selecting ADDITIONAL adapters to refresh. Your selections are saved to `~/.agentic/agentic-engineering-config.json` for future runs. Warnings are shown (but non-blocking) if you're not on `main` or have a dirty working tree. Failed adapter installs are reported at the end without aborting the others.
+
+**Run `./install-all.sh`:** non-interactive counterpart to the `./update.sh` TUI. It discovers every adapter (`.claude` first) and runs each adapter's `install.sh` in one shot—no terminal/TTY required, so it works in scripts and CI. It does not pull from git; run `git pull` first if you want the latest `main`. Activation flags are forwarded verbatim to each adapter, and installs continue on error: any failures are listed in a final summary and the script exits non-zero if at least one adapter failed.
+
+```
+./install-all.sh --mode=opt-out --profile=default --identity=<handle>
+```
 
 **Or update manually:**
 

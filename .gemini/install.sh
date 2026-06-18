@@ -12,6 +12,11 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEMINI_DIR="$REPO_DIR/.gemini"
 
+# shellcheck source=scripts/lib/identity.sh
+[[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
+  echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
+}
+
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters - see .claude/install.sh)
 # Persists to ~/.claude/agentic-engineering.json. Read by the skill preflight.
@@ -19,12 +24,20 @@ GEMINI_DIR="$REPO_DIR/.gemini"
 
 AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
+AE_IDENTITY_FLAG=""
+AE_NO_IDENTITY=false
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out) AE_MODE_FLAG="${arg#--mode=}" ;;
     --mode=*) echo "  ! ignoring unknown --mode value: ${arg#--mode=} (expected opt-in or opt-out)" ;;
     --profile=relaxed|--profile=default|--profile=strict) AE_PROFILE_FLAG="${arg#--profile=}" ;;
     --profile=*) echo "  ! ignoring unknown --profile value: ${arg#--profile=} (expected relaxed, default, or strict)" ;;
+    --identity=*)
+      AE_IDENTITY_FLAG="${arg#--identity=}"
+      ;;
+    --no-identity)
+      AE_NO_IDENTITY=true
+      ;;
   esac
 done
 
@@ -478,6 +491,16 @@ ae_install_bins() {
 
 echo "Linking bin/ scripts to PATH..."
 ae_install_bins
+
+# ---------------------------------------------------------------------------
+# Developer identity
+# ---------------------------------------------------------------------------
+if declare -f _ae_setup_identity >/dev/null; then
+  echo ""
+  echo "Developer identity..."
+  _ae_setup_identity
+  echo "  Run 'agentic-identity show' to confirm your identity."
+fi
 
 # ---------------------------------------------------------------------------
 # Summary
