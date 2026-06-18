@@ -136,6 +136,7 @@ const DISPLAY_NAMES = {
   codex:    'Codex',
   cursor:   'Cursor',
   gemini:   'Gemini',
+  openclaw: 'OpenClaw',
   opencode: 'OpenCode',
   kimi:     'Kimi',
   omp:      'Pi',
