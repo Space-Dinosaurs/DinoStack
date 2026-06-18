@@ -137,7 +137,6 @@ Q3 - Diagnose failures with a debugger pass?
 
   Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
 
-
 Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
 
   > On Pi, the workflow can run each role (architect, engineer, reviewer, ...) on a
