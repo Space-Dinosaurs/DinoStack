@@ -71,11 +71,20 @@ Run this check once at the top of the first skill invocation in a session (and a
    c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/migrate-project --include-destructive` only).
    d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/migrate-project --include-destructive`.
 
-7. **When no-opping, print one line and stop:**
-   `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
-   Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
+6.5. **Role-models bootstrap (Pi/oh-my-pi only).** Runs only when Step 4 resolved to active AND the harness is Pi or oh-my-pi (the conductor determines this from its own runtime identity, the same way it does for the role-models layer; if unsure, treat as not-Pi and skip this step). Silent-fail: any error swallowed; methodology proceeds.
 
-**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none, profile=default, preset=null" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
+   a. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists OR `~/.agentic/.role-models-bootstrap` exists, no-op (the user has already configured or explicitly skipped).
+   b. If `NINEROUTER_URL` is unset, no-op (no probe URL means we cannot suggest models; the user can run `bin/agentic-configure` later when they have one).
+   c. Otherwise: invoke `bin/agentic-configure --non-interactive` with a 30-second timeout. Failure is swallowed -- the bootstrap is best-effort and must never block the activation. On success or no-op, create-only-write the sentinel at `~/.agentic/.role-models-bootstrap` (same race-safe O_EXCL / link contract as the activation sentinel above).
+
+   **Sentinel body (exactly three lines, plain text):**
+   ```
+   # agentic-engineering: role-models bootstrap ran for the first time on this machine.
+   # Deleting this file re-arms the bootstrap for the next session only.
+   # Re-run manually with: bin/agentic-configure --force
+   ```
+
+7. **When no-opping, print one line and stop:**
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -570,13 +579,15 @@ Spawning security-auditor.
 | 2 | `"sonnet"` | Standard work - engineer, investigator, skeptic at normal depth |
 | 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
 
-**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
+**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism. On Pi/omp with `role-models.yml` present and a reviewer strategy that depends on author identity (`distinct-from-author`), the conductor records, in-context, the model string it used for each engineer/architect spawn, and passes that author-model into the subsequent skeptic/security-auditor spawn so the reviewer-diversity strategy can resolve. This is in-context state only - no new state file.
 
 **When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
 
 **When to declare Tier 3:** task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Reserve Tier 3 for these cases and include a justification parenthetical.
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
+
+**Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. The `bin/agentic-models` binary probes the harness (`NINEROUTER_URL /v1/models`) and ranks the discovered models per role; the `hooks/role-models-bootstrap.py` UserPromptSubmit hook runs `bin/agentic-configure --non-interactive` on the first prompt when no file exists, so users on Pi/omp get a harness-aware default without typing strings from memory. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the probe protocol and the per-role ranking heuristics.
 
 ### Spawn presets (per-spawn capability bundles)
 
@@ -701,6 +712,16 @@ Long-running `/implement-ticket` loops can survive rate limits and session exits
 ## Task-state file
 
 When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+
+**Field: `author_model`** (string, nullable). The model id the implementing
+engineer ran under for this task, or `null` when unknown (single-unit plans,
+pre-P249 historical entries, or conductor-directed spawns where the model was
+not recorded). Consumed by reviewer spawns (Skeptic, security-auditor) to pick
+a different model when role-model routing is active -- reviewer-diversity
+prose lives in `content/agents/skeptic.md` and `content/agents/security-auditor.md`.
+The conductor records `author_model` at engineer spawn time (Phase 5) and
+reviewer spawns read it before selecting their own model; the conductor remains
+the sole writer of `.agentic/tasks.jsonl`.
 
 ## Events log
 
