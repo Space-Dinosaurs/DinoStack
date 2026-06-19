@@ -1195,7 +1195,6 @@
             <li><strong>Tier 3</strong> - max capability (Opus). Declare explicitly for security adversarial review, novel architecture design, full blast-radius analysis across an unknown codebase</li>
             <li><strong>Declaration is documentation; the model param is enforcement</strong> - writing <code>Tier: 3</code> in the status block does not self-execute. The conductor must also pass <code>model: "opus"</code> in the <code>Agent</code> tool call. Declaration without the param produces Tier 2 behavior</li>
             <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
-            <li><strong>Pi/oh-my-pi can resolve roles from <code>~/.agentic/role-models.yml</code></strong> - opt-in per-role model strings plus antagonist reviewer diversity for <code>skeptic</code> and <code>security-auditor</code>; if absent, Pi uses session defaults</li>
           </ul>
         </div>
       </div>
@@ -2417,7 +2416,7 @@
         <tr><td><strong>Hooks</strong></td><td><code>~/.kimi/config.toml</code> <code>[[hooks]]</code> blocks - fully manual; the installer does not write this</td></tr>
         <tr><td><strong>Stop hook / context save</strong></td><td>Manual - script path must be set by the user in the hooks config</td></tr>
         <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
-        <tr><td><strong>Tier resolution</strong></td><td>Inherits the built-in sub-agent type; optional <code>~/.agentic/role-models.yml</code> can map roles and antagonist reviewers to concrete model strings</td></tr>
+        <tr><td><strong>Tier resolution</strong></td><td>Inherits the built-in sub-agent type - no tier-map lookup</td></tr>
       </tbody>
     </table>
     <div class="note" style="margin-top: 12px; border-left-color: var(--gold);">
