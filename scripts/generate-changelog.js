@@ -77,7 +77,14 @@ try {
   process.exit(1);
 }
 
-const allPRs = JSON.parse(raw);
+let allPRs;
+try {
+  allPRs = JSON.parse(raw);
+} catch (parseErr) {
+  process.stderr.write(`Failed to parse gh output: ${parseErr.message}\n`);
+  process.stderr.write(`Raw output (first 500 chars): ${raw.slice(0, 500)}\n`);
+  process.exit(1);
+}
 
 // ── Filtering ────────────────────────────────────────────────────────────────
 
@@ -546,10 +553,10 @@ ${dateSections}</main>
 
 // ── Write outputs ─────────────────────────────────────────────────────────────
 
-const today = new Date().toISOString().slice(0, 10);
+const lastUpdated = sortedDates.length > 0 ? sortedDates[0] : '-';
 
 const markdownContent = buildMarkdown();
-const htmlContent = buildHTML(today);
+const htmlContent = buildHTML(lastUpdated);
 
 fs.writeFileSync(changelogMdPath, markdownContent, 'utf8');
 fs.writeFileSync(changelogHtmlPath, htmlContent, 'utf8');
