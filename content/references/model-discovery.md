@@ -47,7 +47,7 @@ agentic-models [--json] [--probe-url URL] [--probe-key KEY] \
 
 Default mode prints a human-readable summary. `--json` emits the structured payload consumed by the TUI. `--suggest <role>` prints only one role's primary recommendation (used by hooks that want a quick default without parsing JSON).
 
-**Probe protocol.** The binary issues one `GET {NINEROUTER_URL}/models` (or `--probe-url` override) with optional `Authorization: Bearer {NINEROUTER_KEY}`. It expects an OpenAI-compatible `/v1/models` response with a `data: [{id, ...}]` shape. The probe is the only network call. There is no fallback to a hardcoded catalog.
+*50:**Probe protocol.** The binary issues one `GET {NINEROUTER_URL}/v1/models` (or `--probe-url` override) with optional `Authorization: Bearer {NINEROUTER_KEY}`. It expects an OpenAI-compatible `/v1/models` response with a `data: [{id, ...}]` shape. The probe is the only network call. There is no fallback to a hardcoded catalog.
 
 **Exit codes.** 0 on success, 2 on probe failure, 3 on invalid arguments. The setup wizard treats 2 as "user must type models by hand" and offers to retry with a different `--probe-url`.
 
@@ -80,7 +80,7 @@ The conductor forwards `model`, `effort`, and `reasoning` to the spawn call as s
 Running `bin/agentic-models --probe-url $NINEROUTER_URL` against a typical 9router setup:
 
 ```
-Probe URL: https://9router.example/v1
+Probe URL: https://9router.example
 Models discovered: 61
 
 Per-role primary recommendation:
