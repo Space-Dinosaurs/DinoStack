@@ -1,0 +1,20 @@
+name: no-planning-docs
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  check-no-planning-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Guard - docs/planning must not be tracked
+        run: |
+          tracked=$(git ls-files docs/planning/)
+          if [ -n "$tracked" ]; then
+            echo "::error::docs/planning/ files are tracked in git. Briefs, Plans, and working docs must stay local (docs/planning/ is gitignored by design). Remove with: git rm --cached docs/planning/<file>"
+            echo "$tracked"
+            exit 1
+          fi
+          echo "OK: no docs/planning/ files are tracked."
