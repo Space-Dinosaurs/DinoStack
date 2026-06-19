@@ -566,9 +566,9 @@ code {
 <p>The <code>content/</code> directory is the single source of truth. Adapter files (<code>.claude/</code>, <code>.cursor/</code>, etc.) are generated outputs - never edit them directly.</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>content/
   rules/        3 rule files (agent-methodology, code-standards, conventions)
-  references/   19 reference docs (agent-team, skeptic-protocol, qa-gate,
+  references/   18 reference docs (agent-team, skeptic-protocol, qa-gate,
                     capability-preflight, events-log, planning-artifacts, ...)
-  commands/     19 command files (implement-ticket, init-project, wrap, brief, ...)
+  commands/     18 command files (implement-ticket, init-project, wrap, brief, ...)
   agents/       16 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 </code></pre>
 <p>Build scripts regenerate adapter files from <code>content/</code>. The pre-commit hook runs all 9 adapter builds automatically when <code>content/</code> files are staged. Slide <code>.md</code> sources have a separate <code>slides-sync</code> CI gate: after editing, run <code>bash scripts/build-slides.sh</code> and commit the regenerated <code>.html</code>.</p>
@@ -1143,8 +1143,8 @@ code {
 <ol>
 <li>Create <code>.&lt;toolname&gt;/</code> matching the tool's config directory convention</li>
 <li>Convert the 3 rules into the tool's native rule format (from <code>content/rules/</code>)</li>
-<li>Copy or symlink the 19 reference docs (from <code>content/references/</code>)</li>
-<li>Convert the 19 commands into the tool's command format (from <code>content/commands/</code>)</li>
+<li>Copy or symlink the 18 reference docs (from <code>content/references/</code>)</li>
+<li>Convert the 18 commands into the tool's command format (from <code>content/commands/</code>)</li>
 <li>Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)</li>
 <li>Write <code>.&lt;toolname&gt;/README.md</code> with setup instructions</li>
 <li>Update root <code>README.md</code> with the new adapter</li>
