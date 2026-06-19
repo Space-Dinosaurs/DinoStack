@@ -8,6 +8,6 @@
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
-**Worktree prune and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script for the command block.
+**Worktree prune, branch prune, and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.

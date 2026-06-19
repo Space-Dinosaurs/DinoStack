@@ -715,7 +715,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
-**Worktree prune and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script for the command block.
+**Worktree prune, branch prune, and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
@@ -1023,7 +1023,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch (see **Base branch resolution** below) and cache it as `BASE_BRANCH` for the session.
-6. Run worktree prune (see `content/sections/10-worktree-lifecycle.md`) and delete stale `worktree-agent-*` branches.
+6. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start. The branch prune clears stale local branches with safe signals: `[gone]`-upstream branches (squash-merged and remote-deleted), branches fully merged into `origin/main`, and orphaned `worktree-agent-*` branches whose worktree no longer exists.
 
 **Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
 
@@ -4220,10 +4220,10 @@ The context budget applies to **implementation work** and **multi-turn planning*
 ### worktree-lifecycle
 
 <!--
-Purpose: Full reference for worktree lifecycle command blocks extracted from
-         METHODOLOGY.md §Worktree Lifecycle. Contains the isolation worktree
-         cleanup commands, feature worktree cleanup commands, and the
-         session-start prune script.
+Purpose: Full reference for worktree and branch lifecycle command blocks
+         extracted from METHODOLOGY.md §Worktree Lifecycle. Contains the
+         isolation worktree cleanup commands, feature worktree cleanup commands,
+         the session-start prune script, and the local-branch prune block.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -4235,21 +4235,25 @@ Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
                and session-start prune rule).
 
-Downstream consumers: conductor preflight (session-start prune script);
-                      conductor cleanup flows (isolation and feature worktree
-                      removal commands); /implement-ticket lifecycle cleanup.
+Downstream consumers: conductor preflight (session-start prune script and
+                      branch prune block); conductor cleanup flows (isolation
+                      and feature worktree removal commands);
+                      /cleanup-worktrees command; /implement-ticket lifecycle
+                      cleanup.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
+               The branch prune block never force-deletes unproven work - see
+               Safe boundary note in that section.
 
 Performance: Standard.
 -->
 
 > Parent section: METHODOLOGY.md §Worktree Lifecycle. Read that section first for the two-class summary, isolation mandate, and session-start prune rule.
 
-# Worktree Lifecycle - Full Reference
+# Worktree and Branch Lifecycle - Full Reference
 
 ## Isolation worktree cleanup commands
 
@@ -4258,14 +4262,15 @@ Once the agent returns its output and the conductor has opened a PR (or confirme
 ```bash
 # Verify no uncommitted changes before removing:
 git -C <worktree-path> status --porcelain
-# If clean (no output), remove:
+# If clean (no output), remove the worktree and its branch:
 git worktree remove <worktree-path>
+git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
 # If the above fails (modified tracked files exist), inspect them first,
 # then force-remove only after confirming nothing important is uncommitted:
 # git worktree remove --force <worktree-path>
-# Do NOT delete the branch - it backs the open PR.
-# Exception: if no PR was opened (task cancelled/no PR needed), also delete the branch:
 # git branch -D <branch-name>
+# Do NOT delete the branch while a PR is open - it backs the open PR.
+# Exception: if no PR was opened (task cancelled/no PR needed), delete the branch as shown above.
 ```
 
 ## Feature worktree cleanup commands
@@ -4294,6 +4299,32 @@ git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```
+
+## Branch prune (stale local branches)
+
+Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged:
+
+```bash
+# Prune stale LOCAL branches. Safe signals only; never force-delete unproven work.
+git fetch origin --prune                       # drop stale remote-tracking refs
+
+# 1. Branches whose upstream is gone (merged + remote deleted via squash + --delete-branch):
+git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
+  | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
+
+# 2. Branches fully merged into origin/main:
+git branch --merged origin/main | grep -vE '^[*+]|(^| )main$' | xargs -r -n1 git branch -d
+
+# 3. worktree-agent-* branches whose worktree no longer exists:
+#    (a branch checked out in a live worktree is protected by git and will be skipped)
+for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
+  git branch -D "$b" 2>/dev/null || true
+done
+```
+
+**Safe boundary:** any branch that has no upstream AND is not merged into `origin/main` is left alone. Its work cannot be proven merged and force-deleting it would risk loss. Report such branches for manual review rather than deleting them automatically.
+
+**Why `[gone]` is the reliable signal:** after a history rewrite (such as the 2026-06-14 pre-OSS filter-repo purge) squash-merged pre-rewrite branches are not ancestors of the rewritten `main`, so ancestry checks alone miss them. The `[gone]` upstream marker - set when `git fetch --prune` drops the deleted remote ref - is the reliable "was merged and remote-cleaned" signal, which is why step 1 keys on `[gone]` rather than ancestry alone. Deletions performed by this block are recoverable via `git reflog` for the duration of the reflog retention window (default 90 days).
 
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
@@ -9367,7 +9398,7 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Clean up stale git worktrees and local branches in the current repository.
+Clean up stale git worktrees and local branches in the current repository. Covers both worktree removal and local branch prune - see `content/references/worktree-lifecycle.md` §Branch prune for the canonical branch-prune command block.
 
 Use proactively after finishing a task, when a PR is merged, when worktrees are accumulating, or any time you want to confirm the repo is in a clean state. Also invoke when the user says "prune worktrees", "clean up branches", "tidy the repo", or "remove stale worktrees". Works in any git repo.
 
@@ -9450,15 +9481,28 @@ git branch -D <branch-name>
 
 ---
 
-## Step 5: Prune stale isolation branches
+## Step 5: Prune stale local branches
 
-Remove any `worktree-agent-*` local branches that are not checked out in any active worktree (orphaned from already-deleted worktrees):
+Run the full branch prune from `content/references/worktree-lifecycle.md` §Branch prune. It covers three classes:
+
+1. Branches whose remote upstream is gone (squash-merged and remote-deleted via `--delete-branch`) - keyed on the `[gone]` upstream marker.
+2. Branches fully merged into `origin/main`.
+3. Orphaned `worktree-agent-*` branches not checked out in any active worktree.
 
 ```bash
-git branch | grep 'worktree-agent-' | sed 's/^[+* ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
+git fetch origin --prune
+
+git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
+  | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
+
+git branch --merged origin/main | grep -vE '^[*+]|(^| )main$' | xargs -r -n1 git branch -d
+
+for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
+  git branch -D "$b" 2>/dev/null || true
 done
 ```
+
+Branches with no upstream and not merged into `origin/main` are left alone - their work cannot be proven merged. Report them to the user for manual review.
 
 ---
 

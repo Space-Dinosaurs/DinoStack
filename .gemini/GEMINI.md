@@ -695,7 +695,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
-**Worktree prune and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script for the command block.
+**Worktree prune, branch prune, and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
@@ -997,7 +997,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch (see **Base branch resolution** below) and cache it as `BASE_BRANCH` for the session.
-6. Run worktree prune (see `content/sections/10-worktree-lifecycle.md`) and delete stale `worktree-agent-*` branches.
+6. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start. The branch prune clears stale local branches with safe signals: `[gone]`-upstream branches (squash-merged and remote-deleted), branches fully merged into `origin/main`, and orphaned `worktree-agent-*` branches whose worktree no longer exists.
 
 **Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
 
