@@ -8,7 +8,7 @@
     ],
     "stop": [
       {
-        "command": "node hooks/stop-context.js"
+        "command": "node hooks/stop.d/010-stop-context.js"
       }
     ]
   }

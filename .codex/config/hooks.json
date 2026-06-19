@@ -14,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(dirname \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")\")/hooks/skill-auto-load-check.sh\"",
+            "command": "bash \"$(dirname \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")\")/hooks/userpromptsubmit.d/020-skill-auto-load-check.sh\"",
             "statusMessage": "Checking skill auto-load"
           }
         ]

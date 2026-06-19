@@ -372,7 +372,7 @@ else:
     print(f"  + Added BeforeAgent risk-reminder hook: {RISK_CMD}")
 
 # ---- BeforeAgent hook (skill auto-load check) --------------------------------
-SKILL_CMD = f'bash "{repo_dir}/hooks/skill-auto-load-check.sh"'
+SKILL_CMD = f'bash "{repo_dir}/hooks/userpromptsubmit.d/020-skill-auto-load-check.sh"'
 
 already_has_skill = any(
     entry.get("name") == "skill-auto-load-check" or
