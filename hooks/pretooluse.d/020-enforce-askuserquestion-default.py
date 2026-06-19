@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# dino-matcher: AskUserQuestion
 """
 Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation AskUserQuestion
          precondition by denying any single-select AskUserQuestion call that

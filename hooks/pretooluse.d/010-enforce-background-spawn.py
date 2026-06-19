@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# dino-matcher: Task
 """
 Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation background-by-default
          rule by denying any Task (subagent spawn) tool call that lacks
