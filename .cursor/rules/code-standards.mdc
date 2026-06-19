@@ -23,8 +23,6 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 - List/find files: `Glob` tool when available; otherwise Bash `find` (or `rg --files`).
 - Search content: `Grep` tool when available; otherwise Bash `rg` (preferred) or `grep`.
 
-**Compatibility note (#52004):** current Claude Code native and VS Code builds have removed the `Glob` and `Grep` tools from the tool palette (regression since v2.1.117, still absent as of v2.1.179). When `Glob` or `Grep` is unavailable, using Bash `rg`/`grep`/`find` for listing and search is the correct, sanctioned path - it is NOT a Tool Discipline violation. This preference is written to be forward-compatible: if and when Anthropic restores the tools, `Glob`/`Grep` automatically become preferred again with no further edits.
-
 Reserve `Bash` for: builds, installs, git operations, network calls, process management, listing/searching when `Glob`/`Grep` are unavailable, and anything no dedicated tool covers.
 
 `sg` (AST-grep) for structural symbol-level searches is always run via Bash - no dedicated harness tool wraps it. This is independent of the `Glob`/`Grep` availability question above: Bash-based search is sanctioned generally (via `rg`/`grep`/`find`), and `sg` is the specific tool for structural AST queries. Check availability with `which sg 2>/dev/null` before use.

@@ -22,8 +22,8 @@ files on every session and the reference docs on the triggers described in agent
   worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read always
-  primary; prefer Glob/Grep when available, Bash `rg`/`grep`/`find` as the sanctioned fallback per
-  #52004), code quality gates, package management conventions, and browser verification with
+  primary; prefer Glob/Grep when available, Bash `rg`/`grep`/`find` as the sanctioned fallback
+  otherwise), code quality gates, package management conventions, and browser verification with
   agent-browser.
 
 - **rules/conventions.md** - writing style, project structure, session context and memory handling,

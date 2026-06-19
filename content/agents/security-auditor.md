@@ -49,7 +49,7 @@ Your spawn prompt will contain:
    - **Data handling:** sensitive data in logs or error messages, insecure storage (plaintext secrets, unencrypted PII), missing encryption in transit
    - **Dependencies:** known CVEs in direct dependencies - check package.json, requirements.txt, go.mod, Gemfile, or equivalent for version numbers and flag anything obviously outdated or known-vulnerable
 
-4. For each check, use Grep and Bash actively (Grep when available, otherwise Bash `rg`/`grep` per #52004). Search for patterns:
+4. For each check, use Grep and Bash actively (Grep when available, otherwise Bash `rg`/`grep`). Search for patterns:
    - Raw SQL string concatenation or interpolation
    - `eval()`, `exec()`, `os.system()`, `subprocess` with shell=True, `child_process.exec`
    - Unvalidated user input passed to filesystem, network, or shell operations

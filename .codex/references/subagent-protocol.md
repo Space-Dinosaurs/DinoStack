@@ -26,7 +26,7 @@ Background tasks free the main agent immediately. The main agent gives the user 
 
 **Independent tasks spawn simultaneously in a single message, not sequentially.**
 
-When decomposing a request into multiple subtasks, if tasks A, B, and C are independent — meaning B does not depend on A's output and C does not depend on B's output — spawn all three in the same message as separate `Agent` tool calls. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
+When decomposing a request into multiple subtasks, if tasks A, B, and C are independent - meaning B does not depend on A's output and C does not depend on B's output - spawn all three in the same message as separate `Agent` tool calls. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
@@ -350,7 +350,7 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 ## 8. Anti-Patterns
 
-**Foreground blocking** — The most critical anti-pattern. Spawning delegated work on the foreground/synchronous path when it should run in the background. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
+**Foreground blocking** - The most critical anti-pattern. Spawning delegated work on the foreground/synchronous path when it should run in the background. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
 
 **Sequential when parallel is possible** — Spawning subagent B after waiting for subagent A when B does not depend on A's output. Multiplies elapsed time unnecessarily.
 

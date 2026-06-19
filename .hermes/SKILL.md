@@ -797,8 +797,6 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 - List/find files: `Glob` tool when available; otherwise Bash `find` (or `rg --files`).
 - Search content: `Grep` tool when available; otherwise Bash `rg` (preferred) or `grep`.
 
-**Compatibility note (#52004):** current Claude Code native and VS Code builds have removed the `Glob` and `Grep` tools from the tool palette (regression since v2.1.117, still absent as of v2.1.179). When `Glob` or `Grep` is unavailable, using Bash `rg`/`grep`/`find` for listing and search is the correct, sanctioned path - it is NOT a Tool Discipline violation. This preference is written to be forward-compatible: if and when Anthropic restores the tools, `Glob`/`Grep` automatically become preferred again with no further edits.
-
 Reserve `Bash` for: builds, installs, git operations, network calls, process management, listing/searching when `Glob`/`Grep` are unavailable, and anything no dedicated tool covers.
 
 `sg` (AST-grep) for structural symbol-level searches is always run via Bash - no dedicated harness tool wraps it. This is independent of the `Glob`/`Grep` availability question above: Bash-based search is sanctioned generally (via `rg`/`grep`/`find`), and `sg` is the specific tool for structural AST queries. Check availability with `which sg 2>/dev/null` before use.
@@ -3771,7 +3769,7 @@ Background tasks free the main agent immediately. The main agent gives the user 
 
 **Independent tasks spawn simultaneously in a single message, not sequentially.**
 
-When decomposing a request into multiple subtasks, if tasks A, B, and C are independent — meaning B does not depend on A's output and C does not depend on B's output — spawn all three in the same message as separate `Agent` tool calls. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
+When decomposing a request into multiple subtasks, if tasks A, B, and C are independent - meaning B does not depend on A's output and C does not depend on B's output - spawn all three in the same message as separate `Agent` tool calls. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
@@ -4095,7 +4093,7 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 ## 8. Anti-Patterns
 
-**Foreground blocking** — The most critical anti-pattern. Spawning delegated work on the foreground/synchronous path when it should run in the background. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
+**Foreground blocking** - The most critical anti-pattern. Spawning delegated work on the foreground/synchronous path when it should run in the background. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
 
 **Sequential when parallel is possible** — Spawning subagent B after waiting for subagent A when B does not depend on A's output. Multiplies elapsed time unnecessarily.
 
@@ -4909,7 +4907,7 @@ Your spawn prompt will contain:
 ## Exploration process
 
 1. Read the task description carefully. List any ambiguities or unstated assumptions before exploring.
-2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively when available; when they are absent (current Claude Code builds, #52004), use Bash `rg`/`grep`/`find` for the same purpose - that is the sanctioned path, not a violation.
+2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively when available; otherwise use Bash `rg`/`grep`/`find` for the same purpose.
 3. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
 4. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
 5. Write the technical plan using the output format below.
@@ -4950,7 +4948,7 @@ Required columns (non-visual variant - API surface, behavioral contract, or type
 | `consumer_file:line` | `passes_relevant_arg?` | `uses_compensating_pattern?` | `current_behavior` | `new_behavior` |
 |---|---|---|---|---|
 
-Use Grep/Glob (or, when those tools are unavailable per #52004, Bash `rg`/`grep`) to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
+Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
 
 **Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
@@ -5156,7 +5154,7 @@ Your spawn prompt will contain:
 
 ### Phase 1: Root Cause Investigation
 
-Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep (or Bash `rg`/`grep` when Grep is unavailable per #52004) if `sg` is not installed.
+Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep (or Bash `rg`/`grep` when Grep is unavailable) if `sg` is not installed.
 
 ### Phase 2: Look up library docs
 
@@ -5700,7 +5698,7 @@ Your spawn prompt will contain:
 
 1. **Parse the question.** What specifically needs to be understood? What decision will the conductor make from your output? Knowing the downstream use shapes what depth and breadth you need.
 
-2. **Map the terrain.** Use Glob and Grep to orient quickly when available (when absent per #52004, use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable per #52004) as normal.
+2. **Map the terrain.** Use Glob and Grep to orient quickly when available (otherwise use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable) as normal.
 
 3. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
 
@@ -7854,7 +7852,7 @@ Your spawn prompt will contain:
    - **Data handling:** sensitive data in logs or error messages, insecure storage (plaintext secrets, unencrypted PII), missing encryption in transit
    - **Dependencies:** known CVEs in direct dependencies - check package.json, requirements.txt, go.mod, Gemfile, or equivalent for version numbers and flag anything obviously outdated or known-vulnerable
 
-4. For each check, use Grep and Bash actively (Grep when available, otherwise Bash `rg`/`grep` per #52004). Search for patterns:
+4. For each check, use Grep and Bash actively (Grep when available, otherwise Bash `rg`/`grep`). Search for patterns:
    - Raw SQL string concatenation or interpolation
    - `eval()`, `exec()`, `os.system()`, `subprocess` with shell=True, `child_process.exec`
    - Unvalidated user input passed to filesystem, network, or shell operations
@@ -9318,7 +9316,7 @@ Runs after intent capture, before the gray-area menu.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
-**`docs/planning/`:** Glob `*.md` at top level only (or, when Glob is unavailable per #52004, Bash `find docs/planning -maxdepth 1 -name '*.md'`) (NOT subdirectories). Use filenames
+**`docs/planning/`:** Glob `*.md` at top level only (or Bash `find docs/planning -maxdepth 1 -name '*.md'` when Glob is unavailable), NOT subdirectories. Use filenames
 only (directory listing). Match by slug-name keyword similarity (substring match).
 Read AT MOST the first 20 lines of the top 3 closest-matching files.
 If no matches, skip reads entirely.
@@ -10873,7 +10871,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
