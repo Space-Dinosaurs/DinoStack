@@ -35,7 +35,13 @@
  * Upstream deps: Node built-ins only (fs, path, os, child_process) plus the
  *                local CommonJS module hooks/lib/wrap-marker.js (the deferred-/wrap
  *                marker single source of truth - lock gate, per-session staging,
- *                heartbeat). No npm dependencies. Reads from stdin (fd 0).
+ *                heartbeat; loaded via a lazy try/catch IIFE at module scope -
+ *                if the lib is absent a fail-open shim is substituted so the
+ *                script degrades gracefully rather than crashing at load time).
+ *                Relocated to hooks/stop.d/010-stop-context.js; require path is
+ *                '../lib/wrap-marker.js' (one dir deeper than the former
+ *                hooks/stop-context.js location). No npm dependencies. Reads
+ *                from stdin (fd 0).
  *                Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
  *                [cwd]/.agentic/loop-state.json,
@@ -65,7 +71,15 @@
  *                        globbed by agentic-cost (operator or team) - it is consumed
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
- * Failure modes: All failures are silent (process.exit(0)). Eleven independent
+ * Failure modes: Lib-absent degrade: if hooks/lib/wrap-marker.js cannot be
+ *                required at module load (e.g. missing lib in a stripped install),
+ *                a fail-open shim is substituted (wrapLockHeld -> false,
+ *                stopDeferredActivityPath -> path.join(cwd, '.agentic', 'wrap',
+ *                'deferred-activity.jsonl'), stagePending -> false,
+ *                touchHeartbeat -> false). The script continues to run; wrap-marker
+ *                dependent paths (lock gate, spillover, staging, heartbeat) silently
+ *                degrade to no-ops.
+ *                All other failures are silent (process.exit(0)). Eleven independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -171,7 +185,18 @@ const { execSync } = require('child_process');
 // (wrapLockHeld, readLastWrap, liveMarkerExists, stageWrapPending) are now
 // delegated to this lib so stop-context.js, the SessionEnd hook, and the daemon
 // share one atomic, fail-open implementation.
-const wrapMarker = require('./lib/wrap-marker.js');
+const wrapMarker = (() => {
+  try {
+    return require('../lib/wrap-marker.js');
+  } catch (_) {
+    return {
+      wrapLockHeld: () => false,
+      stopDeferredActivityPath: (cwd) => require('path').join(cwd, '.agentic', 'wrap', 'deferred-activity.jsonl'),
+      stagePending: () => false,
+      touchHeartbeat: () => false,
+    };
+  }
+})();
 
 /**
  * Read the `deferred_wrap_daemon` toggle from [cwd]/.agentic/config.json.
