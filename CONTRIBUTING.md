@@ -90,7 +90,37 @@ If you used AI assistance to author your contribution, certify in the PR descrip
 
 PRs without a signed-off commit on every commit will be blocked by the DCO check (configured by `.github/workflows/dco.yml`).
 
+## What stays local (never commit these)
+
+The `.gitignore` is the source of truth. Key entries to know:
+
+- **`docs/planning/`** - Briefs, Plans, ADR working drafts, architect-plan notes, risk registers, rollback docs, and verification-gate files. These are local by design. The `no-planning-docs` CI guard fails any PR that tracks a file under `docs/planning/` (remove with `git rm --cached docs/planning/<file>`).
+- **`/.agentic/`** - runtime state: loop/task/event state, worktrees, eval logs. This repo's `.agentic/` is root-anchored and fully gitignored - unlike consumer projects, which carve out `config.json`, `learnings.md`, etc. for committed tracking. Do not add `.agentic/` files to this repo without a deliberate gitignore carve-out.
+- **`*.local` env and settings files** - `.claude/settings.local.json`, `.env.local`, and `.env*.local` are secrets. Never commit them.
+- **AI assistant adapter dirs** - `.agents/`, `.goose/`, and generated Kimi skill dirs are local-only.
+
+## Where documentation lives (committed homes by audience)
+
+When contributing a new feature, pick the right home for each artifact:
+
+| Audience | Where it lives |
+|---|---|
+| Code reader | Module manifest header in the source file itself - see `content/rules/module-manifest.md` |
+| End user of the feature | `content/commands/<command>.md` or `content/references/<ref>.md`. Note: editing `content/**` requires rebuilding adapters in the same PR, or CI (`check-adapter-sync` / `methodology-drift`) fails. |
+| Operator / maintainer of a non-trivial feature | A committed feature README co-located with the code (e.g. `hooks/<feature>.README.md`). Include: how to enable/configure it, what state it owns, how to stop/reset it, the security model, and the rollback procedure. This is the committed home for content that would otherwise be stranded in `docs/planning/`. |
+| Durable facts and decisions | `MEMORY.md` (facts + rationale), `decisions.md` (decision log, where the project keeps one), or the relevant `AGENTS.md` (agent-facing conventions). |
+
+## Contributing a feature - documentation checklist
+
+Before opening a PR for a new feature:
+
+- [ ] Keep planning artifacts in `docs/planning/` local - do not commit them.
+- [ ] Migrate durable rationale (risk register, rollback plan, security model, operator runbook) out of local planning docs into a committed home (feature README and/or module manifests).
+- [ ] Add a module manifest to any non-trivial new source file (`content/rules/module-manifest.md` defines "non-trivial").
+- [ ] Add or update the user-facing command/reference doc if the feature is user-invokable, and rebuild adapters (the pre-commit hook does this automatically on `content/` changes; to rebuild manually, run each adapter's `build.sh` - `check-adapter-sync` CI verifies all of them).
+- [ ] Sign every commit with `git commit -s` - the DCO check is required.
+
 ## Style
 
-Match existing patterns before adding new ones. Rules are terse by design. Look at existing rule files before writing new content — if it reads longer than the files around it, trim it.
+Match existing patterns before adding new ones. Rules are terse by design. Look at existing rule files before writing new content - if it reads longer than the files around it, trim it.
 
