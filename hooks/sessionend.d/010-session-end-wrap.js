@@ -12,21 +12,26 @@
  *          without finalizing or launching, so the daemon can never re-wrap
  *          itself forever. There is NO stale-sweep here (CRITICAL-A).
  *
- * Public API: none (CLI script). Invoked by the Claude Code SessionEnd hook with
+ * Public API: none (CLI script). Invoked by the Claude Code SessionEnd hook via
+ *             the dino-dispatch.py dispatcher (hooks/sessionend.d/ leaf) with
  *             the hook JSON payload on stdin (fd 0):
  *             { session_id, transcript_path, cwd, hook_event_name:"SessionEnd",
  *               reason }. Not imported by any module.
  *
  * Upstream deps: Node built-ins only (fs, path, child_process) plus the local
  *                CommonJS module hooks/lib/wrap-marker.js (the deferred-`/wrap`
- *                marker single source of truth). Reads stdin (fd 0) and
- *                [cwd]/.agentic/config.json (deferred_wrap_daemon toggle).
- *                Spawns `node <repo>/hooks/wrap-daemon.js <cwd>` detached when
- *                the toggle is true (the daemon file is built in U3 and may not
- *                exist yet - the detached spawn fails silently until it lands).
+ *                marker single source of truth) loaded via a lazy fail-open
+ *                require (path: ../lib/wrap-marker.js, one level up from this
+ *                file's sessionend.d/ location). If the lib is absent the shim
+ *                returns safe defaults so the hook exits 0 without crashing.
+ *                Reads stdin (fd 0) and [cwd]/.agentic/config.json
+ *                (deferred_wrap_daemon toggle). Spawns
+ *                `node <repo>/hooks/wrap-daemon.js <cwd>` detached when the
+ *                toggle is true (wrap-daemon.js lives at hooks/ root, one level
+ *                up: path.join(__dirname, '..', 'wrap-daemon.js')).
  *
  * Downstream consumers: Claude Code SessionEnd hook (wired by .claude/install.sh
- *                       in U4). No code imports this file.
+ *                       via dino-dispatch.py). No code imports this file.
  *
  * Failure modes: Fully fail-open. The entire body is wrapped in try/catch and the
  *                process ALWAYS exits 0 - a hook error must never block or delay
@@ -40,6 +45,11 @@
  *                `/wrap`, never auto-wrapped - the deliberate CRITICAL-A trade).
  *                The daemon launch is best-effort detached + unref'd; if the
  *                daemon file is absent or the spawn errors, it is swallowed.
+ *                If hooks/lib/wrap-marker.js cannot be loaded, the lazy-require
+ *                shim provides safe defaults: daemonGuardActive returns false
+ *                (fall-through to normal flow, matching real lib when
+ *                AGENTIC_WRAP_DAEMON is unset), finalizeReady and removeHeartbeat
+ *                are no-ops - the hook exits 0 without crashing.
  *
  * Performance: standard. A few synchronous fs reads (marker + config) and one
  *              detached child spawn that the parent never waits on; the hook
@@ -53,7 +63,17 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const wrapMarker = require('./lib/wrap-marker.js');
+const wrapMarker = (() => {
+  try {
+    return require('../lib/wrap-marker.js');
+  } catch (_) {
+    return {
+      daemonGuardActive: () => false,
+      finalizeReady: () => false,
+      removeHeartbeat: () => false,
+    };
+  }
+})();
 
 // Terminal SessionEnd reasons that warrant finalizing a pending marker to
 // `ready`. `resume` is deliberately EXCLUDED: a resumed session may continue, so
@@ -88,20 +108,20 @@ function deferredDaemonEnabled(cwd) {
  * Launch the wrap daemon detached and fully fd-redirected so the hook never
  * blocks (the Node analogue of the version-check-core.sh
  * `nohup ... </dev/null >/dev/null 2>&1 & disown` pattern). The daemon path is
- * resolved relative to THIS hook file (sibling wrap-daemon.js). The daemon file
- * is built in U3 and may not exist yet - the spawn then errors and is swallowed
- * (fail-open). Never throws.
+ * resolved relative to THIS hook file's parent (hooks/ root, one level up from
+ * sessionend.d/). The daemon file may not exist yet - the spawn then errors and
+ * is swallowed (fail-open). Never throws.
  */
 function launchDaemonDetached(cwd) {
   try {
-    const daemonPath = path.join(__dirname, 'wrap-daemon.js');
+    const daemonPath = path.join(__dirname, '..', 'wrap-daemon.js');
     const child = spawn(process.execPath, [daemonPath, cwd], {
       detached: true,
       stdio: 'ignore',
       // The daemon must run in the main project dir (no worktree).
       cwd,
     });
-    // Swallow async spawn errors (e.g. daemon file absent until U3) - fail-open.
+    // Swallow async spawn errors (e.g. daemon file absent) - fail-open.
     child.on('error', () => {});
     child.unref();
   } catch (_) {
