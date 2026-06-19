@@ -10,15 +10,15 @@
 #          detached launch of the deferred-wrap daemon. It is the FIRST and only
 #          SessionStart registration install.sh makes; the version-check script
 #          is no longer wired directly - it is invoked from here.
-# Public API: bash hooks/session-start-wrap.sh
+# Public API: bash hooks/sessionstart.d/010-session-start-wrap.sh
 #             (reads the SessionStart JSON payload on stdin, extracts `cwd`;
 #              writes a single JSON object to stdout; always exits 0.)
-# Upstream deps: hooks/session-start-version-check.sh (version notice),
+# Upstream deps: $HOOKS_ROOT/session-start-version-check.sh (version notice),
 #                jq OR a grep/sed fallback (extract `cwd` from stdin),
-#                node + hooks/wrap-daemon.js (detached daemon launch),
+#                node + $HOOKS_ROOT/wrap-daemon.js (detached daemon launch),
 #                .agentic/config.json (`deferred_wrap_daemon` toggle),
 #                AGENTIC_WRAP_DAEMON env var (loop-guard),
-#                hooks/lib/wrap-marker.js (wrapLockProvablyStaleLegacy - migration).
+#                $HOOKS_ROOT/lib/wrap-marker.js (wrapLockProvablyStaleLegacy - migration).
 # Downstream consumers: Claude Code SessionStart hook, wired via
 #                       ~/.claude/settings.json by .claude/install.sh.
 # Failure modes: ALWAYS exits 0 (fail-open). A missing field, missing jq,
@@ -38,6 +38,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOOKS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Capture the SessionStart payload from stdin (we need `cwd`) ---
 # The version-check wrapper discards stdin; here we must read it. Never block:
@@ -75,7 +76,7 @@ fi
 # It emits a JSON object; we want only its `systemMessage` text. Re-feed the
 # original payload on stdin (it drains and ignores it). Fail-open to empty.
 version_msg=""
-VERSION_CHECK="$SCRIPT_DIR/session-start-version-check.sh"
+VERSION_CHECK="$HOOKS_ROOT/session-start-version-check.sh"
 if [[ -f "$VERSION_CHECK" ]]; then
   version_json="$(printf '%s' "$payload" | bash "$VERSION_CHECK" 2>/dev/null || true)"
   if [[ -n "$version_json" ]]; then
@@ -137,7 +138,7 @@ fi
   # Uses wrapLockProvablyStaleLegacy from the lib (exit 0 = stale = move; else KEEP).
   # Fail-open: any node error is treated as KEEP (|| true).
   if [ -e "$wd/wrap.lock" ] && [ ! -e "$wd/wrap/lock" ]; then
-    if node -e 'try{const l=require(process.argv[1]); process.exit(l.wrapLockProvablyStaleLegacy(process.argv[2], Number(process.argv[3]))?0:1)}catch(_){process.exit(1)}' "$SCRIPT_DIR/lib/wrap-marker.js" "$cwd" "$STALE_MS" 2>/dev/null; then
+    if node -e 'try{const l=require(process.argv[1]); process.exit(l.wrapLockProvablyStaleLegacy(process.argv[2], Number(process.argv[3]))?0:1)}catch(_){process.exit(1)}' "$HOOKS_ROOT/lib/wrap-marker.js" "$cwd" "$STALE_MS" 2>/dev/null; then
       mv "$wd/wrap.lock" "$wd/wrap/lock" || true
     fi
   fi
@@ -185,7 +186,7 @@ except Exception:
 }
 
 if [[ "${AGENTIC_WRAP_DAEMON:-}" != "1" ]] && daemon_enabled; then
-  DAEMON="$SCRIPT_DIR/wrap-daemon.js"
+  DAEMON="$HOOKS_ROOT/wrap-daemon.js"
   if [[ -f "$DAEMON" ]] && command -v node >/dev/null 2>&1; then
     # Detached, fully-redirected so the hook returns immediately and never
     # blocks on the daemon. The daemon owns its own singleton pid lock, so a
