@@ -87,26 +87,7 @@ git branch -D <branch-name>
 
 ## Step 5: Prune stale local branches
 
-Run the full branch prune from `content/references/worktree-lifecycle.md` §Branch prune. It covers three classes:
-
-1. Branches whose remote upstream is gone (squash-merged and remote-deleted via `--delete-branch`) - keyed on the `[gone]` upstream marker.
-2. Branches fully merged into `origin/main`.
-3. Orphaned `worktree-agent-*` branches not checked out in any active worktree.
-
-```bash
-git fetch origin --prune
-
-git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
-  | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
-
-git branch --merged origin/main | grep -vE '^[*+]|(^| )main$' | xargs -r -n1 git branch -d
-
-for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
-  git branch -D "$b" 2>/dev/null || true
-done
-```
-
-Branches with no upstream and not merged into `origin/main` are left alone - their work cannot be proven merged. Report them to the user for manual review.
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)`. It targets three classes of stale local branch with safe signals only - branches with no upstream and not merged into `origin/main` are left alone and reported to the user for manual review.
 
 ---
 

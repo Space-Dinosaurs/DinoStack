@@ -4265,12 +4265,13 @@ git -C <worktree-path> status --porcelain
 # If clean (no output), remove the worktree and its branch:
 git worktree remove <worktree-path>
 git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
+# Safe even with a PR open: the PR is backed by the branch on origin, not this local ref.
+# Only the redundant local branch is removed; the pushed commits and the PR are unaffected.
+# (If you might still push follow-up commits to the PR from this checkout, keep the branch until the PR merges.)
 # If the above fails (modified tracked files exist), inspect them first,
 # then force-remove only after confirming nothing important is uncommitted:
 # git worktree remove --force <worktree-path>
 # git branch -D <branch-name>
-# Do NOT delete the branch while a PR is open - it backs the open PR.
-# Exception: if no PR was opened (task cancelled/no PR needed), delete the branch as shown above.
 ```
 
 ## Feature worktree cleanup commands
@@ -4313,7 +4314,7 @@ git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
   | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
 
 # 2. Branches fully merged into origin/main:
-git branch --merged origin/main | grep -vE '^[*+]|(^| )main$' | xargs -r -n1 git branch -d
+git branch --merged origin/main | grep -vE '^[*+]|(^| )(main|master)$' | xargs -r -n1 git branch -d
 
 # 3. worktree-agent-* branches whose worktree no longer exists:
 #    (a branch checked out in a live worktree is protected by git and will be skipped)
@@ -9483,26 +9484,7 @@ git branch -D <branch-name>
 
 ## Step 5: Prune stale local branches
 
-Run the full branch prune from `content/references/worktree-lifecycle.md` §Branch prune. It covers three classes:
-
-1. Branches whose remote upstream is gone (squash-merged and remote-deleted via `--delete-branch`) - keyed on the `[gone]` upstream marker.
-2. Branches fully merged into `origin/main`.
-3. Orphaned `worktree-agent-*` branches not checked out in any active worktree.
-
-```bash
-git fetch origin --prune
-
-git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
-  | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
-
-git branch --merged origin/main | grep -vE '^[*+]|(^| )main$' | xargs -r -n1 git branch -d
-
-for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
-  git branch -D "$b" 2>/dev/null || true
-done
-```
-
-Branches with no upstream and not merged into `origin/main` are left alone - their work cannot be proven merged. Report them to the user for manual review.
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)`. It targets three classes of stale local branch with safe signals only - branches with no upstream and not merged into `origin/main` are left alone and reported to the user for manual review.
 
 ---
 
