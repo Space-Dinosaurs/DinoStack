@@ -1,0 +1,31 @@
+name: changelog-publish
+on:
+  schedule:
+    - cron: '0 0 * * *'   # daily 00:00 UTC
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Generate changelog
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/generate-changelog.js
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md docs/changelog.html
+          if git diff --cached --quiet; then
+            echo "No changelog changes - nothing to commit."
+            exit 0
+          fi
+          git commit -s -m "chore(changelog): regenerate from merged PRs"
+          git push origin HEAD:main

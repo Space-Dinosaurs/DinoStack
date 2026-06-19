@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="DinoStack" src="docs/images/dinostack-logo-banner.svg" width="360">
+</p>
+
 # DinoStack
 
 A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
@@ -103,20 +107,6 @@ bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub h
 bash .claude/install.sh --no-identity          # skip the developer-identity prompt
 ```
 
-**Per-project marker:** add a single line to the project's root `AGENTS.md`:
-
-```
-agentic-engineering: opt-in
-```
-
-or:
-
-```
-agentic-engineering: opt-out
-```
-
-Matching is case-insensitive. A leading `- ` (markdown list) is allowed. If both markers appear, the one appearing first wins and a warning is printed.
-
 **Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.
 
 ## Recommended permissions
@@ -130,45 +120,31 @@ Agents need uninterrupted access to Bash, Edit, and Write - constant permission 
 
 The deny list merges with any existing deny rules. See [.claude/README.md](.claude/README.md#permissions) for details and [.cursor/README.md](.cursor/README.md), [.codex/README.md](.codex/README.md), [.gemini/README.md](.gemini/README.md) for the equivalent setup in other adapters.
 
+## Initialize a project
+
+After installation, run `/init-project` in any new or existing project to scaffold the `AGENTS.md` hierarchy, `.agentic/config.json`, and related structure.
+
+**Per-project activation marker:** add a single line to the project's root `AGENTS.md` to control whether the methodology is active in that project:
+
+```
+agentic-engineering: opt-in
+```
+
+or:
+
+```
+agentic-engineering: opt-out
+```
+
+Matching is case-insensitive. A leading `- ` (markdown list) is allowed. If both markers appear, the one appearing first wins and a warning is printed.
+
+With the global mode set to `opt-out` (the default), a project without any marker still runs the methodology. With `opt-in` mode, a project must have the `opt-in` marker or the methodology stays dormant.
+
 ## Updating
 
-**Run `./update.sh`:** interactive updater that pulls the latest `main` branch and refreshes selected adapters. Uses a native Node.js TUI—arrow keys to navigate, space to toggle adapters, enter to confirm. The `.claude` adapter is always-on (locked, non-toggleable); the TUI is for selecting ADDITIONAL adapters to refresh. Your selections are saved to `~/.agentic/agentic-engineering-config.json` for future runs. Warnings are shown (but non-blocking) if you're not on `main` or have a dirty working tree. Failed adapter installs are reported at the end without aborting the others.
+Run `./update.sh` for an interactive TUI updater (arrow keys, space to toggle adapters). For non-interactive or CI use, run `git pull` first then `./install-all.sh`.
 
-**Run `./install-all.sh`:** non-interactive counterpart to the `./update.sh` TUI. It discovers every adapter (`.claude` first) and runs each adapter's `install.sh` in one shot—no terminal/TTY required, so it works in scripts and CI. It does not pull from git; run `git pull` first if you want the latest `main`. Activation flags are forwarded verbatim to each adapter, and installs continue on error: any failures are listed in a final summary and the script exits non-zero if at least one adapter failed.
-
-```
-./install-all.sh --mode=opt-out --profile=default --identity=<handle>
-```
-
-**Or update manually:**
-
-```
-cd ~/DinoStack
-git pull
-bash .claude/install.sh    # and/or .cursor/install.sh, .opencode/install.sh
-```
-
-For a clean manual refresh:
-
-```
-bash .claude/uninstall.sh
-git pull
-bash .claude/install.sh
-```
-
-You can also ask your coding agent:
-
-```
-Pull the latest changes to DinoStack and re-run the installer
-```
-
-The agent handles the git pull and runs the installer. It's idempotent - existing symlinks and settings are preserved, new ones are added, and build artifacts are regenerated.
-
-For a clean refresh that also prunes stale symlinks for files removed upstream, ask:
-
-```
-Do a clean refresh of DinoStack - uninstall, pull, then reinstall
-```
+Full details - manual update steps, clean-refresh procedure, and agent-driven update prompts: see [docs/updating.md](docs/updating.md).
 
 ## Adapters
 
@@ -189,103 +165,6 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
-## What's included
-
-**Rules** (3 files) - the core methodology:
-- Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
-- Code standards - tool discipline, quality gates, package management, browser verification
-- Conventions - writing style, project structure, session context, git workflow
-
-**Reference docs** (7 files) - detailed protocol specs loaded on trigger:
-- Skeptic protocol - adversarial review loop, findings classification, sign-off format
-- Subagent protocol - parallel spawning, worktree isolation, task decomposition
-- Agent team - roles, composed flows, decision rules, spawn requirements
-- Design goals - system design principles and intent
-- Multi-developer coordination - parallel sessions, branch and worktree hygiene
-- Regression test obligation - when a fix requires a regression test and what counts
-- Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
-
-**Agents** (16) - named specialist roles:
-adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
-
-**Commands** (19) - workflow shortcuts:
-agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
-
-**Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
-
-**Project config / overview layer** - the committed `.agentic/config.json` holds four operator-tunable methodology toggles: `debugger_on_failure` (bool, default `false`; interposes a Debugger diagnosis step before each Phase 7 engineer fix pass), `qa_default_skip` (reserved; no-op, does not alter QA-gate behavior), `model_profile` (`default` | `budget`; `budget` routes eligible spawns to Tier 1), and `auto_merge_on_ci_green` (bool, default `false`; when `true`, `/implement-ticket` Phase 12 squash-merges the PR after CI passes and the PR is ready with no requested changes). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
-
-## Identity and Telemetry
-
-`agentic-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
-
-### Registering a handle (global)
-
-The quickest path derives your handle from your GitHub login:
-
-```bash
-agentic-identity auto      # derives handle from `gh api user`, writes it provisional
-agentic-identity confirm   # strips the provisional flag and flushes buffered sessions
-```
-
-Or set a handle manually:
-
-```bash
-agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
-```
-
-Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes the buffer and starts writing attributed logs.
-
-Run `agentic-identity show` at any time to see your current identity.
-
-### Per-project override
-
-If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
-
-```bash
-agentic-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
-agentic-identity confirm --scope project          # confirm a provisional project identity
-```
-
-The project file is covered by the existing `.agentic/*` gitignore umbrella - it is per-developer and never committed. The global identity is unchanged.
-
-### Precedence
-
-When both files exist, the most-confirmed identity wins:
-
-**project-confirmed > global-confirmed > project-provisional > global-provisional > none**
-
-A provisional project file never suppresses a working confirmed-global handle. To see which handle is active in the current repo:
-
-```bash
-agentic-identity show --scope effective
-```
-
-### agentic-cost attribution
-
-`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
-
-## Repo structure
-
-```
-DinoStack/
-  .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
-  .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
-  .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
-  .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
-  .kimi/                Kimi Code CLI adapter (AGENTS.md, skill, commands, install/uninstall)
-  .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
-  .pi/                  Pi coding agent adapter (skill, prompts, install/uninstall)
-  .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
-  .hermes/               Hermes Agent adapter (skill, METHODOLOGY.md, install/uninstall)
-  .openclaw/            OpenClaw adapter (skill tree, METHODOLOGY.md, install/uninstall)
-  hooks/                Shared hook scripts
-  docs/                 Documentation and reference HTML
-  ADAPTERS.md           Guide for creating new tool adapters
-  CONTRIBUTING.md       How to contribute via pull requests
-  README.md             This file
-```
-
 ## Documentation
 
 - `~/DinoStack/docs/index.html` - visual reference document describing the full system architecture
@@ -300,9 +179,13 @@ DinoStack/
 - `~/DinoStack/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/DinoStack/docs/slides/contributing-slides.html` - how to contribute to the repo
 
-## Safety model
+Full inventory of rules, agents, commands, and config toggles: see [docs/components.md](docs/components.md).
 
-This framework is a safety rail, not a complete boundary. The recommended permissions setup pairs `bypassPermissions` mode with an allow list for routine tools (Bash, Write, Edit) and a deny list for the destructive commands documented in the [Recommended permissions](#recommended-permissions) section above (`git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `sudo rm`, `dd if=`, `shutdown`, `reboot`). The Skeptic loop, risk classification, and worktree isolation add further layers, but none of these guarantee that an agent cannot cause harm. Treat the framework as defense in depth, not as a sandbox: review what agents do, especially on shared state and irreversible operations.
+Per-developer attribution and telemetry setup: see [docs/identity-telemetry.md](docs/identity-telemetry.md).
+
+## Safety
+
+The framework is a safety rail, not a complete boundary. The deny list and Skeptic loop reduce risk; neither is a sandbox. See [SAFETY.md](SAFETY.md) for the full safety model and the recommended deny list.
 
 ## Community
 
@@ -312,12 +195,6 @@ This framework is a safety rail, not a complete boundary. The recommended permis
 - [SUPPORT.md](SUPPORT.md) - where to ask what
 - [GOVERNANCE.md](GOVERNANCE.md) - how decisions get made
 - [ROADMAP.md](ROADMAP.md) - what's in flight
-
-## For agents working in this repo
-
-Contributions use a branch + PR workflow. Create a feature branch, make changes, and open a PR.
-
-After installation, offer the user a quick orientation: present the files listed in the **Documentation** section above, ask which ones they want to see, and `open` only those. Skipping all is a valid answer.
 
 ## Naming
 

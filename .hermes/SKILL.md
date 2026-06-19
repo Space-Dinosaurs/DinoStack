@@ -715,7 +715,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
-**Worktree prune and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script for the command block.
+**Worktree prune, branch prune, and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
@@ -1025,7 +1025,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch (see **Base branch resolution** below) and cache it as `BASE_BRANCH` for the session.
-6. Run worktree prune (see `content/sections/10-worktree-lifecycle.md`) and delete stale `worktree-agent-*` branches.
+6. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start. The branch prune clears stale local branches with safe signals: `[gone]`-upstream branches (squash-merged and remote-deleted), branches fully merged into `origin/main`, and orphaned `worktree-agent-*` branches whose worktree no longer exists.
 
 **Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
 
@@ -4222,10 +4222,10 @@ The context budget applies to **implementation work** and **multi-turn planning*
 ### worktree-lifecycle
 
 <!--
-Purpose: Full reference for worktree lifecycle command blocks extracted from
-         METHODOLOGY.md §Worktree Lifecycle. Contains the isolation worktree
-         cleanup commands, feature worktree cleanup commands, and the
-         session-start prune script.
+Purpose: Full reference for worktree and branch lifecycle command blocks
+         extracted from METHODOLOGY.md §Worktree Lifecycle. Contains the
+         isolation worktree cleanup commands, feature worktree cleanup commands,
+         the session-start prune script, and the local-branch prune block.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -4237,21 +4237,25 @@ Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
                and session-start prune rule).
 
-Downstream consumers: conductor preflight (session-start prune script);
-                      conductor cleanup flows (isolation and feature worktree
-                      removal commands); /implement-ticket lifecycle cleanup.
+Downstream consumers: conductor preflight (session-start prune script and
+                      branch prune block); conductor cleanup flows (isolation
+                      and feature worktree removal commands);
+                      /cleanup-worktrees command; /implement-ticket lifecycle
+                      cleanup.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
+               The branch prune block never force-deletes unproven work - see
+               Safe boundary note in that section.
 
 Performance: Standard.
 -->
 
 > Parent section: METHODOLOGY.md §Worktree Lifecycle. Read that section first for the two-class summary, isolation mandate, and session-start prune rule.
 
-# Worktree Lifecycle - Full Reference
+# Worktree and Branch Lifecycle - Full Reference
 
 ## Isolation worktree cleanup commands
 
@@ -4260,13 +4264,15 @@ Once the agent returns its output and the conductor has opened a PR (or confirme
 ```bash
 # Verify no uncommitted changes before removing:
 git -C <worktree-path> status --porcelain
-# If clean (no output), remove:
+# If clean (no output), remove the worktree and its branch:
 git worktree remove <worktree-path>
+git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
+# Safe even with a PR open: the PR is backed by the branch on origin, not this local ref.
+# Only the redundant local branch is removed; the pushed commits and the PR are unaffected.
+# (If you might still push follow-up commits to the PR from this checkout, keep the branch until the PR merges.)
 # If the above fails (modified tracked files exist), inspect them first,
 # then force-remove only after confirming nothing important is uncommitted:
 # git worktree remove --force <worktree-path>
-# Do NOT delete the branch - it backs the open PR.
-# Exception: if no PR was opened (task cancelled/no PR needed), also delete the branch:
 # git branch -D <branch-name>
 ```
 
@@ -4296,6 +4302,32 @@ git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```
+
+## Branch prune (stale local branches)
+
+Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged:
+
+```bash
+# Prune stale LOCAL branches. Safe signals only; never force-delete unproven work.
+git fetch origin --prune                       # drop stale remote-tracking refs
+
+# 1. Branches whose upstream is gone (merged + remote deleted via squash + --delete-branch):
+git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
+  | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
+
+# 2. Branches fully merged into origin/main:
+git branch --merged origin/main | grep -vE '^[*+]|(^| )(main|master)$' | xargs -r -n1 git branch -d
+
+# 3. worktree-agent-* branches whose worktree no longer exists:
+#    (a branch checked out in a live worktree is protected by git and will be skipped)
+for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
+  git branch -D "$b" 2>/dev/null || true
+done
+```
+
+**Safe boundary:** any branch that has no upstream AND is not merged into `origin/main` is left alone. Its work cannot be proven merged and force-deleting it would risk loss. Report such branches for manual review rather than deleting them automatically.
+
+**Why `[gone]` is the reliable signal:** after a history rewrite (such as the 2026-06-14 pre-OSS filter-repo purge) squash-merged pre-rewrite branches are not ancestors of the rewritten `main`, so ancestry checks alone miss them. The `[gone]` upstream marker - set when `git fetch --prune` drops the deleted remote ref - is the reliable "was merged and remote-cleaned" signal, which is why step 1 keys on `[gone]` rather than ancestry alone. Deletions performed by this block are recoverable via `git reflog` for the duration of the reflog retention window (default 90 days).
 
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
@@ -9369,7 +9401,7 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Clean up stale git worktrees and local branches in the current repository.
+Clean up stale git worktrees and local branches in the current repository. Covers both worktree removal and local branch prune - see `content/references/worktree-lifecycle.md` §Branch prune for the canonical branch-prune command block.
 
 Use proactively after finishing a task, when a PR is merged, when worktrees are accumulating, or any time you want to confirm the repo is in a clean state. Also invoke when the user says "prune worktrees", "clean up branches", "tidy the repo", or "remove stale worktrees". Works in any git repo.
 
@@ -9452,15 +9484,9 @@ git branch -D <branch-name>
 
 ---
 
-## Step 5: Prune stale isolation branches
+## Step 5: Prune stale local branches
 
-Remove any `worktree-agent-*` local branches that are not checked out in any active worktree (orphaned from already-deleted worktrees):
-
-```bash
-git branch | grep 'worktree-agent-' | sed 's/^[+* ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
-done
-```
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)`. It targets three classes of stale local branch with safe signals only - branches with no upstream and not merged into `origin/main` are left alone and reported to the user for manual review.
 
 ---
 
@@ -13168,7 +13194,7 @@ fi
 **Routing logic (first match wins):**
 
 1. If `AE_REPO_DIR` is non-empty AND `git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1` succeeds -> **UPDATE-FLOW** against `AE_REPO_DIR`.
-2. Else, check the conventional fallback `$HOME/agentic-engineering`: if `git -C "$HOME/agentic-engineering" rev-parse --git-dir >/dev/null 2>&1` succeeds, treat it as **UPDATE-FLOW** against `$HOME/agentic-engineering` (the config entry may be stale or missing).
+2. Else, check the conventional fallback `$HOME/DinoStack`: if `git -C "$HOME/DinoStack" rev-parse --git-dir >/dev/null 2>&1` succeeds, treat it as **UPDATE-FLOW** against `$HOME/DinoStack` (the config entry may be stale or missing).
 3. Else -> **FRESH-CLONE-FLOW**.
 
 Report the detected route to the user before proceeding: "Detected existing install at `<path>` - running update flow." or "No existing install found - running fresh install."
@@ -13194,7 +13220,7 @@ saved_adapters = config.get("adapters", {})
 
 ### 1a - Adapters
 
-Discover available adapters by scanning the resolved repo directory (UPDATE-FLOW) or `$HOME/agentic-engineering` placeholder note for FRESH-CLONE-FLOW (adapters are discovered after clone; proceed with saved adapter config as the default selection and re-confirm after clone lands).
+Discover available adapters by scanning the resolved repo directory (UPDATE-FLOW) or `$HOME/DinoStack` placeholder note for FRESH-CLONE-FLOW (adapters are discovered after clone; proceed with saved adapter config as the default selection and re-confirm after clone lands).
 
 Adapter discovery logic (mirrors `update.js` exactly - use for UPDATE-FLOW; apply same logic post-clone for FRESH-CLONE-FLOW):
 
@@ -13434,7 +13460,7 @@ If the config write fails, warn the user (non-fatal) and continue.
 Done.
 
   Flow: UPDATE | FRESH INSTALL
-  Repo: /path/to/agentic-engineering
+  Repo: /path/to/DinoStack
   Commits pulled: N  (or "already up to date" / "fresh install")
   Adapters installed: Claude, Codex
   Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)

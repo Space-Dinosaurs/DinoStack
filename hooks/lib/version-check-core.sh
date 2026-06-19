@@ -48,7 +48,7 @@ except Exception:
 " "$AE_CONFIG" 2>/dev/null || echo "")"
 fi
 if [[ -z "$ae_repo_dir" ]] || ! git -C "$ae_repo_dir" rev-parse --git-dir >/dev/null 2>&1; then
-  ae_repo_dir="$HOME/agentic-engineering"
+  ae_repo_dir="$HOME/DinoStack"
 fi
 
 # --- Maybe kick off a detached refresh (TTL-throttled) ---

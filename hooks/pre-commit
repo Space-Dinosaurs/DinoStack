@@ -15,43 +15,45 @@ fi
 if git diff --cached --name-only | grep -q "^content/"; then
   echo "[pre-commit] content/ changes detected - running builds..."
   bash "$REPO_DIR/.claude/build.sh"
-  bash "$REPO_DIR/.cursor/build.sh"
   bash "$REPO_DIR/.codex/build.sh"
+  bash "$REPO_DIR/.cursor/build.sh"
   bash "$REPO_DIR/.gemini/build.sh"
-  bash "$REPO_DIR/.kimi/build.sh"
-  bash "$REPO_DIR/.opencode/build.sh"
-  bash "$REPO_DIR/.omp/build.sh"
-  bash "$REPO_DIR/.pi/build.sh"
   bash "$REPO_DIR/.hermes/build.sh"
+  bash "$REPO_DIR/.kimi/build.sh"
+  bash "$REPO_DIR/.omp/build.sh"
+  bash "$REPO_DIR/.openclaw/build.sh"
+  bash "$REPO_DIR/.opencode/build.sh"
+  bash "$REPO_DIR/.pi/build.sh"
 
   # Stage generated files
   git add \
     "$REPO_DIR/.claude/commands/"*.md \
     "$REPO_DIR/.claude/skills/agentic-engineering/METHODOLOGY.md" \
-    "$REPO_DIR/.cursor/rules/"*.mdc \
-    "$REPO_DIR/.cursor/rules/references/"*.md \
-    "$REPO_DIR/.cursor/commands/"*.md \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
     "$REPO_DIR/.codex/references/"*.md \
     "$REPO_DIR/.codex/commands/"*.md \
+    "$REPO_DIR/.cursor/rules/"*.mdc \
+    "$REPO_DIR/.cursor/rules/references/"*.md \
+    "$REPO_DIR/.cursor/commands/"*.md \
     "$REPO_DIR/.gemini/GEMINI.md" \
     "$REPO_DIR/.gemini/references/"*.md \
     "$REPO_DIR/.gemini/commands/"*.toml \
     "$REPO_DIR/.gemini/agents/"*.md \
+    "$REPO_DIR/.hermes/SKILL.md" \
     "$REPO_DIR/.kimi/AGENTS.md" \
     "$REPO_DIR/.kimi/skills/agentic-engineering/sections" \
-    "$REPO_DIR/.opencode/skills/agentic-engineering/METHODOLOGY.md" \
-    "$REPO_DIR/.opencode/agents/"*.md \
-    "$REPO_DIR/.opencode/commands/"*.md \
     "$REPO_DIR/.omp/skills/agentic-engineering/references" \
     "$REPO_DIR/.omp/skills/agentic-engineering/rules" \
     "$REPO_DIR/.omp/skills/agentic-engineering/commands" \
     "$REPO_DIR/.omp/skills/agentic-engineering/agents" \
+    "$REPO_DIR/.openclaw/skills" \
+    "$REPO_DIR/.opencode/skills/agentic-engineering/METHODOLOGY.md" \
+    "$REPO_DIR/.opencode/agents/"*.md \
+    "$REPO_DIR/.opencode/commands/"*.md \
     "$REPO_DIR/.pi/skills/agentic-engineering/METHODOLOGY.md" \
     "$REPO_DIR/.pi/skills/agentic-engineering/SKILL.md" \
-    "$REPO_DIR/.pi/prompts/"*.md \
-    "$REPO_DIR/.hermes/SKILL.md"
+    "$REPO_DIR/.pi/prompts/"*.md
 
   echo "[pre-commit] Generated files staged."
 fi
