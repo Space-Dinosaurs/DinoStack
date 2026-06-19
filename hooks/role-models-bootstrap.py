@@ -85,6 +85,11 @@ def main() -> int:
         return 0
     if _already_bootstrapped():
         return 0
+    if not os.environ.get("NINEROUTER_URL", "").strip():
+        # No probe URL -> cannot rank models. Do NOT run configure and do NOT
+        # write the sentinel, so a later session retries once the user sets
+        # NINEROUTER_URL. Mirrors activation preflight Step 6.5b.
+        return 0
     # Run configure --non-interactive. It returns 0 either when it wrote a
     # config (probe succeeded) or when it deliberately no-op'd (no probe URL);
     # both cases write the sentinel so we do not retry every session. A
@@ -104,8 +109,9 @@ def main() -> int:
         return 0
     SENTINEL.parent.mkdir(parents=True, exist_ok=True)
     SENTINEL.write_text(
-        "# agentic-engineering: role-models bootstrap ran.\n"
-        "# Delete this file to re-run the bootstrap on the next prompt.\n",
+        "# agentic-engineering: role-models bootstrap ran for the first time on this machine.\n"
+        "# Deleting this file re-arms the bootstrap for the next session only.\n"
+        "# Re-run manually with: bin/agentic-configure --force\n",
         encoding="utf-8",
     )
     return 0

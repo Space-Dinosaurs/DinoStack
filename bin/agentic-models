@@ -140,7 +140,7 @@ def _print_human(payload: dict[str, Any], probe_url: str) -> None:
     print("")
     print("Run with --json for the structured payload, or --suggest <role> for one role.")
 
-
+def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         prog="agentic-models",
         description="Probe the AI harness and rank models per agentic-engineering role.",
