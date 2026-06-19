@@ -792,14 +792,16 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 ## Tool Discipline
 
-**Never use Bash to read files, list directories, or search content.** Use the dedicated tools - they don't trigger permission prompts and give better output:
-- Read files: `Read` tool (never `cat`, `head`, `tail`, `sed`)
-- List/find files: `Glob` tool (never `ls`, `find`)
-- Search content: `Grep` tool (never `grep`, `rg`)
+**Prefer the dedicated tools for reads, listing, and search when they are available; use Bash as the sanctioned fallback when they are not.** `Read` is always present and is the primary tool for reading file contents - always prefer it over `cat`/`head`/`tail`/`sed`. For listing and searching, prefer `Glob` and `Grep` when the harness exposes them - they avoid permission prompts and give cleaner output:
+- Read files: `Read` tool (always available; never `cat`, `head`, `tail`, `sed`).
+- List/find files: `Glob` tool when available; otherwise Bash `find` (or `rg --files`).
+- Search content: `Grep` tool when available; otherwise Bash `rg` (preferred) or `grep`.
 
-Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
+**Compatibility note (#52004):** current Claude Code native and VS Code builds have removed the `Glob` and `Grep` tools from the tool palette (regression since v2.1.117, still absent as of v2.1.179). When `Glob` or `Grep` is unavailable, using Bash `rg`/`grep`/`find` for listing and search is the correct, sanctioned path - it is NOT a Tool Discipline violation. This preference is written to be forward-compatible: if and when Anthropic restores the tools, `Glob`/`Grep` automatically become preferred again with no further edits.
 
-Exception: `sg` (AST-grep) for structural symbol-level searches is run via Bash - no dedicated harness tool wraps it. Check availability with `which sg 2>/dev/null` before use.
+Reserve `Bash` for: builds, installs, git operations, network calls, process management, listing/searching when `Glob`/`Grep` are unavailable, and anything no dedicated tool covers.
+
+`sg` (AST-grep) for structural symbol-level searches is always run via Bash - no dedicated harness tool wraps it. This is independent of the `Glob`/`Grep` availability question above: Bash-based search is sanctioned generally (via `rg`/`grep`/`find`), and `sg` is the specific tool for structural AST queries. Check availability with `which sg 2>/dev/null` before use.
 
 **Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
 
@@ -821,7 +823,7 @@ Key tools and their uses:
 
 **Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
 
-**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Glob`/`Grep` tool-discipline above.
 
 ## Module Manifests
 
@@ -4875,7 +4877,7 @@ Your spawn prompt will contain:
 ## Exploration process
 
 1. Read the task description carefully. List any ambiguities or unstated assumptions before exploring.
-2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively.
+2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively when available; when they are absent (current Claude Code builds, #52004), use Bash `rg`/`grep`/`find` for the same purpose - that is the sanctioned path, not a violation.
 3. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
 4. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
 5. Write the technical plan using the output format below.
@@ -4916,7 +4918,7 @@ Required columns (non-visual variant - API surface, behavioral contract, or type
 | `consumer_file:line` | `passes_relevant_arg?` | `uses_compensating_pattern?` | `current_behavior` | `new_behavior` |
 |---|---|---|---|---|
 
-Use Grep/Glob to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
+Use Grep/Glob (or, when those tools are unavailable per #52004, Bash `rg`/`grep`) to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
 
 **Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
@@ -5122,7 +5124,7 @@ Your spawn prompt will contain:
 
 ### Phase 1: Root Cause Investigation
 
-Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep if `sg` is not installed.
+Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep (or Bash `rg`/`grep` when Grep is unavailable per #52004) if `sg` is not installed.
 
 ### Phase 2: Look up library docs
 
@@ -5666,7 +5668,7 @@ Your spawn prompt will contain:
 
 1. **Parse the question.** What specifically needs to be understood? What decision will the conductor make from your output? Knowing the downstream use shapes what depth and breadth you need.
 
-2. **Map the terrain.** Use Glob and Grep to orient quickly: find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep as normal.
+2. **Map the terrain.** Use Glob and Grep to orient quickly when available (when absent per #52004, use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable per #52004) as normal.
 
 3. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
 
@@ -5730,7 +5732,7 @@ Use this exact structure:
 ---
 name: learning-extractor
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
-tools: Read, Glob, Edit, Write
+tools: Read, Edit, Write
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
@@ -5755,7 +5757,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             learning_ids[], skipped_reason, operator_summary. All IDs in
             learning_ids[] carry the LRN- prefix.
 
-Upstream deps: None (no external libraries; only Read/Glob/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/templates/.agentic/learnings.md (canonical LRN schema).
 
 Downstream consumers: wrap-ticket at Phase 11b (reads .agentic/learnings.md
@@ -5924,7 +5926,7 @@ The only file you may write is:
 ---
 name: learnings-agent
 description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
-tools: Read, Glob, Grep, Edit, Write
+tools: Read, Edit, Write
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
@@ -5946,7 +5948,7 @@ Public API: Message-based. The conductor sends brief messages to the running
             entries and returns a JSON acknowledgment with learning_ids[] that
             may contain LRN- or KNW- prefixed IDs.
 
-Upstream deps: None (no external libraries; only Read/Glob/Grep/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/references/capture-classification.md (classification
                table; the conductor applies guardrail-first before spawning).
                content/templates/.agentic/learnings.md (canonical schema for
@@ -7820,7 +7822,7 @@ Your spawn prompt will contain:
    - **Data handling:** sensitive data in logs or error messages, insecure storage (plaintext secrets, unencrypted PII), missing encryption in transit
    - **Dependencies:** known CVEs in direct dependencies - check package.json, requirements.txt, go.mod, Gemfile, or equivalent for version numbers and flag anything obviously outdated or known-vulnerable
 
-4. For each check, use Grep and Bash actively. Search for patterns:
+4. For each check, use Grep and Bash actively (Grep when available, otherwise Bash `rg`/`grep` per #52004). Search for patterns:
    - Raw SQL string concatenation or interpolation
    - `eval()`, `exec()`, `os.system()`, `subprocess` with shell=True, `child_process.exec`
    - Unvalidated user input passed to filesystem, network, or shell operations
@@ -8007,7 +8009,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 ---
 name: wrap-ticket
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
-tools: Read, Glob, Grep, Edit, Write
+tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
@@ -8031,7 +8033,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
-              No external libraries; only Read/Glob/Grep/Edit/Write tools.
+              No external libraries; only Read/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
                       return, prints operator_summary to the user, never blocks
@@ -9284,7 +9286,7 @@ Runs after intent capture, before the gray-area menu.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
-**`docs/planning/`:** Glob `*.md` at top level only (NOT subdirectories). Use filenames
+**`docs/planning/`:** Glob `*.md` at top level only (or, when Glob is unavailable per #52004, Bash `find docs/planning -maxdepth 1 -name '*.md'`) (NOT subdirectories). Use filenames
 only (directory listing). Match by slug-name keyword similarity (substring match).
 Read AT MOST the first 20 lines of the top 3 closest-matching files.
 If no matches, skip reads entirely.

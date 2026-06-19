@@ -22,7 +22,7 @@ Public API: Message-based. The conductor sends brief messages to the running
             entries and returns a JSON acknowledgment with learning_ids[] that
             may contain LRN- or KNW- prefixed IDs.
 
-Upstream deps: None (no external libraries; only Read/Glob/Grep/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/references/capture-classification.md (classification
                table; the conductor applies guardrail-first before spawning).
                content/templates/.agentic/learnings.md (canonical schema for

@@ -35,7 +35,7 @@ Your spawn prompt will contain:
 
 ### Phase 1: Root Cause Investigation
 
-Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep if `sg` is not installed.
+Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep (or Bash `rg`/`grep` when Grep is unavailable per #52004) if `sg` is not installed.
 
 ### Phase 2: Look up library docs
 

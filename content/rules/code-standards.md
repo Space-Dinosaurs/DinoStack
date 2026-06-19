@@ -12,14 +12,16 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 ## Tool Discipline
 
-**Never use Bash to read files, list directories, or search content.** Use the dedicated tools - they don't trigger permission prompts and give better output:
-- Read files: `Read` tool (never `cat`, `head`, `tail`, `sed`)
-- List/find files: `Glob` tool (never `ls`, `find`)
-- Search content: `Grep` tool (never `grep`, `rg`)
+**Prefer the dedicated tools for reads, listing, and search when they are available; use Bash as the sanctioned fallback when they are not.** `Read` is always present and is the primary tool for reading file contents - always prefer it over `cat`/`head`/`tail`/`sed`. For listing and searching, prefer `Glob` and `Grep` when the harness exposes them - they avoid permission prompts and give cleaner output:
+- Read files: `Read` tool (always available; never `cat`, `head`, `tail`, `sed`).
+- List/find files: `Glob` tool when available; otherwise Bash `find` (or `rg --files`).
+- Search content: `Grep` tool when available; otherwise Bash `rg` (preferred) or `grep`.
 
-Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
+**Compatibility note (#52004):** current Claude Code native and VS Code builds have removed the `Glob` and `Grep` tools from the tool palette (regression since v2.1.117, still absent as of v2.1.179). When `Glob` or `Grep` is unavailable, using Bash `rg`/`grep`/`find` for listing and search is the correct, sanctioned path - it is NOT a Tool Discipline violation. This preference is written to be forward-compatible: if and when Anthropic restores the tools, `Glob`/`Grep` automatically become preferred again with no further edits.
 
-Exception: `sg` (AST-grep) for structural symbol-level searches is run via Bash - no dedicated harness tool wraps it. Check availability with `which sg 2>/dev/null` before use.
+Reserve `Bash` for: builds, installs, git operations, network calls, process management, listing/searching when `Glob`/`Grep` are unavailable, and anything no dedicated tool covers.
+
+`sg` (AST-grep) for structural symbol-level searches is always run via Bash - no dedicated harness tool wraps it. This is independent of the `Glob`/`Grep` availability question above: Bash-based search is sanctioned generally (via `rg`/`grep`/`find`), and `sg` is the specific tool for structural AST queries. Check availability with `which sg 2>/dev/null` before use.
 
 **Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
 
@@ -41,7 +43,7 @@ Key tools and their uses:
 
 **Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
 
-**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Glob`/`Grep` tool-discipline above.
 
 ## Module Manifests
 

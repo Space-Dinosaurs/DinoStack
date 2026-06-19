@@ -1,7 +1,7 @@
 ---
 name: learnings-agent
 description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
-tools: Read, Glob, Grep, Edit, Write
+tools: Read, Edit, Write
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
@@ -23,7 +23,7 @@ Public API: Message-based. The conductor sends brief messages to the running
             entries and returns a JSON acknowledgment with learning_ids[] that
             may contain LRN- or KNW- prefixed IDs.
 
-Upstream deps: None (no external libraries; only Read/Glob/Grep/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/references/capture-classification.md (classification
                table; the conductor applies guardrail-first before spawning).
                content/templates/.agentic/learnings.md (canonical schema for

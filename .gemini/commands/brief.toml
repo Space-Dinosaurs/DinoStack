@@ -298,7 +298,7 @@ Runs after intent capture, before the gray-area menu.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
-**`docs/planning/`:** Glob `*.md` at top level only (NOT subdirectories). Use filenames
+**`docs/planning/`:** Glob `*.md` at top level only (or, when Glob is unavailable per #52004, Bash `find docs/planning -maxdepth 1 -name '*.md'`) (NOT subdirectories). Use filenames
 only (directory listing). Match by slug-name keyword similarity (substring match).
 Read AT MOST the first 20 lines of the top 3 closest-matching files.
 If no matches, skip reads entirely.
