@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -98,6 +100,24 @@ def test_suggestions_distinct_families():
     assert len(families) >= 2, f"reviewer pool too narrow: {pool}"
 
 
+
+def test_cli_help_runs():
+    """Issue #1 regression: `main()` must be defined; --help exits 0."""
+    r = subprocess.run([sys.executable, str(_BIN_PATH), "--help"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0
+    assert "agentic-models" in r.stdout
+
+
+def test_cli_requires_probe_url():
+    """No probe URL -> exit 3 from main(), not NameError (exit 1)."""
+    env = dict(os.environ)
+    env.pop("NINEROUTER_URL", None)
+    r = subprocess.run([sys.executable, str(_BIN_PATH)],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 3
+    assert "required" in r.stderr
+
 def main() -> int:
     failures = 0
     tests = [
@@ -108,6 +128,8 @@ def main() -> int:
         test_suggestions_shape,
         test_suggestions_handles_empty_models,
         test_suggestions_distinct_families,
+        test_cli_help_runs,
+        test_cli_requires_probe_url,
     ]
     for t in tests:
         try:

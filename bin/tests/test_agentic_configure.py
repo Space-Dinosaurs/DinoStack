@@ -14,7 +14,7 @@ Test groups:
   7. test_probe_url_appends_v1_models - C1: base http://x[/] -> http://x/v1/models.
   8. test_existing_file_is_not_overwritten - second run is a no-op.
   9. test_bootstrap_hook_idempotent - re-running the hook does not re-seed.
- 10. test_bootstrap_sentinel_on_no_probe - no-probe exit-0 writes sentinel.
+ 10. test_bootstrap_no_sentinel_on_no_url - URL unset -> no sentinel (retry).
  11. test_bootstrap_no_sentinel_on_probe_failure - probe-failure non-zero does NOT.
 
 Run with: python3 -m pytest bin/tests/test_agentic_configure.py -x
@@ -207,14 +207,14 @@ def test_bootstrap_hook_idempotent():
         assert target.read_text() == "roles:\n  engineer: opus\n"
         assert not sentinel.exists()
 
-def test_bootstrap_sentinel_on_no_probe():
-    """No-probe no-op (exit 0) writes the sentinel so we do not retry."""
+def test_bootstrap_no_sentinel_on_no_url():
+    """URL unset -> hook no-ops, no sentinel, retry next session."""
     hook = Path(__file__).parent.parent.parent / "hooks" / "role-models-bootstrap.py"
     with tempfile.TemporaryDirectory() as td:
         sentinel = Path(td) / ".agentic" / ".role-models-bootstrap"
         env = dict(os.environ)
         env["PI_HARNESS"] = "pi"
-        # No NINEROUTER_URL set -> configure exits 0 with no file
+        # No NINEROUTER_URL set -> hook no-ops without calling configure or writing sentinel
         env.pop("NINEROUTER_URL", None)
         env["HOME"] = td
         r = subprocess.run(
@@ -226,9 +226,9 @@ def test_bootstrap_sentinel_on_no_probe():
             timeout=15,
         )
         assert r.returncode == 0
-        assert sentinel.exists(), "sentinel must be written on exit-0 no-op (suppress retry)"
+        assert not sentinel.exists(), "sentinel must NOT be written when URL unset (allow retry)"
         target = Path(td) / ".agentic" / "role-models.yml"
-        assert not target.exists(), "no file written on no-probe no-op"
+        assert not target.exists(), "no file written on no-URL no-op"
 
 
 def test_bootstrap_no_sentinel_on_probe_failure():
@@ -264,7 +264,7 @@ def main() -> int:
         test_noninteractive_no_probe_writes_nothing,
         test_existing_file_is_not_overwritten,
         test_bootstrap_hook_idempotent,
-        test_bootstrap_sentinel_on_no_probe,
+        test_bootstrap_no_sentinel_on_no_url,
         test_bootstrap_no_sentinel_on_probe_failure,
     ]
     tests = [t for t in tests if t is not None]
