@@ -286,16 +286,19 @@ def _profile_behavior_block(profile: str) -> list[str]:
     return lines
 
 
+# Harness env vars: truthy iff any one is set to a non-empty value.
+# Mirrors hooks/role-models-bootstrap.py exactly so the two stay in sync.
+PI_OMP_HARNESS_ENV_VARS = (
+    "PI_HARNESS",
+    "OMP_HARNESS",
+    "OH_MY_PI_HARNESS",
+    "AGENTIC_HARNESS",
+)
+
+
 def _is_pi_omp_harness() -> bool:
     """Best-effort runtime gate for Pi / oh-my-pi status-only reporting."""
-    harness = str(
-        os.environ.get("PI_HARNESS")
-        or os.environ.get("OMP_HARNESS")
-        or os.environ.get("OH_MY_PI_HARNESS")
-        or os.environ.get("AGENTIC_HARNESS")
-        or ""
-    ).lower()
-    return harness in ("pi", "omp", "oh-my-pi", "oh_my_pi")
+    return any(os.environ.get(k, "") for k in PI_OMP_HARNESS_ENV_VARS)
 
 
 def _role_models_status_block() -> list[str]:

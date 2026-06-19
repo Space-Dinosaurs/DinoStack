@@ -53,14 +53,21 @@ GLOBAL_CONFIG = Path(os.path.expanduser("~/.agentic/role-models.yml"))
 SENTINEL = Path(os.path.expanduser("~/.agentic/.role-models-bootstrap"))
 CONFIGURE_BIN = Path(__file__).parent.parent / "bin" / "agentic-configure"
 
+# Harness env vars: truthy iff any one is set to a non-empty value.
+# Mirrors bin/agentic-status exactly so the two stay in sync; keeping the
+# literal list in both files because they are separate executables with no
+# shared module (see PR #249 review M2 for rationale).
+PI_OMP_HARNESS_ENV_VARS = (
+    "PI_HARNESS",
+    "OMP_HARNESS",
+    "OH_MY_PI_HARNESS",
+    "AGENTIC_HARNESS",
+)
+
 
 def _is_pi_omp_harness() -> bool:
     """Best-effort runtime gate. Mirrors bin/agentic-status."""
-    for key in ("PI_HARNESS", "OMP_HARNESS", "OH_MY_PI_HARNESS", "AGENTIC_HARNESS"):
-        val = os.environ.get(key, "").lower()
-        if val in ("pi", "omp", "oh-my-pi", "oh_my_pi"):
-            return True
-    return False
+    return any(os.environ.get(k, "") for k in PI_OMP_HARNESS_ENV_VARS)
 
 
 def _already_bootstrapped() -> bool:
@@ -78,18 +85,23 @@ def main() -> int:
         return 0
     if _already_bootstrapped():
         return 0
-    if not os.environ.get("NINEROUTER_URL"):
-        # No probe URL means we cannot suggest models; skip silently. The
-        # user can run `agentic-configure` later when they have a probe.
-        return 0
-
-    with contextlib.suppress(subprocess.SubprocessError, OSError):
-        subprocess.run(
+    # Run configure --non-interactive. It returns 0 either when it wrote a
+    # config (probe succeeded) or when it deliberately no-op'd (no probe URL);
+    # both cases write the sentinel so we do not retry every session. A
+    # non-zero return (probe failed) must NOT write the sentinel so the next
+    # session retries. See content/sections/01-activation-preflight.md 6.5c.
+    try:
+        result = subprocess.run(
             [str(CONFIGURE_BIN), "--non-interactive"],
             timeout=30,
             check=False,
             capture_output=True,
         )
+        ok = result.returncode == 0
+    except (subprocess.SubprocessError, OSError):
+        ok = False
+    if not ok:
+        return 0
     SENTINEL.parent.mkdir(parents=True, exist_ok=True)
     SENTINEL.write_text(
         "# agentic-engineering: role-models bootstrap ran.\n"

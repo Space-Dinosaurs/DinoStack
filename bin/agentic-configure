@@ -54,11 +54,16 @@ BANNER = (
 )
 
 
-def _probe_or_empty(probe_url: str, probe_key: str) -> dict:
-    """Run bin/agentic-models --json and return its payload, or {} on failure."""
+def _probe_or_empty(probe_url: str, probe_key: str) -> dict | None:
+    """Run bin/agentic-models --json and return its payload.
+
+    Returns None on probe failure (network/HTTP/non-zero exit) so callers can
+    distinguish "no models available" ({}) from "probe itself failed" (None).
+    Returns {} if the payload parses but contains no models.
+    """
     agentic_models = Path(__file__).parent / "agentic-models"
     if not agentic_models.is_file():
-        return {}
+        return None
     try:
         result = subprocess.run(
             [str(agentic_models), "--json", "--probe-url", probe_url,
@@ -66,13 +71,13 @@ def _probe_or_empty(probe_url: str, probe_key: str) -> dict:
             capture_output=True, text=True, timeout=15,
         )
     except (subprocess.SubprocessError, OSError):
-        return {}
+        return None
     if result.returncode != 0:
-        return {}
+        return None
     try:
         return json.loads(result.stdout)
     except ValueError:
-        return {}
+        return None
 
 
 def _ask(prompt: str, default: str) -> str:
@@ -165,6 +170,11 @@ def _gather_roles(suggestions: dict, non_interactive: bool) -> dict:
     return roles
 
 
+def _resolve_probe_url(args) -> str:
+    """Return a non-empty probe URL, or '' if none is available."""
+    return (args.probe_url or os.environ.get("NINEROUTER_URL", "")).strip()
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         prog="agentic-configure",
@@ -182,10 +192,24 @@ def main(argv: list[str]) -> int:
     if target.exists() and not args.force:
         return 0
 
-    if not args.non_interactive and sys.stdin.isatty():
-        print(BANNER)
-
-    suggestions = _probe_or_empty(args.probe_url, args.probe_key) if args.probe_url else {}
+    probe_url = _resolve_probe_url(args)
+    if args.non_interactive and not probe_url:
+        # Deliberate no-op: no probe URL means we cannot rank models. Exit 0
+        # without writing a file so the bootstrap sentinel (gated on
+        # returncode 0) suppresses retry, but no bogus config is produced.
+        print("agentic-configure: no probe URL; nothing to configure", file=sys.stderr)
+        return 0
+    probe_result = _probe_or_empty(args.probe_url, args.probe_key) if probe_url else {}
+    if probe_result is None:
+        # Probe failed (network/HTTP/non-zero exit). Interactive: fall back to
+        # manual entry with empty suggestions. Non-interactive: exit non-zero
+        # so the bootstrap sentinel is NOT written and the next session retries.
+        if args.non_interactive:
+            print("agentic-configure: probe failed; nothing written", file=sys.stderr)
+            return 2
+        suggestions = {}
+    else:
+        suggestions = probe_result
     if not suggestions and not args.non_interactive and sys.stdin.isatty():
         print("(probe returned no models; defaults below are fallbacks)")
 
