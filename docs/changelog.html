@@ -1,0 +1,1935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>Changelog - DinoStack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base:         #02050C;
+    --bg-raised:       #060B16;
+    --bg-surface:      #0A1020;
+    --bg-overlay:      #0D1426;
+    --bg-deep:         #04070F;
+
+    --border-faint:    rgba(255, 255, 255, 0.07);
+    --border-subtle:   rgba(255, 255, 255, 0.12);
+    --border-default:  rgba(255, 255, 255, 0.18);
+    --border-strong:   rgba(255, 255, 255, 0.30);
+
+    --text-bright:     #ffffff;
+    --text-primary:    #eaf1fb;
+    --text-secondary:  rgba(234, 241, 251, 0.74);
+    --text-muted:      #9bb0cc;
+    --text-dim:        #6a7c97;
+
+    --cyan:            #18E0FF;
+    --cyan-dim:        rgba(24, 224, 255, 0.32);
+    --cyan-glow:       rgba(24, 224, 255, 0.14);
+
+    --violet:          #b06bff;
+    --violet-dim:      rgba(176, 107, 255, 0.32);
+    --violet-glow:     rgba(176, 107, 255, 0.13);
+
+    --green:           #3ad99a;
+    --green-dim:       rgba(58, 217, 154, 0.32);
+    --green-glow:      rgba(58, 217, 154, 0.13);
+
+    --gold:            #E9B521;
+    --gold-dim:        rgba(233, 181, 33, 0.32);
+    --gold-glow:       rgba(233, 181, 33, 0.13);
+
+    --rose:            #ff5d73;
+    --rose-dim:        rgba(255, 93, 115, 0.32);
+    --rose-glow:       rgba(255, 93, 115, 0.13);
+
+    --amber-soft:      #E9B521;
+    --sky:             #18E0FF;
+
+    --radius-sm:  4px;
+    --radius-md:  8px;
+    --radius-lg:  14px;
+
+    --nav-width: 224px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 28px; }
+
+  ::selection { background: rgba(24, 224, 255, 0.30); color: #ffffff; }
+
+  body {
+    font-family: 'Nunito Sans', system-ui, sans-serif;
+    background-color: var(--bg-base);
+    background-image:
+      radial-gradient(1100px 600px at 16% -8%, rgba(24, 224, 255, 0.10), transparent 60%),
+      radial-gradient(900px 520px at 98% 2%, rgba(176, 107, 255, 0.09), transparent 58%),
+      radial-gradient(1000px 760px at 62% 112%, rgba(24, 224, 255, 0.05), transparent 60%);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    padding: 52px 40px 96px calc(var(--nav-width) + 48px);
+    min-height: 100vh;
+    font-size: 17px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  body::-webkit-scrollbar { width: 10px; height: 10px; }
+  body::-webkit-scrollbar-track { background: transparent; }
+  body::-webkit-scrollbar-thumb {
+    background: rgba(24, 224, 255, 0.18);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  body::-webkit-scrollbar-thumb:hover { background: rgba(24, 224, 255, 0.34); background-clip: padding-box; }
+
+  .doc-header {
+    margin-bottom: 18px;
+    padding-bottom: 26px;
+    border-bottom: 1px solid var(--border-subtle);
+    position: relative;
+  }
+  h1 {
+    font-family: 'Orbitron', system-ui, sans-serif;
+    font-size: clamp(40px, 6vw, 60px);
+    font-weight: 800;
+    color: var(--text-bright);
+    letter-spacing: 0.015em;
+    line-height: 1.05;
+    margin-bottom: 12px;
+    text-shadow: 0 0 30px rgba(24, 224, 255, 0.35);
+  }
+  .subtitle {
+    font-family: 'Nunito Sans', system-ui, sans-serif;
+    font-size: 19px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    letter-spacing: 0.005em;
+    margin-bottom: 12px;
+    max-width: 72ch;
+  }
+  .byline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .side-nav {
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--nav-width);
+    height: 100vh;
+    background: var(--bg-deep);
+    border-right: 1px solid var(--border-faint);
+    padding: 28px 0;
+    overflow-y: auto;
+    z-index: 100;
+  }
+  .side-nav::-webkit-scrollbar { width: 0; }
+
+  .side-nav-brand {
+    padding: 0 20px;
+    margin-bottom: 24px;
+  }
+  .side-nav-logo {
+    display: block;
+    width: 100%;
+    max-width: 176px;
+    height: auto;
+    filter: drop-shadow(0 0 12px rgba(24, 224, 255, 0.4));
+  }
+  .side-nav-divider {
+    border: 0;
+    border-top: 1px solid var(--border-faint);
+    margin: 0 20px 20px 20px;
+  }
+
+  .side-nav a {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: color 0.18s, background 0.18s, border-color 0.18s;
+    letter-spacing: 0.01em;
+  }
+  .side-nav a:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .side-nav a.active {
+    color: var(--cyan);
+    background: var(--cyan-glow);
+    border-left-color: var(--cyan);
+  }
+  .side-nav .nav-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    opacity: 0.9;
+    box-shadow: 0 0 6px currentColor;
+  }
+
+  @media (max-width: 920px) {
+    .side-nav { display: none; }
+    body { padding-left: 24px; padding-right: 24px; }
+  }
+
+  .section {
+    padding-block: 48px 40px;
+    padding-inline: 0;
+    position: relative;
+    border-top: 1px solid var(--border-faint);
+  }
+  .section:first-child {
+    border-top: none;
+    padding-top: 36px;
+  }
+
+  strong { font-weight: 700; color: var(--text-bright); }
+
+  a { color: var(--cyan); text-decoration: none; transition: color 0.18s, text-shadow 0.18s; }
+  a:hover { color: var(--text-bright); text-shadow: 0 0 12px rgba(24, 224, 255, 0.5); }
+
+  /* Changelog-specific styles */
+  .cl-date-heading {
+    font-family: 'Orbitron', system-ui, sans-serif;
+    font-size: clamp(20px, 2.5vw, 28px);
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: 0.04em;
+    margin-bottom: 20px;
+    text-shadow: 0 0 20px rgba(24, 224, 255, 0.20);
+  }
+  .cl-section-heading {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    margin: 20px 0 8px;
+  }
+  .cl-section-heading:first-of-type { margin-top: 0; }
+  .cl-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 4px;
+  }
+  .cl-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border-faint);
+    font-size: 15px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+  }
+  .cl-list li:last-child { border-bottom: none; }
+  .cl-pr-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-faint);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .cl-pr-title { flex: 1; }
+  .cl-author {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .cl-empty {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    padding: 24px 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Side Navigation -->
+<nav class="side-nav">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
+  </div>
+  <a href="index.html"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="#changelog" class="active"><span class="nav-dot" style="background: var(--cyan);"></span> Changelog</a>
+</nav>
+
+<div class="doc-header" id="changelog">
+  <h1>Changelog</h1>
+  <p class="subtitle">All merged pull requests, grouped by date and type.</p>
+  <p class="byline">Last updated: 2026-06-19</p>
+</div>
+
+<main>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-19</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#249</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/249" target="_blank" rel="noopener noreferrer">role-model routing with cross-family antagonist reviewers</a></span>
+            <span class="cl-author">bloodf</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#255</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/255" target="_blank" rel="noopener noreferrer">include .openclaw in pre-commit adapter rebuild</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#254</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/254" target="_blank" rel="noopener noreferrer">document committed-vs-local doc homes for new features</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#252</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/252" target="_blank" rel="noopener noreferrer">rebuild .openclaw to sync clone-dir refs</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#251</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/251" target="_blank" rel="noopener noreferrer">enforce docs/planning gitignore via tracked-file guard</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#237</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/237" target="_blank" rel="noopener noreferrer">update remaining clone-dir refs from agentic-engineering to DinoStack</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#253</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/253" target="_blank" rel="noopener noreferrer">pr #249 role-model routing (Critical runtime bug)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-18</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#244</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/244" target="_blank" rel="noopener noreferrer">add OpenClaw adapter</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#241</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/241" target="_blank" rel="noopener noreferrer">embed content/sections methodology body for adapter parity</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#247</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/247" target="_blank" rel="noopener noreferrer">add MAINTAINERS (DS-23)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#243</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/243" target="_blank" rel="noopener noreferrer">safety/security documentation (DS-22)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#248</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/248" target="_blank" rel="noopener noreferrer">add THIRD_PARTY_NOTICES (DS-23)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#242</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/242" target="_blank" rel="noopener noreferrer">scrub client email from current files (DS-24)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#239</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/239" target="_blank" rel="noopener noreferrer">security scanning workflows (CodeQL, gitleaks, Scorecard) [DS-20]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-17</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#235</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/235" target="_blank" rel="noopener noreferrer">add non-interactive install-all.sh for all adapters</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#234</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/234" target="_blank" rel="noopener noreferrer">collect developer identity in all 9 adapter installers (shared helper)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#233</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/233" target="_blank" rel="noopener noreferrer">clearer one-finding-per-line sign-off Findings format</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#238</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/238" target="_blank" rel="noopener noreferrer">make docs.dinostack.ai/install.sh redirect actually fire</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#236</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/236" target="_blank" rel="noopener noreferrer">stop tracking DinoStack&#39;s own .agentic runtime state</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-16</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#230</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/230" target="_blank" rel="noopener noreferrer">add /pull-and-install (agent-guided update + fresh install)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#229</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/229" target="_blank" rel="noopener noreferrer">collect developer identity in the guided installer</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#227</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/227" target="_blank" rel="noopener noreferrer">add vertical gap below pill rows on the docs page</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#231</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/231" target="_blank" rel="noopener noreferrer">rebrand adapter READMEs to DinoStack + clearer per-adapter install</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#232</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/232" target="_blank" rel="noopener noreferrer">standardize repo checkout dir to DinoStack (from agentic-engineering)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-14</h2>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#226</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/226" target="_blank" rel="noopener noreferrer">trim and relocate the DinoStack/agentic-engineering naming note</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#225</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/225" target="_blank" rel="noopener noreferrer">pre-open-source cleanup (scrub internal/personal references)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-13</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#224</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/224" target="_blank" rel="noopener noreferrer">promote Hermes to an official tracked + CI-wired adapter (9th)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#220</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/220" target="_blank" rel="noopener noreferrer">capture-gap backstop [U6]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#219</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/219" target="_blank" rel="noopener noreferrer">Phase 6 capture-sweep + wrap-ticket KNW + protocol crossref [U5,U7]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#218</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/218" target="_blank" rel="noopener noreferrer">dual schema + mandatory capture gate + agent KNW mapping [U2-U4]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#214</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/214" target="_blank" rel="noopener noreferrer">session_uuid on emits + tool_failure_workaround event [U0]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#213</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/213" target="_blank" rel="noopener noreferrer">Planning Artifacts infographic full-width + Ecosystem Comparison section</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#206</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/206" target="_blank" rel="noopener noreferrer">distribute 7 DinoStack infographics into topical sections</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#202</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/202" target="_blank" rel="noopener noreferrer">seed + commit .agentic/learnings.md via additive negation [u2+u9]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#211</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/211" target="_blank" rel="noopener noreferrer">re-track .agentic/learnings.md untracked by #203 [u3c]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#210</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/210" target="_blank" rel="noopener noreferrer">restore .agentic/learnings.md carve-out clobbered by #203 [u3b]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#222</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/222" target="_blank" rel="noopener noreferrer">clarify DinoStack brand vs agentic-engineering package naming</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#221</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/221" target="_blank" rel="noopener noreferrer">recategorize commands + restack panels</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#217</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/217" target="_blank" rel="noopener noreferrer">add capture-classification.md [U1]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#216</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/216" target="_blank" rel="noopener noreferrer">fix staleness across 14 decks + reorder deck index for learner flow</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#215</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/215" target="_blank" rel="noopener noreferrer">DinoStack-only skill inventory with operator/methodology delineation</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#212</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/212" target="_blank" rel="noopener noreferrer">reconcile knowledge-routing docs with shipped state [u10]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#209</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/209" target="_blank" rel="noopener noreferrer">document autoMemoryDirectory intent [u8]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#208</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/208" target="_blank" rel="noopener noreferrer">track .agentic/learnings.md via negation carve-out [u7]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#207</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/207" target="_blank" rel="noopener noreferrer">correct learnings pipeline wiring claim [u6]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#205</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/205" target="_blank" rel="noopener noreferrer">rebrand AE to DinoStack and widen for readability</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Tests</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#223</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/223" target="_blank" rel="noopener noreferrer">U6 coverage hardening + dead-param removal [U6b]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#203</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/203" target="_blank" rel="noopener noreferrer">untrack internal eval harness + working docs from upstream</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#201</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/201" target="_blank" rel="noopener noreferrer">track .agentic/learnings.md so learnings travel [u3]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-12</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#197</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/197" target="_blank" rel="noopener noreferrer">commit session-log at PR Phase 8 + docs + adapters [DS-15 unit 2]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#192</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/192" target="_blank" rel="noopener noreferrer">project-scope override with 4-tier resolution [DS handle override]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#191</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/191" target="_blank" rel="noopener noreferrer">fix auto-harness keep gate + eval substrate (sign-flip permutation gate, parallel runner, sonnet-pinned)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#189</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/189" target="_blank" rel="noopener noreferrer">add docs.dinostack.ai/install.sh vanity redirect [DS-14]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#186</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/186" target="_blank" rel="noopener noreferrer">adopt Apache-2.0 (LICENSE + NOTICE) [DS-2]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#200</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/200" target="_blank" rel="noopener noreferrer">correct write path to &lt;cwd&gt;/MEMORY.md + orphan warning [u4]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#199</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/199" target="_blank" rel="noopener noreferrer">scope .agentic/memory.md as /wrap-internal scratch [u5]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#198</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/198" target="_blank" rel="noopener noreferrer">point License section at Apache-2.0 LICENSE [DS-2]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#194</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/194" target="_blank" rel="noopener noreferrer">add Identity and Telemetry section [readme-docs]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#193</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/193" target="_blank" rel="noopener noreferrer">document project-scope override + rebuild adapters [content-rebuild]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#195</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/195" target="_blank" rel="noopener noreferrer">track session-log + add commit_telemetry toggle [DS-15 unit 1]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#190</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/190" target="_blank" rel="noopener noreferrer">fix stale Live-docs URL -&gt; docs.dinostack.ai</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#188</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/188" target="_blank" rel="noopener noreferrer">fix bare-slug repo refs in AGENTS.md + MEMORY.md [DS-13]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#187</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/187" target="_blank" rel="noopener noreferrer">update repo URLs agentic-engineering -&gt; DinoStack [DS-13]</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-11</h2>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#185</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/185" target="_blank" rel="noopener noreferrer">reskin all 15 Marp decks to DinoStack Iridium dark theme</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-10</h2>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#183</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/183" target="_blank" rel="noopener noreferrer">close unclosed Last updated div in side-nav</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#182</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/182" target="_blank" rel="noopener noreferrer">replace side-nav brand with DinoStack logo</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-09</h2>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#180</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/180" target="_blank" rel="noopener noreferrer">point docs-site deploy at dinostack-docs (space-dinos-sandbox)</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#179</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/179" target="_blank" rel="noopener noreferrer">reskin docs site with Iridium dark look and feel</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#178</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/178" target="_blank" rel="noopener noreferrer">rebrand product name to DinoStack in reader-facing docs</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#181</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/181" target="_blank" rel="noopener noreferrer">Rename docs hub page agentic-engineering.html → index.html</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-07</h2>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#176</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/176" target="_blank" rel="noopener noreferrer">default commit guidance to DCO sign-off (-s)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-06</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#175</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/175" target="_blank" rel="noopener noreferrer">gate AskUserQuestion against unrecommended multiple-choice ballots</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-05</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#173</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/173" target="_blank" rel="noopener noreferrer">PR Developer trailer + DCO signoff; session-logs local-only (U7 reduced)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#174</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/174" target="_blank" rel="noopener noreferrer">add U7 PR-attribution crossing-design reference</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#169</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/169" target="_blank" rel="noopener noreferrer">rename GitHub org Solara6 -&gt; Space-Dinosaurs in repo refs and prose</a></span>
+            <span class="cl-author">howdiz</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-04</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#171</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/171" target="_blank" rel="noopener noreferrer">docs + adapters for ae-identity-v1 (content, PR2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#170</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/170" target="_blank" rel="noopener noreferrer">auto-identity + pending buffer + operator rollup (behavioral, ae-identity-v1 PR1)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#166</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/166" target="_blank" rel="noopener noreferrer">SessionStart newer-version-available notice</a></span>
+            <span class="cl-author">tristanlee85</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#172</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/172" target="_blank" rel="noopener noreferrer">restore 51 source files reverted by U9 adapter step (#171 regression)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#168</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/168" target="_blank" rel="noopener noreferrer">repoint Solara6 -&gt; Space-Dinosaurs org references</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#167</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/167" target="_blank" rel="noopener noreferrer">add .mailmap consolidating maintainer identity to tyhummel@gmail.com</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-06-02</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#133</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/133" target="_blank" rel="noopener noreferrer">OSS launch community files - wave 1 (IR-4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#130</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/130" target="_blank" rel="noopener noreferrer">DCO Signed-off-by enforcement (IR-3)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#164</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/164" target="_blank" rel="noopener noreferrer">sync AGENTS.md for P2 (section range, FE/QA note, branch-leak guidance)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#165</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/165" target="_blank" rel="noopener noreferrer">ignore @marp-team/* in dependabot (pinned, coordinated manually)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#158</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/158" target="_blank" rel="noopener noreferrer">bump tmp to 0.2.7 and add scoped dependabot config</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#131</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/131" target="_blank" rel="noopener noreferrer">fix tmp CVE in scripts/</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#155</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/155" target="_blank" rel="noopener noreferrer">Configuration discoverability for agentic-engineering</a></span>
+            <span class="cl-author">tristanlee85</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-31</h2>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#156</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/156" target="_blank" rel="noopener noreferrer">keep methodology harness/model-agnostic (reword capability prose)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#157</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/157" target="_blank" rel="noopener noreferrer">regenerate methodology drift baseline</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-28</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#153</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/153" target="_blank" rel="noopener noreferrer">motion_aware + storybook_version + blocking-mode default (P2 U4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#152</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/152" target="_blank" rel="noopener noreferrer">motion procedure + SB6 URL branching (P2 U2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#151</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/151" target="_blank" rel="noopener noreferrer">populate capabilities in 8 agent files (P2 U5)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#150</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/150" target="_blank" rel="noopener noreferrer">motion enforcement + theme allowlist expansion (P2 U3)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#149</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/149" target="_blank" rel="noopener noreferrer">add motion method + theme allowlist split (P2 U1)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#147</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/147" target="_blank" rel="noopener noreferrer">add retro subcommand for pre-telemetry historical rollups</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#146</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/146" target="_blank" rel="noopener noreferrer">manifest-driven project scaffolding auto-sync</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#144</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/144" target="_blank" rel="noopener noreferrer">theme-aware + storybook scenario procedures (P1 U2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#143</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/143" target="_blank" rel="noopener noreferrer">reference doc + engineer addendum + Skeptic findings (P1 U3)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#142</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/142" target="_blank" rel="noopener noreferrer">add theme + story_id qa_criteria fields (P1 U1)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#140</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/140" target="_blank" rel="noopener noreferrer">seed FE/QA defaults + conventions polish (U4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#139</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/139" target="_blank" rel="noopener noreferrer">manifest schema + conductor preflight (U3)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#138</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/138" target="_blank" rel="noopener noreferrer">accessibility, perceptual_diff, viewport procedures (U2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#137</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/137" target="_blank" rel="noopener noreferrer">add accessibility, perceptual_diff, viewport qa_criteria fields (U1)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#136</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/136" target="_blank" rel="noopener noreferrer">Stage 1 committed per-developer session log</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#148</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/148" target="_blank" rel="noopener noreferrer">P2 brief - motion, SB6, capability blocking-mode</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#141</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/141" target="_blank" rel="noopener noreferrer">ADR for project scaffolding auto-sync</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#135</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/135" target="_blank" rel="noopener noreferrer">telemetry install gap analysis</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#134</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/134" target="_blank" rel="noopener noreferrer">ADR for team-level telemetry aggregation</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#132</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/132" target="_blank" rel="noopener noreferrer">add External Comment Discipline rule for PR and tracker comments</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#154</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/154" target="_blank" rel="noopener noreferrer">rebuild mirrors after P2 U1-U5 (P2 U6)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#145</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/145" target="_blank" rel="noopener noreferrer">rebuild mirrors after P1 U1-U4 (P1 U5)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-26</h2>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#129</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/129" target="_blank" rel="noopener noreferrer">add standalone ecosystem comparison page</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-24</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#128</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/128" target="_blank" rel="noopener noreferrer">enforce background-by-default for all Task spawns</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#127</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/127" target="_blank" rel="noopener noreferrer">restore stashed eval work: gotchas doc + heading normalisation + tests</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-23</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#126</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/126" target="_blank" rel="noopener noreferrer">QA screenshot evidence + Phase 1 comment reading</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#125</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/125" target="_blank" rel="noopener noreferrer">machine-parseable screenshot evidence block</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-21</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#124</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/124" target="_blank" rel="noopener noreferrer">/ticket-status-sync command (PR 4/4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#123</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/123" target="_blank" rel="noopener noreferrer">tracker-state discovery preflight + init scaffolding (PR 3/4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#122</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/122" target="_blank" rel="noopener noreferrer">7 ticket-status writeback sites (PR 2/4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-20</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#120</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/120" target="_blank" rel="noopener noreferrer">PR-lifecycle management (PR 1/4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#121</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/121" target="_blank" rel="noopener noreferrer">wait-loop on lock contention instead of giving up</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#119</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/119" target="_blank" rel="noopener noreferrer">revert hot-path blocks + strengthen reference coupling (PR 3)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#118</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/118" target="_blank" rel="noopener noreferrer">slim 02 hot-path (PR 2 of 2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#117</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/117" target="_blank" rel="noopener noreferrer">slim 04 + 02 hot-path (PR 1 of 2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#116</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/116" target="_blank" rel="noopener noreferrer">extract deep detail from METHODOLOGY sections to references</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-19</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#113</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/113" target="_blank" rel="noopener noreferrer">conductor never edits shippable artifacts directly (always-worktrees rule)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#112</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/112" target="_blank" rel="noopener noreferrer">deterministic Marp build pipeline + slides-sync CI gate</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#114</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/114" target="_blank" rel="noopener noreferrer">portable relative symlinks in install.sh</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#110</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/110" target="_blank" rel="noopener noreferrer">move findings.md to .agentic/ with gitignore exception</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#115</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/115" target="_blank" rel="noopener noreferrer">correct expected-title string in deploy runbook smoke test</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#111</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/111" target="_blank" rel="noopener noreferrer">add ecosystem comparison section to agentic-engineering.html</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-18</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#109</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/109" target="_blank" rel="noopener noreferrer">curl|bash bootstrap installer + location-aware /update-agentic-engineering</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#106</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/106" target="_blank" rel="noopener noreferrer">enforced doc-sync obligation (docs stay aligned with code/reality)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#105</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/105" target="_blank" rel="noopener noreferrer">advisory adapter-drift gate + wire .pi + close .pi prune false-negative</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#107</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/107" target="_blank" rel="noopener noreferrer">skill-comparison infrastructure compatibility patches</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#108</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/108" target="_blank" rel="noopener noreferrer">update AGENTS.md with eval infrastructure conventions</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#104</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/104" target="_blank" rel="noopener noreferrer">sync stale README/CONTRIBUTING enumerations to ground truth</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-16</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#103</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/103" target="_blank" rel="noopener noreferrer">GSD-steal improvements - overview onboarding layer, debugger-on-quality-gate, .agentic/config.json</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#101</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/101" target="_blank" rel="noopener noreferrer">Brief-informs-Architect, pre-architect ambiguity scan, cross-artifact alignment check</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#100</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/100" target="_blank" rel="noopener noreferrer">add AST-grep guidance to investigator and debugger</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#98</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/98" target="_blank" rel="noopener noreferrer">add Kimi CLI backend support to skill-comparison harness</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#99</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/99" target="_blank" rel="noopener noreferrer">Kimi backend normalizer, timeout, and MCP fixes</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#102</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/102" target="_blank" rel="noopener noreferrer">regenerate non-Claude adapters for PR #101 (Phase 2b, Brief-informs-Architect, cross-artifact alignment)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-15</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#97</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/97" target="_blank" rel="noopener noreferrer">add skill auto-trigger enforcement</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-14</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#96</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/96" target="_blank" rel="noopener noreferrer">add per-task dockerfile routing and py310 image</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#94</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/94" target="_blank" rel="noopener noreferrer">add preflight smoke check for skill-comparison harness</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#93</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/93" target="_blank" rel="noopener noreferrer">enforce DRY and abstraction in engineer self-check and skeptic review</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#92</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/92" target="_blank" rel="noopener noreferrer">add learnings-agent for session-scoped background learning capture</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#91</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/91" target="_blank" rel="noopener noreferrer">long-session context retention fixtures (Gap 4)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#90</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/90" target="_blank" rel="noopener noreferrer">agentic-memory retrieval CLI (Gap 3)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#95</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/95" target="_blank" rel="noopener noreferrer">update agent-team and skeptic-protocol slides + HTML ref for new agents</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#89</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/89" target="_blank" rel="noopener noreferrer">exchange log compression rules (Gap 2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#88</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/88" target="_blank" rel="noopener noreferrer">conductor context budget (Gap 1)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#87</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/87" target="_blank" rel="noopener noreferrer">meta-divergence sweep pagination (Gap 5)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-13</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#85</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/85" target="_blank" rel="noopener noreferrer">add native Pi coding agent adapter</a></span>
+            <span class="cl-author">bloodf</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#86</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/86" target="_blank" rel="noopener noreferrer">scoring bugs and methodology conventions</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-12</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#74</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/74" target="_blank" rel="noopener noreferrer">add --tasks and --max-cells CLI filters for bounded smoke runs</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#72</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/72" target="_blank" rel="noopener noreferrer">SWE-bench fixture seeding</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#69</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/69" target="_blank" rel="noopener noreferrer">7 condition spec YAMLs for 8-condition eval matrix</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#68</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/68" target="_blank" rel="noopener noreferrer">runner + scoring for 8-condition eval matrix</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#67</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/67" target="_blank" rel="noopener noreferrer">frozen task corpus - 12 SWE-bench-lite tasks</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#66</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/66" target="_blank" rel="noopener noreferrer">add engineer component manifest and scorer</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#65</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/65" target="_blank" rel="noopener noreferrer">aggregator + config_discovery for 8-condition matrix</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#64</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/64" target="_blank" rel="noopener noreferrer">canary unit - ae_rules_payload + assert_canary + real transcript</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#84</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/84" target="_blank" rel="noopener noreferrer">force docker rmi before build when --rebuild-image is set</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#83</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/83" target="_blank" rel="noopener noreferrer">switch Tier 3 Docker base to Python 3.9 for SWE-bench legacy compat</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#82</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/82" target="_blank" rel="noopener noreferrer">add requests deps to Dockerfile.swebench</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#81</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/81" target="_blank" rel="noopener noreferrer">inject PYTHONPATH=/workspace/repo in score-phase container</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#80</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/80" target="_blank" rel="noopener noreferrer">pass held_out_from_fix_dir=True so score phase mounts test files</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#79</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/79" target="_blank" rel="noopener noreferrer">convert unittest-style fail_to_pass IDs to pytest node-id format</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#78</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/78" target="_blank" rel="noopener noreferrer">forward fail_to_pass to score_cell and use git diff for engineer diffs</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#77</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/77" target="_blank" rel="noopener noreferrer">raise max_turns to 40, fix pytest 0-tests-collected in score phase</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#76</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/76" target="_blank" rel="noopener noreferrer">smoke v4 bugs - empty transcript and pytest 0 tests</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#75</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/75" target="_blank" rel="noopener noreferrer">add pytest-timeout, --rebuild-image flag, and transcript persistence</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#73</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/73" target="_blank" rel="noopener noreferrer">build Docker image once per run_matrix, not once per cell</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#71</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/71" target="_blank" rel="noopener noreferrer">sys.executable for pytest + score_error status on scoring failure</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#70</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/70" target="_blank" rel="noopener noreferrer">full README, AGENTS.md, and LEARNINGS append</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-11</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#63</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/63" target="_blank" rel="noopener noreferrer">Tier 3 Docker isolator for SWE-bench fix+score phases</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#62</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/62" target="_blank" rel="noopener noreferrer">scaffold evals/skill-comparison/ directory tree</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#61</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/61" target="_blank" rel="noopener noreferrer">skill-comparison eval system Plan</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-09</h2>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#59</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/59" target="_blank" rel="noopener noreferrer">correctness_method aggregation reads dimensions.correctness</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#60</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/60" target="_blank" rel="noopener noreferrer">Path B: replay corpus expansion v2 (5 -&gt; 9 tickets, 5 with viable test_command)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#58</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/58" target="_blank" rel="noopener noreferrer">Path C: real pytest execution for ICL-vs-orchestration eval</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-08</h2>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#57</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/57" target="_blank" rel="noopener noreferrer">ICL vs orchestration eval harness: Stage 0 + Stage 1 + replay corpus + Path A tightening</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-07</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#26</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/26" target="_blank" rel="noopener noreferrer">add OpenCode session context plugin and update install script</a></span>
+            <span class="cl-author">tristanlee85</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#56</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/56" target="_blank" rel="noopener noreferrer">add missing step-4-to-quality-gate connector arrow</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#25</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/25" target="_blank" rel="noopener noreferrer">Move framework update to Node TUI</a></span>
+            <span class="cl-author">tristanlee85</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-03</h2>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#55</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/55" target="_blank" rel="noopener noreferrer">add Other Adapters appendix</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-02</h2>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#54</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/54" target="_blank" rel="noopener noreferrer">correct bounded-loop infographic flow to 1-&gt;2-&gt;3-&gt;1</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-05-01</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#52</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/52" target="_blank" rel="noopener noreferrer">align methodology with parallel-by-default philosophy</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#49</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/49" target="_blank" rel="noopener noreferrer">inject corpus-level dimension signal into editor brief</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#44</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/44" target="_blank" rel="noopener noreferrer">interactive planning command + downstream wiring</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#41</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/41" target="_blank" rel="noopener noreferrer">switch keep-metric from median-of-medians to mean-of-medians</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#39</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/39" target="_blank" rel="noopener noreferrer">Wave 2 adapter migrations + SKILL.md dedup</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#50</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/50" target="_blank" rel="noopener noreferrer">replace lock auto-removal with wait-and-retry semantics</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#53</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/53" target="_blank" rel="noopener noreferrer">regenerate infographics with full label fidelity</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#43</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/43" target="_blank" rel="noopener noreferrer">add planning-tier slide deck + partial-rebuild deploy guidance</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#42</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/42" target="_blank" rel="noopener noreferrer">mirror Planning Artifacts methodology change in hub html</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#37</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/37" target="_blank" rel="noopener noreferrer">replace SVG infographics with rendered illustrations</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#51</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/51" target="_blank" rel="noopener noreferrer">formalize conductor-vs-subagent worktree mental model</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#48</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/48" target="_blank" rel="noopener noreferrer">trigger redeploy under fullmetalblanket identity (rebase)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#47</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/47" target="_blank" rel="noopener noreferrer">trigger redeploy under fullmetalblanket identity</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#46</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/46" target="_blank" rel="noopener noreferrer">trigger redeploy with team-authorized author</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#45</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/45" target="_blank" rel="noopener noreferrer">rebaseline methodology SHA after PR #44</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#40</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/40" target="_blank" rel="noopener noreferrer">post-Wave-2 cleanup</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#38</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/38" target="_blank" rel="noopener noreferrer">rename agent-methodology -&gt; METHODOLOGY across adapters and content (Wave 1.5)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-04-30</h2>
+        <h3 class="cl-section-heading">Breaking Changes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#23</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/23" target="_blank" rel="noopener noreferrer">split agent-methodology.md into composable sections (Wave 1)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#20</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/20" target="_blank" rel="noopener noreferrer">cut findings-flywheel promotion; keep regression-test obligation</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#19</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/19" target="_blank" rel="noopener noreferrer">remove tight-fix-path Skeptic skip</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#36</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/36" target="_blank" rel="noopener noreferrer">canonical Confidence values (auto-harness +0.07)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#33</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/33" target="_blank" rel="noopener noreferrer">planning-tier artifacts (Brief / Plan) with verification gate</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#32</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/32" target="_blank" rel="noopener noreferrer">first-activation notice + /agentic-status + /agentic-disable (Gap 3)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#31</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/31" target="_blank" rel="noopener noreferrer">Skeptic calibration drift detection (Gap 2)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#29</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/29" target="_blank" rel="noopener noreferrer">cost &amp; latency observability (Gap 1)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#22</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/22" target="_blank" rel="noopener noreferrer">add spawn presets feature</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#21</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/21" target="_blank" rel="noopener noreferrer">add .agentic/events.jsonl events log spec</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#24</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/24" target="_blank" rel="noopener noreferrer">Path 1 restructure handoff</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#35</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/35" target="_blank" rel="noopener noreferrer">re-baseline conductor with full 20 fixtures</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#34</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/34" target="_blank" rel="noopener noreferrer">re-baseline debugger with full 5 fixtures</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#30</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/30" target="_blank" rel="noopener noreferrer">sync public docs with cost-observability changes</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#28</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/28" target="_blank" rel="noopener noreferrer">sync public docs and slides with tiered manifest enforcement</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#27</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/27" target="_blank" rel="noopener noreferrer">tiered Skeptic enforcement for module manifests</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#18</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/18" target="_blank" rel="noopener noreferrer">demote module-manifest enforcement to Suggestion</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#17</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/17" target="_blank" rel="noopener noreferrer">extract multi-dev coordination</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-04-29</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#16</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/16" target="_blank" rel="noopener noreferrer">tighten Open Questions definition (auto-harness +0.085)</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Documentation</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#15</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/15" target="_blank" rel="noopener noreferrer">scorer ceiling audit 2026-04-29</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#14</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/14" target="_blank" rel="noopener noreferrer">re-baseline 8 command-mode components after Tier 2 auth fix</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-04-28</h2>
+        <h3 class="cl-section-heading">Features</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#10</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/10" target="_blank" rel="noopener noreferrer">auto-inject session context and memory via @-imports</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#8</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/8" target="_blank" rel="noopener noreferrer">add context-mode guidance to code-standards</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#12</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/12" target="_blank" rel="noopener noreferrer">preserve Claude CLI auth in Tier 2 HOME redirect</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#9</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/9" target="_blank" rel="noopener noreferrer">ensure rules files always load via @ imports (Claude Code) and add missing module-manifest to Codex</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#5</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/5" target="_blank" rel="noopener noreferrer">claude install script error</a></span>
+            <span class="cl-author">tristanlee85</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Maintenance</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#13</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/13" target="_blank" rel="noopener noreferrer">update MEMORY.md after Tier 2 auth fix</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#11</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/11" target="_blank" rel="noopener noreferrer">move compression-state.json from .claude/ to .agentic/</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#7</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/7" target="_blank" rel="noopener noreferrer">tighten confidence calibration, enforce structure, and mandate location citations</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+          <li>
+            <span class="cl-pr-badge">#6</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/6" target="_blank" rel="noopener noreferrer">security-auditor: tighten Critical definition and prohibit severity inflation</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-04-23</h2>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#4</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/4" target="_blank" rel="noopener noreferrer">Add local update script</a></span>
+            <span class="cl-author">tristanlee85</span>
+          </li>
+        </ul>
+      </div>
+      <div class="section">
+        <h2 class="cl-date-heading">2026-04-08</h2>
+        <h3 class="cl-section-heading">Fixes</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#1</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/1" target="_blank" rel="noopener noreferrer">Cursor script bash syntax for namerefs</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+        <h3 class="cl-section-heading">Uncategorized</h3>
+        <ul class="cl-list">
+          <li>
+            <span class="cl-pr-badge">#2</span>
+            <span class="cl-pr-title"><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/2" target="_blank" rel="noopener noreferrer">Add QA gate: post-Skeptic browser verification for UI changes</a></span>
+            <span class="cl-author">tyson-solara6</span>
+          </li>
+        </ul>
+      </div>
+</main>
+
+</body>
+</html>
