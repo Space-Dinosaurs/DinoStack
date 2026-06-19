@@ -49,12 +49,12 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 | Task type | Agent type to spawn |
 |---|---|
 | Code implementation, file changes, synthesis | `general-purpose` Worker |
-| Pure shell operations, no subagent spawning needed | `bash` agent |
+| Pure shell / git operations, low-risk | Conductor-direct (Bash tool) - no shell-only agent type exists |
 | Codebase exploration, reading many files | `general-purpose` Worker |
 | Web research, doc reading, analysis | `general-purpose` Worker |
 | Multi-step investigation with possible follow-up | `general-purpose` Worker |
 
-**Critical constraint:** Bash agents cannot spawn subagents — they do not have access to the spawn (`Agent`) tool. For implementation tasks that will go through Skeptic review, always use a general-purpose Worker. Bash agents lack the file and code tools needed to do substantive implementation work. Using a Bash agent for implementation tasks silently degrades output quality rather than failing explicitly.
+**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent. For implementation tasks that will go through Skeptic review, use a `general-purpose` Worker (or the appropriate named agent). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
 
 **When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
 
@@ -215,10 +215,10 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Task involves code or file changes | `general-purpose` Worker (Skeptic Protocol applies) |
 | Task may require spawning further subagents | `general-purpose` Worker |
 | Task involves synthesis, planning, research | `general-purpose` Worker |
-| Task is pure shell with no side-effect ambiguity and no subagent spawning possible | `bash` agent |
+| Task is low-risk pure shell / git, no delegation needed | Conductor-direct (Bash tool) - no shell-only agent type exists |
 | Multi-file codebase exploration | `general-purpose` Worker |
 
-**Never assign a task to a Bash agent if the task involves code changes, file synthesis, or substantive implementation work.** Bash agents lack the file and code tools needed for this work. For any implementation task that will go through Skeptic review, use a general-purpose Worker.
+**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to `general-purpose` or the appropriate named agent, never treat it as "just a shell command" to escape review.
 
 ---
 
@@ -354,7 +354,7 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 **Sequential when parallel is possible** — Spawning subagent B after waiting for subagent A when B does not depend on A's output. Multiplies elapsed time unnecessarily.
 
-**Bash agents for implementation tasks** — Assigning a Bash agent to any task involving code, file changes, or synthesis. Bash agents lack file and code tools needed for substantive implementation, and cannot spawn subagents for follow-up. The failure is silent degradation, not an explicit error.
+**Treating risky shell/git as conductor-direct to dodge review** - Running a shell or git operation that carries Elevated risk signals (writes to shared state, irreversible ops, multi-file effects) directly in the conductor instead of delegating to a Worker with Skeptic review. Low-risk shell/git is correctly conductor-direct; the anti-pattern is using "it's just a shell command" to escape the risk table. There is no shell-only agent type to misuse - the failure mode is now under-reviewing direct execution, not mis-routing to a degraded agent.
 
 **Main agent doing implementation work** — The main agent writing code, editing multiple files, or running multi-step investigations inline rather than delegating. Violates the conductor principle and bypasses The Skeptic Protocol review gate.
 
