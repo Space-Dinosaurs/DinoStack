@@ -1101,10 +1101,10 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`.
 
-**Telemetry emit (V1):** Bracket the Skeptic Task tool call with:
+**Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
 agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'"}'
-# ... Task tool call ...
+# ... Agent tool call ...
 # After return, parse subagent transcript for tokens/wall_seconds:
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
@@ -1200,7 +1200,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 - The branch name and repo path
 - Instruction to run `$QUALITY_CMD` before finishing
 
-**Telemetry emit (V1):** Bracket the Engineer Task tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
+**Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
@@ -1318,7 +1318,7 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
-**Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+**Telemetry emit (V1):** Bracket the QA `Agent` tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
 ```
 ## Prior QA failures
@@ -1360,7 +1360,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 

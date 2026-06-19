@@ -103,7 +103,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification. On Claude Code this rule is enforced by a `PreToolUse` hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that denies any `Task` spawn lacking `run_in_background: true` (except documented foreground-exempt agents like `wrap-ticket`, which must block on `wrap.lock` before Phase 12 cleanup proceeds) and feeds the reason back so the conductor re-issues the call correctly; other adapters rely on the prose rule until equivalent enforcement lands.
+**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, subagents are spawned via the `Agent` tool and run in the background by default - there is no foreground/background param to set and no harness-level gate to enforce, so this rule is upheld by conductor discipline, not by a hook. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated.
 
@@ -1889,7 +1889,7 @@ Before writing any entry, run the three-step check from
 ### Spawning learnings-agent
 
 When `Capture: MUST` is declared, the conductor spawns `learnings-agent` in the
-background with `run_in_background: true`. Before spawning, check
+background (the harness default). Before spawning, check
 `.agentic/learnings-agent.session`; if present and its `session_id` matches the
 current session, the agent is already active - send the event message to the running
 agent rather than re-spawning.
@@ -2141,8 +2141,8 @@ Performance: Standard.
 
 (Cost & latency observability; see `bin/agentic-emit`, `bin/agentic-parse-subagent-usage`, `bin/agentic-cost`.)
 
-- `spawn_start`: emitted by the conductor immediately before a Task tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, `agent_id: null` (Claude Code assigns the agent id after the Task returns), and `session_uuid` (see below).
-- `spawn_complete`: emitted by the conductor immediately after a Task tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), `status`, and `session_uuid` (see below).
+- `spawn_start`: emitted by the conductor immediately before an `Agent` tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, `agent_id: null` (Claude Code assigns the agent id after the `Agent` spawn returns), and `session_uuid` (see below).
+- `spawn_complete`: emitted by the conductor immediately after an `Agent` tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), `status`, and `session_uuid` (see below).
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
 - `conductor_direct`: emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carries `wall_seconds`, a `note`, and `session_uuid` (see below); tokens are zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
@@ -2968,7 +2968,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 ## 2. The Core Loop
 
-**Architecture note:** Workers cannot spawn subagents — the Task tool is available only to the main (primary) session agent. This means the Skeptic loop is orchestrated by the main agent, not the Worker. Workers implement and return; the main agent handles review.
+**Architecture note:** Workers cannot spawn subagents - the spawn (`Agent`) tool is available only to the main (primary) session agent. This means the Skeptic loop is orchestrated by the main agent, not the Worker. Workers implement and return; the main agent handles review.
 
 ### Step-by-step
 
@@ -3771,7 +3771,7 @@ Background tasks free the main agent immediately. The main agent gives the user 
 
 **Independent tasks spawn simultaneously in a single message, not sequentially.**
 
-When decomposing a request into multiple subtasks, if tasks A, B, and C are independent — meaning B does not depend on A's output and C does not depend on B's output — spawn all three in the same message as separate Task invocations. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
+When decomposing a request into multiple subtasks, if tasks A, B, and C are independent — meaning B does not depend on A's output and C does not depend on B's output — spawn all three in the same message as separate `Agent` tool calls. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
@@ -3799,11 +3799,11 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 | Web research, doc reading, analysis | `general-purpose` Worker |
 | Multi-step investigation with possible follow-up | `general-purpose` Worker |
 
-**Critical constraint:** Bash agents cannot spawn subagents — they do not have access to the Task tool. For implementation tasks that will go through Skeptic review, always use a general-purpose Worker. Bash agents lack the file and code tools needed to do substantive implementation work. Using a Bash agent for implementation tasks silently degrades output quality rather than failing explicitly.
+**Critical constraint:** Bash agents cannot spawn subagents — they do not have access to the spawn (`Agent`) tool. For implementation tasks that will go through Skeptic review, always use a general-purpose Worker. Bash agents lack the file and code tools needed to do substantive implementation work. Using a Bash agent for implementation tasks silently degrades output quality rather than failing explicitly.
 
 **When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
 
-**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Task` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Task` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; and qa-engineer's `.agentic/qa.md` append uses Bash redirection, not `Write`, so the deny does not affect it.)
+**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; and qa-engineer's `.agentic/qa.md` append uses Bash redirection, not `Write`, so the deny does not affect it.)
 
 ### Rule 5 — The Skeptic Protocol is orchestrated by the main agent
 
@@ -3912,7 +3912,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Two-question structure:** First, determine whether to delegate (consult the table below). Second, determine whether to background (apply the background rule). These are independent questions evaluated in sequence.
 
-**Background rule (evaluated after the delegation decision, mandatory for all delegated work):** All delegated tasks run with `run_in_background: true`. Foreground is permitted only for direct-action cases (Rule 7). This applies to every row below that results in "Spawn subagent." Background is not a row at the bottom of the table — it is a mandatory modifier on all delegated work.
+**Background rule (evaluated after the delegation decision, mandatory for all delegated work):** All delegated tasks run in the background (the harness default for `Agent` spawns). Foreground is permitted only for direct-action cases (Rule 7). This applies to every row below that results in "Spawn subagent." Background is not a row at the bottom of the table - it is a mandatory modifier on all delegated work.
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
@@ -4027,36 +4027,36 @@ At no point in this sequence does the main agent become an implementer. All step
 
 ### The rule
 
-When spawning two or more agents that will write to the same git repository simultaneously, always pass `isolation: "worktree"` in the Task tool call.
+When spawning two or more agents that will write to the same git repository simultaneously, always pass `isolation: "worktree"` in the `Agent` tool call.
 
 ### Why
 
-Git's working tree is shared state. When two agents run concurrently in the same directory and either agent runs `git checkout` or `git checkout -b`, it moves the working tree to a different branch — overwriting whatever the other agent has staged or modified. The second agent then reads, modifies, or commits files from the wrong branch. This is not a recoverable situation mid-run; the working tree state is silently corrupted.
+Git's working tree is shared state. When two agents run concurrently in the same directory and either agent runs `git checkout` or `git checkout -b`, it moves the working tree to a different branch - overwriting whatever the other agent has staged or modified. The second agent then reads, modifies, or commits files from the wrong branch. This is not a recoverable situation mid-run; the working tree state is silently corrupted.
 
 Worktree isolation gives each agent its own copy of the repo at a separate filesystem path on its own branch. The agents do not share a working directory, so concurrent checkouts cannot interfere.
 
 ### How
 
-Pass `isolation: "worktree"` in the Task tool call when spawning parallel agents:
+Pass `isolation: "worktree"` in the `Agent` tool call when spawning parallel agents:
 
 ```
-Task(
+Agent(
   prompt="...",
   isolation="worktree"
 )
 ```
 
-The Task tool creates a temporary git worktree for the agent to work in — an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
+The `Agent` tool creates a temporary git worktree for the agent to work in - an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
 
 ### Nested repo caveat
 
-`isolation: "worktree"` requires Claude Code to be running inside the correct git repo root. If the project directory is nested inside a parent git repo, the Task tool may walk up the directory tree and resolve to the parent repo instead — causing worktree creation to fail even though the project directory has its own `.git`.
+`isolation: "worktree"` requires Claude Code to be running inside the correct git repo root. If the project directory is nested inside a parent git repo, the `Agent` tool may walk up the directory tree and resolve to the parent repo instead - causing worktree creation to fail even though the project directory has its own `.git`.
 
 **Symptom:** `isolation: "worktree"` fails with "Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured" even though Claude Code is launched from within the project directory.
 
 **Diagnosis:** Run `git rev-parse --show-toplevel` from the project directory and from the parent. If both return different roots, the parent repo is interfering.
 
-**Fix:** Add the project directory to the parent repo's `.gitignore`. This makes git (and the Task tool) treat the project as an independent repo rather than a subdirectory of the parent.
+**Fix:** Add the project directory to the parent repo's `.gitignore`. This makes git (and the `Agent` tool) treat the project as an independent repo rather than a subdirectory of the parent.
 
 ```bash
 # Example: authentic8/ nested inside ~/
@@ -4095,7 +4095,7 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 ## 8. Anti-Patterns
 
-**Foreground blocking** — The most critical anti-pattern. Spawning a subagent without `run_in_background: true` for any delegated task. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
+**Foreground blocking** — The most critical anti-pattern. Spawning delegated work on the foreground/synchronous path when it should run in the background. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
 
 **Sequential when parallel is possible** — Spawning subagent B after waiting for subagent A when B does not depend on A's output. Multiplies elapsed time unnecessarily.
 
@@ -4325,9 +4325,9 @@ Named specialist agents available for delegation. Spawn via `delegate_task` or u
 name: adr-drift-detector
 description: Audits codebase compliance against Architecture Decision Records (ADRs). Invoke when the user mentions ADR compliance, architecture drift, "does code match ADRs", architectural audit, or wants to verify decisions are being followed. Automatically finds ADRs, extracts decisions, searches code for evidence, and produces a structured drift report.
 tools: Read, Bash, Grep, Glob
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -4841,7 +4841,7 @@ Your work is complete when:
 name: architect
 description: Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -4853,7 +4853,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -5087,7 +5087,7 @@ Runs at Tier 3 because grill mode demands the widest design-question aperture; s
 name: debugger
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -5104,7 +5104,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -5199,7 +5199,7 @@ Use this exact structure:
 name: dependency-auditor
 description: Supply-chain review specialist. Spawn when the user says "audit our dependencies", "is this upgrade safe", "any CVEs in our lockfile", "check license compliance", "review this new dependency", "do we have vulnerable packages", or "check our supply chain". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -5220,7 +5220,7 @@ capabilities:
       check: "command -v cargo"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -5633,7 +5633,7 @@ See `content/references/frontend-discipline.md` for full rules and canonical vio
 name: investigator
 description: Codebase investigation agent. Spawn when you need to understand code before deciding how to change it - tracing data flow, mapping blast radius, understanding feature behavior without a stack trace, or exploring an unfamiliar area. Returns a structured investigation brief the conductor can hand directly to architect or engineer. Does NOT implement changes or write to disk.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -5645,7 +5645,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -6182,7 +6182,7 @@ The only files you may write are:
 name: orchestration-planner
 description: Agent team composition planner. Spawn when you have a complex goal or task and need to determine the optimal combination of agents, their sequencing, handoff points, and parallelization strategy before executing. Use when the right agent team is not obvious, when multiple phases are involved, when a high-level requirement needs decomposing into a concrete execution plan, or when you want to avoid costly mid-task reclassification. Returns a structured orchestration plan the conductor can execute directly. Does not implement anything - planning only.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -6191,7 +6191,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -6397,7 +6397,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 name: perf-analyst
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -6415,7 +6415,7 @@ capabilities:
       install_hint: "see k6 install docs at https://k6.io/docs/get-started/installation/"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -6592,7 +6592,7 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 name: qa-engineer
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -6629,7 +6629,7 @@ capabilities:
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -7775,7 +7775,7 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 name: security-auditor
 description: Specialized security reviewer. Spawn when a deep, threat-model-driven security audit is needed on code changes. Applies OWASP Top 10 and CWE-category analysis systematically, assumes a capable attacker, and produces a structured findings report with severity ratings, specific code locations, and remediation guidance. The spawn prompt provides the files or code to audit, the security domain, and any known prior mitigations.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -7789,7 +7789,7 @@ capabilities:
       install_hint: "pip install semgrep"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -7897,7 +7897,7 @@ Use this exact structure. Do not paraphrase the section headers.
 name: skeptic
 description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a "## Global-context inputs" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format.
 tools: Read, Grep, Glob, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -7906,7 +7906,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -10588,10 +10588,10 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`.
 
-**Telemetry emit (V1):** Bracket the Skeptic Task tool call with:
+**Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
 agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'"}'
-# ... Task tool call ...
+# ... Agent tool call ...
 # After return, parse subagent transcript for tokens/wall_seconds:
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
@@ -10687,7 +10687,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 - The branch name and repo path
 - Instruction to run `$QUALITY_CMD` before finishing
 
-**Telemetry emit (V1):** Bracket the Engineer Task tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
+**Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
@@ -10805,7 +10805,7 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
-**Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+**Telemetry emit (V1):** Bracket the QA `Agent` tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
 ```
 ## Prior QA failures
@@ -10847,7 +10847,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
@@ -12812,7 +12812,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 ## Your job (main agent)
 
-**Immediately** spawn a background `general-purpose` Worker (`run_in_background: true`). Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
+**Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
 **Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (auto-injected by Claude Code at startup). Pass this path to the Worker as `$MEMORY_PATH`.
 
@@ -13672,7 +13672,7 @@ You drive the loop. Do not implement the task yourself.
 
 ## Step 1 - Spawn the Worker
 
-Spawn a **background general-purpose Task** (`run_in_background: true`) with this prompt (fill in bracketed sections):
+Spawn a **background general-purpose subagent via the `Agent` tool** with this prompt (fill in bracketed sections):
 
 ---
 You are a Worker agent. Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
@@ -13692,7 +13692,7 @@ Implement the task fully. Return your complete output. If your output is large, 
 
 ## Step 2 - Spawn the Skeptic
 
-When the Worker returns, spawn a **background general-purpose Task** (`run_in_background: true`) using the `skeptic` agent with this prompt (fill in bracketed sections):
+When the Worker returns, spawn a **background general-purpose subagent via the `Agent` tool** using the `skeptic` agent with this prompt (fill in bracketed sections):
 
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
@@ -13726,7 +13726,7 @@ If Critical or Major findings remain: proceed to Step 4.
 
 ## Step 4 - Route findings to a Worker
 
-Spawn a **background general-purpose Task** (`run_in_background: true`) with:
+Spawn a **background general-purpose subagent via the `Agent` tool** with:
 
 - The original task
 - The Skeptic's findings (verbatim)

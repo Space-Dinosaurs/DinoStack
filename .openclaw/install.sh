@@ -362,6 +362,4 @@ echo "Configuration:"
 echo "  Activation config: $AE_CONFIG_PATH"
 echo "  Global AGENTS.md:  ~/.openclaw/AGENTS.md"
 echo ""
-echo "Note: OpenClaw markdown hooks fire on lifecycle/command events only."
-echo "      The enforce-background-spawn PreToolUse safety net has no OpenClaw"
-echo "      equivalent. See .openclaw/README.md for details."
+

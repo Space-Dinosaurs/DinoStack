@@ -2,7 +2,7 @@
 name: dependency-auditor
 description: Supply-chain review specialist. Spawn when the user says "audit our dependencies", "is this upgrade safe", "any CVEs in our lockfile", "check license compliance", "review this new dependency", "do we have vulnerable packages", or "check our supply chain". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -23,7 +23,7 @@ capabilities:
       check: "command -v cargo"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 

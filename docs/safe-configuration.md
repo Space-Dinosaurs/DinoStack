@@ -63,11 +63,9 @@ work does not stall.
 
 ## Hooks
 
-DinoStack ships PreToolUse hooks in [`hooks/`](../hooks/), wired into
+DinoStack ships hooks in [`hooks/`](../hooks/), wired into
 `~/.claude/settings.json` by the installer:
 
-- [`enforce-background-spawn.py`](../hooks/enforce-background-spawn.py) - denies
-  a subagent spawn that lacks `run_in_background: true`.
 - [`enforce-askuserquestion-default.py`](../hooks/enforce-askuserquestion-default.py)
   - denies a co-equal multiple-choice prompt with no recommended default.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`

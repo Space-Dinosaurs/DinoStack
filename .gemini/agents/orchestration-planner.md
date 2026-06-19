@@ -2,7 +2,7 @@
 name: orchestration-planner
 description: Agent team composition planner. Spawn when you have a complex goal or task and need to determine the optimal combination of agents, their sequencing, handoff points, and parallelization strategy before executing. Use when the right agent team is not obvious, when multiple phases are involved, when a high-level requirement needs decomposing into a concrete execution plan, or when you want to avoid costly mid-task reclassification. Returns a structured orchestration plan the conductor can execute directly. Does not implement anything - planning only.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 kind: local
 ---
 
@@ -12,7 +12,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 

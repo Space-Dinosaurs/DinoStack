@@ -399,43 +399,11 @@ else:
     })
     print(f"  + Added Stop hook: {STOP_CMD}")
 
-# ---- PreToolUse background-spawn enforcement hook ---------------------------
-ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
-
-ptu_list = hooks.setdefault("PreToolUse", [])
-
-# Find or create a matcher "Task" block
-ptu_task = None
-for block in ptu_list:
-    if block.get("matcher") == "Task":
-        ptu_task = block
-        break
-
-if ptu_task is None:
-    ptu_task = {"matcher": "Task", "hooks": []}
-    ptu_list.append(ptu_task)
-
-ptu_task.setdefault("hooks", [])
-
-already_has_enforce_bg = any(
-    "enforce-background-spawn" in entry.get("command", "")
-    for entry in ptu_task["hooks"]
-)
-
-if already_has_enforce_bg:
-    print("  = PreToolUse background-spawn enforcement hook already present")
-else:
-    ptu_task["hooks"].append({
-        "type": "command",
-        "command": ENFORCE_BG_CMD,
-        "timeout": 5
-    })
-    print("  + Added PreToolUse background-spawn enforcement hook")
-
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
+ptu_list = hooks.setdefault("PreToolUse", [])
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
 
-# Find or create a SEPARATE matcher "AskUserQuestion" block (not the Task block).
+# Find or create a matcher "AskUserQuestion" block.
 ptu_auq = None
 for block in ptu_list:
     if block.get("matcher") == "AskUserQuestion":
