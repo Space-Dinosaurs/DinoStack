@@ -37,7 +37,7 @@ Failure modes:
   Phase 12 or PR completion.
 - JSON parse failure (bad return shape): conductor warns and proceeds with no
   appends.
-- Lock contention: if .agentic/wrap.lock is held by another session (e.g., /wrap
+- Lock contention: if .agentic/wrap/lock is held by another session (e.g., /wrap
   is running concurrently), return immediately with skipped_reason set to
   "wrap-lock-contention" and writer_actions: [].
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
@@ -64,7 +64,7 @@ You are a **constrained automated subset of `/wrap`**. The differences are inten
 | Skeptic review | None | Required |
 | Rolling session labels | None | Yes (5-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
-| Lock | `.agentic/wrap.lock` (shared with /wrap) | `.agentic/wrap.lock` (shared with wrap-ticket) |
+| Lock | `.agentic/wrap/lock` (shared with /wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
 You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only).
@@ -91,12 +91,12 @@ Your spawn prompt provides the following inputs (all required unless noted):
 
 ### 1. Acquire the wrap lock
 
-Before any read or write, attempt to acquire `.agentic/wrap.lock`:
+Before any read or write, attempt to acquire `.agentic/wrap/lock`:
 
 ```bash
-mkdir -p .agentic
-mkdir .agentic/wrap.lock 2>/dev/null && {
-  printf '%s\\n%s\\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap.lock/owner
+mkdir -p .agentic/wrap
+mkdir .agentic/wrap/lock 2>/dev/null && {
+  printf '%s\\n%s\\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap/lock/owner
 } || {
   # Lock is held by another session (likely /wrap). Return immediately with
   # skipped_reason: "wrap-lock-contention" and writer_actions: [].
@@ -118,7 +118,7 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 }
 ```
 
-**Lock release is mandatory on every exit path.** Before returning, run `rm -rf .agentic/wrap.lock` regardless of whether the run succeeded, partially succeeded, or skipped.
+**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `agentic-wrap-release-lock`) at /implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
 
 ### 2. Read the inputs
 
@@ -206,7 +206,7 @@ Otherwise leave `size_advisory: null`.
 
 ### 7. Release the lock
 
-`rm -rf .agentic/wrap.lock`. This is mandatory on every exit path.
+The conductor releases the lock (via `agentic-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
 ### 8. Return
 
@@ -264,7 +264,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to context.md - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** Every exit path runs `rm -rf .agentic/wrap.lock`.
+- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.

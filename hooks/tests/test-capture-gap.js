@@ -60,9 +60,24 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 // in a function that overrides run before the bottom-of-file call fires.
 // The shim replaces the trailing `run();` call with a no-op so the hook
 // doesn't actually read stdin during test setup.
+//
+// The shim is written to os.tmpdir() and require()d from there, so the hook's
+// relative `require('./lib/wrap-marker.js')` (added when stop-context.js was
+// extended to delegate marker/lock/heartbeat state to hooks/lib/wrap-marker.js)
+// cannot resolve from /tmp. Rewrite that one relative require to an absolute
+// path to the REAL hooks/lib/wrap-marker.js before writing the shim, so the
+// shimmed copy still loads the real lib (no behavior change, just resolution).
+const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const shimmedSource = hookSource
   // Replace the final bare `run();` call so the hook doesn't try to read stdin.
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
+  // Re-anchor the relative lib require to an absolute path to the real lib so the
+  // shim resolves it from /tmp. JSON.stringify yields a correctly-escaped literal
+  // on every platform (backslashes on Windows, etc.).
+  .replace(
+    /require\(['"]\.\/lib\/wrap-marker\.js['"]\)/,
+    `require(${JSON.stringify(libMarkerAbs)})`
+  )
   + `\n
 // Expose helpers for unit tests via a module-level export shim.
 // This block is appended by the test loader.
@@ -74,6 +89,17 @@ if (typeof module !== 'undefined') {
   };
 }
 `;
+
+// Fail loudly if the re-anchor did not fire (e.g. the source's require text
+// changed form). Without this, a missed rewrite reverts to an opaque
+// MODULE_NOT_FOUND crash at require() time from /tmp.
+if (/require\(['"]\.\/lib\//.test(shimmedSource)) {
+  console.error(
+    '  FATAL: a relative ./lib/ require survived the shim re-anchor - update the '
+    + 'rewrite in test-capture-gap.js so the /tmp shim can resolve it.'
+  );
+  process.exit(1);
+}
 
 // Write shim to a temp file and require it.
 const tmpShimPath = path.join(os.tmpdir(), `stop-context-shim-${Date.now()}.js`);

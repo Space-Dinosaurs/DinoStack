@@ -30,7 +30,7 @@ Failure modes:
       to model. Only boolean True is accepted as the allow signal.
     - Foreground-exempt subagent_type (FOREGROUND_EXEMPT): allow regardless of
       run_in_background - these agents have a documented blocking-ordering
-      requirement (e.g. wrap-ticket holds .agentic/wrap.lock).
+      requirement (e.g. wrap-ticket holds .agentic/wrap/lock).
     - Older Claude Code versions (pre-permissionDecision support, issue #4669):
       if a future version ignores permissionDecision: deny, switch to exit 2 with
       the reason on stderr as the fallback enforcement path.
@@ -42,7 +42,7 @@ import json
 import sys
 
 # Documented foreground-exempt agents. wrap-ticket runs foreground/blocking
-# in /implement-ticket Phase 11b: it holds .agentic/wrap.lock and MUST complete
+# in /implement-ticket Phase 11b: it holds .agentic/wrap/lock and MUST complete
 # before Phase 12 cleanup, so it cannot be forced to background. This is the
 # only methodology-sanctioned foreground Task spawn. Add others here only with
 # an equivalent documented blocking-ordering requirement.
