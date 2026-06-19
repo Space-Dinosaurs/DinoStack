@@ -35,7 +35,7 @@ fi
 **Routing logic (first match wins):**
 
 1. If `AE_REPO_DIR` is non-empty AND `git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1` succeeds -> **UPDATE-FLOW** against `AE_REPO_DIR`.
-2. Else, check the conventional fallback `$HOME/agentic-engineering`: if `git -C "$HOME/agentic-engineering" rev-parse --git-dir >/dev/null 2>&1` succeeds, treat it as **UPDATE-FLOW** against `$HOME/agentic-engineering` (the config entry may be stale or missing).
+2. Else, check the conventional fallback `$HOME/DinoStack`: if `git -C "$HOME/DinoStack" rev-parse --git-dir >/dev/null 2>&1` succeeds, treat it as **UPDATE-FLOW** against `$HOME/DinoStack` (the config entry may be stale or missing).
 3. Else -> **FRESH-CLONE-FLOW**.
 
 Report the detected route to the user before proceeding: "Detected existing install at `<path>` - running update flow." or "No existing install found - running fresh install."
@@ -61,7 +61,7 @@ saved_adapters = config.get("adapters", {})
 
 ### 1a - Adapters
 
-Discover available adapters by scanning the resolved repo directory (UPDATE-FLOW) or `$HOME/agentic-engineering` placeholder note for FRESH-CLONE-FLOW (adapters are discovered after clone; proceed with saved adapter config as the default selection and re-confirm after clone lands).
+Discover available adapters by scanning the resolved repo directory (UPDATE-FLOW) or `$HOME/DinoStack` placeholder note for FRESH-CLONE-FLOW (adapters are discovered after clone; proceed with saved adapter config as the default selection and re-confirm after clone lands).
 
 Adapter discovery logic (mirrors `update.js` exactly - use for UPDATE-FLOW; apply same logic post-clone for FRESH-CLONE-FLOW):
 
@@ -301,7 +301,7 @@ If the config write fails, warn the user (non-fatal) and continue.
 Done.
 
   Flow: UPDATE | FRESH INSTALL
-  Repo: /path/to/agentic-engineering
+  Repo: /path/to/DinoStack
   Commits pulled: N  (or "already up to date" / "fresh install")
   Adapters installed: Claude, Codex
   Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)
