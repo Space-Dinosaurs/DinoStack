@@ -1,13 +1,13 @@
 ---
 name: cleanup-worktrees
-description: "Clean up stale git worktrees and local branches in the current repository."
+description: "Clean up stale git worktrees and local branches in the current repository. Covers both worktree removal and local branch prune - see `content/references/worktree-lifecycle.md` §Branch prune for the ca"
 user-invocable: true
 ---
 # /cleanup-worktrees
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Clean up stale git worktrees and local branches in the current repository.
+Clean up stale git worktrees and local branches in the current repository. Covers both worktree removal and local branch prune - see `content/references/worktree-lifecycle.md` §Branch prune for the canonical branch-prune command block.
 
 Use proactively after finishing a task, when a PR is merged, when worktrees are accumulating, or any time you want to confirm the repo is in a clean state. Also invoke when the user says "prune worktrees", "clean up branches", "tidy the repo", or "remove stale worktrees". Works in any git repo.
 
@@ -90,15 +90,9 @@ git branch -D <branch-name>
 
 ---
 
-## Step 5: Prune stale isolation branches
+## Step 5: Prune stale local branches
 
-Remove any `worktree-agent-*` local branches that are not checked out in any active worktree (orphaned from already-deleted worktrees):
-
-```bash
-git branch | grep 'worktree-agent-' | sed 's/^[+* ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
-done
-```
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)`. It targets three classes of stale local branch with safe signals only - branches with no upstream and not merged into `origin/main` are left alone and reported to the user for manual review.
 
 ---
 
