@@ -31,7 +31,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const lib = require('../lib/wrap-marker.js');
 
-const hookScript = path.resolve(__dirname, '..', 'session-end-wrap.js');
+const hookScript = path.resolve(__dirname, '..', 'sessionend.d', '010-session-end-wrap.js');
 if (!fs.existsSync(hookScript)) {
   console.error(`FAIL: hook not found at ${hookScript}`);
   process.exit(1);

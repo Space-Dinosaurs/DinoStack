@@ -27,7 +27,7 @@ const { execSync } = require('child_process');
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-const hookScript = path.resolve(__dirname, '..', 'stop-context.js');
+const hookScript = path.resolve(__dirname, '..', 'stop.d', '010-stop-context.js');
 if (!fs.existsSync(hookScript)) {
   console.error(`FAIL: hook not found at ${hookScript}`);
   process.exit(1);

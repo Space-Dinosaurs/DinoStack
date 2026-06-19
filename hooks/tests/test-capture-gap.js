@@ -53,7 +53,7 @@ const { execSync } = require('child_process');
  * Technique: read source, prepend a shim that registers the helpers on a
  * global, append a post-run no-op, eval in a Module sandbox.
  */
-const hookPath = path.resolve(__dirname, '..', 'stop-context.js');
+const hookPath = path.resolve(__dirname, '..', 'stop.d', '010-stop-context.js');
 const hookSource = fs.readFileSync(hookPath, 'utf8');
 
 // Shim: intercept run() and expose helpers. We do this by wrapping the source
@@ -75,7 +75,7 @@ const shimmedSource = hookSource
   // shim resolves it from /tmp. JSON.stringify yields a correctly-escaped literal
   // on every platform (backslashes on Windows, etc.).
   .replace(
-    /require\(['"]\.\/lib\/wrap-marker\.js['"]\)/,
+    /require\(['"]\.\.\/lib\/wrap-marker\.js['"]\)/,
     `require(${JSON.stringify(libMarkerAbs)})`
   )
   + `\n
@@ -93,9 +93,9 @@ if (typeof module !== 'undefined') {
 // Fail loudly if the re-anchor did not fire (e.g. the source's require text
 // changed form). Without this, a missed rewrite reverts to an opaque
 // MODULE_NOT_FOUND crash at require() time from /tmp.
-if (/require\(['"]\.\/lib\//.test(shimmedSource)) {
+if (/require\(['"]\.\.\/lib\//.test(shimmedSource)) {
   console.error(
-    '  FATAL: a relative ./lib/ require survived the shim re-anchor - update the '
+    '  FATAL: a relative ../lib/ require survived the shim re-anchor - update the '
     + 'rewrite in test-capture-gap.js so the /tmp shim can resolve it.'
   );
   process.exit(1);

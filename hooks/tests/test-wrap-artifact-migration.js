@@ -32,7 +32,7 @@ const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const lib = require('../lib/wrap-marker.js');
 
-const SCRIPT = path.resolve(__dirname, '..', 'session-start-wrap.sh');
+const SCRIPT = path.resolve(__dirname, '..', 'sessionstart.d', '010-session-start-wrap.sh');
 const DEAD_PID = '2147480000';
 
 let passed = 0;
