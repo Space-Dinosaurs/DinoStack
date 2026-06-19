@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="DinoStack" src="docs/images/dinostack-logo-banner.svg" width="360">
+</p>
+
 # DinoStack
 
 A portable package of the agentic engineering protocol for AI-assisted software development. It provides a structured delegation model, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
