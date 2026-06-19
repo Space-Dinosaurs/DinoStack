@@ -65,23 +65,25 @@ def is_agentic_owned(command: str) -> bool:
     """Return True iff the command string is an agentic-engineering hook entry.
 
     Matches on:
-    - The path substring 'agentic-engineering/hooks/'
-    - Any legacy hook basename from the known set
-    - The risk-echo signature substring
-    - The dispatcher path substring 'dino-dispatch.py'
+    - The path substring 'agentic-engineering/hooks/'  (specific enough; no false positives)
+    - Any legacy hook basename, PATH-SEGMENT-ANCHORED: matched only when preceded
+      by '/' or start-of-string, and followed by end-of-string or whitespace.
+      A user hook like '/Users/jane/.claude/hooks/my-stop-context.js' does NOT
+      match because 'my-' precedes the basename with no preceding '/'.
+    - The risk-echo signature substring  (specific enough; no false positives)
+    - The dispatcher basename 'dino-dispatch.py', PATH-SEGMENT-ANCHORED (same rule)
 
-    Does NOT match '*-mika.py' commands or plugin commands (they contain none
-    of the above substrings).
+    Any future hook basename MUST be added to _LEGACY_BASENAMES in the same commit.
     """
     if _PATH_SUBSTRING in command:
         return True
     if _RISK_ECHO_SIGNATURE in command:
         return True
-    if _DISPATCHER_SUBSTRING in command:
-        return True
-    # Check legacy basenames - match as substring to handle full absolute paths
-    for basename in _LEGACY_BASENAMES:
-        if basename in command:
+    # Path-segment-anchored match: basename must follow '/' (or start) and precede
+    # end-of-string or whitespace. This prevents matching user hooks whose filename
+    # merely contains a legacy basename as a substring (e.g. 'my-stop-context.js').
+    for basename in _LEGACY_BASENAMES | {_DISPATCHER_SUBSTRING}:
+        if re.search(r"(^|/)" + re.escape(basename) + r"($|\s)", command):
             return True
     return False
 
