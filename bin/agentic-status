@@ -46,6 +46,8 @@ from pathlib import Path
 
 CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
 SENTINEL_PATH = Path(".agentic/.activated")
+ROLE_MODELS_GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
+ROLE_MODELS_PROJECT_PATH = Path(".agentic/role-models.yml")
 
 PRESET_TABLE = {
     "lean": "relaxed",
@@ -284,6 +286,73 @@ def _profile_behavior_block(profile: str) -> list[str]:
     return lines
 
 
+# Harness env vars: truthy iff any one is set to a non-empty value.
+# Mirrors hooks/role-models-bootstrap.py exactly so the two stay in sync.
+PI_OMP_HARNESS_ENV_VARS = (
+    "PI_HARNESS",
+    "OMP_HARNESS",
+    "OH_MY_PI_HARNESS",
+    "AGENTIC_HARNESS",
+)
+
+
+def _is_pi_omp_harness() -> bool:
+    """Best-effort runtime gate for Pi / oh-my-pi status-only reporting."""
+    return any(os.environ.get(k, "") for k in PI_OMP_HARNESS_ENV_VARS)
+
+
+def _role_models_status_block() -> list[str]:
+    """Return read-only role-model routing status lines."""
+    project_exists = ROLE_MODELS_PROJECT_PATH.is_file()
+    global_exists = ROLE_MODELS_GLOBAL_PATH.is_file()
+    if not (project_exists or global_exists or _is_pi_omp_harness()):
+        return []
+
+    lines = [""]
+    if not (project_exists or global_exists):
+        lines.append("Role-model routing (Pi/omp): not configured (Pi uses session defaults).")
+        return lines
+
+    effective = ROLE_MODELS_PROJECT_PATH if project_exists else ROLE_MODELS_GLOBAL_PATH
+    try:
+        text = effective.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+
+    strategy = "unset"
+    m = re.search(r"(?m)^[ \t]{2}strategy:\s*([^#\n]+)", text)
+    if m:
+        strategy = m.group(1).strip().strip("'\"")
+
+    role_count = 0
+    in_roles = False
+    for line in text.splitlines():
+        if re.match(r"^roles:\s*(?:#.*)?$", line) or re.match(r"^roles:\s*#", line):
+            in_roles = True
+            continue
+        if in_roles:
+            if re.match(r"^[A-Za-z0-9_-]+:\s*", line):
+                break
+            if re.match(r"^\s{2}[A-Za-z0-9_-]+:\s*\S+", line):
+                role_count += 1
+
+    sources = []
+    if project_exists:
+        sources.append(str(ROLE_MODELS_PROJECT_PATH))
+    if global_exists:
+        sources.append(str(ROLE_MODELS_GLOBAL_PATH))
+
+    lines.append("Role-model routing (Pi/omp): active")
+    lines.append(f"  reviewers.strategy: {strategy}")
+    lines.append(f"  roles entries: {role_count}")
+    lines.append(f"  source file(s): {', '.join(sources)}")
+    lines.append("  How to adjust: Edit ~/.agentic/role-models.yml (or .agentic/role-models.yml); see content/references/role-models.md.")
+    bootstrap = Path(os.path.expanduser("~/.agentic/.role-models-bootstrap"))
+    if bootstrap.is_file():
+        lines.append("  bootstrap sentinel: present (pre-prompt hook has run at least once)")
+    return lines
+
+
 def _how_to_adjust_block(resolved: dict) -> list[str]:
     """Return the 'How to adjust' explainer lines.
 
@@ -334,6 +403,7 @@ def main(_argv: list[str]) -> int:
     out.append(f"  marker: {res['marker']}")
     out.append(f"  active: {active_display} ({res['active_reason']})")
     out.append(f"  sentinel: {SENTINEL_PATH} ({sentinel_status})")
+    out.extend(_role_models_status_block())
     out.append("")
     out.append("What this means")
     active_sentence = (

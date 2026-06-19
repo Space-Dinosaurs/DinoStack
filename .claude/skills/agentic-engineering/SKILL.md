@@ -59,7 +59,12 @@ Run `/agentic-help` for the full command inventory.
   change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
   the affected docs in the same change; read when a change touches a documented surface.
 
-## Rules (read on trigger)
+- **references/role-models.md** - Pi / oh-my-pi per-role model routing and antagonist
+  reviewer model diversity; read when resolving `role-models.yml` or spawning reviewers on Pi/omp.
+
+- **references/model-discovery.md** - Pi/oh-my-pi harness probe protocol used by
+  `bin/agentic-models` to rank models per role; read when seeding
+  `role-models.yml` or writing the bootstrap hook.
 
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;
   read when creating or substantially modifying a file that exports a public symbol, exceeds ~50

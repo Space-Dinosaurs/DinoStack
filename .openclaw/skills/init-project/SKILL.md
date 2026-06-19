@@ -99,11 +99,12 @@ Capture the answer as INIT_PROFILE. Empty (Enter) = "keep current default": INIT
 = null, write NOTHING. Typing 'default' is also a no-op write (do not pin default
 explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE to that value.
 
-**0a-config. Three project settings that change how work gets done (additive; Enter keeps each default).**
+**0a-config. Four project settings that change how work gets done (additive; Enter keeps each default).**
 
-These map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
+Q1-Q3 map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
 captured into a variable substituted into that single seed write - there is no separate
-config write. Empty input keeps the documented default exactly.
+config write. Empty input keeps the documented default exactly. Q4 does not write to
+`config.json`; it gates Step 6g only.
 
 Q1 - Auto-merge on green CI?
 
@@ -138,6 +139,18 @@ Q3 - Diagnose failures with a debugger pass?
   > Press Enter to keep the default (No). Or type y to enable debugger-on-failure.
 
   Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
+
+Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
+
+  > On Pi, the workflow can run each role (architect, engineer, reviewer, ...) on a
+  > model you choose, and run the adversarial reviewer on a DIFFERENT model than the one
+  > that wrote the code - a true antagonist (e.g. an Opus author reviewed by GPT or GLM).
+  > Enabling this seeds an editable `~/.agentic/role-models.yml` you fill in with the
+  > models you have in Pi. Ignored on Claude/Codex/Gemini.
+  >
+  > Press Enter to skip (no routing file; Pi uses session defaults). Or type y to seed it.
+
+  Capture as INIT_ROLEMODELS. Enter / n / no -> skip. y / yes -> seed in Step 6g.
 
 Note: the other config keys (capability preflight, the QA-method toggles, Storybook,
 theme) are left at their safe defaults and detected automatically where relevant. They
@@ -867,6 +880,11 @@ Seed with these documented defaults exactly:
 - `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
+
+
+### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
+
+Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `agentic-engineering` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 
