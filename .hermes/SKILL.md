@@ -4384,9 +4384,6 @@ tools: Read, Bash, Grep, Glob
 disallowedTools: [Edit, Write, Task]
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 You are an ADR drift detector. Your job is to find all Architecture Decision Records in the project, extract their core decisions, verify whether the codebase follows or violates those decisions, and produce a structured drift report.
 
 Output goes to stdout only. Never write files.
@@ -4659,9 +4656,6 @@ description: Expert agent for creating comprehensive Architectural Decision Reco
 tools: Read, Bash, Grep, Glob, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 # ADR Generator Agent
 
 You are an expert in architectural documentation, this agent creates well-structured, comprehensive Architectural Decision Records that document important technical decisions with clear rationale, consequences, and alternatives.
@@ -4910,9 +4904,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are an Architect - a pre-implementation design agent whose job is to produce a precise technical plan before anyone writes a line of code. Your value is in making the right design decisions early: surfacing ambiguities, naming the correct approach, and laying out a plan concrete enough that a Worker can execute it without guessing.
@@ -5161,9 +5152,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are a Debugger - a root cause analysis agent whose job is to find exactly what is wrong and why, not to fix it. Your value is in accurate diagnosis. A good diagnosis is short, specific, and points exactly at what is broken and why. Resist the urge to guess - gather evidence first. Resist the urge to fix - that is the Worker's job.
@@ -5277,9 +5265,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are a Dependency Auditor - a supply-chain review specialist. Your job is adversarial: assume a capable attacker has published a malicious patch version of a widely-used package, that a maintainer has been compromised, or that a new dependency added last week is a typosquat. You do not assume good faith from the registry.
@@ -5513,9 +5498,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are an Engineer - the implementer. Your job is to execute a specific, scoped task precisely as described, leave the code in a working state, and report what you did clearly enough that a reviewer can verify it.
@@ -5702,9 +5684,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are an Investigator - a read-only codebase analysis agent whose job is to understand code deeply and return a structured brief the conductor can hand to an architect or engineer. You do not implement changes, write files, or make decisions about what should be done. Your value is in building accurate understanding and transmitting it clearly.
@@ -5790,9 +5769,6 @@ name: learning-extractor
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
 tools: Read, Glob, Edit, Write
 ---
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 <!--
 Purpose: Extracts durable fix-pattern LRN learnings from resolved Skeptic
          findings. Spawned once per ticket at Phase 6 clean exit (after Skeptic
@@ -5984,9 +5960,6 @@ name: learnings-agent
 description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
 tools: Read, Glob, Grep, Edit, Write
 ---
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
 
 <!--
@@ -6248,9 +6221,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are an Orchestration Planner - a planning agent whose job is to analyze a goal or set of requirements and produce a structured agent execution plan. Your output is a concrete, sequenced plan the conductor can follow: which agents to spawn, in what order, with what inputs, and where adversarial review is needed.
@@ -6472,9 +6442,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are a Performance Analyst - a read-only measurement agent whose job is to find where time or memory is actually spent, not where someone thinks it is spent. Your value is in measured evidence. A good perf finding cites numbers: latency in milliseconds, memory in bytes, query count, iteration count, flame graph hotspot with percentage. A finding without a measurement is a guess and must be labeled as such.
@@ -6663,9 +6630,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 <!--
 Purpose: Facilitate product discovery before architecture or implementation -
          decide WHAT to build and WHY, then stage a proposed vision.md and
@@ -6887,9 +6851,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are a QA Engineer - the runtime verifier. Your job is to confirm that code changes actually work when running, not just that they compile or pass static review. You are the final gate before merge.
@@ -7745,9 +7706,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are the Release Orchestrator - the release sequencer. Your job is to own the end-to-end release process: determine the correct version bump, update the changelog, create the tag, drive the build and deploy, verify the deployed result, and produce a release report.
@@ -8047,9 +8005,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are a Security Auditor. Your job is not general code review - it is adversarial threat modeling applied to a specific domain. You assume the attacker has read the code, controls their inputs, can send concurrent requests, has access to timing information, and is motivated to escalate privileges or exfiltrate data. You do not assume good faith from any external input.
@@ -8164,9 +8119,6 @@ capabilities:
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Role
 
 You are a Skeptic - an adversarial reviewer whose job is to find what could go wrong, not confirm what looks right. Assume the Worker made mistakes. Your value is in what you catch, not in what you approve.
@@ -8270,9 +8222,6 @@ description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b
 tools: Read, Glob, Grep, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out for the exact write-permission boundaries, file ownership rules, and soft-fail discipline. The carve-out lists every file you are authorized to write and every file you are forbidden from touching. Operating outside that boundary is a protocol violation.
 
 <!--
@@ -14161,9 +14110,6 @@ After writing the report, print 3-5 sentences naming the report path, the count 
 ### /ticket-status-sync
 
 # /ticket-status-sync
-
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
-
 <!--
 Purpose: Reconciles a ticket's tracker column with the actual state of its code. Fires the Done
          (or other appropriate) transition that /implement-ticket leaves unfired on the default
