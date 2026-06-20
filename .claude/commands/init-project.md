@@ -1026,6 +1026,8 @@ TODO: what does a successful outcome look like for users?
 
 These files are operator-owned and committed. Architect and Investigator read them when present.
 
+To draft this intent layer instead of writing it by hand, spawn the `product-discovery` agent. It facilitates discovery - frames the problem, names the users (including the counterparty), runs an attributed market scan, and synthesizes a proposed `vision.md` and `requirements.md`. It stages those drafts to `docs/overview/_proposed/` and never writes the canonical `docs/overview/` files; you review, edit, and promote them when they match your intent.
+
 ### 11. Set up tracker
 
 Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.

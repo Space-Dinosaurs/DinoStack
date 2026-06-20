@@ -232,7 +232,7 @@ content/
   references/   18 reference docs (agent-team, skeptic-protocol, qa-gate,
                     capability-preflight, events-log, planning-artifacts, ...)
   commands/     18 command files (implement-ticket, init-project, wrap, brief, ...)
-  agents/       16 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
+  agents/       17 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 ```
 
 Build scripts regenerate adapter files from `content/`. The pre-commit hook runs all 9 adapter builds automatically when `content/` files are staged. Slide `.md` sources have a separate `slides-sync` CI gate: after editing, run `bash scripts/build-slides.sh` and commit the regenerated `.html`.

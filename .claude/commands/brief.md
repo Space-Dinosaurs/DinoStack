@@ -77,6 +77,10 @@ otherwise the conductor proceeds.
 
 Signal must be exploratory framing, not execution. When ambiguous, prefer NOT firing.
 
+### Discovery before brief
+
+When the problem, users, or scope are still fuzzy - or the project has no `docs/overview/vision.md` / `docs/overview/requirements.md` yet - spawn the `product-discovery` agent first. Discovery decides WHAT to build and WHY (the problem, the personas including the counterparty, the market context, the staged vision and requirements); `/brief` and the architect decide HOW. Run discovery, let the operator ratify and promote the staged intent layer, then return to `/brief` to frame the execution. Skip discovery and go straight to `/brief` only when the problem and scope are already clear.
+
 ### PRD handoff express path
 
 If the operator passes a PRD document, the conductor skips intent-capture and jumps to

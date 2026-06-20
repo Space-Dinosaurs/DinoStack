@@ -869,7 +869,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 17, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 19, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -1352,13 +1352,13 @@
   <div style="margin-bottom: 8px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 11 agent roles, 5 composed flows, decision rules, and spawn instructions.</div>
+      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 12 agent roles, 5 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
           <h4 style="color: #b06bff;">The Team</h4>
-          <p class="desc">16 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, release-orchestrator, dependency-auditor, learning-extractor, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">17 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1413,6 +1413,7 @@
       <div class="rel-card">
         <h4 style="color: var(--green);">Planning and Analysis Agents</h4>
         <ul>
+          <li><strong>product-discovery</strong> - facilitated discovery before any architecture work. Reframes a build request to the problem behind it, identifies personas (including the reluctant counterparty), runs an attributed market scan, and stages a proposed <code>vision.md</code> + <code>requirements.md</code> to <code>docs/overview/_proposed/</code>. Never writes the operator-owned canonical intent layer - the operator promotes the drafts. Runs before the architect: discovery decides WHAT and WHY, the architect decides HOW.</li>
           <li><strong>investigator</strong> - traces data flow, maps blast radius, and explores unfamiliar areas. Used when you need to understand code before deciding how to change it. Returns an investigation brief for the conductor to hand to architect or engineer.</li>
           <li><strong>architect</strong> - reads the codebase and produces a structured technical plan before any code is written. Identifies patterns, constraints, and evaluates approaches. Its output MUST be Skeptic-reviewed before any downstream work.</li>
           <li><strong>orchestration-planner</strong> - given a complex goal, maps which agents to spawn, in what order, with what handoffs. Returns a structured execution plan the conductor follows directly. Used when the right agent combination is not obvious. Checks for <code>.agentic/tracking.md</code> (resolver: <code>.agentic/</code> preferred, legacy <code>.claude/</code> fallback) in the project root and follows its instructions when present.</li>
