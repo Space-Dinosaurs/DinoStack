@@ -9,6 +9,8 @@ user-invocable: true
 
 Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/DinoStack`).
 
+**In-repo only.** This command edits files inside the agentic-engineering/DinoStack repo and spawns Workers that run in isolation worktrees. Isolation worktrees are created from the current session's git repo, not from `AE_REPO_DIR` - so running this from a different project corrupts both repos' worktree state and cleanup. Step 0a enforces that the session is rooted in the AE repo; otherwise it writes a handoff doc and stops without editing.
+
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
 - (b) The user says "update the methodology", "change the protocol", "edit the wrap skill", "add an agent", "rename a command", or anything similar that implies changing a file in the agentic-engineering repo.
@@ -34,9 +36,9 @@ Out of scope (direct Edit/Write is fine; normal Trivial/Elevated tiers apply):
 
 Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/`, so they remain IN scope via the `content/**` rule above. This is a clarification, not a separate scope.
 
-## Step 0 - Pre-flight git sync
+## Step 0a - Directory gate (run before Step 0)
 
-Before making any edits, the main agent (not a subagent - git state decisions require main-agent judgment) resolves the repo location and runs the following checks.
+This is the first action of the command, before any git sync or edit. It guarantees the session repo IS the AE repo so that Worker isolation worktrees are created in the correct repo.
 
 **Resolve `AE_REPO_DIR` once at the start of the command - it persists for all subsequent steps in this invocation:**
 
@@ -59,6 +61,70 @@ fi
 ```
 
 Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
+
+**Compare the session repo against `AE_REPO_DIR` by canonical path:**
+
+```bash
+SESSION_REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+AE_REAL="$(cd "$AE_REPO_DIR" 2>/dev/null && pwd -P || true)"
+SESSION_REAL="$(cd "$SESSION_REPO" 2>/dev/null && pwd -P || true)"
+```
+
+Decision:
+
+- **In-repo (`SESSION_REAL` is non-empty AND equals `AE_REAL`):** proceed to Step 0. Worker isolation worktrees will be created in the AE repo, which is correct.
+- **Cross-directory (no git repo, or `SESSION_REAL` does not equal `AE_REAL`):** the gate triggers. Do NOT spawn any Worker, do NOT edit any file, do NOT `cd` into `AE_REPO_DIR` to edit it. Instead:
+  1. Capture the intended change from the user's request: a one-line title, the rationale, the target file(s) under `content/`, and any decisions already made in this session.
+  2. Choose the handoff destination:
+     - If `AE_REAL` is non-empty (the AE repo exists): write to `$AE_REPO_DIR/docs/planning/handoff-<YYYYMMDD-HHMMSS>-<slug>.md`. Create `docs/planning/` with `mkdir -p` if absent; it is local and gitignored per convention, so it never lands in a commit.
+     - If `AE_REAL` is empty (`AE_REPO_DIR` is unreachable or not a git repo - a broken install): do NOT create a phantom directory there. Write the handoff to `$HOME/.agentic/handoff-<YYYYMMDD-HHMMSS>-<slug>.md` instead (`mkdir -p "$HOME/.agentic"`), and include the warning line from step 3 in the redirect message.
+     Derive `<slug>` from the change title (lowercase, hyphenated); derive the timestamp from `date -u +%Y%m%d-%H%M%S`.
+  3. When `AE_REAL` is empty, also include the broken-install warning line shown below. Print the redirect message below and STOP. Do not continue to Step 0.
+
+Note: a git worktree derived from the AE repo (e.g. a path under `AE_REPO_DIR/.agentic/worktrees/`) resolves to its own toplevel, not `AE_REAL`, so it also trips this gate. That is intended: `/update-agentic-engineering` runs from the main checkout at `AE_REPO_DIR`, never from a worktree derived from it.
+
+Handoff doc template:
+
+```markdown
+# Methodology change handoff
+
+- Created: <ISO8601 from `date -u +%Y-%m-%dT%H:%M:%SZ`>
+- From session in: <SESSION_REAL, or "(no git repo)" if empty>
+- Target repo: <AE_REPO_DIR>
+
+## Intended change
+<one-line title>
+
+## Rationale
+<why this change>
+
+## Target files
+- content/...
+
+## Decisions already made
+- <bullets, or "none yet">
+
+## Next step
+Open a Claude Code session rooted in <AE_REPO_DIR> and run `/update-agentic-engineering`, referencing this handoff.
+```
+
+Redirect message template (print verbatim, substituting the resolved paths). When `AE_REAL` is empty, also include the broken-install warning line shown below (omit it when `AE_REAL` is non-empty):
+
+```
+/update-agentic-engineering was invoked from outside the AE repo.
+  Session repo: <SESSION_REAL, or "(no git repo)">
+  AE repo:      <AE_REPO_DIR>
+  (Warning: AE repo path does not exist or is not a git repo - check your installation.)
+Editing the methodology from here would create isolation worktrees in the wrong repo, so I have NOT made any edits.
+Handoff written to: <handoff path>
+Next: open a new Claude Code session rooted in <AE_REPO_DIR> and run /update-agentic-engineering (reference the handoff above).
+```
+
+## Step 0 - Pre-flight git sync
+
+Before making any edits, the main agent (not a subagent - git state decisions require main-agent judgment) resolves the repo location and runs the following checks.
+
+`AE_REPO_DIR` is already resolved in Step 0a and persists for this invocation.
 
 1. `cd "$AE_REPO_DIR" && git fetch origin`
 2. Run `git status --porcelain` to check for uncommitted changes.
@@ -121,4 +187,4 @@ Only runs if Steps 1-3 actually made changes.
 6. If push is rejected because origin is ahead (race condition - someone pushed between Step 0's fetch and Step 4's push): run `git pull --rebase origin main`. If the rebase is clean, retry the push. If the rebase has conflicts, STOP and escalate to the user with `git status` output showing the conflict files. Do NOT force-push, do NOT `git rebase --abort`, do NOT `git reset`. The user resolves the conflict manually.
 7. Report the final commit SHA and push result to the user.
 
-Note: This command governs edits to its own source file - the recursion is intentional. Use `/update-agentic-engineering` when modifying this file.
+Note: This command governs edits to its own source file - the recursion is intentional. Use `/update-agentic-engineering` when modifying this file. Because of Step 0a, that editing session must itself be rooted in the AE repo - if you are elsewhere, the gate produces a handoff and you continue in a session opened in `$AE_REPO_DIR`.
