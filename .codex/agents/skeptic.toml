@@ -71,6 +71,7 @@ The conductor validates this format exactly. Use it verbatim - do not paraphrase
 
 ```
 Reviewed: [files/components examined]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
