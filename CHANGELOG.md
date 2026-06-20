@@ -3,10 +3,17 @@
 
 # Changelog
 
+## 2026-06-20
+
+### Maintenance
+
+- **#274** [push changelog via CHANGELOG_PUSH_TOKEN to clear main ruleset](https://github.com/Space-Dinosaurs/DinoStack/pull/274) - tyson-solara6
+
 ## 2026-06-19
 
 ### Features
 
+- **#257** [automated changelog generator + daily publish](https://github.com/Space-Dinosaurs/DinoStack/pull/257) - tyson-solara6
 - **#249** [role-model routing with cross-family antagonist reviewers](https://github.com/Space-Dinosaurs/DinoStack/pull/249) - bloodf
 
 ### Fixes
@@ -15,10 +22,13 @@
 
 ### Documentation
 
+- **#272** [add local-branch lifecycle / prune to worktree management](https://github.com/Space-Dinosaurs/DinoStack/pull/272) - tyson-solara6
+- **#270** [refocus README on getting started, add logo banner](https://github.com/Space-Dinosaurs/DinoStack/pull/270) - tyson-solara6
 - **#254** [document committed-vs-local doc homes for new features](https://github.com/Space-Dinosaurs/DinoStack/pull/254) - tyson-solara6
 
 ### Maintenance
 
+- **#271** [strip maintainer eval-harness internals from public MEMORY.md](https://github.com/Space-Dinosaurs/DinoStack/pull/271) - tyson-solara6
 - **#252** [rebuild .openclaw to sync clone-dir refs](https://github.com/Space-Dinosaurs/DinoStack/pull/252) - tyson-solara6
 - **#251** [enforce docs/planning gitignore via tracked-file guard](https://github.com/Space-Dinosaurs/DinoStack/pull/251) - tyson-solara6
 - **#237** [update remaining clone-dir refs from agentic-engineering to DinoStack](https://github.com/Space-Dinosaurs/DinoStack/pull/237) - tyson-solara6
