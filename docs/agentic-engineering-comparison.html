@@ -222,16 +222,18 @@
 
   /* Tables */
   .table-scroll {
-    overflow-x: auto;
+    overflow: auto;
+    max-height: 72vh;
     border: 1px solid var(--border-faint);
     border-radius: var(--radius-lg);
     background: var(--bg-raised);
     -webkit-overflow-scrolling: touch;
   }
   table {
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     width: 100%;
-    min-width: 860px;
+    min-width: 2440px; /* col1 (240px) + 11 data columns at 200px */
     font-size: 14.5px;
   }
   caption { display: none; }
@@ -242,6 +244,7 @@
     vertical-align: top;
     line-height: 1.55;
     color: var(--text-secondary);
+    min-width: 200px;
   }
   thead th {
     background: var(--bg-overlay);
@@ -253,25 +256,35 @@
     text-transform: uppercase;
     position: sticky;
     top: 0;
+    z-index: 2;
   }
   tbody tr:last-child td { border-bottom: none; }
+  /* first column = criterion labels — fixed width so col 2 left offset is deterministic */
+  tbody th[scope="row"],
+  thead th:first-child {
+    width: 240px; min-width: 240px; max-width: 240px;
+    white-space: nowrap;
+  }
   /* first column = criterion labels */
   tbody th[scope="row"] {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--bg-surface);
     color: var(--text-bright);
     font-family: 'Nunito Sans', system-ui, sans-serif;
     font-weight: 700;
     letter-spacing: 0;
     text-transform: none;
-    white-space: nowrap;
   }
+  /* Freeze cols 1 and 2 on horizontal scroll */
+  th:first-child, td:first-child { position: sticky; left: 0; z-index: 1; }
+  th.ae, td.ae { position: sticky; left: 240px; z-index: 1; }
+  thead th:first-child, thead th.ae { z-index: 3; } /* corner cells: both axes */
   /* DinoStack anchor column = 2nd column (1st data col) */
   th.ae, td.ae {
-    background: var(--gold-glow);
+    background: #0c1322;
     border-left: 2px solid var(--gold);
     border-right: 1px solid var(--border-faint);
   }
-  thead th.ae { background: var(--gold-glow-strong); color: var(--gold); }
+  thead th.ae { background: #111b2e; color: var(--gold); }
   tbody th[scope="row"] + td.ae { font-weight: 500; color: var(--text-primary); }
 
   /* Pills for capability table */
