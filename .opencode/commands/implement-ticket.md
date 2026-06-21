@@ -1690,6 +1690,13 @@ Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-e
 
 ## Phase 9: Open the PR
 
+**UNIT_IS_BEHAVIOR_VISIBLE derivation.** Set this variable before composing the PR body. It is "true" only when ALL hold:
+- `QA_RAN_AND_PASSED == "true"` (Phase 6b clean exit)
+- `QA_EVIDENCE_URLS` is non-empty
+- the unit's risk class - taken from the conductor's in-context risk classification (declared at Phase 2/3) and the architect plan - is NOT one of: security, auth, crypto, payments, or Elevated-correctness
+
+Default is "false". When the risk class is ambiguous, use "false". (Conservative: a false default just keeps the existing append-after-Summary behavior; it never leads with evidence on a security/correctness unit.) This is derived in-context by the conductor; it is not stored in or read from a state file.
+
 Compose the `[TRACKER_REFERENCE_BLOCK]` based on the resolved `TRACKER`, then run the `gh pr create` command with that block included in the body.
 
 #### If TRACKER is `linear`
@@ -1725,8 +1732,35 @@ Run:
 DEVELOPER=${DEVELOPER:-$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
 if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 
-PR_BODY_FILE="/tmp/pr-body-$$"
-cat > "$PR_BODY_FILE" <<PRBODY
+# UNIT_IS_BEHAVIOR_VISIBLE: true only when QA ran+passed, evidence URLs exist, AND risk class is
+# not security/auth/crypto/payments/Elevated-correctness (derived in-context from Phase 2/3
+# risk classification and architect plan; default false when risk class is ambiguous).
+UNIT_IS_BEHAVIOR_VISIBLE="false"
+if [ "$QA_RAN_AND_PASSED" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
+  # Set to "true" only when the conductor's in-context risk class is behavior-visible Elevated
+  # (UI changes, behavioral feature additions). Must remain "false" for security, auth, crypto,
+  # payments, or Elevated-correctness units regardless of QA state.
+  UNIT_IS_BEHAVIOR_VISIBLE="[true|false - conductor sets based on in-context risk class]"
+fi
+```
+
+**Case A - behavior-visible unit with QA evidence (`UNIT_IS_BEHAVIOR_VISIBLE == "true"`):**
+
+Lead the PR body with `## QA Evidence` so reviewers see runtime confirmation first:
+
+```bash
+if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
+  EVIDENCE_WRITTEN_TO_BODY="true"
+  PR_BODY_FILE="/tmp/pr-body-$$"
+  printf "## QA Evidence\n\n" > "$PR_BODY_FILE"
+  for entry in "${QA_EVIDENCE_URLS[@]}"; do
+    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+    RESULT=$(echo "$entry" | jq -r '.result')
+    URL=$(echo "$entry" | jq -r '.url')
+    printf -- "- **%s** %s - [screenshot](%s)\n" "$CRITERION" "$RESULT" "$URL" >> "$PR_BODY_FILE"
+  done
+  cat >> "$PR_BODY_FILE" <<PRBODY
+
 ## Summary
 - [bullet 1]
 - [bullet 2]
@@ -1737,57 +1771,92 @@ cat > "$PR_BODY_FILE" <<PRBODY
 - [ ] [step 1]
 - [ ] [step 2]
 PRBODY
-# Append Developer: line when identity is confirmed (survives --squash via PR body).
-[ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+  [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
 
-gh pr create \
-  --repo [GH_REPO] \
-  --base [BASE_BRANCH] \
-  --head [BRANCH_NAME] \
-  --draft \
-  --title "[TICKET_PREFIX]-NNN: [ticket title]" \
-  --body-file "$PR_BODY_FILE"
-rm -f "$PR_BODY_FILE"
+  gh pr create \
+    --repo [GH_REPO] \
+    --base [BASE_BRANCH] \
+    --head [BRANCH_NAME] \
+    --draft \
+    --title "[TICKET_PREFIX]-NNN: [ticket title]" \
+    --body-file "$PR_BODY_FILE"
+  rm -f "$PR_BODY_FILE"
+```
+
+**Case B - all else (UNIT_IS_BEHAVIOR_VISIBLE false, or QA_EVIDENCE_URLS empty, or QA_RAN_AND_PASSED != "true"):**
+
+Use the existing Summary-first body and append QA evidence after PR creation:
+
+```bash
+else
+  EVIDENCE_WRITTEN_TO_BODY="false"
+  PR_BODY_FILE="/tmp/pr-body-$$"
+  cat > "$PR_BODY_FILE" <<PRBODY
+## Summary
+- [bullet 1]
+- [bullet 2]
+
+[TRACKER_REFERENCE_BLOCK]
+
+## Test plan
+- [ ] [step 1]
+- [ ] [step 2]
+PRBODY
+  # Append Developer: line when identity is confirmed (survives --squash via PR body).
+  [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+
+  gh pr create \
+    --repo [GH_REPO] \
+    --base [BASE_BRANCH] \
+    --head [BRANCH_NAME] \
+    --draft \
+    --title "[TICKET_PREFIX]-NNN: [ticket title]" \
+    --body-file "$PR_BODY_FILE"
+  rm -f "$PR_BODY_FILE"
+fi
 ```
 
 For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
 
 Capture the PR number from the URL printed by `gh pr create`.
 
-**QA Evidence section (append to PR body after `gh pr create`).**
+**QA Evidence section (append to PR body after `gh pr create` - Case B only).**
 
-After the PR is created, append a `## QA Evidence` section to the PR body based on the state of `QA_EVIDENCE_URLS`. Use a temp file (not stdin) to avoid shell escaping issues:
+Skip this block when `EVIDENCE_WRITTEN_TO_BODY="true"` (Case A already included evidence in the body). For Case B, append a `## QA Evidence` section based on the state of `QA_EVIDENCE_URLS`. Use a temp file (not stdin) to avoid shell escaping issues:
 
 ```bash
-PR_BODY_APPEND_FILE="/tmp/qa-evidence-pr-body-$$"
+if [ "$EVIDENCE_WRITTEN_TO_BODY" != "true" ]; then
+  PR_BODY_APPEND_FILE="/tmp/qa-evidence-pr-body-$$"
 
-# Case 1: QA ran and evidence URLs are available
-if [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
-  printf "## QA Evidence\n\n" > "$PR_BODY_APPEND_FILE"
-  for entry in "${QA_EVIDENCE_URLS[@]}"; do
-    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
-    DESC=$(echo "$entry" | jq -r '.description')
-    RESULT=$(echo "$entry" | jq -r '.result')
-    URL=$(echo "$entry" | jq -r '.url')
-    printf -- "- **%s** %s - [screenshot](%s)\n" "$CRITERION" "$RESULT" "$URL" >> "$PR_BODY_APPEND_FILE"
-  done
+  # B1: QA ran and evidence URLs are available
+  if [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
+    printf "## QA Evidence\n\n" > "$PR_BODY_APPEND_FILE"
+    for entry in "${QA_EVIDENCE_URLS[@]}"; do
+      CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+      DESC=$(echo "$entry" | jq -r '.description')
+      RESULT=$(echo "$entry" | jq -r '.result')
+      URL=$(echo "$entry" | jq -r '.url')
+      printf -- "- **%s** %s - [screenshot](%s)\n" "$CRITERION" "$RESULT" "$URL" >> "$PR_BODY_APPEND_FILE"
+    done
 
-# Case 2: QA ran (PASS) but no evidence URLs (push failed, or ran with no screenshots captured)
-# Covers: push failed after retries, AND also the case where QA passed but captured zero screenshots.
-# Does NOT fire when QA was skipped (QA_RAN_AND_PASSED is "false" in that case).
-elif [ "$QA_RAN_AND_PASSED" = "true" ]; then
-  printf "> QA ran (PASS) but no screenshot evidence is available (push failed or no screenshots were captured).\n" > "$PR_BODY_APPEND_FILE"
+  # B2: QA ran (PASS) but no evidence URLs (push failed, or ran with no screenshots captured).
+  # Covers: push failed after retries, AND the case where QA passed but captured zero screenshots.
+  # Also catches Case A candidates (behavior-visible) whose Phase 8.5 produced no URLs.
+  # Does NOT fire when QA was skipped (QA_RAN_AND_PASSED is "false" in that case).
+  elif [ "$QA_RAN_AND_PASSED" = "true" ]; then
+    printf "> QA ran (PASS) but no screenshot evidence is available (push failed or no screenshots were captured).\n" > "$PR_BODY_APPEND_FILE"
 
-# Case 3: QA was skipped or not configured (QA_RAN_AND_PASSED is "false")
-else
-  printf "> QA skipped or not configured for this ticket (see qa_criteria in architect plan).\n" > "$PR_BODY_APPEND_FILE"
+  # B3: QA was skipped or not configured (QA_RAN_AND_PASSED is "false")
+  else
+    printf "> QA skipped or not configured for this ticket (see qa_criteria in architect plan).\n" > "$PR_BODY_APPEND_FILE"
+  fi
+
+  # Fetch existing body and append
+  EXISTING_BODY=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+  printf "%s\n\n%s" "$EXISTING_BODY" "$(cat "$PR_BODY_APPEND_FILE")" > "/tmp/qa-evidence-full-body-$$"
+  gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
+  rm -f "$PR_BODY_APPEND_FILE" "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
 fi
-
-# Fetch existing body and append
-EXISTING_BODY=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
-printf "%s\n\n%s" "$EXISTING_BODY" "$(cat "$PR_BODY_APPEND_FILE")" > "/tmp/qa-evidence-full-body-$$"
-gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
-rm -f "$PR_BODY_APPEND_FILE" "/tmp/qa-evidence-full-body-$$" 2>/dev/null || true
 ```
 
 `QA_RAN_AND_PASSED` is set to `"true"` when Phase 6b exited cleanly (`termination_reason: clean`). Set it in Phase 6b on clean exit, alongside the `QA_SCREENSHOT_PATHS` parse. Soft-fail: if any step fails (gh pr edit, body fetch), do not block Phase 10.
