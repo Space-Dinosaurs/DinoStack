@@ -4394,7 +4394,7 @@ jobs:
 
 `auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json` is the companion toggle that enables unsupervised merge when an action-triggered flow completes CI-green. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. Documented in `content/sections/04-risk-classification.md` §Project config.
 
-`content/sections/07-cross-session-loop-resume.md` documents the loop-state resume semantics that the open-goal loop inherits: `loop-state.json` writes at every phase transition, resumable phases, the interruption recovery protocol, and the `goal_condition` field that the open-goal loop adds.
+`content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: `loop-state.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. The `goal_mode`, `goal_condition`, and `risk_declared` fields are contract-level fields introduced by this catalog - they would be added to the `loop-state.json` schema if and when the open-goal mode is implemented; they are not present in sections/07 today.
 
 ---
 
