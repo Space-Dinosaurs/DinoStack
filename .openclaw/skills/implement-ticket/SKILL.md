@@ -1747,15 +1747,21 @@ fi
 
 **Case A - behavior-visible unit with QA evidence (`UNIT_IS_BEHAVIOR_VISIBLE == "true"`):**
 
-Lead the PR body with `## QA Evidence` so reviewers see runtime confirmation first:
+Lead the PR body with `## QA Evidence` so reviewers see runtime confirmation first.
+
+**Case B - all else (UNIT_IS_BEHAVIOR_VISIBLE false, or QA_EVIDENCE_URLS empty, or QA_RAN_AND_PASSED != "true"):**
+
+Use the existing Summary-first body and append QA evidence after PR creation.
 
 ```bash
 if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
+  # Case A: behavior-visible unit - lead with QA Evidence so reviewers see runtime confirmation first
   EVIDENCE_WRITTEN_TO_BODY="true"
   PR_BODY_FILE="/tmp/pr-body-$$"
   printf "## QA Evidence\n\n" > "$PR_BODY_FILE"
   for entry in "${QA_EVIDENCE_URLS[@]}"; do
     CRITERION=$(echo "$entry" | jq -r '.criterion_id')
+    DESC=$(echo "$entry" | jq -r '.description')
     RESULT=$(echo "$entry" | jq -r '.result')
     URL=$(echo "$entry" | jq -r '.url')
     printf -- "- **%s** %s - [screenshot](%s)\n" "$CRITERION" "$RESULT" "$URL" >> "$PR_BODY_FILE"
@@ -1782,14 +1788,8 @@ PRBODY
     --title "[TICKET_PREFIX]-NNN: [ticket title]" \
     --body-file "$PR_BODY_FILE"
   rm -f "$PR_BODY_FILE"
-```
-
-**Case B - all else (UNIT_IS_BEHAVIOR_VISIBLE false, or QA_EVIDENCE_URLS empty, or QA_RAN_AND_PASSED != "true"):**
-
-Use the existing Summary-first body and append QA evidence after PR creation:
-
-```bash
 else
+  # Case B: all else - Summary-first body; QA evidence appended after PR creation
   EVIDENCE_WRITTEN_TO_BODY="false"
   PR_BODY_FILE="/tmp/pr-body-$$"
   cat > "$PR_BODY_FILE" <<PRBODY
