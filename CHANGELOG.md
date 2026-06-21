@@ -5,8 +5,23 @@
 
 ## 2026-06-20
 
+### Features
+
+- **#277** [freeze header + first two columns, widen data columns](https://github.com/Space-Dinosaurs/DinoStack/pull/277) - tyson-solara6
+- **#276** [gate /update-agentic-engineering to in-repo sessions with handoff](https://github.com/Space-Dinosaurs/DinoStack/pull/276) - tyson-solara6
+
+### Fixes
+
+- **#279** [rebuild all adapters in /update-agentic-engineering Step 3](https://github.com/Space-Dinosaurs/DinoStack/pull/279) - tyson-solara6
+- **#278** [restore DinoStack cyan tint + stack Table C status notes](https://github.com/Space-Dinosaurs/DinoStack/pull/278) - tyson-solara6
+
+### Documentation
+
+- **#275** [require evidence for existential-negative review findings + reviewer freshness precondition](https://github.com/Space-Dinosaurs/DinoStack/pull/275) - tyson-solara6
+
 ### Maintenance
 
+- **#280** [build-all entrypoint, shared prereq-strip module, codex drift gate (fixes hermes bug)](https://github.com/Space-Dinosaurs/DinoStack/pull/280) - tyson-solara6
 - **#274** [push changelog via CHANGELOG_PUSH_TOKEN to clear main ruleset](https://github.com/Space-Dinosaurs/DinoStack/pull/274) - tyson-solara6
 
 ## 2026-06-19
