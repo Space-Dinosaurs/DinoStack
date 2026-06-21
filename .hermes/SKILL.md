@@ -411,7 +411,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 **What does not block:**
 - Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
 
-For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`.
+For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`. Outcome rubric: operator-confirmed pass/fail lines, each tagged `verification_type: deterministic | judgment`; required for Elevated; full schema and field guidance in `content/references/planning-artifacts.md`.
 
 ## Risk Classification
 
@@ -783,6 +783,9 @@ Read `content/references/worktree-lifecycle.md` for the full bash command blocks
 
 **Capture classification** - when deciding whether to write a learning entry at a mandatory trigger:
 Read `content/references/capture-classification.md` for the guardrail-first precedence chain, the two-gate MUST/SHOULD/SKIP table, and the per-trigger declaration format. Mandatory triggers and the `Capture:` block format are owned by `content/references/conductor-operating-rules.md §learnings-agent`.
+
+**Outcome rubric** - when authoring or reviewing a Brief for Elevated work:
+Read `content/references/planning-artifacts.md` for the line schema (`{id, line, verification_type: deterministic | judgment}`), field guidance (distinct from Verification gate commands - the operator's semantic definition of done), and verification-gate `Rubric lines resolved` subsection. The rubric is co-authored via `product-discovery` step 5b (staged to `docs/overview/_proposed/outcome-rubric.md`) and confirmed before Brief authoring; `/brief` Section 3 copies the staged draft or elicits rubric lines inline. The independent Skeptic grades judgment lines adversarially (step 3.5 in `content/agents/skeptic.md`); absence on Elevated is a Critical finding.
 
 ---
 
@@ -2507,8 +2510,9 @@ The rules in `content/rules/conventions.md` (Git Workflow) address one developer
 <!--
 Purpose: Full reference for planning-artifact templates, directory layouts, and
          promotion mechanics extracted from METHODOLOGY.md §Planning Artifacts.
-         Contains the Brief template, Plan-tier directory layout, verification-gate
-         template, promotion mechanics, product-intent layer rules, and the
+         Contains the Brief template (including outcome_rubric field), Plan-tier
+         directory layout, verification-gate template (including rubric-resolved
+         subsection), promotion mechanics, product-intent layer rules, and the
          canonical qa_default_skip definition.
 
 Public API: Read-only reference document. Cross-referenced from:
@@ -2522,8 +2526,10 @@ Upstream deps: content/sections/03-planning-artifacts.md (parent section;
 
 Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
                       Plan authoring (Plan tier authoring sequence), cross-session
-                      resume (promotion_tier field); /brief command; /implement-ticket
-                      Phase 3b cross-artifact alignment check.
+                      resume (promotion_tier field); /brief command (rubric synthesis
+                      in Section 3 and PRD extraction in Section 5); /implement-ticket
+                      Phase 3b cross-artifact alignment check; skeptic agent (rubric
+                      check step 3.5); product-discovery agent (rubric drafting step 5b).
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
                section (03-planning-artifacts.md) is a Major Skeptic finding.
@@ -2559,6 +2565,10 @@ Performance: Standard.
 
 **Verification:** <Single non-skippable line. The test(s), gate(s), qa.md trigger pattern(s), and any regression test mandated by `.agentic/findings.md` that prove this is done. "Cannot specify" is itself a planning gap and blocks Skeptic sign-off.>
 
+**Outcome rubric:** <Operator-confirmed pass/fail lines (max 6). Each line is a terse, observable acceptance statement tagged with its verification_type: `deterministic` (a nameable gate - tests, lint, schema check, HTTP status) or `judgment` (qualitative, graded adversarially by the independent Skeptic - never self-certifying). Required for Elevated; absence is a Critical Skeptic finding. Distinct from Verification: Verification names gate commands; rubric lines are the operator's semantic definition of done. Draft via product-discovery step 5b or /brief Section 3, then confirm before Brief authoring.>
+- [ ] <criterion, e.g. all existing tests pass with zero regressions> [deterministic]
+- [ ] <criterion, e.g. the new flow is coherent and self-consistent from an operator perspective> [judgment]
+
 **QA criteria:** <Required for Elevated. YAML block with `qa_skip` (one of 5 valid enums or null), `qa_skip_rationale` (required iff qa_skip != null), `viewport` (root-level default list, default `[desktop]`), `scenarios[]` (required if qa_skip null; method ∈ {browser, api, runtime-required, visual_conformance, accessibility, perceptual_diff}), `manual_smoke`. Operator-supplied Briefs must include this field; absence on Elevated is a Critical Skeptic finding.>
 
 **Linked artifacts:** architect-plan: <path>; orchestration: <path or inline JSONL block>
@@ -2570,6 +2580,7 @@ Performance: Standard.
 - Non-goals: written to defeat the most likely scope-creep direction.
 - Constraints: list only what would change the architect's design if violated.
 - Verification: non-skippable. Name the concrete tests, gates, qa.md trigger patterns, and regression tests required by the findings flywheel. If verification cannot be specified at planning time, that is itself a planning gap and must be flagged before the promotion gate passes - the Brief is not Skeptic-eligible until verification is named.
+- Outcome rubric: OPERATOR-AUTHORED ACCEPTANCE STATEMENTS - distinct from the Verification field's gate commands. Verification = mechanical commands and test paths; rubric = the operator's semantic definition of done, expressed as max 6 terse pass/fail lines each tagged `verification_type: deterministic | judgment`. Deterministic lines name the gate that proves the criterion; judgment lines are graded adversarially by the independent Skeptic and must never be self-certifying. Required for Elevated (absence is Critical); not required for Trivial or Low.
 - QA criteria: required for Elevated. YAML schema fields: `qa_skip` (one of: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only` - or null); `qa_skip_rationale` (string, max 200 chars, required iff `qa_skip != null`); `viewport` (root-level list of named viewports applied to all scenarios; default `[desktop]`; valid values: `mobile`, `tablet`, `desktop`; canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900; override canonical sizes via project `qa.md`); `scenarios[]` with `id` (monotonic int), `description` (one observable sentence), `method` (one of: `browser`, `api`, `runtime-required`, `visual_conformance`, `accessibility`, `perceptual_diff`, `motion`), `evidence` (string), optional per-scenario `viewport` list (REPLACES the root list for this scenario, not extends it) - required when `qa_skip == null` with at least 1 entry; `manual_smoke` (paragraph or "none"). Drives the Phase 6b QA gate trigger in `/implement-ticket`. The Skeptic-on-Brief reviewer validates this field: an absent QA criteria block on an Elevated Brief is a Critical finding; an invalid `qa_skip` enum is a Major finding. Operator-supplied Briefs (`brief_source: operator`) must include this field; absence is a Critical finding the operator must resolve before sign-off. When the unit is UI-visible AND the ticket text contains an Expected Result block (or equivalent visual-claim section), the unit's `scenarios[]` MUST contain at least one scenario with `method: visual_conformance`, with a verbatim `source_quote` and at least one `expected_visual_claims[]` entry. Absence is a Critical finding. The `advisory: true` marker on individual claims opts them out of auto-Critical / auto-fail but remains auditable in the Skeptic review surface. `visual_conformance` scenarios add two REQUIRED fields beyond the standard scenario shape: `source_quote` (string, verbatim copy of the ticket's Expected Result block or equivalent visual-spec section - paraphrase is not permitted) and `expected_visual_claims[]` (min 1 entry; each entry is `{claim: <verbatim atomic assertion>, advisory?: <bool, default false>}`). Each claim must be a single atomic check (one color, one position, one element presence, one typography attribute); compound claims must be split into separate entries. The `visual_conformance` method is not exclusive with `browser` - use `visual_conformance` when the criterion is the visual spec itself; use `browser` for behavioral UI flows (clicks, state transitions, form submissions). `accessibility` scenarios add two per-scenario fields: `wcag_level` (default `AA`; enum: `A`, `AA`, `AAA`) and optional `axe_tags` (array of axe-core rule tag strings). When `axe_tags` is absent, it is computed from `wcag_level` at runtime: `A` => `[wcag2a]`, `AA` => `[wcag2a, wcag2aa]`, `AAA` => `[wcag2a, wcag2aa, wcag2aaa]`. When both `wcag_level` and `axe_tags` are set explicitly, `axe_tags` wins at runtime; Skeptic raises Minor finding (redundant declaration - remove one). `accessibility` is required (auto-Critical) when the unit is UI-visible AND Elevated AND `qa_skip == null`. `perceptual_diff` scenarios add two per-scenario fields: `tolerance` (float, default `0.001`) and `baseline_path` (string, default `tests/visual-baselines/<scenario-id>/<viewport>.png`). Opt-in via `.agentic/config.json` `perceptual_diff_enabled: true` (default `false`). First run with absent baseline saves the baseline and returns INCONCLUSIVE with "baseline pending review" note; subsequent runs compare against the saved baseline using `page.screenshot()` + pixelmatch buffer comparison with `diff_ratio > tolerance` fail threshold. When `perceptual_diff_enabled: true` AND the unit is UI-visible AND the ticket has a visual spec AND no `perceptual_diff` scenario is present, Skeptic raises Major. `motion` scenarios add two REQUIRED fields: `route` (string, URL or page path to navigate to) and `elements` (string `"auto"` for full-page scan, or array of CSS selectors). `motion` scenarios run via Playwright CDP `Emulation.setEmulatedMedia` with `prefers-reduced-motion: reduce` and report per-(scenario x viewport x theme) PASS/FAIL/INCONCLUSIVE rows. Requires `playwright-python` (see qa-engineer.md); returns INCONCLUSIVE with install message when Playwright missing. When `motion_aware: true` (`.agentic/config.json`) AND the unit is UI-visible AND Elevated AND `qa_skip == null` AND no `motion` scenario is present, Skeptic raises Major. `theme` is valid on `visual_conformance`, `accessibility`, and `motion` scenarios. Setting `theme` on any other method (`perceptual_diff`, `browser`, `api`, `runtime-required`) is invalid and Skeptic raises Critical. `theme` (enum: `light | dark | both`; default `both` when `.agentic/config.json` `theme_aware: true`) causes qa-engineer to run the scenario once per theme value in a two-pass loop. When `theme_aware: false` AND `theme` is set on a scenario, qa-engineer logs an operator warning and ignores the field (no INCONCLUSIVE, no fail - the field is silently skipped). `theme` is subject to an auto-Major rule: when `theme_aware: true` AND the scenario method is `visual_conformance` or `accessibility` AND the `theme` field is absent, the Skeptic raises Major. `story_id` is valid on `visual_conformance` and `accessibility` scenarios only (P1 binding). Setting `story_id` on any other method - including `motion` - is invalid and Skeptic raises Critical. `story_id` (string; Storybook 7+ story ID format, e.g. `"components-button--primary"`) causes qa-engineer to navigate to `<storybook_url>/iframe.html?id=<story_id>` instead of the live-app URL. When `storybook_version: 6` in `.agentic/config.json`, qa-engineer applies the SB6 URL conversion algorithm (splits on `--`, Title Cases kind and story segments, uses `?selectedKind=&selectedStory=` format). A story ID with no `--` separator is malformed input; qa-engineer returns FAIL. Opt-in: only include `story_id` when `.agentic/config.json` has `storybook_enabled: true` (default `false`). When `story_id` is present but `storybook_enabled: false`, qa-engineer returns INCONCLUSIVE with operator message "story_id set but storybook_enabled is false in .agentic/config.json - set storybook_enabled: true to activate Storybook scenario routing." `storybook_url` defaults to `http://localhost:6006`; override via qa.md `story-url` tag (per-run) or `.agentic/config.json` `storybook_url` (per-project).
 
 **Per-method required fields:**
@@ -2622,6 +2633,10 @@ docs/planning/<slug>/
 **qa-engineer triggered?** <yes/no>. If yes, list the qa.md trigger patterns that fire and the units they apply to.
 
 **Manual smoke check:** <single paragraph or "none">
+
+**Rubric lines resolved:**
+- Rubric line 1 [deterministic]: gate command: `<command>`; result: pass/fail
+- Rubric line 2 [judgment]: grader: Skeptic; result: pass/fail
 
 **Rollback signal:** <how we will know post-merge that this needs to be reverted - what alarm, what user signal, what metric. This is the trigger that hands off to `rollback.md`.>
 
@@ -6652,13 +6667,15 @@ capabilities:
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 <!--
 Purpose: Facilitate product discovery before architecture or implementation -
-         decide WHAT to build and WHY, then stage a proposed vision.md and
-         requirements.md to docs/overview/_proposed/ for the operator to confirm.
+         decide WHAT to build and WHY, then stage a proposed vision.md,
+         requirements.md, and outcome-rubric.md to docs/overview/_proposed/
+         for the operator to confirm.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Inputs: the raw idea/request, project root, interactive-vs-non-interactive
             signal, and the _proposed/ staging reminder. Returns: a conversational
-            discovery summary plus two staged drafts in docs/overview/_proposed/.
+            discovery summary plus three staged drafts in docs/overview/_proposed/:
+            vision.md, requirements.md, and outcome-rubric.md.
 
 Upstream deps: searxng market-scan script ($HOME/.claude/skills/searxng/scripts/
               searxng.py) with WebSearch/WebFetch fallback; docs/overview/ for
@@ -6666,15 +6683,19 @@ Upstream deps: searxng market-scan script ($HOME/.claude/skills/searxng/scripts/
               external libraries; only Read/Glob/Grep/Bash/Write/Edit tools.
 
 Downstream consumers: the operator (ratifies and promotes the staged drafts);
-                      /brief and architect (consume the promoted vision.md and
+                      /brief (copies staged outcome-rubric into the Brief's
+                      Outcome rubric field during Section 3 synthesis) and
+                      architect (consume the promoted vision.md and
                       requirements.md as authoritative product intent).
 
-Failure modes: MUST NOT write docs/overview/vision.md or docs/overview/
-               requirements.md; writes are bounded to docs/overview/_proposed/
-               only. Staging the canonical files - or silently authoring them -
-               is a contract violation, because those two files are the
-               operator-owned top of the intent layer and only the operator can
-               ratify them.
+Failure modes: MUST NOT write docs/overview/vision.md, docs/overview/
+               requirements.md, or docs/overview/outcome-rubric.md; writes are
+               bounded to docs/overview/_proposed/ only. Staging the canonical
+               files - or silently authoring them - is a contract violation,
+               because those files are the operator-owned top of the intent
+               layer and only the operator can ratify them. The outcome rubric
+               lives in the Brief once the operator promotes it; the staged
+               draft is a proposal, not the canonical artifact.
 
 Performance: Standard. Interactive runs are conversation-bound; the market scan
              is the only network-bound step and is skippable on a light pass.
@@ -6694,8 +6715,8 @@ You run BEFORE the architect. The architect decides HOW to build; you decide WHA
 
 This is the one discipline that most distinguishes a real discovery agent from an eager assistant, so treat it as a principle, not a path. Before you finish, verify both:
 
-1. **Never create or overwrite `vision.md` or `requirements.md` at their canonical location** (`docs/overview/`). Stage proposals to a sibling `_proposed/` directory instead (`docs/overview/_proposed/vision.md`, `docs/overview/_proposed/requirements.md`) - create it if absent. If you are running somewhere the canonical path does not apply, the principle still holds: stage, do not author the live files.
-2. **State plainly in your return that you have not touched the canonical files** - e.g. "These are staged proposals in `docs/overview/_proposed/`; I have not written the canonical `docs/overview/` files. Review, edit, and promote them when they match your intent."
+1. **Never create or overwrite `vision.md`, `requirements.md`, or `outcome-rubric.md` at their canonical location** (`docs/overview/`). Stage proposals to a sibling `_proposed/` directory instead (`docs/overview/_proposed/vision.md`, `docs/overview/_proposed/requirements.md`, `docs/overview/_proposed/outcome-rubric.md`) - create it if absent. If you are running somewhere the canonical path does not apply, the principle still holds: stage, do not author the live files. The outcome rubric's canonical location is the Brief's Outcome rubric field, not `docs/overview/`.
+2. **State plainly in your return that you have not touched the canonical files** - e.g. "These are staged proposals in `docs/overview/_proposed/`; I have not written the canonical `docs/overview/` files. Review, edit, and promote them when they match your intent. The outcome rubric becomes canonical when you copy it into the Brief."
 
 Also present the proposed content in your return so the operator can react without opening a file.
 
@@ -6755,9 +6776,27 @@ On a full pass, consider a short PRFAQ - a press release as if the product alrea
 
 Turn the above into the two staged drafts. Keep `vision.md` short and narrative (one screen); keep `requirements.md` scoped and checkable. Use the templates below.
 
+### 5b. Draft the outcome rubric
+
+Turn the success criteria from Step 5 into 3-6 terse pass/fail lines. Each line gets a `verification_type`:
+
+- **deterministic** - a specific gate is nameable (tests pass, lint clean, schema validates, HTTP returns 200). Name the gate.
+- **judgment** - qualitative; graded adversarially by the independent Skeptic during Brief review. Use when no mechanical gate can verify the criterion alone.
+
+On a **light pass**, this is brief: one or two sentences per criterion, assigned a type. On a **full pass**, derive rubric lines from the PRFAQ FAQ's pass/fail questions and the requirements' functional acceptance statements.
+
+Present the rubric inline for operator confirmation. Use a checkbox list:
+
+```markdown
+- [ ] <criterion> [deterministic: <gate command or description>]
+- [ ] <criterion> [judgment]
+```
+
+Do not finalize more than 6 lines. If the operator has more than 6, help them prioritize - the rubric is the minimum sufficient signal, not an exhaustive checklist. Save the draft to `docs/overview/_proposed/outcome-rubric.md` using the staged-proposal banner. This file is a proposal only; the canonical outcome rubric lives in the Brief once the operator promotes it.
+
 ### 6. Propose, do not commit
 
-Write the two files to `docs/overview/_proposed/`, present them in your return, and hand off explicitly: "These are proposals staged in `docs/overview/_proposed/`. Review them, edit anything that does not match your intent, and promote them to `docs/overview/` when they are right - I have not touched the canonical files." Offer to revise based on the operator's reaction.
+Write the three files to `docs/overview/_proposed/` (`vision.md`, `requirements.md`, and `outcome-rubric.md`), present them in your return, and hand off explicitly: "These are proposals staged in `docs/overview/_proposed/`. Review them, edit anything that does not match your intent, and promote them to `docs/overview/` when they are right - I have not touched the canonical files. The outcome rubric in `outcome-rubric.md` is a proposal; it moves into the Brief's Outcome rubric field when you start `/brief`." Offer to revise based on the operator's reaction.
 
 ## Output templates
 
@@ -6818,6 +6857,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 ## Rules
 
 - **Never write the canonical intent files.** `docs/overview/vision.md` and `docs/overview/requirements.md` are operator-owned. You stage to `docs/overview/_proposed/` only, and you state plainly in your return that the canonical files were not touched.
+- **Never write the canonical outcome rubric.** The outcome rubric lives in the Brief once the operator promotes `docs/overview/_proposed/outcome-rubric.md`. You stage a draft only; you never write a rubric directly to a Brief or to `docs/overview/outcome-rubric.md`.
 - **Match depth to the idea, and say which depth you picked.** Full pass for net-new products and open business models; light pass for a single feature on a trusted tool. When unsure, start light.
 - **Attribute market claims.** Cite sources for competitors and statistics. An honest "I could not verify this" beats an unsourced assertion that gets baked into requirements.
 - **Name the counterparty** when the product sits between two parties. The party that will not log into your tool is often the one the requirements wrongly assume will cooperate.
@@ -8180,6 +8220,12 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
    - **Helper extraction opportunities** — code that is not duplicated yet but is clearly headed that way (complex conditional blocks, repeated transformations) and should be extracted now before it spreads. This is a **Minor** finding unless the pattern already exists elsewhere in the codebase, in which case it is **Major**.
    The Skeptic's job here is not to demand perfection — it is to catch duplication and missed abstractions that will compound maintenance cost. A single instance of slightly verbose code is not a finding; a repeated pattern that should be shared is.
 3. **Architect plan API/interface compliance check** - if an architect plan is present (field 1 not `n/a`), verify the Worker's output matches the plan's "API / interface design" section exactly. Any deviation is a finding (Major by default per `content/references/skeptic-protocol.md` Section 6). Also verify the Worker's output complies with the `qa_criteria` block (field 3): if `qa_skip == null`, confirm the scenarios described are addressed; if `qa_skip` is set, confirm the rationale is consistent with the diff.
+3.5. **Outcome rubric check** - if the Brief or architect plan carries an `outcome_rubric` (or `Outcome rubric`) field, evaluate it as follows:
+   - **Field presence check (Elevated only):** if the unit is Elevated and the field is absent or empty, raise a **Critical** finding: "Outcome rubric is absent - required for Elevated work." For Trivial or Low units, skip this step entirely.
+   - **Structural completeness:** for each rubric line present, verify an explicit `verification_type` (`deterministic` or `judgment`) is set. A line missing `verification_type` is a **Major** finding.
+   - **Judgment lines:** grade each judgment line adversarially - it is a qualitative criterion that the operator confirmed and this Skeptic must evaluate independently. Do NOT treat judgment lines as self-certifying. If a judgment criterion is not met by the diff, raise a **Major** finding.
+   - **Deterministic lines:** for each deterministic line, verify the named gate (tests, lint, schema check, HTTP status) was run and passed. A deterministic line whose gate was not run is a **Major** finding.
+   - Severity calibration matches the existing `qa_criteria` absence rule: absence on Elevated is Critical; missing `verification_type` is Major; unmet criterion (judgment or deterministic) is Major.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
 5. Search broadly for other Critical or Major issues beyond what the brief explicitly names.
 6. **Brief coverage check** - re-read the adversarial brief one more time, concern by concern. For each specific failure mode the brief names, confirm you have either raised a finding for it or can explicitly state you checked and found no issue. Do not let a named concern go unaddressed.
@@ -9226,22 +9272,27 @@ or the project marker. To actually opt the project out, use
 <!--
 Purpose: Interactive planning dialogue that produces a Brief artifact before architect and engineer
          are spawned. Translates operator planning-intent into a committed, Skeptic-eligible Brief
-         at docs/planning/<slug>.md via a structured multi-turn conversation.
+         at docs/planning/<slug>.md via a structured multi-turn conversation. Synthesizes the
+         outcome rubric (from product-discovery staged draft or inline elicitation) into the
+         Brief's Outcome rubric field.
 
 Public API: /brief [topic] | /brief --from <path>
             Invoked explicitly by the operator or auto-triggered by the conductor on
             planning-intent signals per Section 1.
 
-Upstream deps: content/sections/03-planning-artifacts.md (Brief template and field guidance);
+Upstream deps: content/sections/03-planning-artifacts.md (Brief template and field guidance,
+               including Outcome rubric field schema);
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
-               .agentic/brief-session.json (resume state);
-               MEMORY.md (prior-decisions scan, auto-injected at session start).
+               .agentic/brief-session.json (resume state, includes rubric array);
+               MEMORY.md (prior-decisions scan, auto-injected at session start);
+               docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/implement-ticket.md Phase 0b (brief_path check);
                       content/sections/03-planning-artifacts.md (Skeptic variant selection);
                       architect agent (receives brief_path in execution contract);
-                      Skeptic (receives operator-confirmed variant from Section 6).
+                      Skeptic (receives operator-confirmed variant from Section 6; evaluates
+                      Outcome rubric field per step 3.5 in skeptic.md).
 
 Failure modes: Brief with empty Verification field is NOT Skeptic-eligible - conductor must
                collect a real value before writing to disk. Parse failure on brief-session.json
@@ -9389,7 +9440,14 @@ One exchange per selected gray area (`selected: true` in the state file):
 ### Turn N+1 - Brief draft
 
 Conductor synthesizes the Brief from intent + dialogue, formats per the Brief template
-in `content/sections/03-planning-artifacts.md`, and presents it to the operator:
+in `content/sections/03-planning-artifacts.md`, and includes the **Outcome rubric** field:
+
+- **If `docs/overview/_proposed/outcome-rubric.md` exists** (product-discovery ran before /brief): copy its lines verbatim into the rubric field and note "copied from discovery draft - confirm or adjust."
+- **Otherwise**: prompt the operator inline: "List the 3-6 things that would make this 'done' - one per line, most critical first." For each criterion the operator provides, assign a `verification_type`: `deterministic` if a gate is nameable, `judgment` otherwise. Present the assigned types for confirmation before writing.
+
+The outcome rubric is part of the Brief draft and subject to the same iteration rounds (max 3 adjustments). Store the confirmed rubric in `brief-session.json` under the `rubric` array (see Section 8).
+
+Conductor presents the full Brief to the operator:
 
 > "Here's the Brief draft. Review it and say 'looks good' to write it, or tell me what
 > to adjust:
@@ -9468,6 +9526,8 @@ When a new dimension materially changes the original intent:
 Scan for headings or labels matching: Problem / Goals / Non-goals / Constraints /
 Verification (or equivalents: Objective, Acceptance Criteria, Out of Scope, Success
 Metrics, Definition of Done). Map matching content to Brief fields.
+
+Also scan for headings matching: Definition of Done / Acceptance Criteria / Success Metrics / Pass-Fail / Rubric. Extract matching items as outcome rubric candidates - assign `verification_type: deterministic` when the item names a measurable gate, `verification_type: judgment` otherwise. Cap at 6 lines. If none of these headings exist, pre-fill the Outcome rubric field with `[extracted from PRD - review required]` and prompt: "I could not find explicit acceptance criteria in this PRD. List the 3-6 things that would make this 'done', one per line."
 
 ### Fallback when no structural signals detected
 
@@ -9572,7 +9632,15 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
     "non_goals": ["<string>"],
     "constraints": "<string or null>",
     "verification": "<string or null>"
-  }
+  },
+  "rubric": [
+    {
+      "id": 1,
+      "line": "<one-line observable acceptance criterion>",
+      "verification_type": "<deterministic | judgment>",
+      "confirmed": false
+    }
+  ]
 }
 ```
 
@@ -12516,6 +12584,7 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
     - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
     - `.agentic/tracking.md` (or legacy `.claude/tracking.md`) - only if a tracker was confirmed during `/init-project`.
     - `.agentic/learnings.md` - always check.
+    - `docs/overview/_proposed/outcome-rubric.md` - only if product-discovery was run and a rubric was staged (check for the file's existence and the staged-proposal banner; if present, remind the operator to copy the rubric into the Brief before engineering starts).
   - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.agentic/qa.md`, `[track]/.agentic/deploy.md`) are out of scope for this session-start check - do not flag them.
   - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6c creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
   - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
