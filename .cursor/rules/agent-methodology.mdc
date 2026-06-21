@@ -761,3 +761,6 @@ Read `content/references/capture-classification.md` for the guardrail-first prec
 
 **Outcome rubric** - when authoring or reviewing a Brief for Elevated work:
 Read `content/references/planning-artifacts.md` for the line schema (`{id, line, verification_type: deterministic | judgment}`), field guidance (distinct from Verification gate commands - the operator's semantic definition of done), and verification-gate `Rubric lines resolved` subsection. The rubric is co-authored via `product-discovery` step 5b (staged to `docs/overview/_proposed/outcome-rubric.md`) and confirmed before Brief authoring; `/brief` Section 3 copies the staged draft or elicits rubric lines inline. The independent Skeptic grades judgment lines adversarially (step 3.5 in `content/agents/skeptic.md`); absence on Elevated is a Critical finding.
+
+**Trigger catalog and open-goal loops** - when setting up an action-triggered workflow or declaring a measured goal condition rather than a fixed unit list:
+Read `content/references/trigger-catalog.md` for the three trigger types (manual / scheduled / action-triggered), the open-goal loop contract (trigger / action / measured condition / hard-stop), and the yolo-guard: a trigger fires the conductor (never a worker-spawn bypass), and risk classification plus a fresh Skeptic apply on every iteration regardless of how the loop was started.
