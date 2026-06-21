@@ -805,6 +805,16 @@ Exception: `sg` (AST-grep) for structural symbol-level searches is run via Bash 
 
 **Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
 
+**Agent-ergonomic tool selection**
+
+When choosing between tool options for the same job, prefer the option that minimizes token cost and latency for agent consumers:
+
+- **Prefer token-efficient output.** Text and tabular tool output is cheaper for models to consume than JSON dumps with identical semantic content. When a tool offers multiple output formats, pick the one that gives the model the signal it needs with the least surrounding structure.
+- **Prefer CLI over MCP server when the CLI is cheaper.** An MCP server adds a protocol layer that inflates token cost and latency with no functional gain when a CLI covers the same job. Concrete reference: the GitHub MCP server costs approximately 3x the tokens and 2x the latency of the `gh` CLI for the same GitHub operations. AE uses `gh` for all GitHub operations (see AGENTS.md) - this is the principle in action.
+- **Measure before adopting.** Do not assume a new tool or MCP server is cost-neutral. Before integrating either, benchmark its token/latency profile against the alternative. The `ctx_*` context-mode tools earn their place because their token reduction is measured (~98% context savings versus raw Bash output) - not assumed.
+
+These rules complement the existing tool hierarchy above (Read/Glob/Grep over Bash) and the Context Window Management rules below (`ctx_*` over raw Bash for large output). Together they form AE's tool-selection standard: reach for the tool whose output-to-signal ratio is best for the model reading it.
+
 ## Context Window Management
 
 **When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
