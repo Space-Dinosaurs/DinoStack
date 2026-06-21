@@ -432,6 +432,28 @@ else:
     })
     print("  + Added PreToolUse background-spawn enforcement hook")
 
+# ---- PreToolUse orchestrator-singularity enforcement hook -------------------
+# Denies Task spawns issued from inside a subagent context (detected via the
+# top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1
+# in the environment that launches Claude Code, then restart.
+ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
+
+already_has_enforce_singularity = any(
+    "enforce-orchestrator-singularity" in entry.get("command", "")
+    for entry in ptu_task["hooks"]
+)
+
+if already_has_enforce_singularity:
+    print("  = PreToolUse orchestrator-singularity enforcement hook already present")
+else:
+    ptu_task["hooks"].append({
+        "type": "command",
+        "command": ENFORCE_SINGULARITY_CMD,
+        "timeout": 5
+    })
+    print("  + Added PreToolUse orchestrator-singularity enforcement hook")
+    print("    (To disable: set AE_SINGULARITY_GUARD_DISABLE=1 and restart Claude Code)")
+
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
 
