@@ -7,5 +7,6 @@
   "capability_preflight_mode": "advisory",
   "perceptual_diff_enabled": false,
   "theme_aware": false,
-  "storybook_enabled": false
+  "storybook_enabled": false,
+  "graphify_risk_signals": false
 }
