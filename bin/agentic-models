@@ -70,6 +70,10 @@ REVIEWER_POOL_HINTS: dict[str, int] = {
 ROLES = list(ROLE_HINTS.keys())
 
 
+# NOTE: bin/_model_probe.py::probe_models is the shared variant (returns [] on
+# failure); this inline copy exits non-zero by design - migrate to importing the
+# shared helper in a follow-up once callers that rely on the exit-2 behaviour
+# are updated.
 def _probe_models(url: str, key: str | None, timeout: int = 10) -> list[str]:
     """GET /v1/models and return the list of model id strings.
 

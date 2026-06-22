@@ -332,9 +332,14 @@ def test_discover_marks_absent_harness(monkeypatch):
     """Monkeypatching shutil.which to None marks harness as installed=false.
 
     AC2 regression: absent binary -> installed=false, exit 0 overall.
+    Hermetic: env vars cleared + probe_models stubbed so no network call fires
+    even if OPENAI_BASE_URL/KIMI_BASE_URL happen to be set in the CI runner.
     """
     import shutil as _shutil
 
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     # Make every binary appear absent
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
     payload = _discover_harnesses()
@@ -354,9 +359,13 @@ def test_discover_json_shape(monkeypatch):
 
     AC2 regression: json shape must include installed, models,
     invocation_family, native_subagent_disable_flag.
+    Hermetic: env vars cleared + probe_models stubbed.
     """
     import shutil as _shutil
 
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
     payload = _discover_harnesses()
 
@@ -385,10 +394,15 @@ def test_discover_uses_mapped_binary_name(monkeypatch):
 
     AC2 regression: the binary-name map is the only hardcoded per-harness
     fact; kimi -> kimi-cli must be honoured.
+    Hermetic: env vars cleared + probe_models stubbed.
     """
     probed: list[str] = []
 
     import shutil as _shutil
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
 
     def fake_which(binary: str) -> str | None:
         probed.append(binary)
@@ -409,9 +423,15 @@ def test_discover_installed_harness_has_version_field(monkeypatch):
     """When a harness is installed, the version key is present (may be None).
 
     Installed but --version failing -> version=None is acceptable.
+    Hermetic: env vars cleared + probe_models stubbed so codex's OPENAI_BASE_URL
+    path never fires even if the var happens to be set in the runner.
     """
     import shutil as _shutil
     import subprocess as _subprocess
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
 
     # Make 'codex' appear installed, all others absent
     def fake_which(binary: str) -> str | None:
@@ -433,9 +453,14 @@ def test_discover_installed_harness_has_version_field(monkeypatch):
 
 
 def test_discover_exit_zero_when_all_absent(monkeypatch, tmp_path):
-    """main() returns 0 from discover even when every harness is absent."""
+    """main() returns 0 from discover even when every harness is absent.
+    Hermetic: env vars cleared + probe_models stubbed.
+    """
     import shutil as _shutil
 
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
 
     rc = main([
@@ -447,9 +472,14 @@ def test_discover_exit_zero_when_all_absent(monkeypatch, tmp_path):
 
 
 def test_discover_json_flag_produces_valid_json(monkeypatch, tmp_path, capsys):
-    """discover --json produces valid JSON parseable output."""
+    """discover --json produces valid JSON parseable output.
+    Hermetic: env vars cleared + probe_models stubbed.
+    """
     import shutil as _shutil
 
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
 
     rc = main([
@@ -473,4 +503,51 @@ def test_discover_binary_map_coverage():
     assert not missing, (
         f"HARNESS_BINARY is missing entries for: {missing}. "
         "Add a binary-name mapping for each new harness."
+    )
+
+
+def test_discover_env_var_flows_into_probe(monkeypatch):
+    """When OPENAI_BASE_URL is set and codex is installed, probe_models is called
+    with that URL and the returned models appear in the payload.
+
+    Proves the HARNESS_MODELS_ENV -> probe_models wiring without real network.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    fake_url = "http://localhost:19999"
+    stub_models = ["gpt-5.3-codex", "gpt-5.3-mini"]
+
+    monkeypatch.setenv("OPENAI_BASE_URL", fake_url)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+
+    probed_urls: list[str] = []
+
+    def stub_probe(url: str, *_a, **_kw) -> list[str]:
+        probed_urls.append(url)
+        return stub_models
+
+    monkeypatch.setattr(_mod, "probe_models", stub_probe)
+
+    # codex appears installed; all others absent
+    monkeypatch.setattr(_shutil, "which",
+                        lambda b: "/usr/local/bin/codex" if b == "codex" else None)
+
+    # --version call returns something harmless
+    def fake_run(*args, **kwargs):  # type: ignore[override]
+        class _R:
+            stdout = "codex 1.0.0"
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+
+    payload = _discover_harnesses()
+
+    assert payload["codex"]["installed"] is True
+    assert payload["codex"]["models"] == stub_models, (
+        f"models from probe_models must flow into payload, got {payload['codex']['models']!r}"
+    )
+    assert fake_url in probed_urls, (
+        f"probe_models must be called with OPENAI_BASE_URL={fake_url!r}, called with {probed_urls}"
     )
