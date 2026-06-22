@@ -66,6 +66,10 @@ Run `/agentic-help` for the full command inventory.
   `bin/agentic-models` to rank models per role; read when seeding
   `role-models.yml` or writing the bootstrap hook.
 
+- **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema for
+  orchestrating parallel agent teams across multiple AI harnesses; read when using
+  `agentic-team` or configuring cross-harness dispatch with `team.yml`.
+
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;
   read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
   LOC, or implements a side-effecting operation.
