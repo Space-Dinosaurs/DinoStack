@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-Tests for bin/agentic-team Unit 1: team.yml loader + schema validation.
+Tests for bin/agentic-team Unit 1 + Unit 2.
 
-AC1 regression tests:
+Unit 1 - team.yml loader + schema validation (AC1):
   test_invalid_harness_rejected          - unknown harness in roles -> non-zero exit
   test_invalid_default_harness_rejected  - unknown default_harness -> non-zero exit
   test_role_maps_to_harness_model        - valid role entry round-trips through loader
   test_project_team_yml_overrides_global - project file wins on per-key merge
+
+Unit 2 - harness discovery (AC2):
+  test_discover_marks_absent_harness     - absent binary -> installed=false
+  test_discover_json_shape               - --json payload has required keys
+  test_discover_uses_mapped_binary_name  - kimi probes kimi-cli not kimi
 
 Additional coverage:
   test_valid_config_loads_cleanly        - well-formed team.yml parses without error
@@ -23,6 +28,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
 import sys
 import textwrap
 from pathlib import Path
@@ -309,3 +315,162 @@ def test_main_exits_nonzero_on_bad_default_harness(tmp_path):
         "discover",
     ])
     assert rc != 0
+
+
+# ---------------------------------------------------------------------------
+# Unit 2 - AC2: harness discovery
+# ---------------------------------------------------------------------------
+
+# Import discover internals
+_discover_harnesses = _mod._discover_harnesses
+_probe_binary_installed = _mod._probe_binary_installed
+HARNESS_BINARY = _mod.HARNESS_BINARY
+KNOWN_HARNESSES = _mod.KNOWN_HARNESSES
+
+
+def test_discover_marks_absent_harness(monkeypatch):
+    """Monkeypatching shutil.which to None marks harness as installed=false.
+
+    AC2 regression: absent binary -> installed=false, exit 0 overall.
+    """
+    import shutil as _shutil
+
+    # Make every binary appear absent
+    monkeypatch.setattr(_shutil, "which", lambda _b: None)
+    payload = _discover_harnesses()
+
+    for harness in KNOWN_HARNESSES:
+        assert harness in payload, f"harness {harness!r} missing from discover output"
+        assert payload[harness]["installed"] is False, (
+            f"harness {harness!r} should be absent but got installed=True"
+        )
+        assert payload[harness]["models"] == [], (
+            f"absent harness {harness!r} should have models=[]"
+        )
+
+
+def test_discover_json_shape(monkeypatch):
+    """--json payload contains required top-level keys for every harness.
+
+    AC2 regression: json shape must include installed, models,
+    invocation_family, native_subagent_disable_flag.
+    """
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda _b: None)
+    payload = _discover_harnesses()
+
+    required_keys = {
+        "installed",
+        "models",
+        "invocation_family",
+        "native_subagent_disable_flag",
+    }
+    for harness, info in payload.items():
+        missing = required_keys - info.keys()
+        assert not missing, (
+            f"harness {harness!r} payload missing keys: {missing}"
+        )
+        assert isinstance(info["installed"], bool)
+        assert isinstance(info["models"], list)
+        assert isinstance(info["invocation_family"], str)
+        # native_subagent_disable_flag may be None or str
+        assert info["native_subagent_disable_flag"] is None or isinstance(
+            info["native_subagent_disable_flag"], str
+        )
+
+
+def test_discover_uses_mapped_binary_name(monkeypatch):
+    """discover probes kimi-cli (not kimi) for the kimi harness.
+
+    AC2 regression: the binary-name map is the only hardcoded per-harness
+    fact; kimi -> kimi-cli must be honoured.
+    """
+    probed: list[str] = []
+
+    import shutil as _shutil
+
+    def fake_which(binary: str) -> str | None:
+        probed.append(binary)
+        return None  # report all absent; we only care what was probed
+
+    monkeypatch.setattr(_shutil, "which", fake_which)
+    _discover_harnesses()
+
+    assert "kimi-cli" in probed, (
+        f"expected kimi-cli to be probed but got: {probed}"
+    )
+    assert "kimi" not in probed, (
+        f"kimi (bare name) should NOT be probed directly; got: {probed}"
+    )
+
+
+def test_discover_installed_harness_has_version_field(monkeypatch):
+    """When a harness is installed, the version key is present (may be None).
+
+    Installed but --version failing -> version=None is acceptable.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    # Make 'codex' appear installed, all others absent
+    def fake_which(binary: str) -> str | None:
+        return "/usr/local/bin/codex" if binary == "codex" else None
+
+    # Make --version call fail (simulate no --version support)
+    def fake_run(*args, **kwargs):  # type: ignore[override]
+        class _Result:
+            stdout = ""
+            returncode = 1
+        return _Result()
+
+    monkeypatch.setattr(_shutil, "which", fake_which)
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+
+    payload = _discover_harnesses()
+    assert payload["codex"]["installed"] is True
+    assert "version" in payload["codex"]  # key must be present even if None
+
+
+def test_discover_exit_zero_when_all_absent(monkeypatch, tmp_path):
+    """main() returns 0 from discover even when every harness is absent."""
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda _b: None)
+
+    rc = main([
+        "--global-config", str(tmp_path / "absent.yml"),
+        "--project-config", str(tmp_path / "absent2.yml"),
+        "discover",
+    ])
+    assert rc == 0, f"discover should exit 0 when all harnesses absent, got {rc}"
+
+
+def test_discover_json_flag_produces_valid_json(monkeypatch, tmp_path, capsys):
+    """discover --json produces valid JSON parseable output."""
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda _b: None)
+
+    rc = main([
+        "--global-config", str(tmp_path / "absent.yml"),
+        "--project-config", str(tmp_path / "absent2.yml"),
+        "discover",
+        "--json",
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+    assert isinstance(parsed, dict)
+    # Every known harness must appear
+    for h in KNOWN_HARNESSES:
+        assert h in parsed, f"harness {h!r} missing from JSON output"
+
+
+def test_discover_binary_map_coverage():
+    """HARNESS_BINARY covers every KNOWN_HARNESS entry."""
+    missing = KNOWN_HARNESSES - HARNESS_BINARY.keys()
+    assert not missing, (
+        f"HARNESS_BINARY is missing entries for: {missing}. "
+        "Add a binary-name mapping for each new harness."
+    )

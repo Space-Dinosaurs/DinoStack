@@ -3,7 +3,8 @@
 Purpose: Cross-harness team configuration loader, discovery, dispatch, and
          collection tool. Reads team.yml (global ~/.agentic/team.yml then
          project .agentic/team.yml; project wins on per-top-level-key merge)
-         and validates the schema. Later units fill dispatch/status/collect.
+         and validates the schema. discover subcommand probes installed
+         harnesses and reachable models. Later units fill dispatch/status/collect.
 
 Public API: agentic-team <discover|dispatch|status|collect> [options]
             discover  - probe installed harnesses and reachable models
@@ -12,7 +13,9 @@ Public API: agentic-team <discover|dispatch|status|collect> [options]
             collect   - retrieve a run's output (stub)
             --json    - machine-readable output (discover subcommand)
 
-Upstream deps: bin/_role_spec (normalize_role_spec); Python 3.11 stdlib only.
+Upstream deps: bin/_role_spec (normalize_role_spec);
+               bin/_model_probe (probe_models - shared HTTP helper);
+               Python 3.11 stdlib only (+ pyyaml for YAML parsing).
 
 Downstream consumers: bin/agentic-configure (team wizard, Unit 4);
                       hooks/enforce-background-spawn.py (Unit 5b sentinel check).
@@ -21,7 +24,9 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                exit with a named error line on stderr.
                Unknown role key -> non-zero exit with a named error line on stderr.
                Missing or unreadable team.yml -> treated as empty config (no error).
-               Malformed YAML parsed by line-by-line loader -> non-zero exit.
+               Malformed YAML -> non-zero exit.
+               discover: absent harnesses reported as installed=false, exit 0.
+               discover: model probe failures yield models=[] ("unknown"), exit 0.
 
 Performance: Pure file I/O + optional subprocess probes in discover. Sub-second
              for load+validate; discover latency depends on harness probe timeouts.
@@ -32,7 +37,10 @@ from __future__ import annotations
 import argparse
 import importlib.machinery as _im
 import importlib.util as _ilu
+import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -54,6 +62,16 @@ _rs_loader.exec_module(_rs_mod)
 normalize_role_spec = _rs_mod.normalize_role_spec
 
 # ---------------------------------------------------------------------------
+# Load _model_probe from the same bin/ directory
+# ---------------------------------------------------------------------------
+_mp_path = Path(__file__).parent / "_model_probe.py"
+_mp_loader = _im.SourceFileLoader("_model_probe", str(_mp_path))
+_mp_spec = _ilu.spec_from_loader("_model_probe", _mp_loader)
+_mp_mod = _ilu.module_from_spec(_mp_spec)  # type: ignore[arg-type]
+_mp_loader.exec_module(_mp_mod)
+probe_models = _mp_mod.probe_models
+
+# ---------------------------------------------------------------------------
 # Known harnesses (the only hardcoded per-harness table; binary names live in
 # Unit 2 discover; here we only need the valid name set for schema validation)
 # ---------------------------------------------------------------------------
@@ -66,6 +84,64 @@ KNOWN_HARNESSES: frozenset[str] = frozenset({
     "omp",
     "claude",
 })
+
+# ---------------------------------------------------------------------------
+# Harness binary-name map (Unit 2 - the ONLY hardcoded per-harness fact here;
+# these are binary NAMES, not model IDs).
+# Harness label -> CLI binary probed via `command -v <binary>`.
+# ---------------------------------------------------------------------------
+HARNESS_BINARY: dict[str, str] = {
+    "codex":        "codex",
+    "gemini":       "gemini",
+    "cursor-agent": "cursor-agent",
+    "kimi":         "kimi-cli",
+    "pi":           "pi",
+    "omp":          "omp",
+    "claude":       "claude",
+}
+
+# ---------------------------------------------------------------------------
+# Harness invocation-family labels (human-readable; describes how the harness
+# is invoked non-interactively for worker dispatch).
+# ---------------------------------------------------------------------------
+HARNESS_INVOCATION_FAMILY: dict[str, str] = {
+    "codex":        "codex-exec",
+    "gemini":       "gemini-p",
+    "cursor-agent": "cursor-agent-force",
+    "kimi":         "kimi-cli-headless",
+    "pi":           "pi-prompt",
+    "omp":          "omp-prompt",
+    "claude":       "claude-p",
+}
+
+# ---------------------------------------------------------------------------
+# Harnesses that expose an OpenAI-compatible /v1/models endpoint.
+# Key: harness label; value: env-var that holds the base URL (or None).
+# When the env var is unset or empty, models will be reported as [].
+# ---------------------------------------------------------------------------
+HARNESS_MODELS_ENV: dict[str, str | None] = {
+    "codex":        "OPENAI_BASE_URL",
+    "gemini":       None,        # no /v1/models endpoint in gemini CLI
+    "cursor-agent": None,        # cursor-agent doesn't expose /v1/models
+    "kimi":         "KIMI_BASE_URL",
+    "pi":           None,
+    "omp":          None,
+    "claude":       None,
+}
+
+# ---------------------------------------------------------------------------
+# Known native-subagent-disable flags per harness (best-effort v1; feeds AC5).
+# None = no known flag (or not applicable).
+# ---------------------------------------------------------------------------
+HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG: dict[str, str | None] = {
+    "codex":        None,
+    "gemini":       None,
+    "cursor-agent": None,
+    "kimi":         None,
+    "pi":           None,
+    "omp":          None,
+    "claude":       None,
+}
 
 # Known role names (mirrors ROLES in agentic-configure; extensible in team.yml
 # via the roles: block - unknown keys are rejected at load time)
@@ -201,10 +277,105 @@ def _role_entry(spec: object) -> dict:
 # Subcommand handlers
 # ---------------------------------------------------------------------------
 
+def _probe_binary_installed(binary: str) -> bool:
+    """Return True when `binary` is on PATH (uses shutil.which; no subprocess)."""
+    return shutil.which(binary) is not None
+
+
+def _probe_harness_version(binary: str) -> str | None:
+    """Attempt to retrieve a version string from `binary --version`.
+
+    Returns the first non-empty stdout line on success, None on any failure.
+    Best-effort: callers must treat None as "version unknown".
+    """
+    try:
+        result = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        line = (result.stdout or "").strip().splitlines()
+        return line[0] if line else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _discover_harnesses(
+    binary_map: dict[str, str] | None = None,
+) -> dict[str, dict]:
+    """Probe each known harness and return a discovery payload dict.
+
+    Parameters
+    ----------
+    binary_map:
+        Override the global HARNESS_BINARY table (used in tests via monkeypatch).
+
+    Returns
+    -------
+    dict keyed by harness label:
+        installed:                   bool
+        version:                     str | None
+        models:                      list[str]  ([] when unknown/unreachable)
+        invocation_family:           str
+        native_subagent_disable_flag: str | None
+    """
+    if binary_map is None:
+        binary_map = HARNESS_BINARY
+
+    result: dict[str, dict] = {}
+    for harness in sorted(KNOWN_HARNESSES):
+        binary = binary_map.get(harness, harness)
+        installed = _probe_binary_installed(binary)
+        version: str | None = None
+        models: list[str] = []
+        if installed:
+            version = _probe_harness_version(binary)
+            env_var = HARNESS_MODELS_ENV.get(harness)
+            if env_var:
+                base_url = os.environ.get(env_var, "")
+                if base_url:
+                    models = probe_models(base_url)
+        result[harness] = {
+            "installed": installed,
+            "version": version,
+            "models": models,
+            "invocation_family": HARNESS_INVOCATION_FAMILY.get(harness, harness),
+            "native_subagent_disable_flag": HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(
+                harness
+            ),
+        }
+    return result
+
+
 def _cmd_discover(args: argparse.Namespace) -> int:
-    """Unit 2 stub - not yet implemented."""
-    print("agentic-team discover: not yet implemented", file=sys.stderr)
-    return 1
+    """Probe each known harness for installation, version, and reachable models."""
+    payload = _discover_harnesses()
+
+    if args.json:
+        json.dump(payload, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
+
+    # Human-readable output
+    for harness in sorted(payload):
+        info = payload[harness]
+        status = "installed" if info["installed"] else "absent"
+        version_str = f"  version={info['version']}" if info["version"] else ""
+        models_str = (
+            f"  models={info['models']}" if info["models"] else "  models=[]"
+        )
+        flag_str = (
+            f"  disable_flag={info['native_subagent_disable_flag']}"
+            if info["native_subagent_disable_flag"]
+            else ""
+        )
+        print(
+            f"{harness:<16} {status:<10}"
+            f"  family={info['invocation_family']}"
+            f"{version_str}{models_str}{flag_str}"
+        )
+    return 0
 
 
 def _cmd_dispatch(args: argparse.Namespace) -> int:
