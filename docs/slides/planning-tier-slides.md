@@ -473,7 +473,7 @@ If any of the three authored files exceeds 10 lines, the Plan is too large. Spli
 
 - Missing required artifact at any tier
 - Brief or Plan has Skeptic findings open (Critical or Major)
-- Open Questions section non-empty (same hard gate as architect plan)
+- Open Questions section non-empty (same hard gate as architect plan; a non-empty Deferred defaults section does NOT trigger this gate)
 - Verification gate field set to "cannot specify"
 
 </div>
