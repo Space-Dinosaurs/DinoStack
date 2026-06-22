@@ -3,6 +3,16 @@
 
 # Changelog
 
+## 2026-06-21
+
+### Uncategorized
+
+- **#287** [DS-28: trigger catalog + open-goal loop contract](https://github.com/Space-Dinosaurs/DinoStack/pull/287) - tyson-solara6
+- **#286** [DS-29: operator-confirmed outcome rubric + verification_type front-of-loop artifact](https://github.com/Space-Dinosaurs/DinoStack/pull/286) - tyson-solara6
+- **#285** [DS-30: lead PR body with QA evidence for behavior-visible units + diff-read guardrail](https://github.com/Space-Dinosaurs/DinoStack/pull/285) - tyson-solara6
+- **#284** [DS-27: enforce orchestrator-singularity (deny subagent-issued Task spawns)](https://github.com/Space-Dinosaurs/DinoStack/pull/284) - tyson-solara6
+- **#283** [AUT-202: agent tool-ergonomics standard (token-efficient output, CLI over MCP)](https://github.com/Space-Dinosaurs/DinoStack/pull/283) - tyson-solara6
+
 ## 2026-06-20
 
 ### Features
