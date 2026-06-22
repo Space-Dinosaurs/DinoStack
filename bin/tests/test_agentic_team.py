@@ -698,6 +698,56 @@ def test_shim_exempt_binary_absent(tmp_path):
 # AC5: workdir isolation
 # ---------------------------------------------------------------------------
 
+def _dispatch_via_subprocess(
+    tmp_path: Path,
+    workdir: Path,
+    fake_bin_dir: Path,
+    brief_file: Path,
+    harness: str = "codex",
+    role: str = "engineer",
+) -> tuple[int, str]:
+    """Run dispatch as a subprocess with fake_bin_dir prepended to PATH.
+
+    Returns (returncode, run_id_or_stderr).
+    """
+    import sys as _sys
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    agentic_team_path = str(_BIN / "agentic-team")
+    result = _subprocess_mod.run(
+        [_sys.executable, agentic_team_path,
+         "dispatch",
+         "--harness", harness,
+         "--role", role,
+         "--brief", str(brief_file),
+         "--workdir", str(workdir)],
+        capture_output=True,
+        text=True,
+        env=env_patch,
+    )
+    return result.returncode, result.stdout.strip() or result.stderr.strip()
+
+
+def _wait_for_stdout(run_dir: Path, timeout: float = 5.0) -> None:
+    """Poll until run_dir/stdout exists and is non-empty (or timeout)."""
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while not (run_dir / "stdout").exists() or (run_dir / "stdout").stat().st_size == 0:
+        if _time.monotonic() > deadline:
+            break
+        _time.sleep(0.05)
+
+
+def _wait_for_exit_file(run_dir: Path, timeout: float = 5.0) -> None:
+    """Poll until run_dir/exit exists (or timeout)."""
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while not (run_dir / "exit").exists():
+        if _time.monotonic() > deadline:
+            break
+        _time.sleep(0.05)
+
+
 def test_worker_workdir_isolated_from_repo(tmp_path):
     """dispatch runs worker with cwd = --workdir, not the repo root.
 
@@ -721,37 +771,12 @@ def test_worker_workdir_isolated_from_repo(tmp_path):
 
     brief_file = _make_brief_file(tmp_path)
 
-    original_path = _os.environ.get("PATH", "")
-
-    env_patch = dict(_os.environ)
-    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + original_path
-
-    # We drive dispatch directly via subprocess so we can override PATH.
-    import sys as _sys
-    agentic_team_path = str(_BIN / "agentic-team")
-    result = _subprocess_mod.run(
-        [_sys.executable, agentic_team_path,
-         "dispatch",
-         "--harness", "codex",
-         "--role", "engineer",
-         "--brief", str(brief_file),
-         "--workdir", str(workdir)],
-        capture_output=True,
-        text=True,
-        env=env_patch,
-    )
-    assert result.returncode == 0, f"dispatch failed: {result.stderr}"
-    run_id = result.stdout.strip()
+    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    assert rc == 0, f"dispatch failed: {run_id}"
     assert run_id, "dispatch must print a run-id"
 
-    # Wait briefly for the background process to finish.
-    import time as _time
-    deadline = _time.monotonic() + 5
     run_dir = workdir / ".agentic" / "teamrun" / run_id
-    while not (run_dir / "stdout").exists() or (run_dir / "stdout").stat().st_size == 0:
-        if _time.monotonic() > deadline:
-            break
-        _time.sleep(0.05)
+    _wait_for_stdout(run_dir)
 
     stdout_text = (run_dir / "stdout").read_text(encoding="utf-8", errors="replace")
     # The cwd recorded by the fake codex must match workdir, not the repo root.
@@ -773,16 +798,13 @@ def test_worker_brief_contains_leaf_clause(tmp_path):
     workdir = tmp_path / "worker_wd"
     workdir.mkdir()
 
-    # Fake codex: cat stdin (there is none from /dev/null for codex, but the
-    # brief is passed as an argv arg).  Write argv[3] (the brief arg) to stdout.
+    # Fake codex: argv is: codex exec <brief_text> --json ...
+    # $2 is the brief text (1-indexed shell positional).
     fake_bin_dir = tmp_path / "fake_bin"
     fake_bin_dir.mkdir()
     fake_codex = fake_bin_dir / "codex"
     fake_codex.write_text(
         "#!/bin/sh\n"
-        # argv: codex exec <brief_text> --json ...
-        # $0=codex $1=exec $2=<brief_text> $3=--json ...
-        # The brief text is $2 (1-indexed shell positional).
         'printf "%s" "$2"\n'
         "exit 0\n",
         encoding="utf-8",
@@ -792,32 +814,11 @@ def test_worker_brief_contains_leaf_clause(tmp_path):
     original_brief = "Do the task."
     brief_file = _make_brief_file(tmp_path, original_brief)
 
-    import sys as _sys
-    env_patch = dict(_os.environ)
-    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    assert rc == 0, f"dispatch failed: {run_id}"
 
-    agentic_team_path = str(_BIN / "agentic-team")
-    result = _subprocess_mod.run(
-        [_sys.executable, agentic_team_path,
-         "dispatch",
-         "--harness", "codex",
-         "--role", "engineer",
-         "--brief", str(brief_file),
-         "--workdir", str(workdir)],
-        capture_output=True,
-        text=True,
-        env=env_patch,
-    )
-    assert result.returncode == 0, f"dispatch failed: {result.stderr}"
-    run_id = result.stdout.strip()
-
-    import time as _time
     run_dir = workdir / ".agentic" / "teamrun" / run_id
-    deadline = _time.monotonic() + 5
-    while not (run_dir / "stdout").exists() or (run_dir / "stdout").stat().st_size == 0:
-        if _time.monotonic() > deadline:
-            break
-        _time.sleep(0.05)
+    _wait_for_stdout(run_dir)
 
     stdout_text = (run_dir / "stdout").read_text(encoding="utf-8", errors="replace")
     # The leaf-worker clause keywords must appear in what the worker received.
@@ -919,3 +920,188 @@ def test_make_run_id_contains_role():
     """run-id contains the role name for human readability."""
     rid = _make_run_id("qa-engineer")
     assert "qa-engineer" in rid, f"role not in run-id: {rid!r}"
+
+
+# ===========================================================================
+# New tests: reaper, killpg watchdog, mkdir guard, run-id urandom suffix
+# ===========================================================================
+
+def test_reaper_writes_exit_zero_on_success(tmp_path):
+    """AC3 regression: worker exiting 0 -> exit file = '0', status = done.
+
+    A fake codex that exits 0 must result in:
+      - exit file containing '0'
+      - _run_status returning 'done'
+      - collect returning exit code 0
+    """
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+
+    # _make_fake_exec produces a binary that prints stdout_payload and exits 0.
+    fake_bin_dir = _make_fake_exec(tmp_path, "codex", '{"result":"ok"}')
+    brief_file = _make_brief_file(tmp_path)
+
+    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    assert rc == 0, f"dispatch failed: {run_id}"
+
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    _wait_for_exit_file(run_dir, timeout=5.0)
+
+    assert (run_dir / "exit").exists(), "exit file must be written by reaper"
+    exit_val = (run_dir / "exit").read_text(encoding="utf-8").strip()
+    assert exit_val == "0", f"exit file must contain '0' for a successful worker, got {exit_val!r}"
+
+    status = _run_status(run_dir)
+    assert status == "done", f"_run_status must return 'done' for exit=0, got {status!r}"
+
+
+def test_reaper_writes_exit_nonzero_on_failure(tmp_path):
+    """AC3 regression: worker exiting 3 -> exit file = '3', status = failed."""
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+
+    # Fake codex that exits with code 3.
+    fake_bin_dir = tmp_path / "fake_bin_fail"
+    fake_bin_dir.mkdir()
+    fake_binary = fake_bin_dir / "codex"
+    fake_binary.write_text(
+        "#!/bin/sh\n"
+        'printf "%s" "error output"\n'
+        "exit 3\n",
+        encoding="utf-8",
+    )
+    fake_binary.chmod(fake_binary.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+
+    brief_file = _make_brief_file(tmp_path)
+
+    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    assert rc == 0, f"dispatch failed: {run_id}"
+
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    _wait_for_exit_file(run_dir, timeout=5.0)
+
+    assert (run_dir / "exit").exists(), "exit file must be written by reaper"
+    exit_val = (run_dir / "exit").read_text(encoding="utf-8").strip()
+    assert exit_val == "3", f"exit file must contain '3' for worker exiting 3, got {exit_val!r}"
+
+    status = _run_status(run_dir)
+    assert status == "failed", f"_run_status must return 'failed' for exit=3, got {status!r}"
+
+
+def test_collect_exit_code_reflects_worker_success(tmp_path, capsys):
+    """collect returns exit 0 when worker succeeded (exit file = 0)."""
+    import argparse as _argparse
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+
+    fake_bin_dir = _make_fake_exec(tmp_path, "codex", '{"result":"hello"}')
+    brief_file = _make_brief_file(tmp_path)
+
+    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    assert rc == 0, f"dispatch failed: {run_id}"
+
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    _wait_for_exit_file(run_dir, timeout=5.0)
+
+    # Build a minimal args namespace for _cmd_collect.
+    args = _argparse.Namespace(run_id=run_id, workdir=str(workdir))
+    collect_rc = _mod._cmd_collect(args)
+    assert collect_rc == 0, f"collect must return 0 for a successful run, got {collect_rc}"
+
+
+def test_watchdog_uses_killpg(tmp_path, monkeypatch):
+    """MAJOR regression: _cursor_watchdog calls os.killpg, not proc.kill().
+
+    We verify by monkeypatching os.killpg and confirming it is called when
+    the watchdog fires a timeout, and that exit=124 is written.
+    """
+    import subprocess as _sp
+    import time as _time
+
+    run_dir = tmp_path / "run_watchdog"
+    run_dir.mkdir()
+
+    killpg_calls: list[tuple[int, int]] = []
+
+    def fake_killpg(pgid: int, sig: int) -> None:
+        killpg_calls.append((pgid, sig))
+
+    monkeypatch.setattr(_mod._os if hasattr(_mod, "_os") else _os, "killpg", fake_killpg, raising=False)
+    # Also patch on the os module that agentic-team imported at load time.
+    import os as _real_os
+    original_killpg = _real_os.killpg
+    _real_os.killpg = fake_killpg  # type: ignore[assignment]
+
+    try:
+        # Spawn a real long-running process so proc.pid and pgid are valid.
+        proc = _sp.Popen(
+            ["sleep", "60"],
+            stdout=_sp.DEVNULL,
+            stderr=_sp.DEVNULL,
+            start_new_session=True,
+        )
+        timed_out_flag: list[bool] = [False]
+        # Use timeout=0 so the watchdog fires immediately.
+        _mod._cursor_watchdog(proc, timeout=0, run_dir=run_dir, timed_out_flag=timed_out_flag)
+
+        # Give the watchdog thread time to fire.
+        deadline = _time.monotonic() + 3.0
+        while not (run_dir / "exit").exists() and _time.monotonic() < deadline:
+            _time.sleep(0.05)
+
+        # Clean up the process in case killpg was bypassed.
+        try:
+            proc.kill()
+            proc.wait(timeout=2)
+        except Exception:
+            pass
+    finally:
+        _real_os.killpg = original_killpg  # type: ignore[assignment]
+
+    assert killpg_calls, "os.killpg must be called by the watchdog on timeout"
+    assert timed_out_flag[0] is True, "timed_out_flag must be set by watchdog"
+    assert (run_dir / "exit").exists(), "watchdog must write exit file"
+    exit_val = (run_dir / "exit").read_text(encoding="utf-8").strip()
+    assert exit_val == "124", f"watchdog must write exit=124, got {exit_val!r}"
+
+
+def test_dispatch_mkdir_guard_unwritable_parent(tmp_path, monkeypatch):
+    """mkdir guard: unwritable workdir exits non-zero with error message, no traceback."""
+    import argparse as _argparse
+
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+    brief_file = _make_brief_file(tmp_path)
+
+    # Make run_dir.mkdir raise OSError to simulate unwritable workdir.
+    original_mkdir = Path.mkdir
+
+    def patched_mkdir(self: Path, *args, **kwargs):  # type: ignore[override]
+        if "teamrun" in str(self):
+            raise OSError("Permission denied (simulated)")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", patched_mkdir)
+
+    args = _argparse.Namespace(
+        harness="codex",
+        role="engineer",
+        brief=str(brief_file),
+        workdir=str(workdir),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc != 0, "dispatch must return non-zero on unwritable workdir"
+
+
+def test_run_id_contains_urandom_suffix():
+    """run-id contains a 4-char hex urandom suffix (pid-reuse tiebreaker)."""
+    rid = _make_run_id("engineer")
+    # Format: <role>-<counter>-<pid>-<4hex>
+    parts = rid.split("-")
+    # Last part must be 4 hex chars.
+    assert len(parts) >= 4, f"run-id must have at least 4 dash-separated parts, got: {rid!r}"
+    suffix = parts[-1]
+    assert len(suffix) == 4, f"urandom suffix must be 4 hex chars, got {suffix!r}"
+    assert all(c in "0123456789abcdef" for c in suffix), (
+        f"urandom suffix must be lowercase hex, got {suffix!r}"
+    )

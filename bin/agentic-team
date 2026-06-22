@@ -414,17 +414,19 @@ _CURSOR_TIMEOUT_SECONDS: int = 300
 
 
 def _make_run_id(role: str) -> str:
-    """Return a collision-free run-id: <role>-<counter>-<pid>.
+    """Return a collision-free run-id: <role>-<counter>-<pid>-<rand>.
 
-    Uses a process-wide monotonic counter (os.urandom hex suffix as tiebreaker)
-    so run-ids are deterministic within a process in tests (counter increments
-    predictably) and unique across concurrent processes (pid disambiguates).
+    Uses a process-wide monotonic counter plus a 2-byte urandom hex suffix so
+    run-ids are unique across concurrent processes (pid) and survive pid reuse
+    across runs (rand suffix).  Counter increments are deterministic within a
+    process, making test output predictable.
     """
     with _run_id_lock:
         n = _run_id_counter[0]
         _run_id_counter[0] += 1
     safe_role = role.replace("/", "-").replace(" ", "-")
-    return f"{safe_role}-{n:04d}-{os.getpid()}"
+    rand = os.urandom(2).hex()
+    return f"{safe_role}-{n:04d}-{os.getpid()}-{rand}"
 
 
 _run_id_lock = threading.Lock()
@@ -526,16 +528,32 @@ def _build_shim_dir(run_dir: Path, exempt_binary: str) -> Path:
     return shim_dir
 
 
-def _cursor_watchdog(proc: subprocess.Popen, timeout: int, run_dir: Path) -> None:
-    """Background thread: kill cursor-agent after *timeout* seconds if still running.
+def _cursor_watchdog(
+    proc: subprocess.Popen,
+    timeout: int,
+    run_dir: Path,
+    timed_out_flag: list[bool],
+) -> None:
+    """Background thread: kill the cursor-agent process group after *timeout* seconds.
 
-    Appends a note to stderr file and writes exit code 124 (timeout convention).
+    Uses os.killpg so the entire process tree (not just the top-level pid) is
+    killed - dispatch uses start_new_session=True which creates a new process
+    group, so killpg is the correct kill primitive.
+
+    Sets timed_out_flag[0] = True before writing exit=124 so the reaper thread
+    can detect the race and not overwrite 124 with the real (likely -9) code.
+
+    Appends a note to the stderr file and writes exit code 124 (timeout convention).
     """
     def _watch() -> None:
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            timed_out_flag[0] = True
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             stderr_file = run_dir / "stderr"
             try:
                 with stderr_file.open("a", encoding="utf-8") as fh:
@@ -592,7 +610,20 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     run_id = _make_run_id(role)
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        run_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(
+            f"agentic-team dispatch: run directory already exists (run-id collision): {run_dir}",
+            file=sys.stderr,
+        )
+        return 2
+    except OSError as exc:
+        print(
+            f"agentic-team dispatch: cannot create run directory {run_dir}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
 
     # Workdir fence (PRIMARY): worker cwd = its own workdir (caller supplies
     # a throwaway copy/worktree; we honor it and never let the worker default
@@ -638,9 +669,37 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     # Record harness so collect can demux the output shape.
     (run_dir / "harness").write_text(harness + "\n", encoding="utf-8")
 
+    # Shared flag: watchdog sets True before writing exit=124 so the reaper
+    # does not overwrite the timeout sentinel with the real (killed) code.
+    timed_out_flag: list[bool] = [False]
+
     # cursor-agent: start timeout-kill watchdog (documented hang workaround).
     if harness == "cursor-agent":
-        _cursor_watchdog(proc, _CURSOR_TIMEOUT_SECONDS, run_dir)
+        _cursor_watchdog(proc, _CURSOR_TIMEOUT_SECONDS, run_dir, timed_out_flag)
+
+    # Exit reaper: wait for the process and write the real exit code.
+    # Without this, no exit file is ever written on normal completion and
+    # _run_status fabricates exit=1 -> every successful worker reports failed.
+    def _reap() -> None:
+        try:
+            returncode = proc.wait()
+        except Exception:  # noqa: BLE001
+            return
+        # If the watchdog already wrote exit=124, don't clobber it.
+        if timed_out_flag[0]:
+            return
+        exit_file = run_dir / "exit"
+        try:
+            exit_file.write_text(str(returncode) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    # daemon=False: keeps the dispatch process alive until the worker finishes
+    # so the exit file is written before the process exits.  The run-id has
+    # already been printed to stdout above, so the conductor can proceed; the
+    # dispatch process just lingers until the reaper completes.
+    _reap_thread = threading.Thread(target=_reap, daemon=False)
+    _reap_thread.start()
 
     # Write .active sentinel so Unit 5b hook can suppress native Task/OMC
     # while at least one run is live.  The sentinel carries the conductor PID.
