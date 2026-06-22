@@ -295,7 +295,8 @@ Conductor reads `brief-session.json` `brief_source` field.
 ### When `brief_source: operator` (Brief from /brief dialogue)
 
 > "Verify completeness only: all 6 fields present, Verification field is non-empty and
-> not 'cannot specify', no Open Questions remaining. The problem framing and success
+> not 'cannot specify', no Open Questions remaining (a non-empty "Deferred defaults" section
+> does not count as unresolved Open Questions - those do not block). The problem framing and success
 > criteria have already been operator-confirmed in the /brief session - DO NOT relitigate
 > framing decisions. Major findings are limited to: missing field, empty Verification,
 > unresolved Open Questions, or contradictions between Brief fields. Out of scope:

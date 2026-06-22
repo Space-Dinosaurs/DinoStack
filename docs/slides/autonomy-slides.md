@@ -262,7 +262,8 @@ Mandatory phrasing for surface-and-proceed: <em>"Proceeding with approach A (mat
 <div class="columns-3">
 <div class="card">
 <strong>Open Questions</strong><br/>
-An architect-declared "Open Questions" section is a <strong>protocol-level blocker</strong>. Conductor-derived defaults do NOT close an Open Question. Resolve by re-spawning the architect, asking the user the specific question, or descoping.
+An architect-declared "Open Questions" section is a <strong>protocol-level blocker</strong>. Conductor-derived defaults do NOT close an Open Question. Resolve by re-spawning the architect, asking the user the specific question, or descoping.<br/><br/>
+<strong>Deferred defaults</strong> (reversible, defaultable, non-fork parked choices) are recorded at authoring time with a derived default and do <em>not</em> block. They are NOT Open Questions.
 </div>
 <div class="card">
 <strong>Explicit command directives</strong><br/>
