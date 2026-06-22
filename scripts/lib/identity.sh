@@ -72,7 +72,7 @@ _ae_setup_identity() {
   local show_out
   show_out="$(agentic-identity show --scope effective 2>/dev/null)" || show_out=""
   local existing_handle
-  existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')"
+  existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')" || existing_handle=""
   if [[ -n "$existing_handle" ]]; then
     if echo "$show_out" | grep -q 'provisional:'; then
       echo "  = identity already set to '$existing_handle' (provisional - run 'agentic-identity confirm' to lock it in)"
