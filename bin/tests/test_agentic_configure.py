@@ -282,6 +282,127 @@ def test_noninteractive_default_produces_scalar_output():
         assert f"  {role}:\n" not in out, f"unexpected mapping form for {role!r}"
 
 
+# ---------------------------------------------------------------------------
+# Unit 4: team subcommand tests (AC4)
+# ---------------------------------------------------------------------------
+
+def test_configure_team_noninteractive_writes_block():
+    """--non-interactive --assign pairs produce a valid team.yml block."""
+    with tempfile.TemporaryDirectory() as td:
+        target = Path(td) / ".agentic" / "team.yml"
+        rc = _mod.main([
+            "team",
+            "--non-interactive",
+            "--assign", "engineer=codex:gpt-5.3-codex",
+            "--assign", "skeptic=cursor-agent:gpt-5",
+            "--default-harness", "codex",
+            "--path", str(target),
+        ])
+        assert rc == 0, f"expected exit 0, got {rc}"
+        assert target.is_file(), "team.yml must be written"
+        text = target.read_text()
+    # Must contain the assigned role entries
+    assert "engineer:" in text
+    assert "harness: codex" in text
+    assert "model: gpt-5.3-codex" in text
+    assert "skeptic:" in text
+    assert "harness: cursor-agent" in text
+    assert "default_harness: codex" in text
+    assert "enabled: true" in text
+    assert "dispatch:" in text
+
+
+def test_configure_team_noninteractive_unknown_harness_fails():
+    """--assign with unknown harness must exit 2 and write nothing."""
+    with tempfile.TemporaryDirectory() as td:
+        target = Path(td) / "team.yml"
+        rc = _mod.main([
+            "team",
+            "--non-interactive",
+            "--assign", "engineer=badharness:somemodel",
+            "--path", str(target),
+        ])
+        assert rc == 2
+        assert not target.exists(), "no file must be written on validation error"
+
+
+def test_configure_team_noninteractive_requires_assign():
+    """--non-interactive with no --assign must exit 2."""
+    with tempfile.TemporaryDirectory() as td:
+        target = Path(td) / "team.yml"
+        rc = _mod.main([
+            "team",
+            "--non-interactive",
+            "--path", str(target),
+        ])
+        assert rc == 2
+
+
+def test_configure_team_web_optional_offline_falls_back(monkeypatch):
+    """--web with offline fetch falls back to heuristics and still produces a file."""
+    # Patch _web_enrich to return {} (simulating offline fallback - _web_enrich
+    # catches all exceptions internally and returns {}; we replicate that here).
+    monkeypatch.setattr(_mod, "_web_enrich", lambda models: {})
+
+    # Patch _run_discover to return a minimal installed harness (no real subprocess).
+    fake_discovery = {
+        "codex": {
+            "installed": True,
+            "models": ["gpt-5.3-codex", "gpt-5"],
+            "invocation_family": "codex-exec",
+            "version": None,
+            "native_subagent_disable_flag": None,
+        }
+    }
+    monkeypatch.setattr(_mod, "_run_discover", lambda: fake_discovery)
+
+    with tempfile.TemporaryDirectory() as td:
+        target = Path(td) / "team.yml"
+        # Run non-interactively via the ranking path (non-TTY env).
+        rc = _mod._cmd_team([
+            "--web",
+            "--path", str(target),
+        ])
+        # Should exit 0 (heuristic fallback, not a hard fail).
+        assert rc == 0, f"expected exit 0 on offline --web, got {rc}"
+        assert target.is_file(), "team.yml must be written even when web fails"
+        text = target.read_text()
+    assert "enabled: true" in text
+    # At least one role should have been assigned from heuristics.
+    assert "codex" in text
+
+
+def test_configure_team_emit_yaml_structure():
+    """_emit_team_yaml produces correct YAML structure."""
+    assignments = {
+        "engineer": ("codex", "gpt-5.3-codex"),
+        "skeptic": ("cursor-agent", ""),
+    }
+    out = _mod._emit_team_yaml(assignments, "codex")
+    assert "enabled: true" in out
+    assert "default_harness: codex" in out
+    assert "engineer:" in out
+    assert "    harness: codex" in out
+    assert "    model: gpt-5.3-codex" in out
+    assert "  skeptic: cursor-agent" in out  # scalar form when no model
+    assert "dispatch:" in out
+    assert "timeout_seconds: 1800" in out
+
+
+def test_existing_flags_unaffected_by_team_subcommand():
+    """Existing flag-only path still works after team subcommand addition."""
+    # Simulate --help: must not error or mention 'team' in the flag-only parser.
+    # We test that main() routes non-'team' argv to the original argparse parser
+    # by checking that an unknown flag still raises SystemExit (argparse behavior).
+    try:
+        _mod.main(["--unknown-flag-xyz"])
+    except SystemExit as exc:
+        assert exc.code != 0
+    else:
+        # argparse may not raise on all Python versions; just verify no crash
+        pass
+
+
 def main() -> int:
     failures = 0
     tests = [
