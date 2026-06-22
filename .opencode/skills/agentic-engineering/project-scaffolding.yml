@@ -4,6 +4,8 @@
 #          at preflight Step 6 to auto-apply drift.
 #          v2: adds !.agentic/learnings.md negation + learnings.md seed so fix-patterns
 #              are committed and shared across operators by default.
+#          v3: adds !.agentic/team.yml negation so cross-harness team topology is
+#              committed shareable project intent (like config.json).
 # Public API: read by bin/agentic-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
 # Upstream: none (this is the canonical source)
@@ -12,7 +14,7 @@
 # Failure modes: if malformed or missing, agentic-migrate exits 2 and skips migration;
 #                preflight swallows the error silently and proceeds with methodology active.
 
-scaffolding_version: 2
+scaffolding_version: 3
 gitignore:
   - pattern: ".agentic/*"
     purpose: "umbrella ignore"
@@ -26,6 +28,8 @@ gitignore:
     purpose: "committed: Stage 1 telemetry contents"
   - pattern: "!.agentic/learnings.md"
     purpose: "committed: per-ticket fix-pattern learnings shared across operators"
+  - pattern: "!.agentic/team.yml"
+    purpose: "committed: cross-harness team topology (shareable project intent)"
 files:
   - path: ".agentic/config.json"
     seed: "templates/.agentic/config.json"
