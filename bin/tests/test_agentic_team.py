@@ -252,6 +252,52 @@ def test_main_exits_nonzero_on_bad_harness(tmp_path):
     assert rc != 0
 
 
+def test_yaml_parser_handles_4space_indent_and_special_chars(tmp_path):
+    """MAJOR regression: pyyaml loader must accept 4-space-indented team.yml
+    and must NOT corrupt model values containing ':' or ' #'."""
+    # 4-space indented (valid YAML, rejected by old hand-rolled parser)
+    team_yml = _write(tmp_path, "team.yml", """\
+enabled: true
+default_harness: codex
+roles:
+    engineer:
+        harness: codex
+        model: gpt-5.3-codex
+    skeptic:
+        harness: claude
+        model: claude-sonnet-4-6
+""")
+    config = _load_team_config(global_path=Path("/dev/null"), project_path=team_yml)
+    errors = _validate_config(config, source=str(team_yml))
+    assert not errors, f"4-space indent must be accepted, got errors: {errors}"
+    assert config["roles"]["engineer"]["model"] == "gpt-5.3-codex"
+
+    # Model value containing ':' must not be truncated
+    team_yml2 = _write(tmp_path, "team_colon.yml", """\
+roles:
+  engineer:
+    harness: codex
+    model: "namespace:gpt-5"
+""")
+    config2 = _load_team_config(global_path=Path("/dev/null"), project_path=team_yml2)
+    # model value must survive intact (old parser truncated at ':')
+    assert config2["roles"]["engineer"]["model"] == "namespace:gpt-5", (
+        f"colon in model value was corrupted: {config2['roles']['engineer'].get('model')!r}"
+    )
+
+    # Model value containing ' #' must not be truncated
+    team_yml3 = _write(tmp_path, "team_hash.yml", """\
+roles:
+  engineer:
+    harness: codex
+    model: "gpt-5 #fast"
+""")
+    config3 = _load_team_config(global_path=Path("/dev/null"), project_path=team_yml3)
+    assert config3["roles"]["engineer"]["model"] == "gpt-5 #fast", (
+        f"hash in model value was corrupted: {config3['roles']['engineer'].get('model')!r}"
+    )
+
+
 def test_main_exits_nonzero_on_bad_default_harness(tmp_path):
     """main() returns non-zero when default_harness is invalid."""
     project_yml = _write(tmp_path, "team.yml", """
