@@ -90,11 +90,10 @@ def main() -> int:
         # write the sentinel, so a later session retries once the user sets
         # NINEROUTER_URL. Mirrors activation preflight Step 6.5b.
         return 0
-    # Run configure --non-interactive. It returns 0 either when it wrote a
-    # config (probe succeeded) or when it deliberately no-op'd (no probe URL);
-    # both cases write the sentinel so we do not retry every session. A
-    # non-zero return (probe failed) must NOT write the sentinel so the next
-    # session retries. See content/sections/01-activation-preflight.md 6.5c.
+    # Run configure --non-interactive. A zero return means the probe succeeded
+    # and a config was written; write the sentinel so we do not retry every
+    # session. A non-zero return (probe failed) must NOT write the sentinel so
+    # the next session retries. See content/sections/01-activation-preflight.md 6.5c.
     try:
         result = subprocess.run(
             [str(CONFIGURE_BIN), "--non-interactive"],
