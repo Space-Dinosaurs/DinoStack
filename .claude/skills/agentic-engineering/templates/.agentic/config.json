@@ -4,7 +4,7 @@
   "qa_default_skip": null,
   "model_profile": "default",
   "auto_merge_on_ci_green": false,
-  "capability_preflight_mode": "advisory",
+  "capability_preflight_mode": "blocking",
   "perceptual_diff_enabled": false,
   "theme_aware": false,
   "storybook_enabled": false,
