@@ -25,6 +25,18 @@ from __future__ import annotations
 
 _KNOWN_KEYS = frozenset({"model", "effort", "reasoning"})
 
+# Canonical set of known harness labels.  Single source of truth imported by
+# both agentic-configure and agentic-team; neither file declares its own copy.
+KNOWN_HARNESSES: frozenset[str] = frozenset({
+    "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
+})
+
+# Canonical set of known role names (mirrors ROLES in agentic-configure).
+KNOWN_ROLES: frozenset[str] = frozenset({
+    "conductor", "investigator", "architect", "orchestration-planner",
+    "engineer", "debugger", "qa-engineer", "skeptic", "security-auditor",
+})
+
 
 def normalize_role_spec(value: object) -> dict:
     """Normalize a scalar-or-mapping role spec value to a canonical dict.

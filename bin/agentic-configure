@@ -64,6 +64,7 @@ _rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
 _rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
 _rs_loader.exec_module(_rs_mod)
 normalize_role_spec = _rs_mod.normalize_role_spec
+KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
 
 GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
 ROLES = [
@@ -116,11 +117,6 @@ _HARNESS_BASE_SCORES: dict[str, dict[str, int]] = {
     "claude":       {"architect": 3, "skeptic": 3, "engineer": 2, "security-auditor": 3},
 }
 
-# Known harnesses (mirrors KNOWN_HARNESSES in agentic-team; duplicated here
-# to avoid a subprocess import cycle - keep in sync with agentic-team).
-_KNOWN_HARNESSES: frozenset[str] = frozenset({
-    "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
-})
 
 
 def _probe_or_empty(probe_url: str, probe_key: str) -> dict | None:
@@ -273,27 +269,39 @@ def _run_discover() -> dict:
         return {}
 
 
-def _score_model_for_role(model_id: str, role: str) -> int:
+def _score_model_for_role(
+    model_id: str,
+    role: str,
+    capability_table: dict[str, dict[str, int]] | None = None,
+) -> int:
     """Score a (model_id, role) pair using the capability table.
 
     Iterates over capability-table keys as substring patterns (case-insensitive).
     Accumulates deltas for all matching patterns.
+    Pass capability_table explicitly to use a web-enriched table; defaults to
+    the module-level _TEAM_CAPABILITY_TABLE.
     """
+    table = capability_table if capability_table is not None else _TEAM_CAPABILITY_TABLE
     score = 0
     m = model_id.lower()
-    for pattern, role_scores in _TEAM_CAPABILITY_TABLE.items():
+    for pattern, role_scores in table.items():
         if pattern.lower() in m:
             score += role_scores.get(role, 0)
     return score
 
 
-def _rank_assignments(discovery: dict) -> dict[str, tuple[str, str]]:
+def _rank_assignments(
+    discovery: dict,
+    capability_table: dict[str, dict[str, int]] | None = None,
+) -> dict[str, tuple[str, str]]:
     """Return best role -> (harness, model) assignments from discovery payload.
 
     For each role in ROLES, iterate over installed harnesses and their models,
     score each (harness, model) pair, and pick the highest-scoring one.
     Falls back to harness-level base scores when a harness has no models list.
     Returns a dict mapping role -> (harness, model_or_empty_string).
+    Pass capability_table explicitly to use a web-enriched table; defaults to
+    the module-level _TEAM_CAPABILITY_TABLE.
     """
     best: dict[str, tuple[str, str, int]] = {}  # role -> (harness, model, score)
 
@@ -306,7 +314,7 @@ def _rank_assignments(discovery: dict) -> dict[str, tuple[str, str]]:
         if models:
             for model in models:
                 for role in ROLES:
-                    s = _score_model_for_role(model, role)
+                    s = _score_model_for_role(model, role, capability_table)
                     # add harness-level base score for tiebreaking
                     s += harness_base.get(role, 0)
                     prev = best.get(role)
@@ -424,10 +432,10 @@ def _parse_assign_pairs(
             harness, model = hm.strip(), ""
         harness = harness.strip()
         model = model.strip()
-        if harness not in _KNOWN_HARNESSES:
+        if harness not in KNOWN_HARNESSES:
             errors.append(
                 f"--assign {pair!r}: unknown harness {harness!r} "
-                f"(known: {', '.join(sorted(_KNOWN_HARNESSES))})"
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
             )
             continue
         assignments[role] = (harness, model)
@@ -479,10 +487,10 @@ def _cmd_team(argv: list[str]) -> int:
                 print(err, file=sys.stderr)
             return 2
         default_harness = args.default_harness.strip() or None
-        if default_harness and default_harness not in _KNOWN_HARNESSES:
+        if default_harness and default_harness not in KNOWN_HARNESSES:
             print(
                 f"agentic-configure team: unknown --default-harness {default_harness!r} "
-                f"(known: {', '.join(sorted(_KNOWN_HARNESSES))})",
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})",
                 file=sys.stderr,
             )
             return 2
@@ -511,7 +519,7 @@ def _cmd_team(argv: list[str]) -> int:
         if enrichment:
             capability_table = _apply_web_enrichment(capability_table, enrichment)
 
-    assignments = _rank_assignments(discovery)
+    assignments = _rank_assignments(discovery, capability_table)
 
     if not sys.stdin.isatty():
         # Non-TTY without --non-interactive: write best-guess and exit.
@@ -546,7 +554,7 @@ def _cmd_team(argv: list[str]) -> int:
         else:
             h, m = val, ""
         h = h.strip()
-        if h not in _KNOWN_HARNESSES:
+        if h not in KNOWN_HARNESSES:
             print(f"    unknown harness {h!r}; skipping {role}")
             continue
         final_assignments[role] = (h, m.strip())
@@ -564,6 +572,9 @@ def main(argv: list[str]) -> int:
     # Dispatch-on-argv shim: if the first positional argument is "team", route
     # to the team subcommand WITHOUT touching the existing argparse parser.
     # This preserves all existing flag-only behavior byte-for-byte.
+    # Deliberate deviation from the plan's add_subparsers approach: using an
+    # argv shim avoids disturbing the existing flag parser and reduces the
+    # rebase surface against in-flight PRs (e.g. #256).
     if argv and argv[0] == "team":
         return _cmd_team(argv[1:])
 
