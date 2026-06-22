@@ -253,6 +253,35 @@ def test_bootstrap_no_sentinel_on_probe_failure():
         assert not sentinel.exists(), "sentinel must NOT be written when configure fails (allow retry)"
 
 
+def test_noninteractive_default_produces_scalar_output():
+    """CRITICAL regression: non-interactive path must emit scalar YAML (engineer: sonnet),
+    not mapping form ({model: sonnet}). Byte-identical to pre-refactor output."""
+    # Simulate non-interactive with no probe suggestions (bare default = 'sonnet')
+    # _gather_roles stores bare string when effort and reasoning are both empty
+    from unittest.mock import patch
+    # patch normalize_role_spec to ensure it's never called for bare case
+    original_normalize = _mod.normalize_role_spec
+    calls = []
+    def tracking_normalize(spec):
+        calls.append(spec)
+        return original_normalize(spec)
+    with patch.object(_mod, "normalize_role_spec", tracking_normalize):
+        roles = _mod._gather_roles(suggestions={}, non_interactive=True)
+    # Every role must be a bare string (scalar), not a dict
+    for role, val in roles.items():
+        assert isinstance(val, str), (
+            f"role {role!r} should be scalar str, got {type(val).__name__}: {val!r}. "
+            "Pre-refactor emitted scalar YAML; the refactor broke this."
+        )
+    # normalize_role_spec must NOT have been called for the non-interactive path
+    assert calls == [], f"normalize_role_spec called unexpectedly: {calls}"
+    # The emitted YAML must use scalar form (engineer: sonnet), not mapping form
+    out = _emit_yaml(roles)
+    for role in roles:
+        assert f"  {role}: " in out, f"expected scalar line for {role!r} in YAML output"
+        assert f"  {role}:\n" not in out, f"unexpected mapping form for {role!r}"
+
+
 def main() -> int:
     failures = 0
     tests = [

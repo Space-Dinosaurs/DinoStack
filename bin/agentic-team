@@ -36,6 +36,13 @@ import os
 import sys
 from pathlib import Path
 
+try:
+    import yaml as _yaml  # type: ignore
+    _HAVE_YAML = True
+except ImportError:
+    _yaml = None  # type: ignore
+    _HAVE_YAML = False
+
 # ---------------------------------------------------------------------------
 # Load _role_spec from the same bin/ directory (no .py extension sibling)
 # ---------------------------------------------------------------------------
@@ -79,7 +86,7 @@ PROJECT_TEAM_YML = Path(".agentic/team.yml")
 
 
 # ---------------------------------------------------------------------------
-# Minimal YAML loader (stdlib only - no PyYAML)
+# YAML loader - uses pyyaml (yaml.safe_load) when available; fails loud if not.
 # Supports the team.yml schema:
 #   enabled: true|false
 #   default_harness: <str>
@@ -96,134 +103,24 @@ PROJECT_TEAM_YML = Path(".agentic/team.yml")
 # ---------------------------------------------------------------------------
 
 def _parse_team_yml(text: str, source: str) -> dict:
-    """Parse team.yml text into a dict.
+    """Parse team.yml text into a dict using yaml.safe_load (pyyaml required).
 
-    Only handles the team.yml schema subset. Raises ValueError on unexpected
-    structure with a message indicating source file and offending line.
+    Raises ImportError if pyyaml is not installed (fail loud over wrong parse).
+    Raises ValueError on unexpected structure.
     """
-    result: dict = {}
-    lines = text.splitlines()
-    i = 0
-    n = len(lines)
-
-    def _stripped(line: str) -> str:
-        return line.rstrip()
-
-    def _indent(line: str) -> int:
-        return len(line) - len(line.lstrip())
-
-    def _parse_scalar(raw: str) -> object:
-        v = raw.strip()
-        if v.lower() == "true":
-            return True
-        if v.lower() == "false":
-            return False
-        try:
-            return int(v)
-        except ValueError:
-            pass
-        # strip optional inline comment
-        if " #" in v:
-            v = v[:v.index(" #")].rstrip()
-        # strip surrounding quotes
-        if (v.startswith('"') and v.endswith('"')) or \
-           (v.startswith("'") and v.endswith("'")):
-            v = v[1:-1]
-        return v
-
-    while i < n:
-        raw = _stripped(lines[i])
-        if not raw or raw.lstrip().startswith("#"):
-            i += 1
-            continue
-        if _indent(raw) != 0:
-            raise ValueError(
-                f"{source}:{i + 1}: unexpected indentation at top level: {raw!r}"
-            )
-        if ":" not in raw:
-            raise ValueError(f"{source}:{i + 1}: expected 'key: value', got {raw!r}")
-        key, _, rest = raw.partition(":")
-        key = key.strip()
-        rest = rest.strip()
-
-        if key in ("enabled", "default_harness"):
-            if not rest:
-                raise ValueError(f"{source}:{i + 1}: key {key!r} has no value")
-            result[key] = _parse_scalar(rest)
-            i += 1
-
-        elif key == "roles":
-            roles: dict = {}
-            i += 1
-            while i < n:
-                line = _stripped(lines[i])
-                if not line or line.lstrip().startswith("#"):
-                    i += 1
-                    continue
-                ind = _indent(line)
-                if ind == 0:
-                    break  # back to top-level
-                if ind != 2:
-                    raise ValueError(
-                        f"{source}:{i + 1}: roles entries must be indented 2 spaces"
-                    )
-                stripped = line.strip()
-                if ":" not in stripped:
-                    raise ValueError(
-                        f"{source}:{i + 1}: expected 'role: ...' got {stripped!r}"
-                    )
-                rkey, _, rrest = stripped.partition(":")
-                rkey = rkey.strip()
-                rrest = rrest.strip()
-                if rrest:
-                    # scalar form: engineer: codex:model or just a string
-                    roles[rkey] = _parse_scalar(rrest)
-                    i += 1
-                else:
-                    # mapping form - consume indented sub-keys
-                    mapping: dict = {}
-                    i += 1
-                    while i < n:
-                        sub = _stripped(lines[i])
-                        if not sub or sub.lstrip().startswith("#"):
-                            i += 1
-                            continue
-                        if _indent(sub) <= 2:
-                            break
-                        if _indent(sub) != 4:
-                            raise ValueError(
-                                f"{source}:{i + 1}: role sub-keys must be indented 4 spaces"
-                            )
-                        sk, _, sv = sub.strip().partition(":")
-                        mapping[sk.strip()] = _parse_scalar(sv.strip())
-                        i += 1
-                    roles[rkey] = mapping
-            result["roles"] = roles
-
-        elif key == "dispatch":
-            dispatch: dict = {}
-            i += 1
-            while i < n:
-                line = _stripped(lines[i])
-                if not line or line.lstrip().startswith("#"):
-                    i += 1
-                    continue
-                if _indent(line) == 0:
-                    break
-                stripped = line.strip()
-                if ":" not in stripped:
-                    i += 1
-                    continue
-                dk, _, dv = stripped.partition(":")
-                dispatch[dk.strip()] = _parse_scalar(dv.strip())
-                i += 1
-            result["dispatch"] = dispatch
-
-        else:
-            # Unknown top-level key - skip its block
-            i += 1
-
-    return result
+    if not _HAVE_YAML:
+        raise ImportError(
+            "agentic-team requires pyyaml. Install with: pip install pyyaml"
+        )
+    try:
+        data = _yaml.safe_load(text)
+    except _yaml.YAMLError as exc:
+        raise ValueError(f"{source}: YAML parse error: {exc}") from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{source}: expected a YAML mapping at the top level, got {type(data).__name__}")
+    return data
 
 
 def _load_team_config(
