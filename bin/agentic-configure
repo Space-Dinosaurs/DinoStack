@@ -17,6 +17,7 @@ Public API: agentic-configure [--probe-url URL] [--probe-key KEY] [--force]
             not block the user's prompt).
 
 Upstream deps: bin/agentic-models (probes the harness);
+               bin/_role_spec (normalize_role_spec);
                Python 3 stdlib only otherwise.
 
 Downstream consumers: hooks/role-models-bootstrap.py (pre-prompt hook);
@@ -40,6 +41,16 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+# _role_spec lives in the same bin/ directory (no .py extension peer)
+import importlib.machinery as _im
+import importlib.util as _ilu
+_rs_path = Path(__file__).parent / "_role_spec.py"
+_rs_loader = _im.SourceFileLoader("_role_spec", str(_rs_path))
+_rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
+_rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
+_rs_loader.exec_module(_rs_mod)
+normalize_role_spec = _rs_mod.normalize_role_spec
 
 GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
 ROLES = [
@@ -158,15 +169,12 @@ def _gather_roles(suggestions: dict, non_interactive: bool) -> dict:
             continue
         effort = _ask_effort("medium")
         reasoning = _ask_reasoning("")
-        if not effort and not reasoning:
-            roles[role] = choice
-        else:
-            spec: dict = {"model": choice}
-            if effort:
-                spec["effort"] = effort
-            if reasoning:
-                spec["reasoning"] = reasoning
-            roles[role] = spec
+        raw: dict = {"model": choice}
+        if effort:
+            raw["effort"] = effort
+        if reasoning:
+            raw["reasoning"] = reasoning
+        roles[role] = normalize_role_spec(raw)
     return roles
 
 
