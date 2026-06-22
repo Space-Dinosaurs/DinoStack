@@ -19,7 +19,8 @@
 # Downstream consumers:
 #   .claude/install.sh, .codex/install.sh, .cursor/install.sh,
 #   .gemini/install.sh, .hermes/install.sh, .kimi/install.sh,
-#   .omp/install.sh, .opencode/install.sh, .pi/install.sh
+#   .omp/install.sh, .openclaw/install.sh, .opencode/install.sh,
+#   .pi/install.sh
 #
 # Failure modes:
 #   Never aborts the caller - every agentic-identity call captures rc;
@@ -128,7 +129,7 @@ _ae_setup_identity() {
   echo "  Developer identity links telemetry to your handle across sessions."
   local typed_handle=""
   read -r -p "  GitHub handle [skip]: " typed_handle </dev/tty || typed_handle=""
-  typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')"
+  typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')" || typed_handle=""
   if [[ -z "$typed_handle" ]]; then
     echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
     return
