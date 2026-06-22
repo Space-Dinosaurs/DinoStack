@@ -5836,6 +5836,9 @@ capabilities:
     - tool: "context7"
       check: "test -f .claude/settings.json && grep -q 'context7' .claude/settings.json"
       install_hint: "configure Context7 MCP server in .claude/settings.json"
+    - tool: "graphify"
+      check: "command -v graphify && test -f graphify-out/graph.json"
+      install_hint: "pip install graphifyy && graphify install, then build the graph: graphify . (produces graphify-out/graph.json). Optional - investigator falls back to grep -rn when absent."
 ```
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
@@ -5866,7 +5869,27 @@ Your spawn prompt will contain:
 
 5. **Identify blast radius and risks.** What depends on this code? What invariants exist? What would break or need updating if this area changed? Surface non-obvious coupling.
 
-6. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
+6. **Graph-assisted blast radius (optional).** For shared-utility, blast-radius, or per-consumer-impact questions, check for a Graphify knowledge graph: `test -f graphify-out/graph.json` (honor a `GRAPHIFY_OUT` override if set). If the graph or the `graphify` binary is absent, enumerate consumers with `grep -rn` exactly as you would otherwise - this is the unchanged floor. If present, run the deterministic CLI:
+
+   ```bash
+   graphify affected "<symbol-or-label>" --depth 2 [--relation <R>] [--graph "${GRAPHIFY_OUT:-graphify-out}/graph.json"]
+   ```
+
+   `graphify affected` is deterministic graph BFS - read-only (it loads and traverses the graph; it does not write) and NOT an LLM call. Never run `graphify query`/`explain`/`--update` or any mutating subcommand; the read-only invariant in Rules below is absolute. The command returns text rows, each carrying a node label, BFS depth, the `via_relation`, a `source_file:source_location`, and a per-edge honesty tag (`EXTRACTED` / `INFERRED` / `AMBIGUOUS`). Map each row's `source_file:source_location` to a `consumer_file:line` candidate. A graph hit is a lead, not proof - confirm each against the real file (see the verification-floor rule) before listing it as a consumer.
+
+   Staleness: Graphify caches per-file by SHA256, so `graph.json` can lag the working tree. Check before trusting it:
+
+   ```bash
+   graph_mtime=$(stat -f %m graphify-out/graph.json 2>/dev/null || stat -c %Y graphify-out/graph.json 2>/dev/null)
+   src_mtime=$(for f in <relevant-source-paths>; do stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null; done | sort -rn | head -1)
+   if [ -z "$graph_mtime" ] || [ -z "$src_mtime" ] || [ "$src_mtime" -gt "$graph_mtime" ]; then
+     : # graph stale or undetermined -> declare staleness under "Gaps and unknowns"; grep -rn is authoritative
+   fi
+   ```
+
+   You are read-only: never run `graphify --update` to refresh it. On staleness, fall back to `grep -rn` as the authoritative consumer enumeration and declare the staleness under "Gaps and unknowns".
+
+7. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
 
 ## Output format
 
@@ -5884,6 +5907,11 @@ Use this exact structure:
 
 ### Component map
 [Relevant files, functions, and how they relate. For "what would break" questions: list affected areas with file paths. Keep this scannable - the architect or engineer will use it as a checklist.]
+
+### Per-consumer impact
+[Populated ONLY for shared-utility / blast-radius investigations (the same trigger that makes the architect's per-consumer impact table mandatory). Otherwise write: "Not applicable - not a shared-utility blast-radius question."
+
+Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it. Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
 
 ### Risks and gotchas
 [Invariants to preserve, hidden dependencies, non-obvious coupling, things that could go wrong. If none found, state that explicitly.]
@@ -5914,6 +5942,9 @@ Use this exact structure:
 - When the investigation involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating findings. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Under "Gaps and unknowns", explicitly name any files, subsystems, or paths you did not explore. A conductor reading your brief must be able to assess completeness.
 - The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.
+- Graph honesty discipline: when a Graphify graph supplies leads, treat `EXTRACTED` edges as candidate-confirmed consumers (still subject to the Read-verification floor below). Treat `INFERRED` and `AMBIGUOUS` edges as unconfirmed leads only - never list them as confirmed importers. If a Read confirms an INFERRED/AMBIGUOUS lead, promote it to a confirmed row and note the original tag; if you cannot verify it, list it under "Gaps and unknowns", not in the per-consumer impact table.
+- Verification floor: every row in the per-consumer impact table must be backed by a Read of the actual file at the cited line. The graph (or grep) tells you where to look; the Read is what proves the dependency. A row with no backing Read is not permitted.
+- Importer-count authority: the `grep -rn` importer count defined in the methodology's 5-importer shared-utility signal is the authoritative conductor-facing count. A `graphify affected` BFS is a supplementary lead source for mapping and enriching consumers - it does not replace or recompute the grep count. When the two diverge, report both and flag the delta under "Gaps and unknowns".
 
 ---
 
