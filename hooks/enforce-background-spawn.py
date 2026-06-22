@@ -89,6 +89,11 @@ def _sentinel_is_live(cwd: str) -> bool:
         pid = int(first_line)
 
         # os.kill(pid, 0) raises OSError when the process does not exist.
+        # NOTE: PID reuse - if the original conductor died and the OS recycled
+        # its PID to a different process within the 2 h mtime window, this
+        # check gives a false-live result. The mtime cap (_SENTINEL_MAX_AGE_S)
+        # is the backstop: a sentinel older than 2 h is treated as expired
+        # regardless of whether the PID happens to be alive.
         try:
             os.kill(pid, 0)
         except OSError:
@@ -123,9 +128,21 @@ def main() -> None:
         tool_name = data.get("tool_name")
 
         # ------------------------------------------------------------------ #
+        # Foreground-exempt check (MUST come before sentinel suppression)    #
+        # wrap-ticket holds .agentic/wrap.lock and MUST complete before      #
+        # Phase 12 cleanup - it is the only sanctioned foreground Task.      #
+        # Exemption applies regardless of sentinel state, so check first.    #
+        # ------------------------------------------------------------------ #
+        if tool_name == "Task":
+            raw_tinput_early = data.get("tool_input")
+            tinput_early = raw_tinput_early if isinstance(raw_tinput_early, dict) else {}
+            if tinput_early.get("subagent_type") in FOREGROUND_EXEMPT:
+                sys.exit(0)
+
+        # ------------------------------------------------------------------ #
         # Cross-harness sentinel suppression (Unit 5b)                       #
-        # Checked before the existing Task enforcement so that when a team    #
-        # run is active, even correctly-formed background Task spawns deny.   #
+        # Applies to non-exempt Task spawns and oh-my-claudecode:* Skills.   #
+        # Exempt agents (wrap-ticket) already exited above.                  #
         # ------------------------------------------------------------------ #
         if tool_name in ("Task", "Skill"):
             cwd = data.get("cwd") or os.getcwd()
@@ -140,10 +157,19 @@ def main() -> None:
                         "an expired sentinel."
                     )
                 # Skill: only block oh-my-claudecode:* calls.
+                # The Claude Code Skill tool passes the skill name in
+                # tool_input["skill"] - confirmed by PreToolUse payload
+                # inspection and the existing test fixtures in
+                # bin/tests/test_enforce_background_spawn.py (lines 176, 193).
+                # We do NOT fall back to a "name" field: an absent or
+                # unrecognised field means we cannot determine the skill -
+                # fail-open (allow) rather than silently misidentify.
                 tinput = data.get("tool_input")
                 skill_name = ""
                 if isinstance(tinput, dict):
-                    skill_name = str(tinput.get("skill") or tinput.get("name") or "")
+                    raw = tinput.get("skill")
+                    if isinstance(raw, str):
+                        skill_name = raw
                 if skill_name.startswith("oh-my-claudecode:"):
                     _deny(
                         f"Skill '{skill_name}' blocked: a DinoStack cross-harness "
@@ -152,7 +178,8 @@ def main() -> None:
                         "the DinoStack team layer owns dispatch. Use "
                         "`bin/agentic-team dispatch` to assign work to workers."
                     )
-                # Non-OMC Skill or Skill with no sentinel -> allow.
+                # Non-OMC Skill, Skill with absent/unrecognised field, or no
+                # sentinel -> allow (fail-open).
                 sys.exit(0)
 
         # ------------------------------------------------------------------ #
@@ -173,9 +200,8 @@ def main() -> None:
             sys.exit(0)
         tinput = raw_tinput if isinstance(raw_tinput, dict) else {}
 
-        # Allow documented foreground-exempt agents regardless of run_in_background.
-        if tinput.get("subagent_type") in FOREGROUND_EXEMPT:
-            sys.exit(0)
+        # Foreground-exempt agents were already allowed before the sentinel
+        # suppression block above. Any Task that reaches here is non-exempt.
 
         # Allow correctly-formed background spawns. Accept only boolean True -
         # string "false", 0, None, and other truthy-but-not-true values all deny.
