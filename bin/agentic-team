@@ -71,6 +71,7 @@ _rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
 _rs_loader.exec_module(_rs_mod)
 normalize_role_spec = _rs_mod.normalize_role_spec
 KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
+KNOWN_ROLES: frozenset[str] = _rs_mod.KNOWN_ROLES
 
 # ---------------------------------------------------------------------------
 # Load _model_probe from the same bin/ directory
@@ -139,20 +140,6 @@ HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG: dict[str, str | None] = {
     "omp":          None,
     "claude":       None,
 }
-
-# Known role names (mirrors ROLES in agentic-configure; extensible in team.yml
-# via the roles: block - unknown keys are rejected at load time)
-KNOWN_ROLES: frozenset[str] = frozenset({
-    "conductor",
-    "investigator",
-    "architect",
-    "orchestration-planner",
-    "engineer",
-    "debugger",
-    "qa-engineer",
-    "skeptic",
-    "security-auditor",
-})
 
 GLOBAL_TEAM_YML = Path(os.path.expanduser("~/.agentic/team.yml"))
 PROJECT_TEAM_YML = Path(".agentic/team.yml")

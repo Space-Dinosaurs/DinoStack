@@ -419,9 +419,11 @@ def test_configure_team_web_enrichment_changes_ranking(monkeypatch):
         f"enrichment did not change architect ranking: got {enriched.get('architect')!r}"
     )
     # Baseline must NOT have had the same result (proves enrichment actually flipped it).
-    # (If baseline already picked codex for architect, the test setup is wrong;
-    # we verify gemini wins baseline because gemini-2.5-pro has explicit architect score.)
-    assert baseline.get("architect") != ("codex", "gpt-5") or True  # see note below
+    # gemini-2.5-pro has an explicit architect score in the table, so gemini wins baseline.
+    assert baseline.get("architect") != ("codex", "gpt-5"), (
+        f"baseline unexpectedly already picked codex/gpt-5 for architect: "
+        f"test setup is wrong or capability table changed. got {baseline.get('architect')!r}"
+    )
     # Stronger assertion: the enriched table's gpt-5 architect score exceeds baseline.
     baseline_score = _mod._score_model_for_role("gpt-5", "architect")
     enriched_score = _mod._score_model_for_role("gpt-5", "architect", enriched_table)
