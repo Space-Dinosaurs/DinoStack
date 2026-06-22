@@ -551,3 +551,371 @@ def test_discover_env_var_flows_into_probe(monkeypatch):
     assert fake_url in probed_urls, (
         f"probe_models must be called with OPENAI_BASE_URL={fake_url!r}, called with {probed_urls}"
     )
+
+
+# ===========================================================================
+# Unit 3 - dispatch / status / collect (AC3 + AC5 worker-side + AC8)
+# ===========================================================================
+#
+# All dispatch tests use a FAKE-EXEC shim: a tiny shell script placed on a
+# temp PATH entry that records argv and writes a known payload to stdout
+# without calling any real CLI or network.
+# ===========================================================================
+
+import os as _os
+import stat as _stat
+import subprocess as _subprocess_mod
+import textwrap as _textwrap
+import threading as _threading
+
+# Pull Unit 3 symbols from the already-loaded module.
+_build_worker_argv = _mod._build_worker_argv
+_build_shim_dir = _mod._build_shim_dir
+_collect_output = _mod._collect_output
+_run_status = _mod._run_status
+_make_run_id = _mod._make_run_id
+_LEAF_WORKER_CLAUSE = _mod._LEAF_WORKER_CLAUSE
+HARNESS_BINARY = _mod.HARNESS_BINARY
+
+
+def _make_fake_exec(tmp_path: Path, binary_name: str, stdout_payload: str) -> Path:
+    """Write a tiny fake binary that echoes *stdout_payload* and exits 0.
+
+    Returns the directory containing the fake binary (suitable for PATH prepend).
+    """
+    bin_dir = tmp_path / f"fake_bin_{binary_name}"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / binary_name
+    script.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s" {_subprocess_mod.list2cmdline([stdout_payload])}\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+    return bin_dir
+
+
+def _make_brief_file(tmp_path: Path, content: str = "Do something.") -> Path:
+    f = tmp_path / "brief.md"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+# ---------------------------------------------------------------------------
+# AC3 + AC8: argv construction (no live CLIs)
+# ---------------------------------------------------------------------------
+
+def test_dispatch_builds_codex_argv():
+    """codex argv includes 'exec', '--json', '--sandbox', 'read-only'."""
+    argv = _build_worker_argv("codex", "test brief")
+    assert argv[0] == HARNESS_BINARY["codex"]
+    assert "exec" in argv
+    assert "--json" in argv
+    assert "--sandbox" in argv
+    assert "read-only" in argv
+    assert "--skip-git-repo-check" in argv
+
+
+def test_dispatch_builds_gemini_argv():
+    """gemini argv includes '-p' and '--output-format', 'json'."""
+    argv = _build_worker_argv("gemini", "test brief")
+    assert argv[0] == HARNESS_BINARY["gemini"]
+    assert "-p" in argv
+    assert "--output-format" in argv
+    assert "json" in argv
+
+
+def test_dispatch_builds_cursor_argv():
+    """cursor-agent argv includes '-p', '--force', '--output-format', 'json'.
+
+    The < /dev/null redirection is handled by Popen stdin=DEVNULL in dispatch,
+    not in the argv list; we verify the flag set is correct here.
+    """
+    argv = _build_worker_argv("cursor-agent", "test brief")
+    assert argv[0] == HARNESS_BINARY["cursor-agent"]
+    assert "-p" in argv
+    assert "--force" in argv
+    assert "--output-format" in argv
+    assert "json" in argv
+
+
+def test_dispatch_builds_claude_argv():
+    """claude worker argv includes '-p' and '--output-format', 'json'."""
+    argv = _build_worker_argv("claude", "test brief")
+    assert argv[0] == HARNESS_BINARY["claude"]
+    assert "-p" in argv
+    assert "--output-format" in argv
+    assert "json" in argv
+
+
+# ---------------------------------------------------------------------------
+# AC5: PATH guardrail shims
+# ---------------------------------------------------------------------------
+
+def test_dispatch_path_guardrail_shims_git(tmp_path):
+    """Shim dir contains a 'git' shim that is executable."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shim_dir = _build_shim_dir(run_dir, exempt_binary="codex")
+    git_shim = shim_dir / "git"
+    assert git_shim.exists(), "git shim must be present"
+    assert git_shim.stat().st_mode & _stat.S_IEXEC, "git shim must be executable"
+
+
+def test_git_shim_exits_nonzero_and_logs(tmp_path):
+    """Running the git shim exits non-zero and writes to violations.log."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shim_dir = _build_shim_dir(run_dir, exempt_binary="codex")
+    git_shim = shim_dir / "git"
+
+    result = _subprocess_mod.run(
+        [str(git_shim), "status"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0, "git shim must exit non-zero"
+
+    violations_log = run_dir / "violations.log"
+    assert violations_log.exists(), "violations.log must be created on shim invocation"
+    log_text = violations_log.read_text(encoding="utf-8")
+    assert "git" in log_text, "violations.log must mention the blocked binary"
+
+
+def test_shim_exempt_binary_absent(tmp_path):
+    """The exempt binary (the worker's own CLI) is NOT shimmed."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shim_dir = _build_shim_dir(run_dir, exempt_binary="codex")
+    codex_shim = shim_dir / "codex"
+    assert not codex_shim.exists(), (
+        "exempt binary must not have a blocking shim"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AC5: workdir isolation
+# ---------------------------------------------------------------------------
+
+def test_worker_workdir_isolated_from_repo(tmp_path):
+    """dispatch runs worker with cwd = --workdir, not the repo root.
+
+    Uses a fake-exec shim that writes its cwd to stdout, then verifies
+    the collected output matches tmp_path, not the repo root.
+    """
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+
+    # Fake 'codex' binary that writes its own cwd to stdout as plain text.
+    fake_bin_dir = tmp_path / "fake_bin"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        "#!/bin/sh\n"
+        'printf "%s" "$(pwd)"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(fake_codex.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+
+    brief_file = _make_brief_file(tmp_path)
+
+    original_path = _os.environ.get("PATH", "")
+
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + original_path
+
+    # We drive dispatch directly via subprocess so we can override PATH.
+    import sys as _sys
+    agentic_team_path = str(_BIN / "agentic-team")
+    result = _subprocess_mod.run(
+        [_sys.executable, agentic_team_path,
+         "dispatch",
+         "--harness", "codex",
+         "--role", "engineer",
+         "--brief", str(brief_file),
+         "--workdir", str(workdir)],
+        capture_output=True,
+        text=True,
+        env=env_patch,
+    )
+    assert result.returncode == 0, f"dispatch failed: {result.stderr}"
+    run_id = result.stdout.strip()
+    assert run_id, "dispatch must print a run-id"
+
+    # Wait briefly for the background process to finish.
+    import time as _time
+    deadline = _time.monotonic() + 5
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    while not (run_dir / "stdout").exists() or (run_dir / "stdout").stat().st_size == 0:
+        if _time.monotonic() > deadline:
+            break
+        _time.sleep(0.05)
+
+    stdout_text = (run_dir / "stdout").read_text(encoding="utf-8", errors="replace")
+    # The cwd recorded by the fake codex must match workdir, not the repo root.
+    assert str(workdir) in stdout_text, (
+        f"worker cwd must be workdir {workdir}, got: {stdout_text!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AC5: leaf-worker clause in brief
+# ---------------------------------------------------------------------------
+
+def test_worker_brief_contains_leaf_clause(tmp_path):
+    """The brief passed to the worker is prepended with the leaf-worker clause.
+
+    We verify that _LEAF_WORKER_CLAUSE text appears in the augmented brief
+    that dispatch writes (by inspecting what the fake worker receives).
+    """
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+
+    # Fake codex: cat stdin (there is none from /dev/null for codex, but the
+    # brief is passed as an argv arg).  Write argv[3] (the brief arg) to stdout.
+    fake_bin_dir = tmp_path / "fake_bin"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        "#!/bin/sh\n"
+        # argv: codex exec <brief_text> --json ...
+        # $0=codex $1=exec $2=<brief_text> $3=--json ...
+        # The brief text is $2 (1-indexed shell positional).
+        'printf "%s" "$2"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(fake_codex.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+
+    original_brief = "Do the task."
+    brief_file = _make_brief_file(tmp_path, original_brief)
+
+    import sys as _sys
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+
+    agentic_team_path = str(_BIN / "agentic-team")
+    result = _subprocess_mod.run(
+        [_sys.executable, agentic_team_path,
+         "dispatch",
+         "--harness", "codex",
+         "--role", "engineer",
+         "--brief", str(brief_file),
+         "--workdir", str(workdir)],
+        capture_output=True,
+        text=True,
+        env=env_patch,
+    )
+    assert result.returncode == 0, f"dispatch failed: {result.stderr}"
+    run_id = result.stdout.strip()
+
+    import time as _time
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    deadline = _time.monotonic() + 5
+    while not (run_dir / "stdout").exists() or (run_dir / "stdout").stat().st_size == 0:
+        if _time.monotonic() > deadline:
+            break
+        _time.sleep(0.05)
+
+    stdout_text = (run_dir / "stdout").read_text(encoding="utf-8", errors="replace")
+    # The leaf-worker clause keywords must appear in what the worker received.
+    assert "leaf worker" in stdout_text, (
+        f"leaf-worker clause must appear in brief sent to worker, got: {stdout_text!r}"
+    )
+    assert "do not spawn sub-agents" in stdout_text, (
+        "leaf-worker clause must include 'do not spawn sub-agents'"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AC8: collect output parsing
+# ---------------------------------------------------------------------------
+
+def test_collect_parses_gemini_json(tmp_path):
+    """collect demuxes gemini --output-format json -> .response field."""
+    run_dir = tmp_path / "run1"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("gemini\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    payload = {"response": "Hello from gemini", "other": "ignored"}
+    (run_dir / "stdout").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _collect_output(run_dir, "gemini")
+    assert result == "Hello from gemini", f"unexpected: {result!r}"
+
+
+def test_collect_parses_codex_jsonl(tmp_path):
+    """collect demuxes codex --json JSONL -> last event's message field."""
+    run_dir = tmp_path / "run2"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("codex\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    jsonl = "\n".join([
+        json.dumps({"type": "start", "message": ""}),
+        json.dumps({"type": "delta", "message": "partial"}),
+        json.dumps({"type": "done", "message": "Final codex answer"}),
+    ])
+    (run_dir / "stdout").write_text(jsonl, encoding="utf-8")
+
+    result = _collect_output(run_dir, "codex")
+    assert result == "Final codex answer", f"unexpected: {result!r}"
+
+
+def test_collect_parses_cursor_json(tmp_path):
+    """collect demuxes cursor-agent json -> .response field."""
+    run_dir = tmp_path / "run3"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("cursor-agent\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    payload = {"response": "Cursor result here", "status": "ok"}
+    (run_dir / "stdout").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _collect_output(run_dir, "cursor-agent")
+    assert result == "Cursor result here", f"unexpected: {result!r}"
+
+
+def test_collect_parses_claude_json(tmp_path):
+    """collect demuxes claude -p json -> .result or .message field."""
+    run_dir = tmp_path / "run4"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("claude\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    payload = {"result": "Claude leaf worker response", "cost_usd": 0.001}
+    (run_dir / "stdout").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _collect_output(run_dir, "claude")
+    assert result == "Claude leaf worker response", f"unexpected: {result!r}"
+
+
+def test_collect_falls_back_to_raw_for_unknown_harness(tmp_path):
+    """When harness is kimi/pi/omp (no JSON schema), raw stdout is returned."""
+    run_dir = tmp_path / "run5"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("kimi\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    (run_dir / "stdout").write_text("Raw kimi output line\n", encoding="utf-8")
+
+    result = _collect_output(run_dir, "kimi")
+    assert "Raw kimi output line" in result
+
+
+# ---------------------------------------------------------------------------
+# run-id determinism note (for reviewer)
+# ---------------------------------------------------------------------------
+# _make_run_id uses a process-wide monotonic counter + os.getpid().
+# Within one test process the counter increments 0, 1, 2, ... so consecutive
+# calls produce different IDs without any clock dependency.
+# Concurrent processes are disambiguated by pid.
+
+def test_make_run_id_unique_within_process():
+    """Consecutive run-ids within the same process are distinct."""
+    ids = [_make_run_id("engineer") for _ in range(5)]
+    assert len(set(ids)) == 5, f"run-ids must be unique, got: {ids}"
+
+
+def test_make_run_id_contains_role():
+    """run-id contains the role name for human readability."""
+    rid = _make_run_id("qa-engineer")
+    assert "qa-engineer" in rid, f"role not in run-id: {rid!r}"
