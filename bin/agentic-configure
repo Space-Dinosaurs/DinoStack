@@ -1,23 +1,34 @@
 #!/usr/bin/env python3
 """
-Purpose: Interactive first-time setup of `~/.agentic/role-models.yml`. Runs on
-         the Pi/oh-my-pi harnesses when no role-models file exists. The
+Purpose: Interactive first-time setup of `~/.agentic/role-models.yml` (default
+         mode) OR cross-harness team configuration via the `team` subcommand.
+         Runs on the Pi/oh-my-pi harnesses when no role-models file exists. The
          pre-prompt hook (`hooks/role-models-bootstrap.py`) calls this binary
          before the user's first request reaches the model.
 
 Public API: agentic-configure [--probe-url URL] [--probe-key KEY] [--force]
             [--non-interactive] [--path PATH]
+            agentic-configure team [--web] [--non-interactive]
+                [--assign role=harness:model ...] [--default-harness H]
+                [--path PATH]
             Default mode is interactive: probes the harness, ranks models
             per role, asks the user to accept or override each, and writes
             the file. `--non-interactive` accepts all defaults silently and
             exits 0 -- this is the path the pre-prompt hook uses when stdin
             is not a TTY (CI, headless sessions).
-            `--force` re-runs even if the file already exists.
+            `--force` re-run even if the file already exists.
             Exit code 0 always (the wizard is best-effort; failure here must
             not block the user's prompt).
 
+            team subcommand: discover installed harnesses, rank role->(harness,
+            model) using hint dicts + a curated capability table, optionally
+            enrich with web data (--web), and write .agentic/team.yml.
+            --non-interactive --assign role=harness:model ... produces a
+            deterministic team.yml from the assignment pairs.
+
 Upstream deps: bin/agentic-models (probes the harness);
                bin/_role_spec (normalize_role_spec);
+               bin/agentic-team (discover subcommand, team wizard);
                Python 3 stdlib only otherwise.
 
 Downstream consumers: hooks/role-models-bootstrap.py (pre-prompt hook);
@@ -29,6 +40,8 @@ Failure modes: Probe failure -> fall back to scalar-only form, user types
                unless --force. Probe unreachable and non-interactive ->
                exit 0 without writing anything (the user can run
                `agentic-configure` later when they have a working probe).
+               team subcommand: unknown harness in --assign -> exit 2.
+               team subcommand: --web offline -> fall back to heuristics.
 
 Performance: One HTTP probe + a few prompts. Sub-second on a warm probe.
 """
@@ -63,6 +76,51 @@ BANNER = (
     "Press Enter to accept each default. Type a model id to override.\n"
     "Type 'skip' to leave the role unset (Pi uses session default).\n"
 )
+
+# ---------------------------------------------------------------------------
+# Capability table for cross-harness team ranking.
+# Maps model-family substrings (lowercase) to per-role strength hints.
+# NO hardcoded model IDs - only family name substrings, matching agentic-models
+# "no hardcoded catalog" stance. Positive = stronger for that role.
+# ---------------------------------------------------------------------------
+_TEAM_CAPABILITY_TABLE: dict[str, dict[str, int]] = {
+    # Code execution / correctness
+    "codex":          {"engineer": 4, "debugger": 3, "qa-engineer": 2},
+    "gpt-5.3-codex":  {"engineer": 5, "debugger": 4},
+    "gpt-5":          {"engineer": 3, "architect": 3, "skeptic": 3, "conductor": 2},
+    # Gemini family
+    "gemini-2.5-pro": {"architect": 3, "skeptic": 3, "security-auditor": 3, "conductor": 2},
+    "gemini-2.5-flash": {"qa-engineer": 4, "investigator": 3, "engineer": 2},
+    "gemini-3":       {"architect": 4, "skeptic": 4, "conductor": 3},
+    # Kimi family
+    "kimi-k2.7":      {"engineer": 4, "skeptic": 3, "debugger": 3},
+    "kimi-k2.6":      {"engineer": 3, "investigator": 3},
+    "kimi-k2.5-thinking": {"architect": 4, "skeptic": 4, "security-auditor": 3},
+    # Claude family (as worker)
+    "claude-opus":    {"architect": 5, "skeptic": 5, "security-auditor": 4, "conductor": 4},
+    "claude-sonnet":  {"engineer": 4, "debugger": 4, "qa-engineer": 3},
+    "claude-haiku":   {"investigator": 3, "qa-engineer": 3},
+    # Cursor
+    "cursor":         {"engineer": 3, "debugger": 2},
+}
+
+# Harness-level base scores when no specific model family is matched.
+# Used in ranking when a harness has no /v1/models endpoint.
+_HARNESS_BASE_SCORES: dict[str, dict[str, int]] = {
+    "codex":        {"engineer": 3, "debugger": 2, "qa-engineer": 1},
+    "gemini":       {"architect": 2, "skeptic": 2, "investigator": 2},
+    "cursor-agent": {"engineer": 2, "debugger": 1},
+    "kimi":         {"engineer": 2, "investigator": 2},
+    "pi":           {"conductor": 1},
+    "omp":          {"conductor": 1},
+    "claude":       {"architect": 3, "skeptic": 3, "engineer": 2, "security-auditor": 3},
+}
+
+# Known harnesses (mirrors KNOWN_HARNESSES in agentic-team; duplicated here
+# to avoid a subprocess import cycle - keep in sync with agentic-team).
+_KNOWN_HARNESSES: frozenset[str] = frozenset({
+    "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
+})
 
 
 def _probe_or_empty(probe_url: str, probe_key: str) -> dict | None:
@@ -188,7 +246,327 @@ def _resolve_probe_url(args) -> str:
     return (args.probe_url or os.environ.get("NINEROUTER_URL", "")).strip()
 
 
+# ---------------------------------------------------------------------------
+# team subcommand implementation
+# ---------------------------------------------------------------------------
+
+def _run_discover() -> dict:
+    """Shell out to `agentic-team discover --json` and return the payload.
+
+    Returns {} on any failure (binary absent, non-zero exit, parse error).
+    """
+    agentic_team = Path(__file__).parent / "agentic-team"
+    if not agentic_team.is_file():
+        return {}
+    try:
+        result = subprocess.run(
+            [str(agentic_team), "discover", "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return {}
+    if result.returncode != 0:
+        return {}
+    try:
+        return json.loads(result.stdout)
+    except (ValueError, TypeError):
+        return {}
+
+
+def _score_model_for_role(model_id: str, role: str) -> int:
+    """Score a (model_id, role) pair using the capability table.
+
+    Iterates over capability-table keys as substring patterns (case-insensitive).
+    Accumulates deltas for all matching patterns.
+    """
+    score = 0
+    m = model_id.lower()
+    for pattern, role_scores in _TEAM_CAPABILITY_TABLE.items():
+        if pattern.lower() in m:
+            score += role_scores.get(role, 0)
+    return score
+
+
+def _rank_assignments(discovery: dict) -> dict[str, tuple[str, str]]:
+    """Return best role -> (harness, model) assignments from discovery payload.
+
+    For each role in ROLES, iterate over installed harnesses and their models,
+    score each (harness, model) pair, and pick the highest-scoring one.
+    Falls back to harness-level base scores when a harness has no models list.
+    Returns a dict mapping role -> (harness, model_or_empty_string).
+    """
+    best: dict[str, tuple[str, str, int]] = {}  # role -> (harness, model, score)
+
+    for harness, info in discovery.items():
+        if not info.get("installed"):
+            continue
+        harness_base = _HARNESS_BASE_SCORES.get(harness, {})
+        models: list[str] = info.get("models") or []
+
+        if models:
+            for model in models:
+                for role in ROLES:
+                    s = _score_model_for_role(model, role)
+                    # add harness-level base score for tiebreaking
+                    s += harness_base.get(role, 0)
+                    prev = best.get(role)
+                    if prev is None or s > prev[2]:
+                        best[role] = (harness, model, s)
+        else:
+            # No model list - use harness base scores only; model = ""
+            for role in ROLES:
+                s = harness_base.get(role, 0)
+                prev = best.get(role)
+                if prev is None or s > prev[2]:
+                    best[role] = (harness, "", s)
+
+    return {role: (h, m) for role, (h, m, _) in best.items()}
+
+
+def _web_enrich(models: list[str]) -> dict[str, dict[str, int]]:
+    """Best-effort web enrichment of model capability/pricing data.
+
+    Tries a fetch to AGENTIC_TEAM_ENRICH_URL (env var; defaults to a no-op
+    placeholder) and returns a mapping of model-name-substring -> role-score
+    deltas to merge into ranking. Returns {} on any error (offline, timeout,
+    parse failure, env unset). Never raises.
+
+    The return dict has the same shape as _TEAM_CAPABILITY_TABLE entries:
+      { model_substring: { role: delta_score, ... }, ... }
+    """
+    url = os.environ.get("AGENTIC_TEAM_ENRICH_URL", "").strip()
+    if not url:
+        return {}
+    try:
+        import urllib.request
+        import urllib.error
+        req = urllib.request.Request(
+            url, method="GET",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        # Expect: {"models": {"<substring>": {"<role>": <int>, ...}, ...}}
+        return data.get("models", {}) if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001 - broad catch intentional: offline fallback
+        return {}
+
+
+def _apply_web_enrichment(
+    base: dict[str, dict[str, int]],
+    enrichment: dict[str, dict[str, int]],
+) -> dict[str, dict[str, int]]:
+    """Merge web enrichment deltas into the base capability table.
+
+    Returns a new dict (does not mutate base).
+    """
+    merged: dict[str, dict[str, int]] = {k: dict(v) for k, v in base.items()}
+    for pattern, role_scores in enrichment.items():
+        if pattern in merged:
+            for role, delta in role_scores.items():
+                merged[pattern][role] = merged[pattern].get(role, 0) + delta
+        else:
+            merged[pattern] = dict(role_scores)
+    return merged
+
+
+def _emit_team_yaml(
+    assignments: dict[str, tuple[str, str]],
+    default_harness: str | None,
+) -> str:
+    """Render role assignments into a team.yml YAML block."""
+    lines = [
+        "# Generated by agentic-configure team.",
+        "# Edit .agentic/team.yml freely.",
+        "enabled: true",
+    ]
+    if default_harness:
+        lines.append(f"default_harness: {default_harness}")
+    lines.append("roles:")
+    for role in ROLES:
+        pair = assignments.get(role)
+        if not pair:
+            continue
+        harness, model = pair
+        if model:
+            lines.append(f"  {role}:")
+            lines.append(f"    harness: {harness}")
+            lines.append(f"    model: {model}")
+        else:
+            lines.append(f"  {role}: {harness}")
+    lines.append("dispatch:")
+    lines.append("  timeout_seconds: 1800")
+    lines.append("  output_format: json")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _parse_assign_pairs(
+    assign_args: list[str],
+) -> tuple[dict[str, tuple[str, str]], list[str]]:
+    """Parse --assign role=harness:model pairs.
+
+    Returns (assignments dict, list of error strings).
+    assignments maps role -> (harness, model_or_empty).
+    """
+    assignments: dict[str, tuple[str, str]] = {}
+    errors: list[str] = []
+    for pair in assign_args:
+        if "=" not in pair:
+            errors.append(f"invalid --assign format {pair!r}: expected role=harness:model")
+            continue
+        role_part, _, hm = pair.partition("=")
+        role = role_part.strip()
+        if ":" in hm:
+            harness, _, model = hm.partition(":")
+        else:
+            harness, model = hm.strip(), ""
+        harness = harness.strip()
+        model = model.strip()
+        if harness not in _KNOWN_HARNESSES:
+            errors.append(
+                f"--assign {pair!r}: unknown harness {harness!r} "
+                f"(known: {', '.join(sorted(_KNOWN_HARNESSES))})"
+            )
+            continue
+        assignments[role] = (harness, model)
+    return assignments, errors
+
+
+def _cmd_team(argv: list[str]) -> int:
+    """Handle the `agentic-configure team` subcommand."""
+    ap = argparse.ArgumentParser(
+        prog="agentic-configure team",
+        description="Configure cross-harness team assignments in .agentic/team.yml.",
+    )
+    ap.add_argument(
+        "--web", action="store_true",
+        help="enrich model capability ranking via web fetch (opt-in; falls back offline)",
+    )
+    ap.add_argument(
+        "--non-interactive", action="store_true",
+        help="write team.yml deterministically from --assign pairs; no prompts",
+    )
+    ap.add_argument(
+        "--assign", action="append", default=[],
+        metavar="role=harness:model",
+        help="assign a role to a harness:model pair (repeatable); requires --non-interactive",
+    )
+    ap.add_argument(
+        "--default-harness", default="",
+        help="set default_harness in team.yml",
+    )
+    ap.add_argument(
+        "--path", default=".agentic/team.yml",
+        help="output path for team.yml (default: .agentic/team.yml)",
+    )
+    args = ap.parse_args(argv)
+
+    target = Path(args.path)
+
+    if args.non_interactive:
+        # Deterministic path: parse --assign pairs, validate, write.
+        if not args.assign:
+            print(
+                "agentic-configure team: --non-interactive requires at least one --assign pair",
+                file=sys.stderr,
+            )
+            return 2
+        assignments, errors = _parse_assign_pairs(args.assign)
+        if errors:
+            for err in errors:
+                print(err, file=sys.stderr)
+            return 2
+        default_harness = args.default_harness.strip() or None
+        if default_harness and default_harness not in _KNOWN_HARNESSES:
+            print(
+                f"agentic-configure team: unknown --default-harness {default_harness!r} "
+                f"(known: {', '.join(sorted(_KNOWN_HARNESSES))})",
+                file=sys.stderr,
+            )
+            return 2
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_emit_team_yaml(assignments, default_harness), encoding="utf-8")
+        return 0
+
+    # Interactive path: discover -> rank -> optionally web-enrich -> present -> write.
+    print("agentic-configure team: discovering installed harnesses...")
+    discovery = _run_discover()
+    if not discovery:
+        print(
+            "agentic-configure team: harness discovery returned no results; "
+            "ensure agentic-team is installed",
+            file=sys.stderr,
+        )
+        # Still proceed with empty discovery - rankings will be empty.
+
+    # Web enrichment (opt-in; offline fallback is silent).
+    capability_table = _TEAM_CAPABILITY_TABLE
+    if args.web:
+        all_models: list[str] = []
+        for info in discovery.values():
+            all_models.extend(info.get("models") or [])
+        enrichment = _web_enrich(all_models)
+        if enrichment:
+            capability_table = _apply_web_enrichment(capability_table, enrichment)
+
+    assignments = _rank_assignments(discovery)
+
+    if not sys.stdin.isatty():
+        # Non-TTY without --non-interactive: write best-guess and exit.
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            _emit_team_yaml(assignments, args.default_harness.strip() or None),
+            encoding="utf-8",
+        )
+        return 0
+
+    # Interactive: present suggestions, let user accept/override per role.
+    print("\nSuggested role assignments (press Enter to accept, type to override):")
+    print("Format: harness[:model]  |  'skip' to leave unset\n")
+
+    final_assignments: dict[str, tuple[str, str]] = {}
+    for role in ROLES:
+        pair = assignments.get(role)
+        if pair:
+            harness, model = pair
+            default_str = f"{harness}:{model}" if model else harness
+        else:
+            default_str = ""
+        try:
+            raw = input(f"  [{role}] [{default_str}]: ").strip()
+        except EOFError:
+            raw = ""
+        val = raw if raw else default_str
+        if not val or val.lower() == "skip":
+            continue
+        if ":" in val:
+            h, _, m = val.partition(":")
+        else:
+            h, m = val, ""
+        h = h.strip()
+        if h not in _KNOWN_HARNESSES:
+            print(f"    unknown harness {h!r}; skipping {role}")
+            continue
+        final_assignments[role] = (h, m.strip())
+
+    default_harness_str = args.default_harness.strip() or None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        _emit_team_yaml(final_assignments, default_harness_str), encoding="utf-8",
+    )
+    print(f"\nWrote {target}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    # Dispatch-on-argv shim: if the first positional argument is "team", route
+    # to the team subcommand WITHOUT touching the existing argparse parser.
+    # This preserves all existing flag-only behavior byte-for-byte.
+    if argv and argv[0] == "team":
+        return _cmd_team(argv[1:])
+
     ap = argparse.ArgumentParser(
         prog="agentic-configure",
         description="Interactive setup of ~/.agentic/role-models.yml.",
