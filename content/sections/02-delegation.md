@@ -125,7 +125,7 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
 
-**Graph-derived escalation (opt-in).** When `.agentic/config.json` sets `graphify_risk_signals: true` and a fresh `GRAPH_REPORT.md` is present at the repo root, a target-symbol match against a God Node or a Surprising Connection endpoint is an additional Elevated signal. It is escalate-only - it can push a change toward Elevated, never downgrade - and fails safe (absent the toggle, a graph, freshness, or a known target symbol, it does not fire). Full mechanism: see `content/sections/04-risk-classification.md` §Graph-derived risk signal (opt-in).
+**Graph-derived escalation.** When a fresh `GRAPH_REPORT.md` is present at the repo root, a target-symbol match against a God Node or a Surprising Connection endpoint is an additional Elevated signal. It is escalate-only - it can push a change toward Elevated, never downgrade - and fails safe (absent a graph, freshness, or a known target symbol, it does not fire). The conductor keeps the graph fresh via autonomous `graphify update .` of an existing graph (it never auto-builds from scratch). Full mechanism: see `content/sections/04-risk-classification.md` §Graph-derived risk signal.
 
 **Permission-blocked fallback (non-methodology files only).** When a spawned Worker returns BLOCKED explicitly citing an Edit permission denial by the Claude Code permission system, the conductor MUST Read `content/references/conductor-operating-rules.md` §Permission-blocked fallback before applying any edit directly. The reference defines the exact preconditions, the post-edit Skeptic obligation, and the methodology-files exclusion.
 
