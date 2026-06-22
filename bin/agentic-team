@@ -70,6 +70,7 @@ _rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
 _rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
 _rs_loader.exec_module(_rs_mod)
 normalize_role_spec = _rs_mod.normalize_role_spec
+KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
 
 # ---------------------------------------------------------------------------
 # Load _model_probe from the same bin/ directory
@@ -80,20 +81,6 @@ _mp_spec = _ilu.spec_from_loader("_model_probe", _mp_loader)
 _mp_mod = _ilu.module_from_spec(_mp_spec)  # type: ignore[arg-type]
 _mp_loader.exec_module(_mp_mod)
 probe_models = _mp_mod.probe_models
-
-# ---------------------------------------------------------------------------
-# Known harnesses (the only hardcoded per-harness table; binary names live in
-# Unit 2 discover; here we only need the valid name set for schema validation)
-# ---------------------------------------------------------------------------
-KNOWN_HARNESSES: frozenset[str] = frozenset({
-    "codex",
-    "gemini",
-    "cursor-agent",
-    "kimi",
-    "pi",
-    "omp",
-    "claude",
-})
 
 # ---------------------------------------------------------------------------
 # Harness binary-name map (Unit 2 - the ONLY hardcoded per-harness fact here;
