@@ -1,0 +1,400 @@
+#!/usr/bin/env python3
+"""
+Purpose: Cross-harness team configuration loader, discovery, dispatch, and
+         collection tool. Reads team.yml (global ~/.agentic/team.yml then
+         project .agentic/team.yml; project wins on per-top-level-key merge)
+         and validates the schema. Later units fill dispatch/status/collect.
+
+Public API: agentic-team <discover|dispatch|status|collect> [options]
+            discover  - probe installed harnesses and reachable models
+            dispatch  - spawn a worker on a harness for a role (stub)
+            status    - check a run's status (stub)
+            collect   - retrieve a run's output (stub)
+            --json    - machine-readable output (discover subcommand)
+
+Upstream deps: bin/_role_spec (normalize_role_spec); Python 3.11 stdlib only.
+
+Downstream consumers: bin/agentic-configure (team wizard, Unit 4);
+                      hooks/enforce-background-spawn.py (Unit 5b sentinel check).
+
+Failure modes: Unknown harness name in roles or default_harness -> non-zero
+               exit with a named error line on stderr.
+               Unknown role key -> non-zero exit with a named error line on stderr.
+               Missing or unreadable team.yml -> treated as empty config (no error).
+               Malformed YAML parsed by line-by-line loader -> non-zero exit.
+
+Performance: Pure file I/O + optional subprocess probes in discover. Sub-second
+             for load+validate; discover latency depends on harness probe timeouts.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery as _im
+import importlib.util as _ilu
+import os
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Load _role_spec from the same bin/ directory (no .py extension sibling)
+# ---------------------------------------------------------------------------
+_rs_path = Path(__file__).parent / "_role_spec.py"
+_rs_loader = _im.SourceFileLoader("_role_spec", str(_rs_path))
+_rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
+_rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
+_rs_loader.exec_module(_rs_mod)
+normalize_role_spec = _rs_mod.normalize_role_spec
+
+# ---------------------------------------------------------------------------
+# Known harnesses (the only hardcoded per-harness table; binary names live in
+# Unit 2 discover; here we only need the valid name set for schema validation)
+# ---------------------------------------------------------------------------
+KNOWN_HARNESSES: frozenset[str] = frozenset({
+    "codex",
+    "gemini",
+    "cursor-agent",
+    "kimi",
+    "pi",
+    "omp",
+    "claude",
+})
+
+# Known role names (mirrors ROLES in agentic-configure; extensible in team.yml
+# via the roles: block - unknown keys are rejected at load time)
+KNOWN_ROLES: frozenset[str] = frozenset({
+    "conductor",
+    "investigator",
+    "architect",
+    "orchestration-planner",
+    "engineer",
+    "debugger",
+    "qa-engineer",
+    "skeptic",
+    "security-auditor",
+})
+
+GLOBAL_TEAM_YML = Path(os.path.expanduser("~/.agentic/team.yml"))
+PROJECT_TEAM_YML = Path(".agentic/team.yml")
+
+
+# ---------------------------------------------------------------------------
+# Minimal YAML loader (stdlib only - no PyYAML)
+# Supports the team.yml schema:
+#   enabled: true|false
+#   default_harness: <str>
+#   roles:
+#     <role>: <str>          # scalar form
+#     <role>:                # mapping form
+#       harness: <str>
+#       model: <str>
+#       effort: <str>        # optional
+#       reasoning: <str>     # optional
+#   dispatch:
+#     timeout_seconds: <int>
+#     output_format: <str>
+# ---------------------------------------------------------------------------
+
+def _parse_team_yml(text: str, source: str) -> dict:
+    """Parse team.yml text into a dict.
+
+    Only handles the team.yml schema subset. Raises ValueError on unexpected
+    structure with a message indicating source file and offending line.
+    """
+    result: dict = {}
+    lines = text.splitlines()
+    i = 0
+    n = len(lines)
+
+    def _stripped(line: str) -> str:
+        return line.rstrip()
+
+    def _indent(line: str) -> int:
+        return len(line) - len(line.lstrip())
+
+    def _parse_scalar(raw: str) -> object:
+        v = raw.strip()
+        if v.lower() == "true":
+            return True
+        if v.lower() == "false":
+            return False
+        try:
+            return int(v)
+        except ValueError:
+            pass
+        # strip optional inline comment
+        if " #" in v:
+            v = v[:v.index(" #")].rstrip()
+        # strip surrounding quotes
+        if (v.startswith('"') and v.endswith('"')) or \
+           (v.startswith("'") and v.endswith("'")):
+            v = v[1:-1]
+        return v
+
+    while i < n:
+        raw = _stripped(lines[i])
+        if not raw or raw.lstrip().startswith("#"):
+            i += 1
+            continue
+        if _indent(raw) != 0:
+            raise ValueError(
+                f"{source}:{i + 1}: unexpected indentation at top level: {raw!r}"
+            )
+        if ":" not in raw:
+            raise ValueError(f"{source}:{i + 1}: expected 'key: value', got {raw!r}")
+        key, _, rest = raw.partition(":")
+        key = key.strip()
+        rest = rest.strip()
+
+        if key in ("enabled", "default_harness"):
+            if not rest:
+                raise ValueError(f"{source}:{i + 1}: key {key!r} has no value")
+            result[key] = _parse_scalar(rest)
+            i += 1
+
+        elif key == "roles":
+            roles: dict = {}
+            i += 1
+            while i < n:
+                line = _stripped(lines[i])
+                if not line or line.lstrip().startswith("#"):
+                    i += 1
+                    continue
+                ind = _indent(line)
+                if ind == 0:
+                    break  # back to top-level
+                if ind != 2:
+                    raise ValueError(
+                        f"{source}:{i + 1}: roles entries must be indented 2 spaces"
+                    )
+                stripped = line.strip()
+                if ":" not in stripped:
+                    raise ValueError(
+                        f"{source}:{i + 1}: expected 'role: ...' got {stripped!r}"
+                    )
+                rkey, _, rrest = stripped.partition(":")
+                rkey = rkey.strip()
+                rrest = rrest.strip()
+                if rrest:
+                    # scalar form: engineer: codex:model or just a string
+                    roles[rkey] = _parse_scalar(rrest)
+                    i += 1
+                else:
+                    # mapping form - consume indented sub-keys
+                    mapping: dict = {}
+                    i += 1
+                    while i < n:
+                        sub = _stripped(lines[i])
+                        if not sub or sub.lstrip().startswith("#"):
+                            i += 1
+                            continue
+                        if _indent(sub) <= 2:
+                            break
+                        if _indent(sub) != 4:
+                            raise ValueError(
+                                f"{source}:{i + 1}: role sub-keys must be indented 4 spaces"
+                            )
+                        sk, _, sv = sub.strip().partition(":")
+                        mapping[sk.strip()] = _parse_scalar(sv.strip())
+                        i += 1
+                    roles[rkey] = mapping
+            result["roles"] = roles
+
+        elif key == "dispatch":
+            dispatch: dict = {}
+            i += 1
+            while i < n:
+                line = _stripped(lines[i])
+                if not line or line.lstrip().startswith("#"):
+                    i += 1
+                    continue
+                if _indent(line) == 0:
+                    break
+                stripped = line.strip()
+                if ":" not in stripped:
+                    i += 1
+                    continue
+                dk, _, dv = stripped.partition(":")
+                dispatch[dk.strip()] = _parse_scalar(dv.strip())
+                i += 1
+            result["dispatch"] = dispatch
+
+        else:
+            # Unknown top-level key - skip its block
+            i += 1
+
+    return result
+
+
+def _load_team_config(
+    global_path: Path = GLOBAL_TEAM_YML,
+    project_path: Path = PROJECT_TEAM_YML,
+) -> dict:
+    """Load and merge global + project team.yml; project wins on per-key basis."""
+    config: dict = {}
+    for path, label in ((global_path, "global"), (project_path, "project")):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        parsed = _parse_team_yml(text, str(path))
+        # Shallow per-top-level-key merge: project wins
+        config.update(parsed)
+    return config
+
+
+def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
+    """Return a list of error strings; empty list means valid."""
+    errors: list[str] = []
+
+    dh = config.get("default_harness")
+    if dh and dh not in KNOWN_HARNESSES:
+        errors.append(
+            f"agentic-team: unknown default_harness {dh!r} in {source} "
+            f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+        )
+
+    for role, spec in config.get("roles", {}).items():
+        if role not in KNOWN_ROLES:
+            errors.append(
+                f"agentic-team: unknown role {role!r} in {source} "
+                f"(known: {', '.join(sorted(KNOWN_ROLES))})"
+            )
+        # Normalize to extract harness
+        if isinstance(spec, dict):
+            harness = spec.get("harness")
+        else:
+            # scalar string treated as harness name when no model key
+            harness = str(spec) if spec else None
+        if harness and harness not in KNOWN_HARNESSES:
+            errors.append(
+                f"agentic-team: unknown harness {harness!r} for role {role!r} in {source} "
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+            )
+
+    return errors
+
+
+def _role_entry(spec: object) -> dict:
+    """Convert a raw role spec from team.yml into a canonical entry dict.
+
+    team.yml role entries have both harness and model sub-keys. We extract
+    harness separately and pass the model portion to normalize_role_spec.
+    """
+    if not spec:
+        return {}
+    if isinstance(spec, str):
+        # scalar treated as harness name (no model sub-key)
+        return {"harness": spec}
+    if isinstance(spec, dict):
+        harness = spec.get("harness")
+        model_part = {k: v for k, v in spec.items() if k != "harness"}
+        entry: dict = {}
+        if harness:
+            entry["harness"] = harness
+        norm = normalize_role_spec(model_part)
+        entry.update(norm)
+        return entry
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Subcommand handlers
+# ---------------------------------------------------------------------------
+
+def _cmd_discover(args: argparse.Namespace) -> int:
+    """Unit 2 stub - not yet implemented."""
+    print("agentic-team discover: not yet implemented", file=sys.stderr)
+    return 1
+
+
+def _cmd_dispatch(args: argparse.Namespace) -> int:
+    """Unit 3 stub - not yet implemented."""
+    print("agentic-team dispatch: not yet implemented", file=sys.stderr)
+    return 1
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    """Unit 3 stub - not yet implemented."""
+    print("agentic-team status: not yet implemented", file=sys.stderr)
+    return 1
+
+
+def _cmd_collect(args: argparse.Namespace) -> int:
+    """Unit 3 stub - not yet implemented."""
+    print("agentic-team collect: not yet implemented", file=sys.stderr)
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="agentic-team",
+        description="Cross-harness agent team config loader and dispatch tool.",
+    )
+    ap.add_argument(
+        "--global-config",
+        default=str(GLOBAL_TEAM_YML),
+        help="path to global team.yml (default: ~/.agentic/team.yml)",
+    )
+    ap.add_argument(
+        "--project-config",
+        default=str(PROJECT_TEAM_YML),
+        help="path to project team.yml (default: .agentic/team.yml)",
+    )
+
+    sub = ap.add_subparsers(dest="subcommand", metavar="<subcommand>")
+    sub.required = True
+
+    p_discover = sub.add_parser("discover", help="probe installed harnesses")
+    p_discover.add_argument("--json", action="store_true", help="machine-readable output")
+
+    p_dispatch = sub.add_parser("dispatch", help="spawn a worker (not yet implemented)")
+    p_dispatch.add_argument("--harness", required=True)
+    p_dispatch.add_argument("--role", required=True)
+    p_dispatch.add_argument("--brief", required=True)
+    p_dispatch.add_argument("--workdir", required=True)
+
+    p_status = sub.add_parser("status", help="check run status (not yet implemented)")
+    p_status.add_argument("run_id")
+
+    p_collect = sub.add_parser("collect", help="retrieve run output (not yet implemented)")
+    p_collect.add_argument("run_id")
+
+    args = ap.parse_args(argv)
+
+    # Load and validate config for all subcommands
+    global_path = Path(args.global_config)
+    project_path = Path(args.project_config)
+    try:
+        config = _load_team_config(global_path, project_path)
+    except ValueError as exc:
+        print(f"agentic-team: config parse error: {exc}", file=sys.stderr)
+        return 2
+
+    errors = _validate_config(config)
+    if errors:
+        for err in errors:
+            print(err, file=sys.stderr)
+        return 2
+
+    if args.subcommand == "discover":
+        return _cmd_discover(args)
+    if args.subcommand == "dispatch":
+        return _cmd_dispatch(args)
+    if args.subcommand == "status":
+        return _cmd_status(args)
+    if args.subcommand == "collect":
+        return _cmd_collect(args)
+
+    print(f"agentic-team: unknown subcommand {args.subcommand!r}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
