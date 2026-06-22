@@ -17,8 +17,11 @@ Public API: agentic-configure [--probe-url URL] [--probe-key KEY] [--force]
             exits 0 -- this is the path the pre-prompt hook uses when stdin
             is not a TTY (CI, headless sessions).
             `--force` re-run even if the file already exists.
-            Exit code 0 always (the wizard is best-effort; failure here must
-            not block the user's prompt).
+            Exit code: 0 on success or best-effort no-op (file already exists
+            and --force not set; no probe URL in --non-interactive mode); 2 on
+            validation/probe failure in --non-interactive mode (missing/invalid
+            --assign pairs, unknown --default-harness, or probe returned
+            non-zero).
 
             team subcommand: discover installed harnesses, rank role->(harness,
             model) using hint dicts + a curated capability table, optionally
