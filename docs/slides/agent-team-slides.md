@@ -189,6 +189,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(5) { border-left-color: #3ad99a; }
   .columns-3 .card:nth-child(6) { border-left-color: #ff9d4d; }
   .columns-3 .card:nth-child(7) { border-left-color: #2fd4c4; }
+  .columns-3 .card:nth-child(8) { border-left-color: #c79a86; }
   h2 { margin-bottom: 0.4em; }
   .tier { font-size: 0.85em; color: #6a7c97; margin-top: 0.3em; }
 </style>
@@ -197,6 +198,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>investigator</strong><br/>Maps unfamiliar code. Traces data flow and blast radius before you change anything.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>debugger</strong><br/>Root cause analysis. Given a failure, returns a diagnosis and fix brief.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>orchestration-planner</strong><br/>Picks the team. Given a goal, produces a structured execution plan.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>product-discovery</strong><br/>Facilitated discovery before architecture. Frames the problem, names personas, runs an attributed market scan, stages a proposed vision + requirements.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase, reads <code>.claude/findings.md</code> at plan time, returns a structured technical plan.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, writes module manifests, adds regression tests for Critical/Major fixes, runs quality gates.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor. Checks module manifests and regression tests.<div class="tier">Default Tier: 2</div></div>

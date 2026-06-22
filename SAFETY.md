@@ -2,7 +2,7 @@
 
 This document describes how DinoStack tries to keep agent work from causing
 harm, and - just as important - where those protections stop. It is the fuller
-companion to the short [Safety model](README.md#safety-model) section in the
+companion to the short [Safety](README.md#safety) section in the
 README. To report a suspected framework-level safety or security flaw, see
 [SECURITY.md](SECURITY.md).
 

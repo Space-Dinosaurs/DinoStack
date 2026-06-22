@@ -6,7 +6,7 @@ DinoStack adapter for [OpenClaw](https://openclaw.ai) AI coding harness.
 
 - **Entry skill** (`agentic-engineering`): on-demand skill with YAML frontmatter. Load it by invoking `agentic-engineering` in your session. Contains the full methodology, rules, and reference doc pointers.
 - **Command skills** (19): one skill dir per workflow command (`implement-ticket`, `brief`, `skeptic`, `wrap`, etc.). Each has `user-invocable: true` for direct invocation.
-- **Agent skills** (16): named specialist agents as reference-only skills (`disable-model-invocation: true`). Each is prefixed `agent-` (e.g. `agent-skeptic`, `agent-engineer`) to avoid name collisions with the same-named command skills. OpenClaw has no Task-spawn equivalent; these are read-on-demand specs.
+- **Agent skills** (17): named specialist agents as reference-only skills (`disable-model-invocation: true`). Each is prefixed `agent-` (e.g. `agent-skeptic`, `agent-engineer`) to avoid name collisions with the same-named command skills. OpenClaw has no Task-spawn equivalent; these are read-on-demand specs.
 - **Activation config** (`~/.openclaw/agentic-engineering.json`): `mode`, `profile`, `set_at` fields. Shared shape with other adapters (`~/.claude/agentic-engineering.json`).
 - **Global AGENTS.md** (`~/.openclaw/AGENTS.md`): the Skill Loading signal injected via a managed HTML-comment-delimited block.
 

@@ -1,0 +1,15 @@
+name: codex-skill-sync
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-codex-skill-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check codex skill sync
+        run: bash scripts/check-codex-skill-sync.sh

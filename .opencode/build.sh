@@ -23,10 +23,12 @@ for src in "$CONTENT/agents/"*.md; do
   agent_name="$(basename "$src" .md)"
   dst="$AGENTS_DST/$agent_name.md"
 
-  python3 - "$src" "$dst" "$agent_name" <<'PYEOF'
+  python3 - "$src" "$dst" "$agent_name" "$REPO_DIR" <<'PYEOF'
 import sys, re
 
-src_path, dst_path, agent_name = sys.argv[1], sys.argv[2], sys.argv[3]
+src_path, dst_path, agent_name, repo_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+sys.path.insert(0, repo_dir + '/scripts/lib')
+from prereq_strip import strip_prereq
 
 with open(src_path) as f:
     content = f.read()
@@ -65,7 +67,7 @@ else:
     "rg *": allow"""
 
 # Remove the prerequisite blockquote from body (opencode doesn't use it)
-body = re.sub(r'\n*>\s*\*\*Prerequisite:\*\*[^\n]*\n*', '\n', body, count=1)
+body = strip_prereq(body)
 body = body.lstrip('\n')
 
 new_fm = f"""---
@@ -93,16 +95,18 @@ for src in "$CONTENT/commands/"*.md; do
   name="$(basename "$src" .md)"
   dst="$COMMANDS_DST/$name.md"
 
-  python3 - "$src" "$dst" "$name" <<'PYEOF'
+  python3 - "$src" "$dst" "$name" "$REPO_DIR" <<'PYEOF'
 import sys, re
 
-src_path, dst_path, cmd_name = sys.argv[1], sys.argv[2], sys.argv[3]
+src_path, dst_path, cmd_name, repo_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+sys.path.insert(0, repo_dir + '/scripts/lib')
+from prereq_strip import strip_prereq
 
 with open(src_path) as f:
     content = f.read()
 
 # Strip the prerequisite blockquote
-content = re.sub(r'\n*>\s*\*\*Prerequisite:\*\*[^\n]*\n*', '\n', content, count=1)
+content = strip_prereq(content)
 
 # Extract the first line as description (typically a heading or summary)
 lines = content.strip().split('\n')

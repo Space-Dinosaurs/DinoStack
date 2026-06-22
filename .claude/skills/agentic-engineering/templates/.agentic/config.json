@@ -16,5 +16,6 @@
   "deferred_wrap_heartbeat_seconds": 120,
   "deferred_wrap_timeout_minutes": 10,
   "deferred_wrap_inprogress_reclaim_minutes": 30,
-  "deferred_wrap_pending_ttl_days": 7
+  "deferred_wrap_pending_ttl_days": 7,
+  "graphify_risk_signals": false
 }

@@ -222,16 +222,18 @@
 
   /* Tables */
   .table-scroll {
-    overflow-x: auto;
+    overflow: auto;
+    max-height: 72vh;
     border: 1px solid var(--border-faint);
     border-radius: var(--radius-lg);
     background: var(--bg-raised);
     -webkit-overflow-scrolling: touch;
   }
   table {
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     width: 100%;
-    min-width: 860px;
+    min-width: 2440px; /* col1 (240px) + 11 data columns at 200px */
     font-size: 14.5px;
   }
   caption { display: none; }
@@ -242,6 +244,7 @@
     vertical-align: top;
     line-height: 1.55;
     color: var(--text-secondary);
+    min-width: 200px;
   }
   thead th {
     background: var(--bg-overlay);
@@ -253,31 +256,42 @@
     text-transform: uppercase;
     position: sticky;
     top: 0;
+    z-index: 2;
   }
-  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+  /* first column = criterion labels — fixed width so col 2 left offset is deterministic */
+  tbody th[scope="row"],
+  thead th:first-child {
+    width: 240px; min-width: 240px; max-width: 240px;
+    white-space: nowrap;
+  }
   /* first column = criterion labels */
   tbody th[scope="row"] {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--bg-surface);
     color: var(--text-bright);
     font-family: 'Nunito Sans', system-ui, sans-serif;
     font-weight: 700;
     letter-spacing: 0;
     text-transform: none;
-    white-space: nowrap;
   }
+  /* Freeze cols 1 and 2 on horizontal scroll */
+  th:first-child, td:first-child { position: sticky; left: 0; z-index: 1; }
+  th.ae, td.ae { position: sticky; left: 240px; z-index: 1; }
+  thead th:first-child, thead th.ae { z-index: 3; } /* corner cells: both axes */
   /* DinoStack anchor column = 2nd column (1st data col) */
   th.ae, td.ae {
-    background: var(--gold-glow);
+    background: #0B2536;
     border-left: 2px solid var(--gold);
     border-right: 1px solid var(--border-faint);
   }
-  thead th.ae { background: var(--gold-glow-strong); color: var(--gold); }
+  thead th.ae { background: #0F394D; color: var(--gold); }
   tbody th[scope="row"] + td.ae { font-weight: 500; color: var(--text-primary); }
 
   /* Pills for capability table */
   .pill {
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
     font-size: 13px;
     line-height: 1.4;
@@ -292,7 +306,7 @@
   .pill.partial .dot { background: var(--status-partial); color: var(--status-partial); }
   .pill.dash .dot { background: var(--status-no); color: var(--status-no); box-shadow: none; }
   .pill.dash { color: var(--text-muted); }
-  .pill .note { color: var(--text-muted); font-size: 12.5px; }
+  .pill .note { color: var(--text-muted); font-size: 12.5px; flex-basis: 100%; margin-top: 1px; }
 
   .legend {
     display: flex;
@@ -462,6 +476,34 @@
         <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent review, risk gates, automated parallel orchestration, audit trail</span></div>
       </div>
 
+      <div class="card">
+        <h3>lazy <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(getlazy/ierceg)</span></h3>
+        <p class="identity">Runnable local orchestrator: a <code>builder</code> spawns autonomous coding agents in isolated Docker containers; async git-native task lifecycle</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Fire-and-forget concurrent agents, hard container isolation, searchable prompt store</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent adversarial review, risk gates, quality gates, cross-harness portability</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Letta <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(formerly MemGPT)</span></h3>
+        <p class="identity">Stateful-agent runtime + memory infrastructure: owns the agent loop, context, persistence, model-agnostic API; automated self-editing tiered memory + sleep-time compute</p>
+        <div class="row"><span class="label">Best at</span><span class="val">A persistent stateful runtime with automated, self-improving memory across sessions</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Different layer - DinoStack adds independent review, risk gates, quality gates, build-time coding orchestration the runtime does not attempt</span></div>
+      </div>
+
+      <div class="card">
+        <h3>MetaHarness <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(ruvnet)</span></h3>
+        <p class="identity">Build-time factory for branded, npm-publishable agent harnesses</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Packaging, white-label distribution, witness-signed releases, MCP generation</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent review, risk gates, worktree isolation, code quality gates, planning artifacts</span></div>
+      </div>
+
+      <div class="card">
+        <h3>BMad Method <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Brian Madison)</span></h3>
+        <p class="identity">Multi-agent spec-driven agile methodology: named personas (Analyst/PM/Architect/Dev/UX) hand off via PRD, architecture, and self-contained story files; markdown substrate, cross-harness</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Front-loaded product discovery, project roadmap (PRD/epics/stories), structured agile ceremony, breadth via expansion modules</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent adversarial review, per-change risk gates, worktree isolation, enforced quality gates</span></div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -482,18 +524,26 @@
             <th scope="col">Agentic OS</th>
             <th scope="col">In-context prompting</th>
             <th scope="col">120x architect-builder</th>
+            <th scope="col">lazy</th>
+            <th scope="col">Letta</th>
+            <th scope="col">MetaHarness</th>
+            <th scope="col">BMad Method</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <th scope="row">Agent model</th>
-            <td class="ae">Multi-agent: conductor + ~16 named roles</td>
+            <td class="ae">Multi-agent: conductor + ~17 named roles</td>
             <td>Single agent</td>
             <td>Multi-agent, phase-scoped functional roles</td>
             <td>Main agent + sub-agents for data offload</td>
             <td>Single agent, many skills</td>
             <td>Single agent, self-orchestrating</td>
             <td>Two-role, one operator: LLM architect + Codex/Claude Code builder</td>
+            <td>Multi-agent: a non-coding <code>builder</code> spawns autonomous coding agents</td>
+            <td>Stateful runtime: primary + sleep-time agent (two-agent memory design); subagents in Letta Code</td>
+            <td>Factory CLI/Studio; generated harness can include agents/skills, but no runtime orchestrator</td>
+            <td>Multi-agent: named personas (Analyst, PM, Architect, Dev, UX) hand off via docs, story-by-story</td>
           </tr>
           <tr>
             <th scope="row">Review stance</th>
@@ -504,6 +554,10 @@
             <td>None</td>
             <td>None</td>
             <td>Architect sanity-checks builder, but in the chat that wrote the plan (not independent)</td>
+            <td>Human reviews (split-hunk); builder reads summaries but is itself injection-exposed; no independent reviewer</td>
+            <td>Not addressed - runtime layer, no per-output review</td>
+            <td>Governance policy artifact; no independent adversarial reviewer</td>
+            <td>Dev agent runs its own code-review workflow + human; Test Architect module is test strategy, not adversarial diff review; no independent reviewer</td>
           </tr>
           <tr>
             <th scope="row">Substrate</th>
@@ -514,6 +568,10 @@
             <td>Markdown + Obsidian vault</td>
             <td>Serialized flowchart in the prompt</td>
             <td>Markdown + folders (the 120x scaffold)</td>
+            <td>Runnable software: Bun CLI + Docker + prompt store</td>
+            <td>Runnable software: open-source server, SQL/Postgres persistence, REST API + SDKs</td>
+            <td>npm package + CLI + MCP server + vector memory backend (<code>ruvector</code>)</td>
+            <td>Markdown + folders (<code>_bmad/</code> skills, <code>_bmad-output/</code> artifacts), thin Node/Python CLI</td>
           </tr>
           <tr>
             <th scope="row">Infrastructure weight</th>
@@ -524,6 +582,10 @@
             <td>Light (vault + dashboard)</td>
             <td>None</td>
             <td>None (folder convention + small scaffolding tool)</td>
+            <td>Heavy: Docker daemon, two binaries, per-project data store</td>
+            <td>Heavy: stateful server + database (hosted cloud option)</td>
+            <td>Medium-to-heavy (generated harnesses include server/DB components)</td>
+            <td>Light (npx install; skills + markdown executed by the IDE agent)</td>
           </tr>
           <tr>
             <th scope="row">Human-in-loop assumption</th>
@@ -534,6 +596,10 @@
             <td>Human triggers skills via dashboard</td>
             <td>Human runs the conversation</td>
             <td>Human is the orchestrator, routing every handoff and reviewing each sprint</td>
+            <td>Human is tech lead: sets direction, is the sole trusted acceptor; reviews async</td>
+            <td>Agent self-manages memory; human is the end user it serves and remembers</td>
+            <td>Operator configures and publishes harnesses; runtime use is host-dependent</td>
+            <td>Human drives each phase and story; reviews artifacts and code at handoffs</td>
           </tr>
           <tr>
             <th scope="row">Core conviction</th>
@@ -544,6 +610,10 @@
             <td>Codify workflows into reusable skills</td>
             <td>Frontier models hold the whole map; scaffolding hurts</td>
             <td>Architect first, builder second; the folder is the handoff, never the chat</td>
+            <td>Prompts are the source, code is a byproduct; only the human is un-injectable</td>
+            <td>Memory is the missing layer; agents must remember, learn, and self-improve across sessions</td>
+            <td>The harness is the product; model is replaceable</td>
+            <td>Specs (PRD, architecture, self-contained story files) are the durable source of truth; eliminate context loss</td>
           </tr>
         </tbody>
       </table>
@@ -567,6 +637,10 @@
             <th scope="col">Agentic OS</th>
             <th scope="col">In-context prompting</th>
             <th scope="col">120x architect-builder</th>
+            <th scope="col">lazy</th>
+            <th scope="col">Letta</th>
+            <th scope="col">MetaHarness</th>
+            <th scope="col">BMad Method</th>
           </tr>
         </thead>
         <tbody>
@@ -579,6 +653,10 @@
             <td>None</td>
             <td>None</td>
             <td>Architect-reviews-builder loop, but same chat that planned it; no independent context</td>
+            <td>Human-gated only; interactive split-hunk review; no independent machine reviewer</td>
+            <td>Not addressed - no per-output review at the runtime layer</td>
+            <td>Low at runtime (policy file, no reviewer)</td>
+            <td>Dev-runs-own-code-review + human; no independent machine reviewer of the diff</td>
           </tr>
           <tr>
             <th scope="row">Token cost</th>
@@ -589,6 +667,10 @@
             <td>High: Claude API, no routing</td>
             <td>Lowest for a single task</td>
             <td>Moderate: architect-builder round-trips per sprint; creator concedes more tokens, fewer back-end errors</td>
+            <td>High: many concurrent autonomous agents; turn caps to bound burn</td>
+            <td>Memory-optimized: paged context + sleep-time compute shift reasoning off the user-facing path</td>
+            <td>Not addressed</td>
+            <td>High: ~31.7k tokens per workflow run; $800-2k/mo per dev on frontier models (V6 web bundles target this)</td>
           </tr>
           <tr>
             <th scope="row">Speed / latency</th>
@@ -599,6 +681,10 @@
             <td>Fast for knowledge work</td>
             <td>Fastest: one call per turn</td>
             <td>Slower: manual copy-paste handoffs and a spec-heavy front load</td>
+            <td>Throughput-optimized: hours-long async autonomy, human reviews off the critical path</td>
+            <td>Latency-optimized: sleep-time compute decouples memory reorganization from user-facing turns</td>
+            <td>Not addressed (build-time tool, not runtime orchestrator)</td>
+            <td>Slower: front-loaded PRD + architecture + stories before implementation; Quick Flow shortens it</td>
           </tr>
           <tr>
             <th scope="row">Parallelism</th>
@@ -609,6 +695,10 @@
             <td>Not addressed</td>
             <td>None</td>
             <td>None (strictly sequential, one sprint at a time)</td>
+            <td>First-class: concurrent agents in separate containers; task trains + auto-merge</td>
+            <td>Concurrent stateful agents; shared memory blocks across agents; subagents in Letta Code</td>
+            <td>Not addressed</td>
+            <td>Limited: story-by-story in fresh chats; sequential by design</td>
           </tr>
           <tr>
             <th scope="row">Setup overhead</th>
@@ -619,16 +709,24 @@
             <td>Low: one conversation</td>
             <td>None</td>
             <td>Low: small scaffolding tool generates folder + opening prompt; method is teachable in a 4-week cohort</td>
+            <td>Higher: build from source (Bun), requires Docker + Claude Code + git</td>
+            <td>Moderate: pip/npm install or hosted Cloud; self-hosting a stateful server is real infra</td>
+            <td>Low: <code>npx metaharness</code></td>
+            <td>Low to install (<code>npx bmad-method install</code>); steep method learning curve (~2 months cited)</td>
           </tr>
           <tr>
             <th scope="row">Portability across harnesses</th>
-            <td class="ae">10 harness adapters (parity uneven; Claude Code fullest)</td>
+            <td class="ae">13 harness adapters, 9 official (parity uneven; Claude Code fullest)</td>
             <td>Harness-agnostic (markdown)</td>
             <td>Claude Code, OpenCode, Gemini CLI, Cursor, Windsurf</td>
             <td>Arize platform-coupled</td>
             <td>Claude Code only</td>
             <td>Any frontier model</td>
             <td>Architect: ChatGPT or Claude; builder: Codex or Claude Code (tool-agnostic by design)</td>
+            <td>Claude Code only (alpha)</td>
+            <td>Model-agnostic across LLM providers; is its own runtime, not a multi-harness methodology</td>
+            <td>Strong: generates adapters for Claude Code, Codex, pi.dev, Hermes, OpenClaw, RVM</td>
+            <td>Claude Code, Cursor, Codex CLI, Copilot, Windsurf; V6 adaptive skills target Claude/Codex/Kimi/OpenCode</td>
           </tr>
           <tr>
             <th scope="row">Determinism / resumability</th>
@@ -639,6 +737,10 @@
             <td>Not addressed</td>
             <td>Not addressed</td>
             <td>Folder state + named per-sprint chats; resume is manual via the updated scaffold</td>
+            <td>Git-native task lifecycle states; captured prompts replay via <code>redo</code></td>
+            <td>Persisted agent state is the product: agents resume statefully across sessions by default</td>
+            <td>Not addressed</td>
+            <td>Sprint tracking (<code>sprint-status.yaml</code>) + per-story story files; fresh chat per story is the resume unit</td>
           </tr>
         </tbody>
       </table>
@@ -667,18 +769,26 @@
             <th scope="col">Agentic OS</th>
             <th scope="col">In-context prompting</th>
             <th scope="col">120x architect-builder</th>
+            <th scope="col">lazy</th>
+            <th scope="col">Letta</th>
+            <th scope="col">MetaHarness</th>
+            <th scope="col">BMad Method</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <th scope="row">Multi-agent orchestration</th>
-            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(conductor + ~16 roles)</span></span></td>
+            <td class="ae"><span class="pill check"><span class="dot"></span>Yes <span class="note">(conductor + ~17 roles)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(phase-scoped functional agents)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(sub-agents for data offload)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(architect + builder split, but human-routed and sequential)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(builder + fleet of autonomous agents)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(primary + sleep-time agent; subagents in Letta Code - runtime, not build-time orchestrator)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(factory, not orchestrator)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(named personas, doc-based handoff - but sequential, human-routed)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Risk classification</th>
@@ -689,6 +799,10 @@
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(every task gets an autonomous agent)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not addressed at the runtime layer)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(scale-adaptive planning tracks by project size, not per-change risk gating)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Independent Skeptic review</th>
@@ -699,6 +813,10 @@
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(architect reviews builder, but in the planning chat, not independent)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(human + injection-exposed builder only)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no independent reviewer of agent output)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(Dev's own code-review + human; no independent adversarial reviewer)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Planning artifacts</th>
@@ -709,6 +827,10 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(skill/domain map)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(per-sprint architect pack: requirements, blueprint, acceptance, handoff)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(per-task goal + prompt)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not a planning methodology)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(PRD, architecture doc, epics/stories, sprint tracking - richest in the set)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Intent layer / memory</th>
@@ -719,6 +841,10 @@
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(Obsidian Raw/Wiki/Output)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(scaffold: AGENTS router, domain, decisions/house-rules, risks, questions, state)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(captured prompt/conversation store, searchable by humans + agents)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(runtime, model-managed: core/recall/archival tiers, self-editing blocks, sleep-time consolidation, semantic search)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(scoped vector memory namespace, no human-auditable intent layer)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(PRD/architecture/story files/decision-log as durable spec; sprint-status.yaml tracking - but no auto-consolidated learnings loop)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Worktree isolation</th>
@@ -729,6 +855,10 @@
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(git worktree + Docker container per agent; stronger sandbox)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not a build-time coding orchestrator; Letta Code uses git-tracked MemFS for memory, a different concern)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No</span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(fresh-chat-per-story for context hygiene, not git worktree isolation)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Quality gates</th>
@@ -739,6 +869,10 @@
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(acceptance criteria + builder dry-run; no lint/typecheck/test gate)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(protected paths, accept guards, turn caps; no lint/typecheck/test gate)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no lint/typecheck/test gate at the runtime layer)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>harness validate</code> for package; no lint/typecheck/test for generated code)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(code-review workflow + Test Architect test strategy; no enforced lint/typecheck/test gate)</span></span></td>
           </tr>
         </tbody>
       </table>
@@ -768,6 +902,18 @@
 
       <h3>120x architect-builder (ChatGPT+Codex)</h3>
       <p>The 120x method (channel 120x-ai) is a solo operator's spec-and-handoff discipline: a large language model plays the planning "architect" that brainstorms, runs discovery, and emits a per-sprint "architect pack" (requirements, blueprint, acceptance criteria, handoff prompt), and Codex or Claude Code plays the "builder" that dry-runs and implements from the approved pack. The source of truth is a structured project folder of markdown, never the chat history. It shares DinoStack's substrate (folders + markdown, a thin <code>AGENTS.md</code> router, cleaner-context-not-more) and DinoStack's anti-vibe-coding thesis (never let the builder guess business rules), and it goes further than most solo workflows by splitting planning from building and adding an architect-reviews-builder loop. <span class="win">DinoStack wins</span> on review independence (the 120x architect grades the builder inside the chat that authored the plan, so it catches builder drift but not spec blindness; DinoStack's Skeptic is a fresh context that never saw the implementer's reasoning), per-change risk classification, automated parallel orchestration with worktree isolation, and a telemetry audit trail. The 120x method legitimately wins on reach and simplicity: it is teachable to non-coders in a four-week cohort, the manual human-in-the-loop sprint review is a feature for that audience, and it carries zero machinery for sequential work. Cleanest framing: 120x is what DinoStack's spec discipline looks like before you automate the orchestration, make the reviewer independent, and gate the machinery on risk.</p>
+
+      <h3>lazy (getlazy/ierceg)</h3>
+      <p>lazy is a locally hosted, runnable orchestrator for asynchronous software development: a non-coding <code>builder</code> (read-only repo mount) scopes tasks and spawns a fleet of autonomous coding agents, each in its own Docker container on its own git branch, and the human reviews and accepts on their own schedule. It is the only entry on this list that is shipping software rather than a methodology - a Bun CLI over Claude Code, with a git-native task lifecycle (<code>backlog &gt; working &gt; ... &gt; closed</code>), a searchable store of every captured prompt and conversation, task "trains" that branch off in-flight parents and auto-merge, and two-way GitHub/GitLab PR sync. It shares DinoStack's defining conviction almost verbatim - the orchestrator never touches code - and isolates concurrent agents on their own branches like DinoStack does. <span class="win">DinoStack wins</span> decisively on review: lazy has no independent adversarial reviewer (review is the human plus a builder that reads summaries and is itself prompt-injection-exposed - "the only entity not exposed to the prompt injection is the user"), no risk classification (every task gets an autonomous agent), and no lint/typecheck/test quality gate. lazy legitimately wins on container-level execution isolation (a real security boundary DinoStack's host-process worktrees lack), genuine hours-long fire-and-forget autonomy, a first-class task lifecycle, and prompt-capture-as-source ("prompts are valuable, code is a byproduct"). The cleanest framing: they sit at different layers and compose - lazy is the runtime (containers, lifecycle, prompt store), DinoStack is the governance (risk gates, adversarial review); running DinoStack's Skeptic discipline inside lazy's isolation would close lazy's biggest gap. Caveat: lazy is alpha (15 stars, solo, "no guarantees to its quality, correctness or safety").</p>
+
+      <h3>Letta (formerly MemGPT)</h3>
+      <p>Letta is a stateful-agent runtime and memory infrastructure - an open-source framework (~23K stars), a hosted cloud, and a coding harness (Letta Code) - built on the bet that memory is the missing layer in AI agents. It grew out of UC Berkeley's MemGPT paper (Packer, Wooders et al.), which reframed the context window as OS "RAM" and external storage as "disk," and it raised a $10M seed led by Felicis in 2024. Like Arize Alex, it operates at a different layer than DinoStack: Letta owns the agent loop, the context window, persistence, and a model-agnostic stateful API, where DinoStack is a build-time methodology executed on top of someone else's runtime. The sharpest contrast is memory - and both sides automate it, so the real distinction is layer/mechanism/consumer, not automated-versus-manual. Letta consolidates the agent's own working memory at runtime, driven by the model itself - self-editing tiered memory (core/recall/archival), editable memory blocks the model rewrites as it learns, and sleep-time compute (a background agent that reorganizes memory during idle time) - for one agent's continual learning. DinoStack consolidates project institutional memory at build time, driven by hooks and commands - the Stop hook auto-writes <code>.agentic/context.md</code> every turn, <code>/wrap</code> and the learnings agents auto-append durable facts to MEMORY/decisions/learnings, and loop-state.json drives cross-session resume - into human-auditable markdown with keyword/grep retrieval (no model self-editing, no semantic recall), for an audit trail and resume. <span class="win">DinoStack wins</span> on everything Letta does not attempt: independent adversarial review, per-change risk classification, build-time orchestration of coding work, and lint/typecheck/test quality gates. Letta wins on everything DinoStack does not attempt: a persistent stateful runtime, runtime self-editing memory, sleep-time compute as a new scaling axis, model-agnostic persisted agent state, and being shipping software rather than a methodology. The cleanest framing is that they compose: Letta could be the runtime a DinoStack-style methodology runs on, DinoStack's governance is exactly what Letta lacks, and Letta's runtime continual-learning memory is exactly what DinoStack's build-time institutional memory lacks. There is no winner to declare; there is a stack to assemble.</p>
+
+      <h3>MetaHarness (ruvnet)</h3>
+      <p>MetaHarness is a factory for turning GitHub repos into branded, npm-publishable agent harnesses. It scaffolds a package with a CLI, MCP server, scoped vector memory, a learning-based model router, and witness-signed releases with SBOMs, targeting Claude Code, Codex, pi.dev, Hermes, OpenClaw, and RVM. It sits at a different layer than DinoStack: build-time packaging and distribution of harnesses, versus DinoStack's runtime governance of coding work. <span class="win">DinoStack wins</span> on independent adversarial review, per-change risk classification, worktree isolation, code quality gates, and planning artifacts. MetaHarness legitimately wins on harness productization, white-label distribution, MCP server generation, witness-signed provenance, and scoped memory namespaces. The cleanest framing is that MetaHarness builds the harness and DinoStack governs the work it does. Caveat: it is v0.1.x beta with an open doc-reconciliation issue and some proposed hosts not yet shipped.</p>
+
+      <h3>BMad Method (Brian Madison)</h3>
+      <p>BMad Method is the closest structural peer to DinoStack in this whole set: both are multi-agent, spec-driven, markdown-substrate methodologies with named specialist roles that hand off through documents, both run cross-harness on a thin code shell over markdown, and both reject single-agent vibe coding on the same thesis (specs are the durable source of truth, scoped context windows beat one agent holding everything). They diverge on two decisive axes. <span class="win">DinoStack wins</span> on the correctness axis: BMad's review is the Dev agent (Amelia) running its own <code>bmad-code-review</code> workflow plus the human, its Test Architect module is test strategy rather than adversarial diff sign-off, and there is no fresh reviewer that never saw the implementer's reasoning; BMad's scale-adaptive tracks (Quick Flow / BMad Method / Enterprise) adapt planning depth to project size, not review intensity to per-change risk; and it uses fresh-chat-per-story for context hygiene rather than git worktree isolation, with no enforced lint/typecheck/test gate. BMad legitimately wins on the product-front-load axis. One of its wins - a project roadmap layer (PRD -&gt; epics -&gt; stories -&gt; sprint-status.yaml) - is on DinoStack's own known-gaps list, though DinoStack treats that roadmap as a deliberate non-goal. Its other front-load win, agent-facilitated product discovery (a Phase 1 Analysis stage with Analyst/PM/UX personas, brainstorming, market research, and PRFAQ), is a scope difference rather than a listed gap: DinoStack has first-class operator-owned vision/requirements product-intent docs but no agent that facilitates discovery. BMad adds maturity and breadth DinoStack does not have (~49k stars, 36 releases, expansion modules for game dev and creative work). The cleanest framing: BMad is what DinoStack's spec discipline looks like when you bolt on full agile-PM ceremony and product discovery but do not make the reviewer independent or gate on per-change risk. They compose - BMad's planning phase feeds DinoStack's gated implementation - but BMad pays for its ceremony in tokens (~$800-2k/mo per dev) and a ~2-month learning curve DinoStack does not impose.</p>
 
     </div>
   </div>
@@ -813,6 +959,10 @@
       <li><span class="src-title">Agentic OS</span> <span class="desc">- Chase, vs Helios, which embeds DinoStack</span></li>
       <li><span class="src-title">In-context prompting vs orchestration</span> <span class="desc">- University of Melbourne</span></li>
       <li><span class="src-title">120x architect-builder method</span> <span class="desc">- ChatGPT/Claude + Codex/Claude Code (channel 120x-ai)</span></li>
+      <li><span class="src-title">lazy</span> <span class="desc">- a runnable local async-development orchestrator (getlazy/ierceg)</span></li>
+      <li><span class="src-title">Letta (formerly MemGPT)</span> <span class="desc">- a stateful-agent runtime + memory infrastructure (Packer/Wooders, UC Berkeley)</span></li>
+      <li><span class="src-title">MetaHarness</span> <span class="desc">- ruvnet, a build-time factory for branded agent harnesses</span></li>
+      <li><span class="src-title">BMad Method</span> <span class="desc">- Brian Madison, a multi-agent spec-driven agile development methodology</span></li>
       <li><span class="src-title">DinoStack self-audit against the 10 pillars</span> <span class="desc">- supporting context, not a head-to-head</span></li>
     </ul>
   </div>

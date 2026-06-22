@@ -157,16 +157,18 @@ while IFS= read -r src; do
   dir="$SKILLS_DIR/$name"
   mkdir -p "$dir"
 
-  python3 - "$src" "$dir/SKILL.md" "$name" <<'PYEOF'
+  python3 - "$src" "$dir/SKILL.md" "$name" "$REPO_DIR" <<'PYEOF'
 import sys, re
 
-src_path, dst_path, cmd_name = sys.argv[1], sys.argv[2], sys.argv[3]
+src_path, dst_path, cmd_name, repo_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+sys.path.insert(0, repo_dir + '/scripts/lib')
+from prereq_strip import strip_prereq
 
 with open(src_path) as f:
     raw = f.read()
 
 # Strip the prerequisite blockquote
-content = re.sub(r'\n*>\s*\*\*Prerequisite:\*\*[^\n]*\n*', '\n', raw, count=1)
+content = strip_prereq(raw)
 
 # Extract description - priority order:
 # 1. Purpose: field from a LEADING HTML comment block (within first 2000 chars)
@@ -254,10 +256,12 @@ while IFS= read -r src; do
   dir="$SKILLS_DIR/$skill_name"
   mkdir -p "$dir"
 
-  python3 - "$src" "$dir/SKILL.md" "$skill_name" <<'PYEOF'
+  python3 - "$src" "$dir/SKILL.md" "$skill_name" "$REPO_DIR" <<'PYEOF'
 import sys, re
 
-src_path, dst_path, skill_name = sys.argv[1], sys.argv[2], sys.argv[3]
+src_path, dst_path, skill_name, repo_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+sys.path.insert(0, repo_dir + '/scripts/lib')
+from prereq_strip import strip_prereq
 
 with open(src_path) as f:
     content = f.read()
@@ -282,7 +286,7 @@ desc = re.sub(r'\s+', ' ', desc).strip()
 desc_escaped = desc.replace('"', '\\"')
 
 # Strip the prerequisite blockquote from body
-body = re.sub(r'\n*>\s*\*\*Prerequisite:\*\*[^\n]*\n*', '\n', body, count=1)
+body = strip_prereq(body)
 body = body.lstrip('\n')
 
 new_skill = f"""---

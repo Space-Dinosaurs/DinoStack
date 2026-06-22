@@ -8,6 +8,7 @@
 | `debugger` | Root cause analysis. Given a failure, diagnoses what's wrong and produces a fix brief. | No |
 | `security-auditor` | OWASP-structured security review. Covers injection, auth, secrets, privilege escalation. | No |
 | `perf-analyst` | Performance profiling. Measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer. Does not implement fixes. | No |
+| `product-discovery` | Facilitated discovery before architecture. Reframes the request to the underlying problem, identifies personas (including the counterparty), runs an attributed market scan, optionally pressure-tests with a PRFAQ, and stages a proposed vision.md + requirements.md. | No (stages proposals to docs/overview/_proposed/ only; never writes canonical docs/overview/) |
 | `dependency-auditor` | Supply-chain review. Runs vulnerability scanners across all detected ecosystems, audits lockfiles, flags license risks and maintenance signals. Produces a findings report for the engineer to execute. | No |
 | `release-orchestrator` | End-to-end release sequencing. Owns pre-flight gates, version bump, changelog, tag, deploy, and post-deploy verification. Writes version bumps and changelog entries; does not write feature code. | Yes |
 | `architect` | Pre-implementation design. Reads the codebase, produces a structured technical plan. | No |
@@ -139,6 +140,12 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - A perf budget exists and must be measured against
 - Skip when the bottleneck is already understood - go straight to `engineer`
 
+**Use `product-discovery` when:**
+- A product or feature idea arrives that is not yet scoped - the problem, users, or scope are still fuzzy
+- The project has no `docs/overview/vision.md` / `docs/overview/requirements.md` yet and work is about to start
+- The user asks to scope a feature, write a PRD, frame a problem, identify target users, run a competitive scan, or draft a product brief or PRFAQ
+- Run it BEFORE the architect: discovery decides WHAT to build and WHY; the architect decides HOW. Skip it when the scope is already clear and well understood - go straight to `architect` (or `engineer` for a self-contained change)
+
 **Use `release-orchestrator` when:**
 - Cutting a release, shipping to production, bumping a version and tagging, or rolling back the last release
 - You need the full release sequence: pre-flight checks, changelog, tag, deploy, post-deploy verification
@@ -201,6 +208,12 @@ When spawning `perf-analyst`, include:
 - The baseline (optional): prior measurement, commit SHA, or branch name to compare against
 - The perf budget (optional): a target such as "under 100ms p99" or "< 50 MB peak memory"
 - The hypothesis (optional): a suspicion about the bottleneck - treated as unconfirmed until measured
+
+When spawning `product-discovery`, include:
+- The raw idea or request as the operator stated it (the starting point, not a pre-scoped spec)
+- The project root (for detecting existing `docs/overview/` intent docs and staging proposals)
+- The interactive-vs-non-interactive signal: whether an operator is available to answer questions in real time, or this is a batch / "here is everything, go" run
+- The `_proposed/` staging reminder: product-discovery stages proposals to `docs/overview/_proposed/` only and never writes the canonical `docs/overview/` files
 
 When spawning `release-orchestrator`, include:
 - The target environment: where this release is going (staging, production, a named remote)

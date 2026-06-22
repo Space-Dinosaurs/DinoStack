@@ -11,6 +11,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.CHANGELOG_PUSH_TOKEN }}
       - uses: actions/setup-node@v6
         with:
           node-version: '22'

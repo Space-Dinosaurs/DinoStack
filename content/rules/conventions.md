@@ -108,6 +108,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. When `6`, qa-engineer converts story IDs to the `?selectedKind=&selectedStory=` URL format. When `7` or absent, uses the current `?id=` format. Set automatically by init-project based on detected framework adapter version.
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. The commit makes per-session telemetry team-visible after squash merge. Set to `false` to opt out. No effect when identity is absent or provisional.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/wrap` jobs (idle detection, heartbeat, timeout, reclaim, and pending TTL are tuned by the `deferred_wrap_*` related keys below). The default `false` preserves the in-session synchronous `/wrap` behavior.
+- `graphify_risk_signals` - boolean, default `false`. Opt-in, escalate-only. When `true` and a fresh `GRAPH_REPORT.md` exists at the repo root, the conductor reads it during risk classification; a target-symbol match against a God Node or a Surprising Connection endpoint is an additional Elevated signal that can escalate an otherwise-Low/Trivial change to Elevated, never downgrade. Default-off; graph-less, toggle-off, or stale-graph projects behave exactly as today.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 
@@ -148,7 +149,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch (see **Base branch resolution** below) and cache it as `BASE_BRANCH` for the session.
-6. Run worktree prune (see `content/sections/10-worktree-lifecycle.md`) and delete stale `worktree-agent-*` branches.
+6. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start. The branch prune clears stale local branches with safe signals: `[gone]`-upstream branches (squash-merged and remote-deleted), branches fully merged into `origin/main`, and orphaned `worktree-agent-*` branches whose worktree no longer exists.
 
 **Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
 

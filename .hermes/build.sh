@@ -122,7 +122,13 @@ for f in "$CONTENT_DIR/agents/"*.md; do
   name=$(basename "$f" .md)
   echo "### $name" >> "$HERMES_DIR/SKILL.md"
   echo "" >> "$HERMES_DIR/SKILL.md"
-  cat "$f" >> "$HERMES_DIR/SKILL.md"
+  python3 - "$f" "$HERMES_DIR/SKILL.md" "$REPO_DIR" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[3] + '/scripts/lib')
+from prereq_strip import strip_prereq
+content = open(sys.argv[1]).read()
+open(sys.argv[2], 'a').write(strip_prereq(content))
+PYEOF
   echo "" >> "$HERMES_DIR/SKILL.md"
   echo "---" >> "$HERMES_DIR/SKILL.md"
   echo "" >> "$HERMES_DIR/SKILL.md"
@@ -145,8 +151,13 @@ for f in "$CONTENT_DIR/commands/"*.md; do
   name=$(basename "$f" .md)
   echo "### /$name" >> "$HERMES_DIR/SKILL.md"
   echo "" >> "$HERMES_DIR/SKILL.md"
-  # Strip the Claude-specific /agentic-engineering prerequisite blockquote if present
-  sed '/^> \/agentic-engineering/d' "$f" >> "$HERMES_DIR/SKILL.md"
+  python3 - "$f" "$HERMES_DIR/SKILL.md" "$REPO_DIR" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[3] + '/scripts/lib')
+from prereq_strip import strip_prereq
+content = open(sys.argv[1]).read()
+open(sys.argv[2], 'a').write(strip_prereq(content))
+PYEOF
   echo "" >> "$HERMES_DIR/SKILL.md"
   echo "---" >> "$HERMES_DIR/SKILL.md"
   echo "" >> "$HERMES_DIR/SKILL.md"
