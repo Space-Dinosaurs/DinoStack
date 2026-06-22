@@ -272,6 +272,14 @@ A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any 
 - `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
 
+### Review-environment freshness precondition
+
+A Skeptic comparing a PR against a base branch MUST work from a live, synchronized git state - never a stale local checkout whose `main` may lag the remote or reflect files from unrelated branches. Two failure modes to prevent: (1) a reviewer that sees fewer files than the live PR (stale local tree) raises "X is missing" when X was added in a commit the reviewer cannot see; (2) a reviewer that diffs against `FETCH_HEAD` or a stale symbolic ref picks up files from other in-flight PRs, producing spurious "was reverted" or "renamed back" findings.
+
+**Required approach:** Use `gh pr diff <n>` or `gh pr view <n> --json files,headRefName,baseRefName` to obtain the canonical PR diff. If using local git, run `git fetch origin <base> <head>` first and diff fully-qualified remote refs (`origin/<base>..origin/<head>`) - never `main..HEAD` or `FETCH_HEAD` unless you have just fetched and confirmed the ref resolves to the expected commit.
+
+**Commit-SHA attestation (when reviewing a PR against a base branch):** When the Skeptic is reviewing a PR diff - not an inline/non-PR worktree diff - it MUST state the head commit SHA and base commit SHA it reviewed. Unified format: `Reviewed: <base-sha>..<head-sha> - [files/components examined]`. The conductor confirms these match the live PR before acting on the findings. A Skeptic output that omits the SHA range on a PR review is treated as unverified and the conductor re-spawns with explicit instructions to include it. For inline/non-PR reviews (the common `/implement-ticket` worktree case), the standard `Reviewed: [files/components examined]` form is used; the Skeptic MAY optionally include the commit SHA(s) under review.
+
 ### Skeptic Step 0 - Input validation (BLOCKED on incomplete inputs)
 
 Before reading any artifact or producing any findings, the Skeptic verifies the Global-context input set is complete and well-formed:
@@ -451,6 +459,8 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **QA-fix iteration regression verification.** When the Skeptic runs in parallel with a re-spawned qa-engineer (QA-fix iteration in the concurrent QA flow, or Phase 6b sequential QA fix engineer), the verification additionally checks the `qa-regression-obligation.md` contract: the engineer added a unit/integration/e2e test for the failing scenario (id, description), OR documented an exception in `.agentic/qa-regressions.md` with a reason. This is symmetric to the Skeptic-finding regression rule in `content/references/regression-test-obligation.md`. Missing test without explanation and without a curated-index entry is a Major finding. Canonical statement in `content/references/qa-regression-obligation.md`.
 
+**Existential-negative findings require evidence.** An existential-negative finding is any finding that asserts absence, non-completion, reversion, or relocation - "X is missing", "Y was not done", "Z was reverted", "the file was moved back", "the guard does not exist". These findings are not self-verifying: they depend entirely on the reviewer's git state being synchronized and correct. A Skeptic MUST NOT classify an existential-negative claim as Critical or Major unless it cites the exact command, ref, and literal output that substantiates it (e.g., `git ls-files origin/main..origin/<head> | grep <path>` showing the file absent, or `gh pr diff <n>` excerpt showing the deletion). Without raw evidence, the claim is a hypothesis. Hypotheses MUST be downgraded to Minor (flagged for conductor verification) with the note "unverified - requires conductor spot-check against live PR state before acting." The failure mode this prevents: a Skeptic working from a stale or contaminated tree raises a blocking Critical on work that is present and correct in the live PR, causing the conductor to revert or re-implement code that never needed changing. "The file wasn't in my diff" is not evidence of absence - it is evidence that the reviewer's diff may be incomplete.
+
 ### Review depth
 
 Adversarial review applies whenever risk is classified as Elevated. The main agent always uses a fresh independent Skeptic — there is no degraded self-review path for Elevated work. The exchange log is mandatory for all Elevated tasks. The escalation protocol is active for all Elevated tasks.
@@ -496,7 +506,9 @@ These are starting templates. Adapt them for your specific domain, threat model,
 > "What happens if this job runs twice? What happens if it crashes halfway? What is the state after partial failure, and can it be safely retried without double-processing or data corruption? Look for: non-idempotent operations, missing rollback logic, state that can diverge between systems, and silent failure modes."
 
 **Document synthesis, architecture, and planning:**
-> "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?"
+> "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?
+>
+> For architect plans and orchestration-planner output, additionally verify the Open Questions / Deferred defaults split: (a) every item under 'Open Questions' must meet at least one condition - no derivable default, OR irreversible, OR load-bearing fork; (b) every item under 'Deferred defaults' must meet all three conditions - reversible, default derivable, not a load-bearing fork. A reversible+defaultable item hiding in 'Open Questions' (manufactures a false gate) is a Major finding. An irreversible or load-bearing item hiding in 'Deferred defaults' (silently bypasses the gate it requires) is a Major finding. When neither section is present on an artifact that has parked choices, flag absence of the expected structure as a Minor finding."
 
 **General code review:**
 > "Assume this code will be deployed to production and maintained by engineers who did not write it. Find: logic errors, edge cases that cause silent failures, missing error handling, incorrect assumptions about input ranges or ordering, and any assumption that will break under realistic load or adversarial input."
@@ -564,7 +576,8 @@ Changes made:
 The structured sign-off format is required for every Skeptic response, whether findings exist or not:
 
 ```
-Reviewed: [list of components/aspects examined]
+Reviewed: [files/components examined]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
@@ -623,7 +636,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains all four mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation.
+The primary agent treats a Skeptic response as a valid sign-off only when it contains all four mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 

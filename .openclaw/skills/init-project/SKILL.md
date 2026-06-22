@@ -604,6 +604,7 @@ After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory en
     - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
     - `.agentic/tracking.md` (or legacy `.claude/tracking.md`) - only if a tracker was confirmed during `/init-project`.
     - `.agentic/learnings.md` - always check.
+    - `docs/overview/_proposed/outcome-rubric.md` - only if product-discovery was run and a rubric was staged (check for the file's existence and the staged-proposal banner; if present, remind the operator to copy the rubric into the Brief before engineering starts).
   - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.agentic/qa.md`, `[track]/.agentic/deploy.md`) are out of scope for this session-start check - do not flag them.
   - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6c creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
   - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
@@ -1028,6 +1029,8 @@ TODO: what does a successful outcome look like for users?
 ```
 
 These files are operator-owned and committed. Architect and Investigator read them when present.
+
+To draft this intent layer instead of writing it by hand, spawn the `product-discovery` agent. It facilitates discovery - frames the problem, names the users (including the counterparty), runs an attributed market scan, and synthesizes a proposed `vision.md` and `requirements.md`. It stages those drafts to `docs/overview/_proposed/` and never writes the canonical `docs/overview/` files; you review, edit, and promote them when they match your intent.
 
 ### 11. Set up tracker
 

@@ -5,22 +5,27 @@
 <!--
 Purpose: Interactive planning dialogue that produces a Brief artifact before architect and engineer
          are spawned. Translates operator planning-intent into a committed, Skeptic-eligible Brief
-         at docs/planning/<slug>.md via a structured multi-turn conversation.
+         at docs/planning/<slug>.md via a structured multi-turn conversation. Synthesizes the
+         outcome rubric (from product-discovery staged draft or inline elicitation) into the
+         Brief's Outcome rubric field.
 
 Public API: /brief [topic] | /brief --from <path>
             Invoked explicitly by the operator or auto-triggered by the conductor on
             planning-intent signals per Section 1.
 
-Upstream deps: content/sections/03-planning-artifacts.md (Brief template and field guidance);
+Upstream deps: content/sections/03-planning-artifacts.md (Brief template and field guidance,
+               including Outcome rubric field schema);
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
-               .agentic/brief-session.json (resume state);
-               MEMORY.md (prior-decisions scan, auto-injected at session start).
+               .agentic/brief-session.json (resume state, includes rubric array);
+               MEMORY.md (prior-decisions scan, auto-injected at session start);
+               docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/implement-ticket.md Phase 0b (brief_path check);
                       content/sections/03-planning-artifacts.md (Skeptic variant selection);
                       architect agent (receives brief_path in execution contract);
-                      Skeptic (receives operator-confirmed variant from Section 6).
+                      Skeptic (receives operator-confirmed variant from Section 6; evaluates
+                      Outcome rubric field per step 3.5 in skeptic.md).
 
 Failure modes: Brief with empty Verification field is NOT Skeptic-eligible - conductor must
                collect a real value before writing to disk. Parse failure on brief-session.json
@@ -74,6 +79,10 @@ otherwise the conductor proceeds.
 - Direct implementation requests with specific scope
 
 Signal must be exploratory framing, not execution. When ambiguous, prefer NOT firing.
+
+### Discovery before brief
+
+When the problem, users, or scope are still fuzzy - or the project has no `docs/overview/vision.md` / `docs/overview/requirements.md` yet - spawn the `product-discovery` agent first. Discovery decides WHAT to build and WHY (the problem, the personas including the counterparty, the market context, the staged vision and requirements); `/brief` and the architect decide HOW. Run discovery, let the operator ratify and promote the staged intent layer, then return to `/brief` to frame the execution. Skip discovery and go straight to `/brief` only when the problem and scope are already clear.
 
 ### PRD handoff express path
 
@@ -164,7 +173,14 @@ One exchange per selected gray area (`selected: true` in the state file):
 ### Turn N+1 - Brief draft
 
 Conductor synthesizes the Brief from intent + dialogue, formats per the Brief template
-in `content/sections/03-planning-artifacts.md`, and presents it to the operator:
+in `content/sections/03-planning-artifacts.md`, and includes the **Outcome rubric** field:
+
+- **If `docs/overview/_proposed/outcome-rubric.md` exists** (product-discovery ran before /brief): copy its lines verbatim into the rubric field and note "copied from discovery draft - confirm or adjust."
+- **Otherwise**: prompt the operator inline: "List the 3-6 things that would make this 'done' - one per line, most critical first." For each criterion the operator provides, assign a `verification_type`: `deterministic` if a gate is nameable, `judgment` otherwise. Present the assigned types for confirmation before writing.
+
+The outcome rubric is part of the Brief draft and subject to the same iteration rounds (max 3 adjustments). Store the confirmed rubric in `brief-session.json` under the `rubric` array (see Section 8).
+
+Conductor presents the full Brief to the operator:
 
 > "Here's the Brief draft. Review it and say 'looks good' to write it, or tell me what
 > to adjust:
@@ -244,6 +260,8 @@ Scan for headings or labels matching: Problem / Goals / Non-goals / Constraints 
 Verification (or equivalents: Objective, Acceptance Criteria, Out of Scope, Success
 Metrics, Definition of Done). Map matching content to Brief fields.
 
+Also scan for headings matching: Definition of Done / Acceptance Criteria / Success Metrics / Pass-Fail / Rubric. Extract matching items as outcome rubric candidates - assign `verification_type: deterministic` when the item names a measurable gate, `verification_type: judgment` otherwise. Cap at 6 lines. If none of these headings exist, pre-fill the Outcome rubric field with `[extracted from PRD - review required]` and prompt: "I could not find explicit acceptance criteria in this PRD. List the 3-6 things that would make this 'done', one per line."
+
 ### Fallback when no structural signals detected
 
 1. Treat the entire PRD as the Problem field (truncate to 500 words; note remainder as
@@ -271,7 +289,8 @@ Conductor reads `brief-session.json` `brief_source` field.
 ### When `brief_source: operator` (Brief from /brief dialogue)
 
 > "Verify completeness only: all 6 fields present, Verification field is non-empty and
-> not 'cannot specify', no Open Questions remaining. The problem framing and success
+> not 'cannot specify', no Open Questions remaining (a non-empty "Deferred defaults" section
+> does not count as unresolved Open Questions - those do not block). The problem framing and success
 > criteria have already been operator-confirmed in the /brief session - DO NOT relitigate
 > framing decisions. Major findings are limited to: missing field, empty Verification,
 > unresolved Open Questions, or contradictions between Brief fields. Out of scope:
@@ -347,7 +366,15 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
     "non_goals": ["<string>"],
     "constraints": "<string or null>",
     "verification": "<string or null>"
-  }
+  },
+  "rubric": [
+    {
+      "id": 1,
+      "line": "<one-line observable acceptance criterion>",
+      "verification_type": "<deterministic | judgment>",
+      "confirmed": false
+    }
+  ]
 }
 ```
 

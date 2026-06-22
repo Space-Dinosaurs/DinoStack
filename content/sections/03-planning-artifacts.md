@@ -119,11 +119,11 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 **What blocks engineer spawn:**
 - Missing required artifact at any tier.
 - Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
-- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation). This section explicitly extends the existing rule rather than restating it.
+- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation). This section explicitly extends the existing rule rather than restating it. A non-empty "Deferred defaults" section does not trigger this gate.
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
 - Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
 
 **What does not block:**
 - Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
 
-For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`.
+For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`. Outcome rubric: operator-confirmed pass/fail lines, each tagged `verification_type: deterministic | judgment`; required for Elevated; full schema and field guidance in `content/references/planning-artifacts.md`.

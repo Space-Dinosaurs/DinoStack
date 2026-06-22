@@ -200,7 +200,10 @@ qa_criteria:
 [What was decided against and why; known limitations; things to watch out for]
 
 ### Open questions
-[Genuine ambiguities that need human input before implementation — or "None" if the plan is complete. Design-taste choices among reasonable approaches are NOT open questions: commit to one in Approach and record the alternative in Trade-offs. Questions answerable by reading the codebase are NOT open questions: do the reading. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]
+[Genuine ambiguities that need human input before implementation — or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived from codebase patterns, prior decisions, or established conventions; (b) the choice is irreversible; (c) the choice is a load-bearing fork whose resolution changes the implementation materially. Design-taste choices among reasonable approaches are NOT open questions: commit to one in Approach and record the alternative in Trade-offs. Questions answerable by reading the codebase are NOT open questions: do the reading. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]
+
+### Deferred defaults
+[Reversible, individually-defaultable parked choices - or "None" if all choices were resolved. An item belongs here when ALL of the following hold: (a) a default is derivable; (b) the choice is reversible; (c) it is not a load-bearing fork. For each item, record the derived default and note "revisit at implementation if context changes." These items do NOT block downstream worker spawns. The Skeptic verifies that nothing in this section should actually be in Open Questions.]
 ```
 
 ## Rules

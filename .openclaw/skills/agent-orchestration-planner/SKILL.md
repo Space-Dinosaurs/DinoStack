@@ -169,7 +169,10 @@ Use this exact structure. Do not rename or reorder sections.
 [Things the conductor itself must do between phases: decisions to make, memory updates to run, context to synthesize, approvals to give]
 
 ### Open questions
-[Genuine ambiguities that need human input before execution - or "None" if the plan is complete]
+[Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
+
+### Deferred defaults
+[Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." These do not block downstream worker spawns. For each item: state the choice and the derived default.]
 ```
 
 ## Task category defaults

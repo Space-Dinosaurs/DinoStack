@@ -6,6 +6,8 @@
 
 Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/DinoStack`).
 
+**In-repo only.** This command edits files inside the agentic-engineering/DinoStack repo and spawns Workers that run in isolation worktrees. Isolation worktrees are created from the current session's git repo, not from `AE_REPO_DIR` - so running this from a different project corrupts both repos' worktree state and cleanup. Step 0a enforces that the session is rooted in the AE repo; otherwise it writes a handoff doc and stops without editing.
+
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
 - (b) The user says "update the methodology", "change the protocol", "edit the wrap skill", "add an agent", "rename a command", or anything similar that implies changing a file in the agentic-engineering repo.
@@ -31,9 +33,9 @@ Out of scope (direct Edit/Write is fine; normal Trivial/Elevated tiers apply):
 
 Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/`, so they remain IN scope via the `content/**` rule above. This is a clarification, not a separate scope.
 
-## Step 0 - Pre-flight git sync
+## Step 0a - Directory gate (run before Step 0)
 
-Before making any edits, the main agent (not a subagent - git state decisions require main-agent judgment) resolves the repo location and runs the following checks.
+This is the first action of the command, before any git sync or edit. It guarantees the session repo IS the AE repo so that Worker isolation worktrees are created in the correct repo.
 
 **Resolve `AE_REPO_DIR` once at the start of the command - it persists for all subsequent steps in this invocation:**
 
@@ -57,6 +59,70 @@ fi
 
 Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
 
+**Compare the session repo against `AE_REPO_DIR` by canonical path:**
+
+```bash
+SESSION_REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+AE_REAL="$(cd "$AE_REPO_DIR" 2>/dev/null && pwd -P || true)"
+SESSION_REAL="$(cd "$SESSION_REPO" 2>/dev/null && pwd -P || true)"
+```
+
+Decision:
+
+- **In-repo (`SESSION_REAL` is non-empty AND equals `AE_REAL`):** proceed to Step 0. Worker isolation worktrees will be created in the AE repo, which is correct.
+- **Cross-directory (no git repo, or `SESSION_REAL` does not equal `AE_REAL`):** the gate triggers. Do NOT spawn any Worker, do NOT edit any file, do NOT `cd` into `AE_REPO_DIR` to edit it. Instead:
+  1. Capture the intended change from the user's request: a one-line title, the rationale, the target file(s) under `content/`, and any decisions already made in this session.
+  2. Choose the handoff destination:
+     - If `AE_REAL` is non-empty (the AE repo exists): write to `$AE_REPO_DIR/docs/planning/handoff-<YYYYMMDD-HHMMSS>-<slug>.md`. Create `docs/planning/` with `mkdir -p` if absent; it is local and gitignored per convention, so it never lands in a commit.
+     - If `AE_REAL` is empty (`AE_REPO_DIR` is unreachable or not a git repo - a broken install): do NOT create a phantom directory there. Write the handoff to `$HOME/.agentic/handoff-<YYYYMMDD-HHMMSS>-<slug>.md` instead (`mkdir -p "$HOME/.agentic"`), and include the warning line from step 3 in the redirect message.
+     Derive `<slug>` from the change title (lowercase, hyphenated); derive the timestamp from `date -u +%Y%m%d-%H%M%S`.
+  3. When `AE_REAL` is empty, also include the broken-install warning line shown below. Print the redirect message below and STOP. Do not continue to Step 0.
+
+Note: a git worktree derived from the AE repo (e.g. a path under `AE_REPO_DIR/.agentic/worktrees/`) resolves to its own toplevel, not `AE_REAL`, so it also trips this gate. That is intended: `/update-agentic-engineering` runs from the main checkout at `AE_REPO_DIR`, never from a worktree derived from it.
+
+Handoff doc template:
+
+```markdown
+# Methodology change handoff
+
+- Created: <ISO8601 from `date -u +%Y-%m-%dT%H:%M:%SZ`>
+- From session in: <SESSION_REAL, or "(no git repo)" if empty>
+- Target repo: <AE_REPO_DIR>
+
+## Intended change
+<one-line title>
+
+## Rationale
+<why this change>
+
+## Target files
+- content/...
+
+## Decisions already made
+- <bullets, or "none yet">
+
+## Next step
+Open a Claude Code session rooted in <AE_REPO_DIR> and run `/update-agentic-engineering`, referencing this handoff.
+```
+
+Redirect message template (print verbatim, substituting the resolved paths). When `AE_REAL` is empty, also include the broken-install warning line shown below (omit it when `AE_REAL` is non-empty):
+
+```
+/update-agentic-engineering was invoked from outside the AE repo.
+  Session repo: <SESSION_REAL, or "(no git repo)">
+  AE repo:      <AE_REPO_DIR>
+  (Warning: AE repo path does not exist or is not a git repo - check your installation.)
+Editing the methodology from here would create isolation worktrees in the wrong repo, so I have NOT made any edits.
+Handoff written to: <handoff path>
+Next: open a new Claude Code session rooted in <AE_REPO_DIR> and run /update-agentic-engineering (reference the handoff above).
+```
+
+## Step 0 - Pre-flight git sync
+
+Before making any edits, the main agent (not a subagent - git state decisions require main-agent judgment) resolves the repo location and runs the following checks.
+
+`AE_REPO_DIR` is already resolved in Step 0a and persists for this invocation.
+
 1. `cd "$AE_REPO_DIR" && git fetch origin`
 2. Run `git status --porcelain` to check for uncommitted changes.
 3. Run `git rev-list --left-right --count HEAD...origin/main` to measure divergence.
@@ -74,7 +140,7 @@ Decision matrix:
 Spawn a Worker subagent with instructions:
 1. Read the current file(s) to be changed.
 2. Apply the edit using the Edit tool.
-3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/agentic-engineering/` and `.claude/agents/` paths are symlinks pointing into `content/`, so the edit is immediately live. No build step is required.
+3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/agentic-engineering/` and `.claude/agents/` paths are symlinks pointing into `content/`, so the edit is immediately live in your own Claude session. The other nine adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
 4. If editing `content/commands/`: edit only the `content/commands/` path. The `.claude/commands/*.md` copies are build artifacts - `build.sh` prepends the `/agentic-engineering` prerequisite blockquote and writes the result to `.claude/commands/`. The build must be run after approval for the change to take effect.
 5. Return the full diff.
 6. If the Edit cannot be applied for any reason other than a Claude Code permission denial (file not found, ambiguous anchor, etc.), return a clear error description instead of a diff - do not attempt workarounds.
@@ -85,11 +151,28 @@ If the Worker in Step 1 returns a BLOCKED status explicitly citing an Edit permi
 
 ## Step 2 - Present to the user
 
-Show the diff, state what the change does. If the diff includes `content/commands/` changes, remind the user that `.claude/commands/` is a build artifact and `build.sh` must be run after approval. For rules, references, and agent edits, note that those changes are already live via symlinks - no build step is needed. Wait for explicit approval.
+Show the diff, state what the change does. Remind the user that the per-adapter copies are build artifacts that Step 3 regenerates. For rules, references, and agent edits, note that those are already live in your own Claude session via symlinks, but Step 3's build is still required so the other adapters' committed artifacts stay in sync (the `adapter-sync` gate enforces this). Wait for explicit approval.
 
 ## Step 3 - Run the build
 
-After approval: if the diff includes any `content/commands/` changes, run `bash "$AE_REPO_DIR/.claude/build.sh"` and confirm success. If the diff only touches `content/rules/`, `content/references/`, or `content/agents/`, skip the build - those changes are already live.
+After approval, if the diff touches ANY file under `content/`, rebuild every adapter so the committed adapter artifacts stay in sync. The `adapter-sync` CI gate rebuilds all of them and fails on any drift, so a partial build - or skipping the build for a rules/references/agents edit - makes the push fail. Run from `$AE_REPO_DIR`:
+
+```bash
+cd "$AE_REPO_DIR" && \
+bash .claude/build.sh && bash .cursor/build.sh && bash .codex/build.sh && \
+bash .gemini/build.sh && bash .kimi/build.sh && bash .opencode/build.sh && \
+bash .omp/build.sh && bash .pi/build.sh && bash .hermes/build.sh && bash .openclaw/build.sh
+```
+
+Then run `git status --porcelain` and confirm the only changes are the `content/` source file(s) plus their regenerated adapter copies. If any unrelated source file shows as modified, STOP and show the user - a build script can silently revert an out-of-date source file (the adapter-rebuild revert hazard).
+
+If the diff touches `content/sections/`, also regenerate the methodology baseline in the same commit: `scripts/.methodology-baseline.sha256` must be updated to match the rebuilt methodology body (see `scripts/check-methodology-drift.sh`). This is a separate CI gate from `adapter-sync`. Regenerate it with:
+
+```bash
+bash scripts/build-methodology.sh | shasum -a 256 | awk '{print $1}' > scripts/.methodology-baseline.sha256
+```
+
+Note: `.claude/skills/agentic-engineering/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so the other nine adapters' committed artifacts match `content/`.
 
 ## Step 3.5 - Docs update check
 
@@ -112,10 +195,10 @@ Only runs if Steps 1-3 actually made changes.
 
 1. Run `git status --porcelain` to list what changed (should be only the files edited in Step 1 plus any build artifacts from Step 3).
 2. Verify the staged/unstaged file list matches what was intended. If unfamiliar files appear (WIP that somehow materialized), STOP and show the user.
-3. Stage the edited files by explicit path - never `git add -A` or `git add .`. Explicitly name each file path on the `git add` command line. This includes both the `content/` source file and any `.claude/commands/` build artifact regenerated by Step 3.
+3. Stage the edited files by explicit path - never `git add -A` or `git add .`. Explicitly name each file path on the `git add` command line. This includes both the `content/` source file and all adapter artifacts regenerated by Step 3.
 4. Commit with `git commit -s` and a message summarizing what rule/command changed. Format: `docs(protocol): <short summary>` or the natural commit type for the file being edited. No Claude footer. No em dashes. The `-s` adds a `Signed-off-by:` trailer from the repo's configured git identity (which must match the commit author email); the agentic-engineering repo enforces a DCO Signed-off-by check, so the `-s` is mandatory here or CI fails.
 5. Push with `git push origin main`.
 6. If push is rejected because origin is ahead (race condition - someone pushed between Step 0's fetch and Step 4's push): run `git pull --rebase origin main`. If the rebase is clean, retry the push. If the rebase has conflicts, STOP and escalate to the user with `git status` output showing the conflict files. Do NOT force-push, do NOT `git rebase --abort`, do NOT `git reset`. The user resolves the conflict manually.
 7. Report the final commit SHA and push result to the user.
 
-Note: This command governs edits to its own source file - the recursion is intentional. Use `/update-agentic-engineering` when modifying this file.
+Note: This command governs edits to its own source file - the recursion is intentional. Use `/update-agentic-engineering` when modifying this file. Because of Step 0a, that editing session must itself be rooted in the AE repo - if you are elsewhere, the gate produces a handoff and you continue in a session opened in `$AE_REPO_DIR`.
