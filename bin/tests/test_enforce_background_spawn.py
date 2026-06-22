@@ -3,17 +3,20 @@
 Regression tests for hooks/enforce-background-spawn.py - Unit 5b additions.
 
 Test groups:
-  1. test_task_denied_when_sentinel_live           - sentinel present+live -> Task denied.
-  2. test_task_allowed_when_sentinel_absent        - no sentinel -> background Task allowed.
-  3. test_task_allowed_when_sentinel_pid_dead      - sentinel with dead PID -> allowed.
-  4. test_task_allowed_when_sentinel_mtime_stale   - sentinel mtime > 2h -> allowed.
-  5. test_omc_skill_denied_when_sentinel_live      - oh-my-claudecode:* Skill denied.
-  6. test_normal_skill_allowed_when_sentinel_live  - non-OMC Skill always allowed.
-  7. test_foreground_task_denied_no_sentinel       - existing behavior: no bg flag denied.
-  8. test_background_task_allowed_no_sentinel      - existing: run_in_background=True ok.
-  9. test_foreground_exempt_allowed_no_sentinel    - wrap-ticket foreground exempt intact.
- 10. test_malformed_stdin_failopen                 - bad JSON -> exit 0 (fail-open).
- 11. test_sentinel_corrupt_failopen               - unreadable sentinel -> allowed.
+  1. test_task_denied_when_sentinel_live              - sentinel present+live -> Task denied.
+  2. test_task_allowed_when_sentinel_absent           - no sentinel -> background Task allowed.
+  3. test_task_allowed_when_sentinel_pid_dead         - sentinel with dead PID -> allowed.
+  4. test_task_allowed_when_sentinel_mtime_stale      - sentinel mtime > 2h -> allowed.
+  5. test_omc_skill_denied_when_sentinel_live         - oh-my-claudecode:* Skill denied.
+  6. test_normal_skill_allowed_when_sentinel_live     - non-OMC Skill always allowed.
+  7. test_foreground_task_denied_no_sentinel          - existing behavior: no bg flag denied.
+  8. test_background_task_allowed_no_sentinel         - existing: run_in_background=True ok.
+  9. test_foreground_exempt_allowed_no_sentinel       - wrap-ticket foreground exempt intact.
+ 10. test_malformed_stdin_failopen                    - bad JSON -> exit 0 (fail-open).
+ 11. test_sentinel_corrupt_failopen                   - unreadable sentinel -> allowed.
+ 12. test_wrap_ticket_allowed_when_sentinel_live      - MAJOR-1: wrap-ticket bypasses sentinel.
+ 13. test_omc_skill_field_name_skill_key              - MAJOR-2: "skill" key triggers deny.
+ 14. test_skill_absent_field_failopen                 - MAJOR-2: absent skill field -> allow.
 
 Run with: python3 -m pytest bin/tests/test_enforce_background_spawn.py -x
        or: python3 bin/tests/test_enforce_background_spawn.py
@@ -268,6 +271,85 @@ def test_sentinel_corrupt_failopen():
         rc, parsed = _run_hook(payload)
         assert rc == 0
         assert not _is_denied(parsed), f"Expected allow (corrupt sentinel), got: {parsed}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: MAJOR-1 regression - wrap-ticket exempt even when sentinel live
+# ---------------------------------------------------------------------------
+
+def test_wrap_ticket_allowed_when_sentinel_live():
+    """MAJOR-1 regression: wrap-ticket Task ALLOWED even when sentinel is live.
+
+    wrap-ticket holds .agentic/wrap.lock and must complete before Phase 12
+    cleanup. Blocking it when a team sentinel is live deadlocks the conductor.
+    The FOREGROUND_EXEMPT check must fire before sentinel suppression.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())  # live sentinel
+
+        payload = {
+            "tool_name": "Task",
+            "cwd": tmpdir,
+            "tool_input": {"subagent_type": "wrap-ticket"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), (
+            f"wrap-ticket must be allowed even when sentinel is live; got: {parsed}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: MAJOR-2 regression - Skill field name and absent-field fail-open
+# ---------------------------------------------------------------------------
+
+def test_omc_skill_field_name_skill_key():
+    """MAJOR-2: tool_input["skill"] is the canonical field for OMC skill name.
+
+    The Claude Code Skill tool passes the skill name in tool_input["skill"].
+    Source: PreToolUse payload inspection + test fixtures in this file.
+    A payload with the correct field and an oh-my-claudecode: prefix must deny.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())
+
+        payload = {
+            "tool_name": "Skill",
+            "cwd": tmpdir,
+            "tool_input": {"skill": "oh-my-claudecode:ralph"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed), (
+            f"Expected deny for oh-my-claudecode: skill via 'skill' key, got: {parsed}"
+        )
+        assert "oh-my-claudecode:ralph" in _deny_reason(parsed)
+
+
+def test_skill_absent_field_failopen():
+    """MAJOR-2: Skill call with no recognisable skill field -> fail-open (allow).
+
+    When tool_input contains no "skill" key (or an unrecognised structure),
+    the hook cannot determine the skill name. Explicit behavior: ALLOW (fail-open).
+    This prevents a missing/changed field from silently converting to a blanket deny.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())
+
+        # No "skill" key - unrecognisable payload shape.
+        payload = {
+            "tool_name": "Skill",
+            "cwd": tmpdir,
+            "tool_input": {"unknown_field": "oh-my-claudecode:executor"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), (
+            f"Skill with absent 'skill' field must fail-open (allow); got: {parsed}"
+        )
 
 
 # ---------------------------------------------------------------------------
