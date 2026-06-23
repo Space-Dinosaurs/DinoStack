@@ -225,5 +225,5 @@ latency-vs-depth without owning model names.
 - `content/commands/init-project.md` - Step 6g seeds the global file on
   fresh projects
 - `bin/agentic-configure` - interactive setup wizard
-- `bin/agentic-models` - probe + per-role suggest
+- `bin/agentic-models` - per-role rank/suggest over a user-supplied model list
 - `bin/agentic-status` - shows the resolved model for each role
