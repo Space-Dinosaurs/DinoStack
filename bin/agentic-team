@@ -4,23 +4,24 @@ Purpose: Cross-harness team configuration loader, discovery, dispatch, and
          collection tool. Reads team.yml (global ~/.agentic/team.yml then
          project .agentic/team.yml; project wins on per-top-level-key merge)
          and validates the schema. discover subcommand probes installed
-         harnesses and reachable models. dispatch spawns workers detached;
-         status/collect check and retrieve run output. configure subcommand
-         runs the interactive or non-interactive team-config wizard.
+         harnesses (installed/version/invocation_family; models always []).
+         dispatch spawns workers detached; status/collect check and retrieve
+         run output. configure subcommand runs the interactive or
+         non-interactive team-config wizard (ranking via static heuristics,
+         no network).
 
 Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
-            discover   - probe installed harnesses and reachable models
+            discover   - probe installed harnesses (installed/version/family)
             dispatch   --harness <h> --role <r> --brief <file> --workdir <dir>
                          spawn a worker (background); prints run-id to stdout
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
-            configure  [--web] [--non-interactive] [--assign role=harness:model ...]
+            configure  [--non-interactive] [--assign role=harness:model ...]
                          [--default-harness H] [--path PATH]
                          configure cross-harness team assignments in .agentic/team.yml
             --json     - machine-readable output (discover subcommand)
 
 Upstream deps: bin/_role_spec (normalize_role_spec, KNOWN_HARNESSES, KNOWN_ROLES);
-               bin/_model_probe (probe_models - shared HTTP helper);
                Python 3.11 stdlib only (+ pyyaml for YAML parsing).
 
 Downstream consumers: bin/agentic-configure (back-compat shim for team subcommand);
@@ -32,18 +33,17 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                Missing or unreadable team.yml -> treated as empty config (no error).
                Malformed YAML -> non-zero exit.
                discover: absent harnesses reported as installed=false, exit 0.
-               discover: model probe failures yield models=[] ("unknown"), exit 0.
+               discover: models always [] (harness-native discovery not available), exit 0.
                dispatch: unknown harness -> non-zero exit immediately.
                dispatch: workdir not writable -> non-zero exit.
                status/collect: unknown run-id -> non-zero exit.
                configure: unknown harness in --assign -> exit 2.
-               configure: --web offline -> fall back to heuristics.
                configure: --non-interactive without --assign -> exit 2.
 
-Performance: Pure file I/O + optional subprocess probes in discover. Sub-second
-             for load+validate; discover latency depends on harness probe timeouts.
+Performance: Pure file I/O + subprocess probes in discover. Sub-second
+             for load+validate; discover latency depends on harness version probes.
              dispatch returns the run-id immediately (background spawn).
-             configure: in-process discover (no subprocess) + optional web fetch.
+             configure: in-process discover (no subprocess) + static heuristic ranking.
 """
 
 from __future__ import annotations
@@ -82,16 +82,6 @@ KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
 KNOWN_ROLES: frozenset[str] = _rs_mod.KNOWN_ROLES
 
 # ---------------------------------------------------------------------------
-# Load _model_probe from the same bin/ directory
-# ---------------------------------------------------------------------------
-_mp_path = Path(__file__).parent / "_model_probe.py"
-_mp_loader = _im.SourceFileLoader("_model_probe", str(_mp_path))
-_mp_spec = _ilu.spec_from_loader("_model_probe", _mp_loader)
-_mp_mod = _ilu.module_from_spec(_mp_spec)  # type: ignore[arg-type]
-_mp_loader.exec_module(_mp_mod)
-probe_models = _mp_mod.probe_models
-
-# ---------------------------------------------------------------------------
 # Harness binary-name map (Unit 2 - the ONLY hardcoded per-harness fact here;
 # these are binary NAMES, not model IDs).
 # Harness label -> CLI binary probed via `command -v <binary>`.
@@ -118,21 +108,6 @@ HARNESS_INVOCATION_FAMILY: dict[str, str] = {
     "pi":           "pi-prompt",
     "omp":          "omp-prompt",
     "claude":       "claude-p",
-}
-
-# ---------------------------------------------------------------------------
-# Harnesses that expose an OpenAI-compatible /v1/models endpoint.
-# Key: harness label; value: env-var that holds the base URL (or None).
-# When the env var is unset or empty, models will be reported as [].
-# ---------------------------------------------------------------------------
-HARNESS_MODELS_ENV: dict[str, str | None] = {
-    "codex":        "OPENAI_BASE_URL",
-    "gemini":       None,        # no /v1/models endpoint in gemini CLI
-    "cursor-agent": None,        # cursor-agent doesn't expose /v1/models
-    "kimi":         "KIMI_BASE_URL",
-    "pi":           None,
-    "omp":          None,
-    "claude":       None,
 }
 
 # ---------------------------------------------------------------------------
@@ -189,7 +164,7 @@ _TEAM_CAPABILITY_TABLE: dict[str, dict[str, int]] = {
 }
 
 # Harness-level base scores when no specific model family is matched.
-# Used in ranking when a harness has no /v1/models endpoint.
+# Used in ranking when a harness has no models list (models always []).
 _HARNESS_BASE_SCORES: dict[str, dict[str, int]] = {
     "codex":        {"engineer": 3, "debugger": 2, "qa-engineer": 1},
     "gemini":       {"architect": 2, "skeptic": 2, "investigator": 2},
@@ -326,8 +301,8 @@ def _score_model_for_role(
 
     Iterates over capability-table keys as substring patterns (case-insensitive).
     Accumulates deltas for all matching patterns.
-    Pass capability_table explicitly to use a web-enriched table; defaults to
-    the module-level _TEAM_CAPABILITY_TABLE.
+    Pass capability_table explicitly to override; defaults to the module-level
+    _TEAM_CAPABILITY_TABLE.
     """
     table = capability_table if capability_table is not None else _TEAM_CAPABILITY_TABLE
     score = 0
@@ -348,8 +323,8 @@ def _rank_assignments(
     score each (harness, model) pair, and pick the highest-scoring one.
     Falls back to harness-level base scores when a harness has no models list.
     Returns a dict mapping role -> (harness, model_or_empty_string).
-    Pass capability_table explicitly to use a web-enriched table; defaults to
-    the module-level _TEAM_CAPABILITY_TABLE.
+    Pass capability_table explicitly to override; defaults to the module-level
+    _TEAM_CAPABILITY_TABLE.
     """
     best: dict[str, tuple[str, str, int]] = {}  # role -> (harness, model, score)
 
@@ -377,54 +352,6 @@ def _rank_assignments(
                     best[role] = (harness, "", s)
 
     return {role: (h, m) for role, (h, m, _) in best.items()}
-
-
-def _web_enrich(models: list[str]) -> dict[str, dict[str, int]]:
-    """Best-effort web enrichment of model capability/pricing data.
-
-    Tries a fetch to AGENTIC_TEAM_ENRICH_URL (env var; defaults to a no-op
-    placeholder) and returns a mapping of model-name-substring -> role-score
-    deltas to merge into ranking. Returns {} on any error (offline, timeout,
-    parse failure, env unset). Never raises.
-
-    The return dict has the same shape as _TEAM_CAPABILITY_TABLE entries:
-      { model_substring: { role: delta_score, ... }, ... }
-    """
-    url = os.environ.get("AGENTIC_TEAM_ENRICH_URL", "").strip()
-    if not url:
-        return {}
-    try:
-        import urllib.request
-        import urllib.error
-        req = urllib.request.Request(
-            url, method="GET",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-        data = json.loads(raw)
-        # Expect: {"models": {"<substring>": {"<role>": <int>, ...}, ...}}
-        return data.get("models", {}) if isinstance(data, dict) else {}
-    except Exception:  # noqa: BLE001 - broad catch intentional: offline fallback
-        return {}
-
-
-def _apply_web_enrichment(
-    base: dict[str, dict[str, int]],
-    enrichment: dict[str, dict[str, int]],
-) -> dict[str, dict[str, int]]:
-    """Merge web enrichment deltas into the base capability table.
-
-    Returns a new dict (does not mutate base).
-    """
-    merged: dict[str, dict[str, int]] = {k: dict(v) for k, v in base.items()}
-    for pattern, role_scores in enrichment.items():
-        if pattern in merged:
-            for role, delta in role_scores.items():
-                merged[pattern][role] = merged[pattern].get(role, 0) + delta
-        else:
-            merged[pattern] = dict(role_scores)
-    return merged
 
 
 def _emit_team_yaml(
@@ -497,10 +424,6 @@ def _cmd_configure(argv: list[str]) -> int:
         description="Configure cross-harness team assignments in .agentic/team.yml.",
     )
     ap.add_argument(
-        "--web", action="store_true",
-        help="enrich model capability ranking via web fetch (opt-in; falls back offline)",
-    )
-    ap.add_argument(
         "--non-interactive", action="store_true",
         help="write team.yml deterministically from --assign pairs; no prompts",
     )
@@ -557,17 +480,7 @@ def _cmd_configure(argv: list[str]) -> int:
         )
         # Still proceed with empty discovery - rankings will be empty.
 
-    # Web enrichment (opt-in; offline fallback is silent).
-    capability_table = _TEAM_CAPABILITY_TABLE
-    if args.web:
-        all_models: list[str] = []
-        for info in discovery.values():
-            all_models.extend(info.get("models") or [])
-        enrichment = _web_enrich(all_models)
-        if enrichment:
-            capability_table = _apply_web_enrichment(capability_table, enrichment)
-
-    assignments = _rank_assignments(discovery, capability_table)
+    assignments = _rank_assignments(discovery)
 
     if not sys.stdin.isatty():
         # Non-TTY without --non-interactive: write best-guess and exit.
@@ -671,18 +584,12 @@ def _discover_harnesses(
         binary = binary_map.get(harness, harness)
         installed = _probe_binary_installed(binary)
         version: str | None = None
-        models: list[str] = []
         if installed:
             version = _probe_harness_version(binary)
-            env_var = HARNESS_MODELS_ENV.get(harness)
-            if env_var:
-                base_url = os.environ.get(env_var, "")
-                if base_url:
-                    models = probe_models(base_url)
         result[harness] = {
             "installed": installed,
             "version": version,
-            "models": models,
+            "models": [],
             "invocation_family": HARNESS_INVOCATION_FAMILY.get(harness, harness),
             "native_subagent_disable_flag": HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(
                 harness
