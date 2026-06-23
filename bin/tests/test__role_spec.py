@@ -6,25 +6,13 @@ Covers normalize_role_spec() exhaustively against its real behavior (read
 from source), plus frozenset identity/membership checks for KNOWN_HARNESSES
 and KNOWN_ROLES.
 
-Test inventory:
-  1. test_scalar_string_returns_model_dict       - str -> {"model": str}
-  2. test_scalar_whitespace_string               - " " is truthy -> {"model": " "}
-  3. test_mapping_all_known_keys                 - dict with all 3 keys preserved
-  4. test_mapping_partial_known_keys             - only present known keys returned
-  5. test_mapping_unknown_keys_dropped           - unknown keys filtered out
-  6. test_mapping_mixed_known_and_unknown        - known kept, unknown dropped
-  7. test_mapping_falsy_values_preserved         - falsy values inside dict NOT dropped
-  8. test_empty_dict_returns_empty               - {} -> {}
-  9. test_none_returns_empty                     - None -> {}
-  10. test_empty_string_returns_empty            - "" -> {}
-  11. test_int_raises_typeerror                  - int -> TypeError
-  12. test_list_raises_typeerror                 - list -> TypeError
-  13. test_float_raises_typeerror                - float -> TypeError
-  14. test_typeerror_message_contains_typename   - error text names the bad type
-  15. test_known_harnesses_is_frozenset          - KNOWN_HARNESSES type check
-  16. test_known_harnesses_exact_members         - all 7 expected members present
-  17. test_known_roles_is_frozenset              - KNOWN_ROLES type check
-  18. test_known_roles_exact_members             - all 9 expected members present
+Test coverage (25 tests):
+  - normalize_role_spec scalar input: plain string, arbitrary value, whitespace-truthy
+  - normalize_role_spec mapping input: all known keys, partial subsets, unknown-key
+    dropping, mixed known/unknown, all-unknown -> {}, falsy values preserved
+  - normalize_role_spec falsy input (None, "", {}, 0) -> {}
+  - normalize_role_spec non-str/non-dict (int, list, float) -> TypeError + message
+  - KNOWN_HARNESSES / KNOWN_ROLES: frozenset type, exact membership, counts (7 / 9)
 
 Run with: python3 -m pytest bin/tests/test__role_spec.py -x
        or: python3 bin/tests/test__role_spec.py
