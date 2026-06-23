@@ -64,7 +64,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 6.5. **Role-models bootstrap (Pi/oh-my-pi only).** Runs only when Step 4 resolved to active AND the harness is Pi or oh-my-pi (the conductor determines this from its own runtime identity, the same way it does for the role-models layer; if unsure, treat as not-Pi and skip this step). Silent-fail: any error swallowed; methodology proceeds.
 
    a. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists OR `~/.agentic/.role-models-bootstrap` exists, no-op (the user has already configured or explicitly skipped).
-   b. If `NINEROUTER_URL` is unset, no-op (no probe URL means we cannot suggest models; the user can run `bin/agentic-configure` later when they have one).
+   b. If `AGENTIC_PROBE_URL` is unset, no-op (no probe URL means we cannot suggest models; the user can run `bin/agentic-configure` later when they have one).
    c. Otherwise: invoke `bin/agentic-configure --non-interactive` with a 30-second timeout. Failure is swallowed -- the bootstrap is best-effort and must never block the activation. On success or no-op, create-only-write the sentinel at `~/.agentic/.role-models-bootstrap` (same race-safe O_EXCL / link contract as the activation sentinel above).
 
    **Sentinel body (exactly three lines, plain text):**

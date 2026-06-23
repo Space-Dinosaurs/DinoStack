@@ -62,11 +62,12 @@ harnesses.
    follow `docs/safe-configuration.md` and run
    `bash bootstrap.sh` (or your harness-native install path). This puts
    `bin/agentic-configure` and `bin/agentic-models` on your PATH.
-2. **Probe the harness.** Run `bin/agentic-models --json` against your
-   router. The binary issues one `GET {NINEROUTER_URL}/v1/models` and
-   returns a structured payload. If you do not have a router (you are on
-   plain Pi with native model providers), the probe will fail with exit
-   code 2 -- that is fine, you can type model names by hand in step 3.
+2. **Probe the harness (optional).** If you run an OpenAI-compatible model
+   gateway, set `AGENTIC_PROBE_URL` to its base URL and run
+   `bin/agentic-models --json`. The binary issues one
+   `GET $AGENTIC_PROBE_URL/v1/models` and returns a structured payload.
+   If you do not have a gateway (you are on plain Pi with native model
+   providers), skip this step -- you can type model names by hand in step 3.
 3. **Seed `~/.agentic/role-models.yml`.** Run `bin/agentic-configure`. The
    wizard reads the probe payload, ranks models per role, and writes a
    starter file. You then edit it to taste. The file path is

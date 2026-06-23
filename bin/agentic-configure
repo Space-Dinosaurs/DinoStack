@@ -19,8 +19,7 @@ Public API: agentic-configure [--probe-url URL] [--probe-key KEY] [--force]
             validation/probe failure in --non-interactive mode (missing/invalid
             --assign pairs, unknown --default-harness, or probe returned
             non-zero).
-            Probe URL resolution order: --probe-url arg -> AGENTIC_PROBE_URL
-            env -> NINEROUTER_URL env (back-compat with Pi installs).
+            Probe URL resolution order: --probe-url arg -> AGENTIC_PROBE_URL env.
 
 Upstream deps: bin/agentic-models (probes the harness);
                bin/_role_spec (normalize_role_spec);
@@ -199,12 +198,10 @@ def _resolve_probe_url(args) -> str:
     Resolution order:
       1. --probe-url / args.probe_url (explicit argument)
       2. AGENTIC_PROBE_URL env var (generic harness-neutral)
-      3. NINEROUTER_URL env var (kept last for back-compat with Pi installs)
     """
     return (
         args.probe_url
         or os.environ.get("AGENTIC_PROBE_URL", "")
-        or os.environ.get("NINEROUTER_URL", "")
     ).strip()
 
 
@@ -253,9 +250,9 @@ def main(argv: list[str]) -> int:
         prog="agentic-configure",
         description="Interactive setup of ~/.agentic/role-models.yml.",
     )
-    ap.add_argument("--probe-url", default=os.environ.get("NINEROUTER_URL", ""))
+    ap.add_argument("--probe-url", default=os.environ.get("AGENTIC_PROBE_URL", ""))
     ap.add_argument("--probe-key",
-                    default=os.environ.get("NINEROUTER_KEY") or os.environ.get("NINEROUTER_API_KEY", ""))
+                    default=os.environ.get("AGENTIC_PROBE_KEY", ""))
     ap.add_argument("--force", action="store_true", help="re-run even if file exists")
     ap.add_argument("--non-interactive", action="store_true",
                     help="accept all defaults silently")

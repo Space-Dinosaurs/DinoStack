@@ -112,7 +112,7 @@ def test_cli_help_runs():
 def test_cli_requires_probe_url():
     """No probe URL -> exit 3 from main(), not NameError (exit 1)."""
     env = dict(os.environ)
-    env.pop("NINEROUTER_URL", None)
+    env.pop("AGENTIC_PROBE_URL", None)
     r = subprocess.run([sys.executable, str(_BIN_PATH)],
                        capture_output=True, text=True, env=env)
     assert r.returncode == 3

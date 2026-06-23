@@ -3,7 +3,7 @@ Purpose: Documents the harness model discovery protocol used by the
          Pi/oh-my-pi role-model routing layer. The discovery binary
          (`bin/agentic-models`) and the setup wizard (`bin/agentic-configure`)
          read this spec to populate `role-models.yml` against models the user
-         actually has on the harness (e.g. 9router).
+         actually has on the harness.
 
 Public API: Read-only reference. Load when probing the harness for available
             models, when seeding role-models.yml, or when adding new roles /
@@ -36,7 +36,7 @@ This is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. On Cla
 
 ## Why a separate discovery step
 
-Role-model routing accepts any string the harness recognises, but the strings vary per harness and per provider. On 9router the user has 60+ models; on a fresh Pi session the user has 4. Hardcoding a model catalog in the repo contradicts the "no hardcoded model IDs" stance and drifts the moment a provider releases a new model. Discovery is the boring solution: ask the harness what it has, rank against the role heuristics, surface the best fit per role, let the user override.
+Role-model routing accepts any string the harness recognises, but the strings vary per harness and per provider. Different harnesses and subscription plans expose different model sets; a gateway-backed setup may expose dozens, a base plan a few. Hardcoding a model catalog in the repo contradicts the "no hardcoded model IDs" stance and drifts the moment a provider releases a new model. Discovery is the boring solution: ask the harness what it has, rank against the role heuristics, surface the best fit per role, let the user override.
 
 ## The binary: `bin/agentic-models`
 
@@ -47,7 +47,7 @@ agentic-models [--json] [--probe-url URL] [--probe-key KEY] \
 
 Default mode prints a human-readable summary. `--json` emits the structured payload consumed by the TUI. `--suggest <role>` prints only one role's primary recommendation (used by hooks that want a quick default without parsing JSON).
 
-*50:**Probe protocol.** The binary issues one `GET {NINEROUTER_URL}/v1/models` (or `--probe-url` override) with optional `Authorization: Bearer {NINEROUTER_KEY}`. It expects an OpenAI-compatible `/v1/models` response with a `data: [{id, ...}]` shape. The probe is the only network call. There is no fallback to a hardcoded catalog.
+*50:**Probe protocol.** The binary issues one `GET {AGENTIC_PROBE_URL}/v1/models` (or `--probe-url` override) with optional `Authorization: Bearer {AGENTIC_PROBE_KEY}`. It expects an OpenAI-compatible `/v1/models` response with a `data: [{id, ...}]` shape. The probe is the only network call. There is no fallback to a hardcoded catalog.
 
 **Exit codes.** 0 on success, 2 on probe failure, 3 on invalid arguments. The setup wizard treats 2 as "user must type models by hand" and offers to retry with a different `--probe-url`.
 
@@ -77,10 +77,10 @@ The conductor forwards `model`, `effort`, and `reasoning` to the spawn call as s
 
 ## Worked probe
 
-Running `bin/agentic-models --probe-url $NINEROUTER_URL` against a typical 9router setup:
+Running `bin/agentic-models --probe-url $AGENTIC_PROBE_URL` against a typical gateway setup:
 
 ```
-Probe URL: https://9router.example
+Probe URL: https://your-provider.example
 Models discovered: 61
 
 Per-role primary recommendation:

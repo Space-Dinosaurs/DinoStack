@@ -85,10 +85,10 @@ def main() -> int:
         return 0
     if _already_bootstrapped():
         return 0
-    if not os.environ.get("NINEROUTER_URL", "").strip():
+    if not os.environ.get("AGENTIC_PROBE_URL", "").strip():
         # No probe URL -> cannot rank models. Do NOT run configure and do NOT
         # write the sentinel, so a later session retries once the user sets
-        # NINEROUTER_URL. Mirrors activation preflight Step 6.5b.
+        # AGENTIC_PROBE_URL. Mirrors activation preflight Step 6.5b.
         return 0
     # Run configure --non-interactive. A zero return means the probe succeeded
     # and a config was written; write the sentinel so we do not retry every

@@ -23,7 +23,7 @@ Downstream consumers: content/references/model-discovery.md (full spec);
 
 Failure modes: probe network failure -> exit 2 with a single error line.
                The script does NOT fall back to a hardcoded catalog when the
-               probe fails. The user is told to set NINEROUTER_URL or pass
+               probe fails. The user is told to set AGENTIC_PROBE_URL or pass
                --probe-url. This matches the "no hardcoded model IDs"
                stance in the role-models reference.
 
@@ -77,11 +77,10 @@ ROLES = list(ROLE_HINTS.keys())
 def _probe_models(url: str, key: str | None, timeout: int = 10) -> list[str]:
     """GET /v1/models and return the list of model id strings.
 
-    `url` is the OpenAI-compatible base URL (e.g. https://9router.example or
+    `url` is the OpenAI-compatible base URL (e.g. https://your-provider.example or
     http://localhost:20128) WITHOUT a trailing /v1 suffix -- the /v1 is
-    appended here, per the 9Router NINEROUTER_URL convention (see
-    ~/.claude/skills/9router/SKILL.md). Exactly one trailing '/' on the base
-    is stripped so both http://x and http://x/ yield http://x/v1/models.
+    appended here. Exactly one trailing '/' on the base is stripped so both
+    http://x and http://x/ yield http://x/v1/models.
     """
     base = (url[:-1] if url.endswith("/") else url) + "/v1/models"
     req = urllib.request.Request(base, method="GET")
@@ -150,11 +149,11 @@ def main(argv: list[str]) -> int:
         description="Probe the AI harness and rank models per agentic-engineering role.",
     )
     ap.add_argument("--json", action="store_true", help="emit structured JSON")
-    ap.add_argument("--probe-url", default=os.environ.get("NINEROUTER_URL", ""),
-                    help="OpenAI-compatible /v1 base URL (env: NINEROUTER_URL)")
+    ap.add_argument("--probe-url", default=os.environ.get("AGENTIC_PROBE_URL", ""),
+                    help="OpenAI-compatible /v1 base URL (env: AGENTIC_PROBE_URL)")
     ap.add_argument("--probe-key",
-                    default=os.environ.get("NINEROUTER_KEY") or os.environ.get("NINEROUTER_API_KEY", ""),
-                    help="Bearer key (env: NINEROUTER_KEY; fallback NINEROUTER_API_KEY)")
+                    default=os.environ.get("AGENTIC_PROBE_KEY", ""),
+                    help="Bearer key (env: AGENTIC_PROBE_KEY)")
     ap.add_argument("--suggest", choices=ROLES, help="print only one role's primary recommendation")
     ap.add_argument("--all-suggestions", action="store_true",
                     help="print the full ranking for every role")
@@ -162,7 +161,7 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     if not args.probe_url:
-        print("error: --probe-url or NINEROUTER_URL is required", file=sys.stderr)
+        print("error: --probe-url or AGENTIC_PROBE_URL is required", file=sys.stderr)
         return 3
 
     models = _probe_models(args.probe_url, args.probe_key or None, timeout=args.timeout)

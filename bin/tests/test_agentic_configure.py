@@ -79,7 +79,7 @@ def test_noninteractive_no_probe_writes_nothing():
     with tempfile.TemporaryDirectory() as td:
         target = Path(td) / "role-models.yml"
         env = dict(os.environ)
-        env.pop("NINEROUTER_URL", None)  # ensure no probe URL from env
+        env.pop("AGENTIC_PROBE_URL", None)  # ensure no probe URL from env
         result = subprocess.run(
             [
                 str(_BIN_PATH),
@@ -192,7 +192,7 @@ def test_bootstrap_hook_idempotent():
         sentinel = Path(td) / ".agentic" / ".role-models-bootstrap"
         env = dict(os.environ)
         env["PI_HARNESS"] = "pi"
-        env["NINEROUTER_URL"] = "http://127.0.0.1:1"  # base without /v1; probe will fail
+        env["AGENTIC_PROBE_URL"] = "http://127.0.0.1:1"  # base without /v1; probe will fail
         env["HOME"] = td
         # File already exists -> no-op (sentinel absent because we never reach configure)
         r1 = subprocess.run(
@@ -214,8 +214,8 @@ def test_bootstrap_no_sentinel_on_no_url():
         sentinel = Path(td) / ".agentic" / ".role-models-bootstrap"
         env = dict(os.environ)
         env["PI_HARNESS"] = "pi"
-        # No NINEROUTER_URL set -> hook no-ops without calling configure or writing sentinel
-        env.pop("NINEROUTER_URL", None)
+        # No AGENTIC_PROBE_URL set -> hook no-ops without calling configure or writing sentinel
+        env.pop("AGENTIC_PROBE_URL", None)
         env["HOME"] = td
         r = subprocess.run(
             [sys.executable, str(hook)],
@@ -239,7 +239,7 @@ def test_bootstrap_no_sentinel_on_probe_failure():
         env = dict(os.environ)
         env["PI_HARNESS"] = "pi"
         # Pointing at a port nothing listens on -> probe fails -> configure exits 2
-        env["NINEROUTER_URL"] = "http://127.0.0.1:1"
+        env["AGENTIC_PROBE_URL"] = "http://127.0.0.1:1"
         env["HOME"] = td
         r = subprocess.run(
             [sys.executable, str(hook)],
@@ -328,36 +328,35 @@ def test_existing_flags_unaffected_by_team_subcommand():
 # Unit 2: probe-URL resolution order + banner de-branding (regression tests)
 # ---------------------------------------------------------------------------
 
-def test_resolve_probe_url_agentic_probe_url_takes_priority(monkeypatch):
-    """AGENTIC_PROBE_URL is used when set, ahead of NINEROUTER_URL."""
+def test_resolve_probe_url_agentic_probe_url_used(monkeypatch):
+    """AGENTIC_PROBE_URL is the env var for probe URL resolution."""
     import types
     monkeypatch.setenv("AGENTIC_PROBE_URL", "http://x.invalid")
-    monkeypatch.setenv("NINEROUTER_URL", "http://should-not-be-used.invalid")
     # Construct a minimal args namespace with no explicit probe_url arg.
     args = types.SimpleNamespace(probe_url="")
     result = _mod._resolve_probe_url(args)
     assert result == "http://x.invalid", (
-        f"Expected AGENTIC_PROBE_URL to take priority, got: {result!r}"
+        f"Expected AGENTIC_PROBE_URL to be used, got: {result!r}"
     )
 
 
-def test_resolve_probe_url_ninerouter_fallback(monkeypatch):
-    """NINEROUTER_URL used when AGENTIC_PROBE_URL is unset (back-compat)."""
+def test_resolve_probe_url_unknown_env_ignored(monkeypatch):
+    """Only AGENTIC_PROBE_URL and --probe-url are read; unknown env vars are ignored."""
     import types
     monkeypatch.delenv("AGENTIC_PROBE_URL", raising=False)
-    monkeypatch.setenv("NINEROUTER_URL", "http://ninerouter.invalid")
+    # Set a private/unknown env var that must never be consulted
+    monkeypatch.setenv("_PRIVATE_PROBE_URL", "http://private.invalid")
     args = types.SimpleNamespace(probe_url="")
     result = _mod._resolve_probe_url(args)
-    assert result == "http://ninerouter.invalid", (
-        f"Expected NINEROUTER_URL fallback, got: {result!r}"
+    assert result == "", (
+        f"Only AGENTIC_PROBE_URL is consulted; private env vars must be ignored. Got: {result!r}"
     )
 
 
-def test_resolve_probe_url_explicit_arg_beats_all(monkeypatch):
-    """Explicit --probe-url arg overrides both env vars."""
+def test_resolve_probe_url_explicit_arg_beats_env(monkeypatch):
+    """Explicit --probe-url arg overrides AGENTIC_PROBE_URL env var."""
     import types
     monkeypatch.setenv("AGENTIC_PROBE_URL", "http://generic.invalid")
-    monkeypatch.setenv("NINEROUTER_URL", "http://ninerouter.invalid")
     args = types.SimpleNamespace(probe_url="http://explicit.invalid")
     result = _mod._resolve_probe_url(args)
     assert result == "http://explicit.invalid", (
