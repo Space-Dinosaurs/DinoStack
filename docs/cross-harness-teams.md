@@ -158,8 +158,7 @@ bin/agentic-team configure
 ```
 
 The wizard discovers installed harnesses, ranks roles to the best available
-(harness, model) pair, and writes a starter file. Use `--web` to enrich
-suggestions with live availability data. Use `--assign role=harness:model`
+(harness, model) pair, and writes a starter file. Use `--assign role=harness:model`
 for non-interactive assignment of a single role.
 
 ### 3. Verify

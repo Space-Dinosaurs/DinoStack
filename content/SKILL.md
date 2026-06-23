@@ -77,9 +77,9 @@ Run `/agentic-help` for the full command inventory.
 - **references/role-models.md** - Pi / oh-my-pi per-role model routing and antagonist
   reviewer model diversity; read when resolving `role-models.yml` or spawning reviewers on Pi/omp.
 
-- **references/model-discovery.md** - Pi/oh-my-pi harness probe protocol used by
-  `bin/agentic-models` to rank models per role; read when seeding
-  `role-models.yml` or writing the bootstrap hook.
+- **references/model-discovery.md** - Pi/oh-my-pi model selection paths (ask-user
+  wizard, harness-native, pin-by-hand) and the per-role ranking heuristics in
+  `bin/agentic-models`; read when seeding `role-models.yml`.
 
 - **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema for
   orchestrating parallel agent teams across multiple AI harnesses; read when using

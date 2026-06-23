@@ -10,7 +10,7 @@ Public API: Operator-facing prose. Read first if you are new to role-model
             `content/references/model-discovery.md`.
 
 Upstream deps: content/references/role-models.md (schema, resolution);
-               content/references/model-discovery.md (probe, heuristics);
+               content/references/model-discovery.md (selection paths, heuristics);
                bin/agentic-configure, bin/agentic-models (binaries).
 
 Downstream consumers: docs site root index; PR #249 description;
@@ -32,8 +32,8 @@ that wrote the code under review. Available only when the harness is Pi or
 oh-my-pi; Claude / Codex / Cursor / Gemini ignore this layer entirely.
 
 The deeper specification (schema, resolution algorithm, interaction with
-Tier) lives in `content/references/role-models.md`. The probe-and-rank
-machinery behind the setup wizard lives in
+Tier) lives in `content/references/role-models.md`. The selection paths
+and ranking heuristics behind the setup wizard live in
 `content/references/model-discovery.md`. This document is the operator
 entry point.
 
@@ -62,17 +62,17 @@ harnesses.
    follow `docs/safe-configuration.md` and run
    `bash bootstrap.sh` (or your harness-native install path). This puts
    `bin/agentic-configure` and `bin/agentic-models` on your PATH.
-2. **Probe the harness (optional).** If you run an OpenAI-compatible model
-   gateway, set `AGENTIC_PROBE_URL` to its base URL and run
-   `bin/agentic-models --json`. The binary issues one
-   `GET $AGENTIC_PROBE_URL/v1/models` and returns a structured payload.
-   If you do not have a gateway (you are on plain Pi with native model
-   providers), skip this step -- you can type model names by hand in step 3.
+2. **Gather your model names.** Open your Pi or oh-my-pi model picker (or
+   the harness's settings panel) and note the model handles your
+   subscription includes -- for example `cc/claude-opus-4-5` or
+   `gpt-5`. You will supply these to the wizard in the next step. If
+   you only know family names (`opus`, `sonnet`, `haiku`), those work
+   too; the wizard accepts any substring the harness recognises.
 3. **Seed `~/.agentic/role-models.yml`.** Run `bin/agentic-configure`. The
-   wizard reads the probe payload, ranks models per role, and writes a
-   starter file. You then edit it to taste. The file path is
-   `~/.agentic/role-models.yml` (NOT `.agentic/config.json`; that is a
-   different committed file).
+   wizard asks you per role, ranks the names you provide using the hint
+   dictionaries in `bin/agentic-models`, and writes a starter file. You
+   then edit it to taste. The file path is `~/.agentic/role-models.yml`
+   (NOT `.agentic/config.json`; that is a different committed file).
 
 The file is gitignored under the `.agentic/` umbrella because it may name
 private model handles. If you want a project-local override, write
@@ -149,15 +149,16 @@ conductor will omit the model field for that spawn and Pi uses its own
 default. Use this to spot typos or missing keys before you start a real
 session.
 
-You can also preview one role at a time:
+You can also preview rankings for a list of model names:
 
 ```bash
-bin/agentic-models --suggest engineer
-bin/agentic-models --all-suggestions
+bin/agentic-models opus sonnet haiku gpt-5 glm-4.6 --suggest engineer
+bin/agentic-models opus sonnet haiku gpt-5 glm-4.6 --all-suggestions
 ```
 
-These calls hit the live harness and rank models per the heuristic
-hints. Useful when you are deciding which model to pin a role to.
+Pass the model names your harness exposes as positional arguments.
+The binary ranks them per role using the hint dictionaries. Useful
+when you are deciding which model to pin a role to.
 
 ## Common patterns
 
@@ -185,10 +186,11 @@ latency-vs-depth without owning model names.
 
 ## Failure modes
 
-- **Probe unreachable.** `bin/agentic-models` exits 2 with `error: probe
-  failed: <reason>` on stderr. Run `bin/agentic-configure` instead --
-  the wizard offers to skip discovery and let you type model names by
-  hand.
+- **Model name not recognised by harness.** The conductor forwards the
+  string from `role-models.yml` verbatim. If the harness rejects it,
+  the spawn fails with the harness's own error. Fix the string in
+  `role-models.yml` and retry. Use `bin/agentic-status` to preview
+  what the conductor will send before starting a real session.
 - **No role-models.yml present.** The conductor omits the `model` field
   on every Pi/omp spawn. Pi uses its session default for everything.
   This is not an error; it is the documented no-op path.
@@ -199,15 +201,14 @@ latency-vs-depth without owning model names.
   guaranteed.
 - **Harness does not support a field.** `effort` and `reasoning` are
   silently dropped on harnesses that do not implement them. No error.
-- **Probe returns non-OpenAI shape.** The binary fails with a JSON decode
-  error. Check `--probe-url` and that the harness exposes an
-  OpenAI-compatible `/v1/models` endpoint.
 
 ## When things go wrong
 
 1. Run `bin/agentic-status` to see what the conductor resolves for each
    role right now.
-2. Run `bin/agentic-models --json` to confirm the probe still works.
+2. Run `bin/agentic-models <your-model-names> --all-suggestions` to
+   confirm the ranking heuristics score your model list as expected.
+   Supply the exact model handles your harness exposes.
 3. If the file looks right and the status prints the right models but
    spawns still use the wrong model, check that Pi's session default is
    not silently overriding. Pi treats `--model` as advisory in some
@@ -218,7 +219,7 @@ latency-vs-depth without owning model names.
 
 - `content/references/role-models.md` - schema, resolution algorithm,
   interaction with Tier and presets
-- `content/references/model-discovery.md` - probe protocol, heuristics,
+- `content/references/model-discovery.md` - model selection paths, heuristics,
   effort/reasoning field semantics
 - `content/references/role-models-example.yml` - copy-paste starter
 - `content/commands/init-project.md` - Step 6g seeds the global file on
