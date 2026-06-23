@@ -1,18 +1,20 @@
 <!--
 Purpose: Operator-facing guide for the cross-harness agent-teams feature
          introduced with bin/agentic-team. Explains what it does, when to use
-         it, how it relates to role-model routing, how to set it up, the four
-         subcommands, the self-containment guard, and the concrete failure
-         modes the operator should expect.
+         it, how to set it up, the four subcommands, the self-containment
+         guard, and the concrete failure modes the operator should expect.
+         Works on any conductor harness (Claude, Codex, Gemini, Kimi, etc.);
+         not specific to Pi or oh-my-pi.
 
 Public API: Operator-facing prose. Read first if you are new to cross-harness
             teams; deeper schema, dispatch table, and self-containment design
             live in `content/references/cross-harness-teams.md`.
 
 Upstream deps: content/references/cross-harness-teams.md (full spec);
-               content/references/role-models.md (role-model routing schema);
-               bin/agentic-team (discover|dispatch|status|collect);
-               bin/agentic-configure (team wizard subcommand).
+               bin/agentic-team (discover|dispatch|status|collect|configure).
+
+See also: content/references/role-models.md (Pi/omp role-model routing schema,
+          Layer 1 - separate from this layer).
 
 Downstream consumers: docs site root index; doc-sync-obligation.md
                       cross-references.
@@ -27,12 +29,17 @@ Performance: Standard.
 # Cross-harness agent teams
 
 Dispatch leaf workers to entirely different CLI harnesses -- codex, gemini,
-cursor-agent, kimi, pi, omp, or claude-as-worker -- from any conductor
-harness. The conductor retains full orchestration (Skeptic gates, QA gates,
-risk classification), while each worker role runs on the CLI best suited to
-it. This feature is **self-contained and OMC-independent**: it does not
-trigger oh-my-claudecode, and it does not use the conductor harness's own
-native subagent mechanism.
+cursor-agent, kimi, pi, omp, or claude-as-worker -- from **any** conductor
+harness (Claude Code, Codex, Gemini, Kimi, Pi, omp, or any other). The
+conductor retains full orchestration (Skeptic gates, QA gates, risk
+classification), while each worker role runs on the CLI best suited to it.
+This feature is **self-contained and OMC-independent**: it does not trigger
+oh-my-claudecode, and it does not use the conductor harness's own native
+subagent mechanism.
+
+This is a **standalone any-harness layer** -- it is not an extension of
+role-model routing and it is not specific to Pi or oh-my-pi. Any conductor
+harness can use it.
 
 The deeper specification (schema, dispatch table, self-containment design,
 and collected-output re-entry into Skeptic/QA gates) lives in
@@ -48,8 +55,8 @@ You want cross-harness teams when you care about one or more of:
   context-switching.
 - **Harness-level antagonist review.** Your engineer runs on one harness
   (e.g. codex) and your Skeptic reviews the diff on a completely different
-  harness (e.g. gemini). This is a harness-boundary diversity win on top of
-  the model-level diversity that role-model routing provides.
+  harness (e.g. gemini). This is a harness-boundary diversity win independent
+  of any model-level routing.
 - **Cost or quota isolation.** Pin quota-heavy roles to cheaper CLIs without
   changing the conductor's own session.
 - **Provider experimentation.** Route a single role to a new CLI to evaluate
@@ -57,8 +64,8 @@ You want cross-harness teams when you care about one or more of:
 
 You do **NOT** need this layer when:
 
-- You run on a single harness. The role-model routing layer (or plain Tier
-  declarations) already gives you per-role model diversity within one harness.
+- You run on a single harness. The Tier declaration mechanism already gives
+  you per-role model diversity within one harness.
 - `team.yml` is absent or `enabled: false`. Cross-harness dispatch is fully
   opt-in; the conductor falls back to native delegation silently.
 - The role is `conductor`, `orchestration-planner`, `investigator`, or
@@ -67,22 +74,22 @@ You do **NOT** need this layer when:
 
 ## How it relates to role-model routing
 
-These are two distinct, complementary layers:
+These are two distinct, complementary layers -- neither requires the other:
 
 | Layer | File | What it controls | Who it affects |
 |---|---|---|---|
-| Role-model routing | `~/.agentic/role-models.yml` (gitignored) | which model to use within ONE harness | Pi / oh-my-pi only |
-| Cross-harness teams | `.agentic/team.yml` (committed) | which harness (and optionally model) per role | any conductor harness |
+| Role-model routing (Layer 1) | `~/.agentic/role-models.yml` (gitignored) | which model to use within ONE harness | Pi / oh-my-pi only |
+| Cross-harness teams (Layer 2) | `.agentic/team.yml` (committed) | which harness (and optionally model) per role | any conductor harness |
 
-Role-model routing maps `role -> model` inside a single harness.
-Cross-harness teams map `role -> (harness, model)` and run that harness's
-own non-interactive mode as a separate process. `team.yml` is a **separate
-committed file** from the gitignored `role-models.yml` -- team topology is
-shareable project intent and belongs in version control.
+Role-model routing maps `role -> model` inside a single harness (Pi/omp
+only). Cross-harness teams map `role -> (harness, model)` and run that
+harness's own non-interactive mode as a separate process. `team.yml` is a
+**separate committed file** from the gitignored `role-models.yml` -- team
+topology is shareable project intent and belongs in version control.
 
 When both files are present, they compose: `team.yml` selects the harness
-and optional model handle; if the target harness is Pi or omp, `role-models.yml`
-further refines the model selection on that harness.
+and optional model handle; if the target harness is Pi or omp,
+`role-models.yml` further refines the model selection on that harness.
 
 ## Set up
 
@@ -138,8 +145,16 @@ dispatch:
 
 ### 2. Use the setup wizard (optional)
 
+The recommended entry point is the slash command (available in all harnesses):
+
+```
+/configure-team
+```
+
+Or run the binary directly:
+
 ```bash
-bin/agentic-configure team
+bin/agentic-team configure
 ```
 
 The wizard discovers installed harnesses, ranks roles to the best available
@@ -262,7 +277,6 @@ The guard is layered. Layers are listed strongest to weakest:
 
 - `content/references/cross-harness-teams.md` - full spec: schema, dispatch
   table, self-containment design, output collection, Skeptic/QA re-entry
-- `content/references/role-models.md` - Pi/omp per-role model routing schema
-- `docs/role-model-routing.md` - operator guide for role-model routing
-- `bin/agentic-team` - discover, dispatch, status, collect implementation
-- `bin/agentic-configure` - team wizard subcommand
+- `bin/agentic-team` - discover, dispatch, status, collect, configure implementation
+- `docs/role-model-routing.md` - operator guide for role-model routing (Layer 1, Pi/omp only)
+- `content/references/role-models.md` - Pi/omp per-role model routing schema (Layer 1)
