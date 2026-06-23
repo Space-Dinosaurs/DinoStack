@@ -1,43 +1,39 @@
 #!/usr/bin/env python3
 """
-Purpose: Probe the configured AI harness for its available models and emit a
-         ranked suggestion per agentic-engineering role. The conductor and the
-         TUI wizard (`bin/agentic-configure`) read this output to seed
-         `~/.agentic/role-models.yml` against models the user actually has.
+Purpose: Rank a caller-supplied list of AI model IDs per agentic-engineering
+         role and emit a suggestion per role. The caller (conductor, TUI
+         wizard, or shell) owns model discovery; this binary purely ranks
+         whatever list it receives.
 
-Public API: agentic-models [--json] [--probe-url URL] [--probe-key KEY]
-            [--suggest <role>] [--all-suggestions]
-            Default mode prints a human-readable summary of every model and
-            a one-line per-role recommendation. `--json` prints the structured
-            payload (suitable for piping into the TUI or to `yq`).
-            `--suggest <role>` prints only the recommendation for one role.
-            Exit code 0 on a successful probe, 2 on probe failure, 3 on
-            invalid arguments. Never writes to disk.
+Public API: agentic-models [--json] [--suggest <role>] [--all-suggestions]
+            [--models-from FILE] [model ...]
+            Model IDs arrive via positional args, --models-from FILE (one id
+            per line), or stdin (when piped). All three sources are combined.
+            Empty input -> empty suggestions, exit 0.
+            --json emits the structured payload (roles{} + reviewer_pool[]).
+            --suggest <role> prints only the primary for one role.
+            Exit code 0 on success; 2 on invalid arguments.
+            Never writes to disk, never makes network calls.
 
-Upstream deps: Python 3 stdlib (json, os, sys, urllib, argparse).
+Upstream deps: Python 3 stdlib (argparse, json, sys).
 
-Downstream consumers: content/references/model-discovery.md (full spec);
-                      bin/agentic-configure (TUI; uses --json);
-                      content/sections/04-risk-classification.md (Role-model
-                      routing tier); content/references/role-models.md.
+Downstream consumers: bin/agentic-configure (TUI; uses --json);
+                      content/references/model-discovery.md (spec);
+                      content/sections/04-risk-classification.md (tier);
+                      content/references/role-models.md.
 
-Failure modes: probe network failure -> exit 2 with a single error line.
-               The script does NOT fall back to a hardcoded catalog when the
-               probe fails. The user is told to set AGENTIC_PROBE_URL or pass
-               --probe-url. This matches the "no hardcoded model IDs"
-               stance in the role-models reference.
+Failure modes: invalid argument -> exit 2. No network I/O; cannot fail due
+               to connectivity. Empty model list -> suggestions with
+               primary=None for every role; always exits 0.
 
-Performance: One HTTP GET per invocation. ~200 ms on a warm probe.
+Performance: Pure in-process scoring. <1 ms regardless of list length.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import urllib.error
-import urllib.request
 from typing import Any
 
 # Heuristics for per-role ranking. These are *hints*, not opinions -- the
@@ -68,32 +64,6 @@ REVIEWER_POOL_HINTS: dict[str, int] = {
 }
 
 ROLES = list(ROLE_HINTS.keys())
-
-
-# NOTE: bin/_model_probe.py::probe_models is the shared variant (returns [] on
-# failure); this inline copy exits non-zero by design - migrate to importing the
-# shared helper in a follow-up once callers that rely on the exit-2 behaviour
-# are updated.
-def _probe_models(url: str, key: str | None, timeout: int = 10) -> list[str]:
-    """GET /v1/models and return the list of model id strings.
-
-    `url` is the OpenAI-compatible base URL (e.g. https://your-provider.example or
-    http://localhost:20128) WITHOUT a trailing /v1 suffix -- the /v1 is
-    appended here. Exactly one trailing '/' on the base is stripped so both
-    http://x and http://x/ yield http://x/v1/models.
-    """
-    base = (url[:-1] if url.endswith("/") else url) + "/v1/models"
-    req = urllib.request.Request(base, method="GET")
-    if key:
-        req.add_header("Authorization", f"Bearer {key}")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
-        print(f"error: probe failed: {exc}", file=sys.stderr)
-        sys.exit(2)
-    data = payload.get("data", [])
-    return [m["id"] for m in data if "id" in m]
 
 
 def _score(model: str, hints: dict[str, int]) -> int:
@@ -128,9 +98,8 @@ def _suggestions(models: list[str]) -> dict[str, Any]:
     return out
 
 
-def _print_human(payload: dict[str, Any], probe_url: str) -> None:
-    print(f"Probe URL: {probe_url}")
-    print(f"Models discovered: {len(payload['models'])}")
+def _print_human(payload: dict[str, Any]) -> None:
+    print(f"Models provided: {len(payload['models'])}")
     print("")
     print("Per-role primary recommendation:")
     for role, info in payload["roles"].items():
@@ -143,28 +112,58 @@ def _print_human(payload: dict[str, Any], probe_url: str) -> None:
     print("")
     print("Run with --json for the structured payload, or --suggest <role> for one role.")
 
+
+def _collect_models(args: argparse.Namespace) -> list[str]:
+    """Gather model IDs from positional args, --models-from FILE, and stdin."""
+    models: list[str] = list(args.models)
+
+    if args.models_from:
+        try:
+            with open(args.models_from) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        models.append(line)
+        except OSError as exc:
+            print(f"error: cannot read --models-from file: {exc}", file=sys.stderr)
+            sys.exit(2)
+
+    if not sys.stdin.isatty():
+        for line in sys.stdin:
+            line = line.strip()
+            if line:
+                models.append(line)
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for m in models:
+        if m not in seen:
+            seen.add(m)
+            deduped.append(m)
+    return deduped
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         prog="agentic-models",
-        description="Probe the AI harness and rank models per agentic-engineering role.",
+        description=(
+            "Rank a list of AI model IDs per agentic-engineering role. "
+            "Provide models via positional args, --models-from FILE, or stdin."
+        ),
     )
+    ap.add_argument("models", nargs="*", metavar="MODEL",
+                    help="model IDs to rank (e.g. opus sonnet gpt-5)")
+    ap.add_argument("--models-from", metavar="FILE",
+                    help="file of model IDs (one per line) to include in ranking")
     ap.add_argument("--json", action="store_true", help="emit structured JSON")
-    ap.add_argument("--probe-url", default=os.environ.get("AGENTIC_PROBE_URL", ""),
-                    help="OpenAI-compatible /v1 base URL (env: AGENTIC_PROBE_URL)")
-    ap.add_argument("--probe-key",
-                    default=os.environ.get("AGENTIC_PROBE_KEY", ""),
-                    help="Bearer key (env: AGENTIC_PROBE_KEY)")
-    ap.add_argument("--suggest", choices=ROLES, help="print only one role's primary recommendation")
+    ap.add_argument("--suggest", choices=ROLES,
+                    help="print only one role's primary recommendation")
     ap.add_argument("--all-suggestions", action="store_true",
                     help="print the full ranking for every role")
-    ap.add_argument("--timeout", type=int, default=10, help="HTTP timeout in seconds (default 10)")
     args = ap.parse_args(argv)
 
-    if not args.probe_url:
-        print("error: --probe-url or AGENTIC_PROBE_URL is required", file=sys.stderr)
-        return 3
-
-    models = _probe_models(args.probe_url, args.probe_key or None, timeout=args.timeout)
+    models = _collect_models(args)
     payload = _suggestions(models)
 
     if args.json:
@@ -178,11 +177,13 @@ def main(argv: list[str]) -> int:
     if args.all_suggestions:
         for role in ROLES:
             print(f"{role}:")
-            for m, s in sorted(((m, _score(m, ROLE_HINTS[role])) for m in models),
-                               key=lambda t: (-t[1], t[0]))[:5]:
+            for m, s in sorted(
+                ((m, _score(m, ROLE_HINTS[role])) for m in models),
+                key=lambda t: (-t[1], t[0]),
+            )[:5]:
                 print(f"  {s:+d}  {m}")
         return 0
-    _print_human(payload, args.probe_url)
+    _print_human(payload)
     return 0
 
 
