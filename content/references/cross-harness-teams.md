@@ -10,8 +10,7 @@ Public API: Read-only reference. Load when configuring team.yml, deciding
             how collected worker output re-enters the Skeptic/QA gates.
 
 Upstream deps: content/sections/02-delegation.md (delegation decision table);
-               content/sections/04-risk-classification.md (Tier/role-models layer);
-               content/references/role-models.md (Pi/omp role-model schema);
+               content/sections/04-risk-classification.md (Tier/role layer);
                bin/agentic-team (discover|dispatch|status|collect);
                bin/_role_spec.py (shared role-spec normalizer).
 
@@ -108,7 +107,7 @@ dispatch:
 |---|---|---|---|
 | `enabled` | bool | yes | Set `false` to disable cross-harness dispatch without removing the file. |
 | `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
-| `roles` | map | no | Keys are role names (same set as `role-models.yml`). Values are a scalar harness name or `{harness, model}` mapping. |
+| `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
 | `roles[*].harness` | string | yes (if mapping) | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
 | `roles[*].model` | string | no | Passed to the harness's `--model` flag. Omit to let the harness use its session default (no hardcoded IDs). |
 | `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
@@ -118,17 +117,20 @@ The scalar-or-mapping normalize logic for role-spec entries is shared with
 `bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
 normalizer; there is no inline copy.
 
-Role names are the same set as `role-models.yml`: `conductor`, `investigator`,
-`architect`, `orchestration-planner`, `engineer`, `debugger`, `qa-engineer`,
-`skeptic`, `security-auditor`. Unrecognized role keys are passed through and
-the dispatch tool validates the harness field regardless.
+Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
+`conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`,
+`debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Unrecognized role
+keys are passed through and the dispatch tool validates the harness field
+regardless.
 
 ## Per-harness dispatch table
 
 `bin/agentic-team dispatch` builds the worker invocation from this table. Exact
 flags for kimi, pi, and omp are **probed at discovery time** (`agentic-team
 discover`), not hardcoded -- consistent with the "no hardcoded model IDs" stance
-from `content/references/role-models.md`.
+anchored in `bin/_role_spec.py` (single source of harness/role labels) and the
+binary-name map in `bin/agentic-team` (the one allowed per-harness hardcoded
+fact).
 
 | Harness | Non-interactive incantation | Output flag | Notes / gotchas |
 |---|---|---|---|
@@ -223,12 +225,28 @@ Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
 conductor PID); removed by `agentic-team collect` when the last run in the
 batch completes.
 
-**On all other harnesses:** prose rule only. There is no hook infrastructure
-equivalent to `enforce-background-spawn.py` on codex, gemini, kimi, cursor,
-pi, or omp. The suppression on those harnesses is stated here as a convention
-the conductor follows, **not as a mechanically enforced constraint.** Agents
-running on those harnesses must apply the suppression as a discipline, not rely
-on it as a guarantee.
+**On all other harnesses:** Agents running on non-Claude harnesses MUST treat
+`<workdir>/.agentic/teamrun/.active` as a hard suppression signal and MUST NOT
+spawn the conductor harness's native subagents while it is live. This is a
+binding prose contract, not a mechanically enforced hook. Per-harness status:
+
+| Harness | Enforcement status | Hook location (if it existed) |
+|---|---|---|
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` + OMC skill calls while `.active` is live) | Already deployed |
+| **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
+| **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
+| **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |
+| **Cursor** | Prose-contract only - Cursor extension hooks exist but do not cover CLI headless mode | Would require a cursor-agent wrapper or sidecar |
+| **OpenCode** | Prose-contract only - no hook infrastructure | Would live in `.opencode/` hooks if the runtime adds them |
+| **OpenClaw** | Prose-contract only - no hook infrastructure | Would live in `.openclaw/` hooks if the runtime adds them |
+| **Pi** | Prose-contract only - no hook infrastructure | Would live in `.pi/` config hooks if the runtime adds them |
+| **omp** | Prose-contract only - no hook infrastructure | Would live in `.omp/` config hooks if the runtime adds them |
+| **Hermes** | Prose-contract only - no hook infrastructure | Would live in a Hermes hook slot if the runtime adds them |
+
+The leaf-worker clause (layer 4) and workdir fence (layer 1) provide
+defense-in-depth for harnesses without hook enforcement. Agents on prose-only
+harnesses must apply the suppression as a discipline; callers cannot rely on
+mechanical enforcement as a guarantee.
 
 ## How collected worker output re-enters the Skeptic/QA gates
 
