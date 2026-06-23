@@ -109,14 +109,24 @@ def test_cli_help_runs():
     assert "agentic-models" in r.stdout
 
 
-def test_cli_requires_probe_url():
-    """No probe URL -> exit 3 from main(), not NameError (exit 1)."""
-    env = dict(os.environ)
-    env.pop("AGENTIC_PROBE_URL", None)
-    r = subprocess.run([sys.executable, str(_BIN_PATH)],
-                       capture_output=True, text=True, env=env)
-    assert r.returncode == 3
-    assert "required" in r.stderr
+def test_cli_positional_args_json():
+    """Models via positional args + --json -> ranking output with models[] key."""
+    r = subprocess.run(
+        [sys.executable, str(_BIN_PATH), "opus", "sonnet", "gpt-5", "--json"],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, f"expected exit 0, got {r.returncode}: {r.stderr}"
+    import json
+    payload = json.loads(r.stdout)
+    assert payload["models"] == ["opus", "sonnet", "gpt-5"]
+    assert "roles" in payload
+    assert "reviewer_pool" in payload
+    # conductor should pick the best match from the supplied list
+    conductor_primary = payload["roles"]["conductor"]["primary"]
+    assert conductor_primary in ["opus", "sonnet", "gpt-5"], (
+        f"unexpected conductor primary: {conductor_primary!r}"
+    )
+
 
 def main() -> int:
     failures = 0
@@ -129,7 +139,7 @@ def main() -> int:
         test_suggestions_handles_empty_models,
         test_suggestions_distinct_families,
         test_cli_help_runs,
-        test_cli_requires_probe_url,
+        test_cli_positional_args_json,
     ]
     for t in tests:
         try:

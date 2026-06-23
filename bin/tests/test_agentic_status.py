@@ -2,9 +2,9 @@
 """
 Regression tests for bin/agentic-status: _is_pi_omp_harness predicate.
 
-Covers PR #249 review M2: the predicate must test the same 4 env vars as
-hooks/role-models-bootstrap.py (PI_HARNESS, OMP_HARNESS, OH_MY_PI_HARNESS,
-AGENTIC_HARNESS) and treat "truthy" as "set to a non-empty value".
+Covers PR #249 review M2: the predicate must test 4 env vars
+(PI_HARNESS, OMP_HARNESS, OH_MY_PI_HARNESS, AGENTIC_HARNESS)
+and treat "truthy" as "set to a non-empty value".
 
 Run with: python3 -m pytest bin/tests/test_agentic_status.py -x
        or: python3 bin/tests/test_agentic_status.py

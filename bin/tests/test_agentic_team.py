@@ -332,14 +332,12 @@ def test_discover_marks_absent_harness(monkeypatch):
     """Monkeypatching shutil.which to None marks harness as installed=false.
 
     AC2 regression: absent binary -> installed=false, exit 0 overall.
-    Hermetic: env vars cleared + probe_models stubbed so no network call fires
-    even if OPENAI_BASE_URL/KIMI_BASE_URL happen to be set in the CI runner.
+    Hermetic: env vars cleared; models=[] always (static, no probe).
     """
     import shutil as _shutil
 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("KIMI_BASE_URL", raising=False)
-    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     # Make every binary appear absent
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
     payload = _discover_harnesses()
@@ -359,13 +357,12 @@ def test_discover_json_shape(monkeypatch):
 
     AC2 regression: json shape must include installed, models,
     invocation_family, native_subagent_disable_flag.
-    Hermetic: env vars cleared + probe_models stubbed.
+    Hermetic: env vars cleared; models=[] always (static, no probe).
     """
     import shutil as _shutil
 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("KIMI_BASE_URL", raising=False)
-    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
     payload = _discover_harnesses()
 
@@ -394,7 +391,7 @@ def test_discover_uses_mapped_binary_name(monkeypatch):
 
     AC2 regression: the binary-name map is the only hardcoded per-harness
     fact; kimi -> kimi-cli must be honoured.
-    Hermetic: env vars cleared + probe_models stubbed.
+    Hermetic: env vars cleared; models=[] always (static, no probe).
     """
     probed: list[str] = []
 
@@ -402,7 +399,6 @@ def test_discover_uses_mapped_binary_name(monkeypatch):
 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("KIMI_BASE_URL", raising=False)
-    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
 
     def fake_which(binary: str) -> str | None:
         probed.append(binary)
@@ -423,15 +419,13 @@ def test_discover_installed_harness_has_version_field(monkeypatch):
     """When a harness is installed, the version key is present (may be None).
 
     Installed but --version failing -> version=None is acceptable.
-    Hermetic: env vars cleared + probe_models stubbed so codex's OPENAI_BASE_URL
-    path never fires even if the var happens to be set in the runner.
+    Hermetic: env vars cleared; models=[] always (static, no probe).
     """
     import shutil as _shutil
     import subprocess as _subprocess
 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("KIMI_BASE_URL", raising=False)
-    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
 
     # Make 'codex' appear installed, all others absent
     def fake_which(binary: str) -> str | None:
@@ -454,13 +448,12 @@ def test_discover_installed_harness_has_version_field(monkeypatch):
 
 def test_discover_exit_zero_when_all_absent(monkeypatch, tmp_path):
     """main() returns 0 from discover even when every harness is absent.
-    Hermetic: env vars cleared + probe_models stubbed.
+    Hermetic: env vars cleared; models=[] always (static, no probe).
     """
     import shutil as _shutil
 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("KIMI_BASE_URL", raising=False)
-    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
 
     rc = main([
@@ -473,13 +466,12 @@ def test_discover_exit_zero_when_all_absent(monkeypatch, tmp_path):
 
 def test_discover_json_flag_produces_valid_json(monkeypatch, tmp_path, capsys):
     """discover --json produces valid JSON parseable output.
-    Hermetic: env vars cleared + probe_models stubbed.
+    Hermetic: env vars cleared; models=[] always (static, no probe).
     """
     import shutil as _shutil
 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("KIMI_BASE_URL", raising=False)
-    monkeypatch.setattr(_mod, "probe_models", lambda *_a, **_kw: [])
     monkeypatch.setattr(_shutil, "which", lambda _b: None)
 
     rc = main([
@@ -503,53 +495,6 @@ def test_discover_binary_map_coverage():
     assert not missing, (
         f"HARNESS_BINARY is missing entries for: {missing}. "
         "Add a binary-name mapping for each new harness."
-    )
-
-
-def test_discover_env_var_flows_into_probe(monkeypatch):
-    """When OPENAI_BASE_URL is set and codex is installed, probe_models is called
-    with that URL and the returned models appear in the payload.
-
-    Proves the HARNESS_MODELS_ENV -> probe_models wiring without real network.
-    """
-    import shutil as _shutil
-    import subprocess as _subprocess
-
-    fake_url = "http://localhost:19999"
-    stub_models = ["gpt-5.3-codex", "gpt-5.3-mini"]
-
-    monkeypatch.setenv("OPENAI_BASE_URL", fake_url)
-    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
-
-    probed_urls: list[str] = []
-
-    def stub_probe(url: str, *_a, **_kw) -> list[str]:
-        probed_urls.append(url)
-        return stub_models
-
-    monkeypatch.setattr(_mod, "probe_models", stub_probe)
-
-    # codex appears installed; all others absent
-    monkeypatch.setattr(_shutil, "which",
-                        lambda b: "/usr/local/bin/codex" if b == "codex" else None)
-
-    # --version call returns something harmless
-    def fake_run(*args, **kwargs):  # type: ignore[override]
-        class _R:
-            stdout = "codex 1.0.0"
-            returncode = 0
-        return _R()
-
-    monkeypatch.setattr(_subprocess, "run", fake_run)
-
-    payload = _discover_harnesses()
-
-    assert payload["codex"]["installed"] is True
-    assert payload["codex"]["models"] == stub_models, (
-        f"models from probe_models must flow into payload, got {payload['codex']['models']!r}"
-    )
-    assert fake_url in probed_urls, (
-        f"probe_models must be called with OPENAI_BASE_URL={fake_url!r}, called with {probed_urls}"
     )
 
 
@@ -1118,7 +1063,6 @@ import tempfile as _tempfile
 _cmd_configure = _mod._cmd_configure
 _emit_team_yaml = _mod._emit_team_yaml
 _rank_assignments = _mod._rank_assignments
-_apply_web_enrichment = _mod._apply_web_enrichment
 _score_model_for_role = _mod._score_model_for_role
 _TEAM_CAPABILITY_TABLE = _mod._TEAM_CAPABILITY_TABLE
 
@@ -1169,84 +1113,6 @@ def test_configure_team_noninteractive_requires_assign(tmp_path):
         "--path", str(target),
     ])
     assert rc == 2
-
-
-def test_configure_team_web_optional_offline_falls_back(monkeypatch, tmp_path):
-    """--web with offline fetch falls back to heuristics and still produces a file.
-
-    Monkeypatch seam: _discover_harnesses (replaces old _run_discover).
-    """
-    monkeypatch.setattr(_mod, "_web_enrich", lambda models: {})
-
-    fake_discovery = {
-        "codex": {
-            "installed": True,
-            "models": ["gpt-5.3-codex", "gpt-5"],
-            "invocation_family": "codex-exec",
-            "version": None,
-            "native_subagent_disable_flag": None,
-        }
-    }
-    monkeypatch.setattr(_mod, "_discover_harnesses", lambda **kw: fake_discovery)
-
-    target = tmp_path / "team.yml"
-    rc = _cmd_configure([
-        "--web",
-        "--non-interactive",
-        "--assign", "engineer=codex:gpt-5.3-codex",
-        "--path", str(target),
-    ])
-    assert rc == 0, f"expected exit 0 on offline --web, got {rc}"
-    assert target.is_file(), "team.yml must be written even when web fails"
-    text = target.read_text()
-    assert "enabled: true" in text
-    assert "codex" in text
-
-
-def test_configure_team_web_enrichment_changes_ranking(monkeypatch):
-    """--web enrichment must actually affect ranking (MAJOR-1 regression test).
-
-    Monkeypatch seam: _discover_harnesses (replaces old _run_discover).
-    """
-    fake_discovery = {
-        "gemini": {
-            "installed": True,
-            "models": ["gemini-2.5-pro"],
-            "invocation_family": "gemini-exec",
-            "version": None,
-            "native_subagent_disable_flag": None,
-        },
-        "codex": {
-            "installed": True,
-            "models": ["gpt-5"],
-            "invocation_family": "codex-exec",
-            "version": None,
-            "native_subagent_disable_flag": None,
-        },
-    }
-
-    enrichment_delta = {"gpt-5": {"architect": 100}}
-    monkeypatch.setattr(_mod, "_web_enrich", lambda models: enrichment_delta)
-    monkeypatch.setattr(_mod, "_discover_harnesses", lambda **kw: fake_discovery)
-
-    baseline = _rank_assignments(fake_discovery)
-
-    enriched_table = _apply_web_enrichment(_TEAM_CAPABILITY_TABLE, enrichment_delta)
-    enriched = _rank_assignments(fake_discovery, enriched_table)
-
-    assert enriched.get("architect") == ("codex", "gpt-5"), (
-        f"enrichment did not change architect ranking: got {enriched.get('architect')!r}"
-    )
-    assert baseline.get("architect") != ("codex", "gpt-5"), (
-        f"baseline unexpectedly already picked codex/gpt-5 for architect: "
-        f"test setup is wrong or capability table changed. got {baseline.get('architect')!r}"
-    )
-    baseline_score = _score_model_for_role("gpt-5", "architect")
-    enriched_score = _score_model_for_role("gpt-5", "architect", enriched_table)
-    assert enriched_score > baseline_score, (
-        f"enrichment did not raise gpt-5 architect score: "
-        f"baseline={baseline_score} enriched={enriched_score}"
-    )
 
 
 def test_configure_team_emit_yaml_structure():
