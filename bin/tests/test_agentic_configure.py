@@ -324,6 +324,66 @@ def test_existing_flags_unaffected_by_team_subcommand():
         pass
 
 
+# ---------------------------------------------------------------------------
+# Unit 2: probe-URL resolution order + banner de-branding (regression tests)
+# ---------------------------------------------------------------------------
+
+def test_resolve_probe_url_agentic_probe_url_takes_priority(monkeypatch):
+    """AGENTIC_PROBE_URL is used when set, ahead of NINEROUTER_URL."""
+    import types
+    monkeypatch.setenv("AGENTIC_PROBE_URL", "http://x.invalid")
+    monkeypatch.setenv("NINEROUTER_URL", "http://should-not-be-used.invalid")
+    # Construct a minimal args namespace with no explicit probe_url arg.
+    args = types.SimpleNamespace(probe_url="")
+    result = _mod._resolve_probe_url(args)
+    assert result == "http://x.invalid", (
+        f"Expected AGENTIC_PROBE_URL to take priority, got: {result!r}"
+    )
+
+
+def test_resolve_probe_url_ninerouter_fallback(monkeypatch):
+    """NINEROUTER_URL used when AGENTIC_PROBE_URL is unset (back-compat)."""
+    import types
+    monkeypatch.delenv("AGENTIC_PROBE_URL", raising=False)
+    monkeypatch.setenv("NINEROUTER_URL", "http://ninerouter.invalid")
+    args = types.SimpleNamespace(probe_url="")
+    result = _mod._resolve_probe_url(args)
+    assert result == "http://ninerouter.invalid", (
+        f"Expected NINEROUTER_URL fallback, got: {result!r}"
+    )
+
+
+def test_resolve_probe_url_explicit_arg_beats_all(monkeypatch):
+    """Explicit --probe-url arg overrides both env vars."""
+    import types
+    monkeypatch.setenv("AGENTIC_PROBE_URL", "http://generic.invalid")
+    monkeypatch.setenv("NINEROUTER_URL", "http://ninerouter.invalid")
+    args = types.SimpleNamespace(probe_url="http://explicit.invalid")
+    result = _mod._resolve_probe_url(args)
+    assert result == "http://explicit.invalid", (
+        f"Expected explicit arg to win, got: {result!r}"
+    )
+
+
+def test_banner_has_no_pi_branding():
+    """BANNER title line must not contain '(Pi / oh-my-pi)' parenthetical (de-branded in Unit 2).
+
+    The first line is the title. The skip-hint line may still mention 'Pi' as a
+    behavioral note (Pi uses session default when a role is unset) - that is
+    accurate and not branding. We only assert the title parenthetical is gone.
+    """
+    banner = _mod.BANNER
+    title_line = banner.splitlines()[0]
+    assert "(Pi" not in title_line, (
+        f"BANNER title still contains Pi branding parenthetical: {title_line!r}"
+    )
+    assert "oh-my-pi" not in title_line, (
+        f"BANNER title still contains oh-my-pi: {title_line!r}"
+    )
+    # Must still describe its purpose
+    assert "role-model" in banner, f"BANNER must mention role-model setup: {banner!r}"
+
+
 def main() -> int:
     failures = 0
     tests = [

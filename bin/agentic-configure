@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
 Purpose: Interactive first-time setup of `~/.agentic/role-models.yml` (default
-         mode) OR cross-harness team configuration via the `team` subcommand.
-         Runs on the Pi/oh-my-pi harnesses when no role-models file exists. The
-         pre-prompt hook (`hooks/role-models-bootstrap.py`) calls this binary
-         before the user's first request reaches the model.
+         mode). Runs on the Pi/oh-my-pi harnesses when no role-models file
+         exists. The pre-prompt hook (`hooks/role-models-bootstrap.py`) calls
+         this binary before the user's first request reaches the model.
 
 Public API: agentic-configure [--probe-url URL] [--probe-key KEY] [--force]
             [--non-interactive] [--path PATH]
@@ -20,10 +19,12 @@ Public API: agentic-configure [--probe-url URL] [--probe-key KEY] [--force]
             validation/probe failure in --non-interactive mode (missing/invalid
             --assign pairs, unknown --default-harness, or probe returned
             non-zero).
+            Probe URL resolution order: --probe-url arg -> AGENTIC_PROBE_URL
+            env -> NINEROUTER_URL env (back-compat with Pi installs).
 
 Upstream deps: bin/agentic-models (probes the harness);
                bin/_role_spec (normalize_role_spec);
-               bin/agentic-team (discover subcommand, team wizard);
+               bin/agentic-team (back-compat team shim target);
                Python 3 stdlib only otherwise.
 
 Downstream consumers: hooks/role-models-bootstrap.py (pre-prompt hook);
@@ -35,8 +36,8 @@ Failure modes: Probe failure -> fall back to scalar-only form, user types
                unless --force. Probe unreachable and non-interactive ->
                exit 0 without writing anything (the user can run
                `agentic-configure` later when they have a working probe).
-               team subcommand: unknown harness in --assign -> exit 2.
-               team subcommand: --web offline -> fall back to heuristics.
+               team shim: delegates to agentic-team configure, propagates
+               exit code.
 
 Performance: One HTTP probe + a few prompts. Sub-second on a warm probe.
 """
@@ -68,7 +69,7 @@ ROLES = [
 ]
 
 BANNER = (
-    "agentic-configure: first-time role-model setup (Pi / oh-my-pi)\n"
+    "agentic-configure: first-time role-model setup\n"
     "Press Enter to accept each default. Type a model id to override.\n"
     "Type 'skip' to leave the role unset (Pi uses session default).\n"
 )
@@ -193,8 +194,18 @@ def _gather_roles(suggestions: dict, non_interactive: bool) -> dict:
 
 
 def _resolve_probe_url(args) -> str:
-    """Return a non-empty probe URL, or '' if none is available."""
-    return (args.probe_url or os.environ.get("NINEROUTER_URL", "")).strip()
+    """Return a non-empty probe URL, or '' if none is available.
+
+    Resolution order:
+      1. --probe-url / args.probe_url (explicit argument)
+      2. AGENTIC_PROBE_URL env var (generic harness-neutral)
+      3. NINEROUTER_URL env var (kept last for back-compat with Pi installs)
+    """
+    return (
+        args.probe_url
+        or os.environ.get("AGENTIC_PROBE_URL", "")
+        or os.environ.get("NINEROUTER_URL", "")
+    ).strip()
 
 
 # ---------------------------------------------------------------------------
