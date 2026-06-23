@@ -611,7 +611,7 @@ Spawning security-auditor.
 
 **Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. The `bin/agentic-models` binary probes the harness (`NINEROUTER_URL /v1/models`) and ranks the discovered models per role; the `hooks/role-models-bootstrap.py` UserPromptSubmit hook runs `bin/agentic-configure --non-interactive` on the first prompt when no file exists, so users on Pi/omp get a harness-aware default without typing strings from memory. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the probe protocol and the per-role ranking heuristics.
 
-**Cross-harness teams (opt-in, all harnesses):** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
+**Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
 
 ### Spawn presets (per-spawn capability bundles)
 
@@ -2030,8 +2030,7 @@ Public API: Read-only reference. Load when configuring team.yml, deciding
             how collected worker output re-enters the Skeptic/QA gates.
 
 Upstream deps: content/sections/02-delegation.md (delegation decision table);
-               content/sections/04-risk-classification.md (Tier/role-models layer);
-               content/references/role-models.md (Pi/omp role-model schema);
+               content/sections/04-risk-classification.md (Tier/role layer);
                bin/agentic-team (discover|dispatch|status|collect);
                bin/_role_spec.py (shared role-spec normalizer).
 
@@ -2128,7 +2127,7 @@ dispatch:
 |---|---|---|---|
 | `enabled` | bool | yes | Set `false` to disable cross-harness dispatch without removing the file. |
 | `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
-| `roles` | map | no | Keys are role names (same set as `role-models.yml`). Values are a scalar harness name or `{harness, model}` mapping. |
+| `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
 | `roles[*].harness` | string | yes (if mapping) | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
 | `roles[*].model` | string | no | Passed to the harness's `--model` flag. Omit to let the harness use its session default (no hardcoded IDs). |
 | `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
@@ -2138,17 +2137,20 @@ The scalar-or-mapping normalize logic for role-spec entries is shared with
 `bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
 normalizer; there is no inline copy.
 
-Role names are the same set as `role-models.yml`: `conductor`, `investigator`,
-`architect`, `orchestration-planner`, `engineer`, `debugger`, `qa-engineer`,
-`skeptic`, `security-auditor`. Unrecognized role keys are passed through and
-the dispatch tool validates the harness field regardless.
+Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
+`conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`,
+`debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Unrecognized role
+keys are passed through and the dispatch tool validates the harness field
+regardless.
 
 ## Per-harness dispatch table
 
 `bin/agentic-team dispatch` builds the worker invocation from this table. Exact
 flags for kimi, pi, and omp are **probed at discovery time** (`agentic-team
 discover`), not hardcoded -- consistent with the "no hardcoded model IDs" stance
-from `content/references/role-models.md`.
+anchored in `bin/_role_spec.py` (single source of harness/role labels) and the
+binary-name map in `bin/agentic-team` (the one allowed per-harness hardcoded
+fact).
 
 | Harness | Non-interactive incantation | Output flag | Notes / gotchas |
 |---|---|---|---|
@@ -2243,12 +2245,28 @@ Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
 conductor PID); removed by `agentic-team collect` when the last run in the
 batch completes.
 
-**On all other harnesses:** prose rule only. There is no hook infrastructure
-equivalent to `enforce-background-spawn.py` on codex, gemini, kimi, cursor,
-pi, or omp. The suppression on those harnesses is stated here as a convention
-the conductor follows, **not as a mechanically enforced constraint.** Agents
-running on those harnesses must apply the suppression as a discipline, not rely
-on it as a guarantee.
+**On all other harnesses:** Agents running on non-Claude harnesses MUST treat
+`<workdir>/.agentic/teamrun/.active` as a hard suppression signal and MUST NOT
+spawn the conductor harness's native subagents while it is live. This is a
+binding prose contract, not a mechanically enforced hook. Per-harness status:
+
+| Harness | Enforcement status | Hook location (if it existed) |
+|---|---|---|
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` + OMC skill calls while `.active` is live) | Already deployed |
+| **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
+| **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
+| **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |
+| **Cursor** | Prose-contract only - Cursor extension hooks exist but do not cover CLI headless mode | Would require a cursor-agent wrapper or sidecar |
+| **OpenCode** | Prose-contract only - no hook infrastructure | Would live in `.opencode/` hooks if the runtime adds them |
+| **OpenClaw** | Prose-contract only - no hook infrastructure | Would live in `.openclaw/` hooks if the runtime adds them |
+| **Pi** | Prose-contract only - no hook infrastructure | Would live in `.pi/` config hooks if the runtime adds them |
+| **omp** | Prose-contract only - no hook infrastructure | Would live in `.omp/` config hooks if the runtime adds them |
+| **Hermes** | Prose-contract only - no hook infrastructure | Would live in a Hermes hook slot if the runtime adds them |
+
+The leaf-worker clause (layer 4) and workdir fence (layer 1) provide
+defense-in-depth for harnesses without hook enforcement. Agents on prose-only
+harnesses must apply the suppression as a discipline; callers cannot rely on
+mechanical enforcement as a guarantee.
 
 ## How collected worker output re-enters the Skeptic/QA gates
 
@@ -10518,6 +10536,64 @@ Report a summary:
 - The main worktree (first entry in `git worktree list`) is always skipped.
 - Works on the repository in the current working directory - not project-specific.
 - If `gh` is not available, flag feature worktrees for manual review and continue.
+
+---
+
+### /configure-team
+
+# /configure-team - Cross-Harness Team Setup
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+Set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments.
+
+## Step 1 - Configure the team
+
+Run `bin/agentic-team configure` to launch an interactive wizard that walks through role-to-harness assignments and writes `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
+
+```bash
+bin/agentic-team configure
+```
+
+For non-interactive use - useful in scripts or automated onboarding - pass assignments directly:
+
+```bash
+bin/agentic-team configure \
+  --non-interactive \
+  --assign architect=claude:claude-opus-4-5 \
+  --assign engineer=codex:gpt-5 \
+  --assign skeptic=gemini:gemini-2.5-pro \
+  [--default-harness claude] \
+  [--path .agentic/team.yml]
+```
+
+`--assign` accepts `role=harness:model`. Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`).
+
+Add `--web` to allow the wizard to make a live network call for model-capability enrichment when ranking assignments. Offline by default.
+
+Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-harness`, or `--non-interactive` used without `--assign`.
+
+## Step 2 - Verify discovery
+
+Confirm which harnesses are installed and which models they can reach:
+
+```bash
+bin/agentic-team discover
+```
+
+For machine-readable output:
+
+```bash
+bin/agentic-team discover --json
+```
+
+Each discovered harness reports its binary path, reachable models, and any auth errors. A harness listed as `--assign` target but absent from discovery output means it is not installed or not authenticated - resolve that before dispatching.
+
+## Step 3 - Dispatch a team
+
+See `content/references/cross-harness-teams.md` for the full dispatch, status-check, and collect flow.
+
+**Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/team-active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/team-active` as a hard suppression signal regardless of harness.
 
 ---
 
