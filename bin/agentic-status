@@ -287,7 +287,6 @@ def _profile_behavior_block(profile: str) -> list[str]:
 
 
 # Harness env vars: truthy iff any one is set to a non-empty value.
-# Mirrors hooks/role-models-bootstrap.py exactly so the two stay in sync.
 PI_OMP_HARNESS_ENV_VARS = (
     "PI_HARNESS",
     "OMP_HARNESS",
@@ -347,9 +346,6 @@ def _role_models_status_block() -> list[str]:
     lines.append(f"  roles entries: {role_count}")
     lines.append(f"  source file(s): {', '.join(sources)}")
     lines.append("  How to adjust: Edit ~/.agentic/role-models.yml (or .agentic/role-models.yml); see content/references/role-models.md.")
-    bootstrap = Path(os.path.expanduser("~/.agentic/.role-models-bootstrap"))
-    if bootstrap.is_file():
-        lines.append("  bootstrap sentinel: present (pre-prompt hook has run at least once)")
     return lines
 
 
