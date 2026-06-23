@@ -1105,3 +1105,162 @@ def test_run_id_contains_urandom_suffix():
     assert all(c in "0123456789abcdef" for c in suffix), (
         f"urandom suffix must be lowercase hex, got {suffix!r}"
     )
+
+
+# ===========================================================================
+# Unit 1 configure subcommand tests (migrated from test_agentic_configure.py)
+# Monkeypatching seam: _discover_harnesses (replaces the old _run_discover).
+# ===========================================================================
+
+import tempfile as _tempfile
+
+# Pull configure symbols from the already-loaded agentic-team module.
+_cmd_configure = _mod._cmd_configure
+_emit_team_yaml = _mod._emit_team_yaml
+_rank_assignments = _mod._rank_assignments
+_apply_web_enrichment = _mod._apply_web_enrichment
+_score_model_for_role = _mod._score_model_for_role
+_TEAM_CAPABILITY_TABLE = _mod._TEAM_CAPABILITY_TABLE
+
+
+def test_configure_team_noninteractive_writes_block(tmp_path):
+    """--non-interactive --assign pairs produce a valid team.yml block."""
+    target = tmp_path / ".agentic" / "team.yml"
+    rc = main([
+        "configure",
+        "--non-interactive",
+        "--assign", "engineer=codex:gpt-5.3-codex",
+        "--assign", "skeptic=cursor-agent:gpt-5",
+        "--default-harness", "codex",
+        "--path", str(target),
+    ])
+    assert rc == 0, f"expected exit 0, got {rc}"
+    assert target.is_file(), "team.yml must be written"
+    text = target.read_text()
+    assert "engineer:" in text
+    assert "harness: codex" in text
+    assert "model: gpt-5.3-codex" in text
+    assert "skeptic:" in text
+    assert "harness: cursor-agent" in text
+    assert "default_harness: codex" in text
+    assert "enabled: true" in text
+    assert "dispatch:" in text
+
+
+def test_configure_team_noninteractive_unknown_harness_fails(tmp_path):
+    """--assign with unknown harness must exit 2 and write nothing."""
+    target = tmp_path / "team.yml"
+    rc = main([
+        "configure",
+        "--non-interactive",
+        "--assign", "engineer=badharness:somemodel",
+        "--path", str(target),
+    ])
+    assert rc == 2
+    assert not target.exists(), "no file must be written on validation error"
+
+
+def test_configure_team_noninteractive_requires_assign(tmp_path):
+    """--non-interactive with no --assign must exit 2."""
+    target = tmp_path / "team.yml"
+    rc = main([
+        "configure",
+        "--non-interactive",
+        "--path", str(target),
+    ])
+    assert rc == 2
+
+
+def test_configure_team_web_optional_offline_falls_back(monkeypatch, tmp_path):
+    """--web with offline fetch falls back to heuristics and still produces a file.
+
+    Monkeypatch seam: _discover_harnesses (replaces old _run_discover).
+    """
+    monkeypatch.setattr(_mod, "_web_enrich", lambda models: {})
+
+    fake_discovery = {
+        "codex": {
+            "installed": True,
+            "models": ["gpt-5.3-codex", "gpt-5"],
+            "invocation_family": "codex-exec",
+            "version": None,
+            "native_subagent_disable_flag": None,
+        }
+    }
+    monkeypatch.setattr(_mod, "_discover_harnesses", lambda **kw: fake_discovery)
+
+    target = tmp_path / "team.yml"
+    rc = _cmd_configure([
+        "--web",
+        "--non-interactive",
+        "--assign", "engineer=codex:gpt-5.3-codex",
+        "--path", str(target),
+    ])
+    assert rc == 0, f"expected exit 0 on offline --web, got {rc}"
+    assert target.is_file(), "team.yml must be written even when web fails"
+    text = target.read_text()
+    assert "enabled: true" in text
+    assert "codex" in text
+
+
+def test_configure_team_web_enrichment_changes_ranking(monkeypatch):
+    """--web enrichment must actually affect ranking (MAJOR-1 regression test).
+
+    Monkeypatch seam: _discover_harnesses (replaces old _run_discover).
+    """
+    fake_discovery = {
+        "gemini": {
+            "installed": True,
+            "models": ["gemini-2.5-pro"],
+            "invocation_family": "gemini-exec",
+            "version": None,
+            "native_subagent_disable_flag": None,
+        },
+        "codex": {
+            "installed": True,
+            "models": ["gpt-5"],
+            "invocation_family": "codex-exec",
+            "version": None,
+            "native_subagent_disable_flag": None,
+        },
+    }
+
+    enrichment_delta = {"gpt-5": {"architect": 100}}
+    monkeypatch.setattr(_mod, "_web_enrich", lambda models: enrichment_delta)
+    monkeypatch.setattr(_mod, "_discover_harnesses", lambda **kw: fake_discovery)
+
+    baseline = _rank_assignments(fake_discovery)
+
+    enriched_table = _apply_web_enrichment(_TEAM_CAPABILITY_TABLE, enrichment_delta)
+    enriched = _rank_assignments(fake_discovery, enriched_table)
+
+    assert enriched.get("architect") == ("codex", "gpt-5"), (
+        f"enrichment did not change architect ranking: got {enriched.get('architect')!r}"
+    )
+    assert baseline.get("architect") != ("codex", "gpt-5"), (
+        f"baseline unexpectedly already picked codex/gpt-5 for architect: "
+        f"test setup is wrong or capability table changed. got {baseline.get('architect')!r}"
+    )
+    baseline_score = _score_model_for_role("gpt-5", "architect")
+    enriched_score = _score_model_for_role("gpt-5", "architect", enriched_table)
+    assert enriched_score > baseline_score, (
+        f"enrichment did not raise gpt-5 architect score: "
+        f"baseline={baseline_score} enriched={enriched_score}"
+    )
+
+
+def test_configure_team_emit_yaml_structure():
+    """_emit_team_yaml produces correct YAML structure."""
+    assignments = {
+        "engineer": ("codex", "gpt-5.3-codex"),
+        "skeptic": ("cursor-agent", ""),
+    }
+    out = _emit_team_yaml(assignments, "codex")
+    assert "enabled: true" in out
+    assert "default_harness: codex" in out
+    assert "engineer:" in out
+    assert "    harness: codex" in out
+    assert "    model: gpt-5.3-codex" in out
+    assert "  skeptic: cursor-agent" in out  # scalar form when no model
+    assert "dispatch:" in out
+    assert "timeout_seconds: 1800" in out
