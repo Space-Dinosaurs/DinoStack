@@ -4,6 +4,8 @@
 
 Set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments.
 
+This is a standalone any-harness capability - it is independent of the Pi/oh-my-pi role-model routing layer and does not require it. Any conductor can configure and run a team.
+
 ## Step 1 - Configure the team
 
 Run `bin/agentic-team configure` to launch an interactive wizard that walks through role-to-harness assignments and writes `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
