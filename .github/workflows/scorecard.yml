@@ -29,7 +29,7 @@ jobs:
       # list and forbids workflow-level write permissions; do not add
       # non-allowlisted steps or broaden permissions or publish_results breaks.
       - name: Run analysis
-        uses: ossf/scorecard-action@v2
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
