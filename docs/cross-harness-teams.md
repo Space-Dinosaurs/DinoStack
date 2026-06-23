@@ -153,9 +153,14 @@ for non-interactive assignment of a single role.
 agentic-team discover
 ```
 
-This probes each known harness and reports `installed` / `absent` /
-`unauthenticated`. Run this after writing `team.yml` to confirm the harnesses
-you assigned are reachable before starting a real session.
+This probes each known harness and reports `installed` or `absent` per
+harness, along with `version`, `models`, `invocation_family`, and
+`native_subagent_disable_flag`. Run this after writing `team.yml` to confirm
+the harnesses you assigned are present before starting a real session.
+
+Authentication errors are not a discover state. If a harness is installed but
+its credentials are invalid or expired, that surfaces at dispatch time from
+the harness's own stderr/exit code -- not as a named discover status.
 
 ## The four subcommands
 
@@ -179,7 +184,7 @@ How `agentic-team dispatch` invokes each harness non-interactively:
 |---|---|---|
 | **codex** | `codex exec "<brief>" --json --sandbox read-only --skip-git-repo-check` | `--sandbox read-only` applied by default; JSONL event stream |
 | **gemini** | `gemini -p "<brief>" --output-format json` | Headless on `-p`; slash commands broken headless - full brief inline |
-| **cursor-agent** | `cursor-agent -p --force "<brief>" --output-format json < /dev/null` | `--force` required for file writes; known hang bug - stdin always `/dev/null` + timeout watchdog; marked `experimental` in discover output |
+| **cursor-agent** | `cursor-agent -p --force "<brief>" --output-format json < /dev/null` | `--force` required for file writes; known hang bug - stdin always `/dev/null` + timeout watchdog; marked `experimental` in discover output. Note: `< /dev/null` is presentation shorthand -- the dispatcher sets `stdin=subprocess.DEVNULL` at the `Popen` call; it is not a literal argv element. |
 | **kimi** | `kimi-cli -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); exact flag confirmed at discovery |
 | **pi** | `pi -p "<brief>"` | Built-in subagent types exist but suppressed via leaf-worker clause |
 | **omp** | `omp -p "<brief>"` | Same leaf-worker suppression; omp built-in subagents not used as nested spawns |
@@ -211,8 +216,8 @@ The guard is layered. Layers are listed strongest to weakest:
 
 3. **PATH guardrail (accidental re-entry -- NOT a security sandbox).** Each
    worker launch prepends a shim directory to `PATH`. Shims for `git`, `omc`,
-   and all sibling CLI names (`codex`, `gemini`, `cursor-agent`, `kimi-cli`,
-   `pi`, `omp`, `claude`) exit 1 and log to `violations.log`. The worker's
+   and all sibling CLI names (`codex`, `gemini`, `cursor-agent`, `kimi`,
+   `kimi-cli`, `pi`, `omp`, `claude`) exit 1 and log to `violations.log`. The worker's
    own binary is exempt. **This guardrail catches accidental bare-name
    re-entry by a cooperative worker. It does NOT stop an absolute-path call
    (`/usr/bin/git` or any pre-resolved path). Do not claim it provides
