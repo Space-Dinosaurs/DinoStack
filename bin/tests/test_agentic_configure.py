@@ -283,171 +283,31 @@ def test_noninteractive_default_produces_scalar_output():
 
 
 # ---------------------------------------------------------------------------
-# Unit 4: team subcommand tests (AC4)
+# team shim delegation test (back-compat: agentic-configure team -> agentic-team configure)
 # ---------------------------------------------------------------------------
 
-def test_configure_team_noninteractive_writes_block():
-    """--non-interactive --assign pairs produce a valid team.yml block."""
+def test_configure_team_shim_delegates_to_agentic_team():
+    """agentic-configure team delegates to agentic-team configure via subprocess.
+
+    Verifies: exit 0, team.yml written with correct content.
+    This covers the back-compat shim path introduced in Unit 1.
+    """
     with tempfile.TemporaryDirectory() as td:
-        target = Path(td) / ".agentic" / "team.yml"
+        target = Path(td) / "team.yml"
         rc = _mod.main([
             "team",
             "--non-interactive",
-            "--assign", "engineer=codex:gpt-5.3-codex",
-            "--assign", "skeptic=cursor-agent:gpt-5",
-            "--default-harness", "codex",
+            "--assign", "engineer=codex:gpt-5",
             "--path", str(target),
         ])
-        assert rc == 0, f"expected exit 0, got {rc}"
-        assert target.is_file(), "team.yml must be written"
+        assert rc == 0, f"shim must exit 0, got {rc}"
+        assert target.is_file(), "shim must produce team.yml"
         text = target.read_text()
-    # Must contain the assigned role entries
+    assert "enabled: true" in text
     assert "engineer:" in text
     assert "harness: codex" in text
-    assert "model: gpt-5.3-codex" in text
-    assert "skeptic:" in text
-    assert "harness: cursor-agent" in text
-    assert "default_harness: codex" in text
-    assert "enabled: true" in text
+    assert "model: gpt-5" in text
     assert "dispatch:" in text
-
-
-def test_configure_team_noninteractive_unknown_harness_fails():
-    """--assign with unknown harness must exit 2 and write nothing."""
-    with tempfile.TemporaryDirectory() as td:
-        target = Path(td) / "team.yml"
-        rc = _mod.main([
-            "team",
-            "--non-interactive",
-            "--assign", "engineer=badharness:somemodel",
-            "--path", str(target),
-        ])
-        assert rc == 2
-        assert not target.exists(), "no file must be written on validation error"
-
-
-def test_configure_team_noninteractive_requires_assign():
-    """--non-interactive with no --assign must exit 2."""
-    with tempfile.TemporaryDirectory() as td:
-        target = Path(td) / "team.yml"
-        rc = _mod.main([
-            "team",
-            "--non-interactive",
-            "--path", str(target),
-        ])
-        assert rc == 2
-
-
-def test_configure_team_web_optional_offline_falls_back(monkeypatch):
-    """--web with offline fetch falls back to heuristics and still produces a file.
-
-    Uses --non-interactive --assign so the test is hermetic regardless of TTY state.
-    """
-    # Patch _web_enrich to return {} (simulating offline fallback - _web_enrich
-    # catches all exceptions internally and returns {}; we replicate that here).
-    monkeypatch.setattr(_mod, "_web_enrich", lambda models: {})
-
-    # Patch _run_discover to return a minimal installed harness (no real subprocess).
-    fake_discovery = {
-        "codex": {
-            "installed": True,
-            "models": ["gpt-5.3-codex", "gpt-5"],
-            "invocation_family": "codex-exec",
-            "version": None,
-            "native_subagent_disable_flag": None,
-        }
-    }
-    monkeypatch.setattr(_mod, "_run_discover", lambda: fake_discovery)
-
-    with tempfile.TemporaryDirectory() as td:
-        target = Path(td) / "team.yml"
-        # --non-interactive --assign makes the test hermetic (no input() call).
-        rc = _mod._cmd_team([
-            "--web",
-            "--non-interactive",
-            "--assign", "engineer=codex:gpt-5.3-codex",
-            "--path", str(target),
-        ])
-        # Should exit 0 (heuristic fallback, not a hard fail).
-        assert rc == 0, f"expected exit 0 on offline --web, got {rc}"
-        assert target.is_file(), "team.yml must be written even when web fails"
-        text = target.read_text()
-    assert "enabled: true" in text
-    assert "codex" in text
-
-
-def test_configure_team_web_enrichment_changes_ranking(monkeypatch):
-    """--web enrichment must actually affect ranking (MAJOR-1 regression test).
-
-    Scenario: two harnesses, both have one model each.  Without enrichment,
-    'gemini-2.5-pro' scores higher for 'architect' (table score 3) than
-    'gpt-5' (table score 3 for architect too, but gemini wins on tiebreak via
-    harness base score).  We inject enrichment that flips 'architect' strongly
-    to 'gpt-5', then assert the ranking picks the codex harness for architect.
-    """
-    fake_discovery = {
-        "gemini": {
-            "installed": True,
-            "models": ["gemini-2.5-pro"],
-            "invocation_family": "gemini-exec",
-            "version": None,
-            "native_subagent_disable_flag": None,
-        },
-        "codex": {
-            "installed": True,
-            "models": ["gpt-5"],
-            "invocation_family": "codex-exec",
-            "version": None,
-            "native_subagent_disable_flag": None,
-        },
-    }
-
-    # Enrichment: give gpt-5 a massive architect bonus so it must win.
-    enrichment_delta = {"gpt-5": {"architect": 100}}
-    monkeypatch.setattr(_mod, "_web_enrich", lambda models: enrichment_delta)
-    monkeypatch.setattr(_mod, "_run_discover", lambda: fake_discovery)
-
-    # Ranking WITHOUT enrichment (baseline).
-    baseline = _mod._rank_assignments(fake_discovery)
-
-    # Ranking WITH enrichment applied.
-    enriched_table = _mod._apply_web_enrichment(_mod._TEAM_CAPABILITY_TABLE, enrichment_delta)
-    enriched = _mod._rank_assignments(fake_discovery, enriched_table)
-
-    # With the +100 delta, codex/gpt-5 MUST win architect.
-    assert enriched.get("architect") == ("codex", "gpt-5"), (
-        f"enrichment did not change architect ranking: got {enriched.get('architect')!r}"
-    )
-    # Baseline must NOT have had the same result (proves enrichment actually flipped it).
-    # gemini-2.5-pro has an explicit architect score in the table, so gemini wins baseline.
-    assert baseline.get("architect") != ("codex", "gpt-5"), (
-        f"baseline unexpectedly already picked codex/gpt-5 for architect: "
-        f"test setup is wrong or capability table changed. got {baseline.get('architect')!r}"
-    )
-    # Stronger assertion: the enriched table's gpt-5 architect score exceeds baseline.
-    baseline_score = _mod._score_model_for_role("gpt-5", "architect")
-    enriched_score = _mod._score_model_for_role("gpt-5", "architect", enriched_table)
-    assert enriched_score > baseline_score, (
-        f"enrichment did not raise gpt-5 architect score: "
-        f"baseline={baseline_score} enriched={enriched_score}"
-    )
-
-
-def test_configure_team_emit_yaml_structure():
-    """_emit_team_yaml produces correct YAML structure."""
-    assignments = {
-        "engineer": ("codex", "gpt-5.3-codex"),
-        "skeptic": ("cursor-agent", ""),
-    }
-    out = _mod._emit_team_yaml(assignments, "codex")
-    assert "enabled: true" in out
-    assert "default_harness: codex" in out
-    assert "engineer:" in out
-    assert "    harness: codex" in out
-    assert "    model: gpt-5.3-codex" in out
-    assert "  skeptic: cursor-agent" in out  # scalar form when no model
-    assert "dispatch:" in out
-    assert "timeout_seconds: 1800" in out
 
 
 def test_existing_flags_unaffected_by_team_subcommand():
@@ -462,6 +322,66 @@ def test_existing_flags_unaffected_by_team_subcommand():
     else:
         # argparse may not raise on all Python versions; just verify no crash
         pass
+
+
+# ---------------------------------------------------------------------------
+# Unit 2: probe-URL resolution order + banner de-branding (regression tests)
+# ---------------------------------------------------------------------------
+
+def test_resolve_probe_url_agentic_probe_url_takes_priority(monkeypatch):
+    """AGENTIC_PROBE_URL is used when set, ahead of NINEROUTER_URL."""
+    import types
+    monkeypatch.setenv("AGENTIC_PROBE_URL", "http://x.invalid")
+    monkeypatch.setenv("NINEROUTER_URL", "http://should-not-be-used.invalid")
+    # Construct a minimal args namespace with no explicit probe_url arg.
+    args = types.SimpleNamespace(probe_url="")
+    result = _mod._resolve_probe_url(args)
+    assert result == "http://x.invalid", (
+        f"Expected AGENTIC_PROBE_URL to take priority, got: {result!r}"
+    )
+
+
+def test_resolve_probe_url_ninerouter_fallback(monkeypatch):
+    """NINEROUTER_URL used when AGENTIC_PROBE_URL is unset (back-compat)."""
+    import types
+    monkeypatch.delenv("AGENTIC_PROBE_URL", raising=False)
+    monkeypatch.setenv("NINEROUTER_URL", "http://ninerouter.invalid")
+    args = types.SimpleNamespace(probe_url="")
+    result = _mod._resolve_probe_url(args)
+    assert result == "http://ninerouter.invalid", (
+        f"Expected NINEROUTER_URL fallback, got: {result!r}"
+    )
+
+
+def test_resolve_probe_url_explicit_arg_beats_all(monkeypatch):
+    """Explicit --probe-url arg overrides both env vars."""
+    import types
+    monkeypatch.setenv("AGENTIC_PROBE_URL", "http://generic.invalid")
+    monkeypatch.setenv("NINEROUTER_URL", "http://ninerouter.invalid")
+    args = types.SimpleNamespace(probe_url="http://explicit.invalid")
+    result = _mod._resolve_probe_url(args)
+    assert result == "http://explicit.invalid", (
+        f"Expected explicit arg to win, got: {result!r}"
+    )
+
+
+def test_banner_has_no_pi_branding():
+    """BANNER title line must not contain '(Pi / oh-my-pi)' parenthetical (de-branded in Unit 2).
+
+    The first line is the title. The skip-hint line may still mention 'Pi' as a
+    behavioral note (Pi uses session default when a role is unset) - that is
+    accurate and not branding. We only assert the title parenthetical is gone.
+    """
+    banner = _mod.BANNER
+    title_line = banner.splitlines()[0]
+    assert "(Pi" not in title_line, (
+        f"BANNER title still contains Pi branding parenthetical: {title_line!r}"
+    )
+    assert "oh-my-pi" not in title_line, (
+        f"BANNER title still contains oh-my-pi: {title_line!r}"
+    )
+    # Must still describe its purpose
+    assert "role-model" in banner, f"BANNER must mention role-model setup: {banner!r}"
 
 
 def main() -> int:
