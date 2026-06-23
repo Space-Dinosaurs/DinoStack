@@ -30,8 +30,6 @@ bin/agentic-team configure \
 
 `--assign` accepts `role=harness:model`. Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`).
 
-Add `--web` to allow the wizard to make a live network call for model-capability enrichment when ranking assignments. Offline by default.
-
 Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-harness`, or `--non-interactive` used without `--assign`.
 
 ## Step 2 - Verify discovery
