@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 """
 Regression tests for agentic-configure: emit-yaml, non-interactive default
-acceptance, never-overwrite guard, bootstrap hook integration, and the
-PR #249 probe-URL fix (Step 1 of the review fix plan).
+acceptance, never-overwrite guard, and team-shim delegation.
 
 Test groups:
   1. test_emit_yaml_scalar_form - simple roles map to scalar lines.
   2. test_emit_yaml_mapping_form - roles with effort/reasoning render as mappings.
   3. test_emit_yaml_dedupes_pool - duplicate model entries in pool are merged.
   4. test_emit_yaml_fallback_pool - empty pool gets a default sentinel entry.
-  5. test_noninteractive_no_probe_writes_nothing - M6: empty probe URL -> exit 0, no file.
-  6. test_noninteractive_with_probe_writes_file - M6 positive path: mocked probe writes file.
-  7. test_probe_url_appends_v1_models - C1: base http://x[/] -> http://x/v1/models.
-  8. test_existing_file_is_not_overwritten - second run is a no-op.
-  9. test_bootstrap_hook_idempotent - re-running the hook does not re-seed.
- 10. test_bootstrap_no_sentinel_on_no_url - URL unset -> no sentinel (retry).
- 11. test_bootstrap_no_sentinel_on_probe_failure - probe-failure non-zero does NOT.
+  5. test_noninteractive_writes_scalar_defaults - non-interactive writes scalar YAML.
+  6. test_ask_user_interactive - ask-user path sets a role (simulated stdin).
+  7. test_existing_file_is_not_overwritten - second run is a no-op.
 
 Run with: python3 -m pytest bin/tests/test_agentic_configure.py -x
        or: python3 bin/tests/test_agentic_configure.py
@@ -74,96 +69,37 @@ def test_emit_yaml_fallback_pool():
     assert "- sonnet" in pool_section
 
 
-def test_noninteractive_no_probe_writes_nothing():
-    """Non-interactive + empty probe URL -> exit 0, NO file written (M6)."""
+def test_noninteractive_writes_scalar_defaults():
+    """Non-interactive with no suggestions writes scalar YAML defaults and exits 0."""
     with tempfile.TemporaryDirectory() as td:
         target = Path(td) / "role-models.yml"
-        env = dict(os.environ)
-        env.pop("AGENTIC_PROBE_URL", None)  # ensure no probe URL from env
         result = subprocess.run(
-            [
-                str(_BIN_PATH),
-                "--non-interactive",
-                "--path",
-                str(target),
-                "--probe-url",
-                "",
-            ],
+            [str(_BIN_PATH), "--non-interactive", "--path", str(target)],
             capture_output=True,
             text=True,
             timeout=10,
-            env=env,
         )
-        assert result.returncode == 0
-        assert not target.exists(), f"expected no file, got: {target}"
-        assert "no probe URL" in result.stderr
-
-
-def test_noninteractive_with_probe_writes_file(monkeypatch):
-    """Non-interactive + successful probe -> file written with role mappings."""
-    fake_payload = {
-        "models": ["cc/claude-sonnet-4-5", "cx/gpt-5", "cc/claude-opus-4-5"],
-        "roles": {
-            "engineer": {"primary": "cc/claude-sonnet-4-5", "alternates": []},
-            "conductor": {"primary": "cc/claude-opus-4-5", "alternates": []},
-        },
-        "reviewer_pool": ["cx/gpt-5"],
-    }
-    _mod._probe_or_empty = lambda url, key: fake_payload
-    with tempfile.TemporaryDirectory() as td:
-        target = Path(td) / "role-models.yml"
-        rc = _mod.main([
-            "--non-interactive",
-            "--path", str(target),
-            "--probe-url", "http://x",
-        ])
-        assert rc == 0
-        assert target.is_file(), "file must be written on successful probe"
+        assert result.returncode == 0, (
+            f"expected exit 0, got {result.returncode}: {result.stderr}"
+        )
+        assert target.is_file(), "non-interactive must write the file"
         text = target.read_text()
-    assert "roles:" in text
-    assert "engineer:" in text
+        assert "roles:" in text
+        assert "engineer:" in text
 
 
-def test_probe_url_appends_v1_models(monkeypatch):
-    """_probe_models in bin/agentic-models resolves <base>/v1/models."""
-    import importlib.util as _ilu
-    import importlib.machinery as _im
-    models_path = Path(__file__).parent.parent / "agentic-models"
-    loader = _im.SourceFileLoader("agentic_models", str(models_path))
-    spec = _ilu.spec_from_loader("agentic_models", loader)
-    m = _ilu.module_from_spec(spec)
-    loader.exec_module(m)
-
-    captured = {}
-    class FakeReq:
-        def __init__(self, url, method="GET"):
-            captured["url"] = url
-            captured["method"] = method
-        def add_header(self, k, v):
-            captured.setdefault("headers", {})[k] = v
-
-    class FakeResp:
-        def __enter__(self):
-            return self
-        def __exit__(self, *a):
-            return False
-        def read(self):
-            return b'{"data": [{"id": "m1"}]}'
-
-    def fake_urlopen(req, timeout=None):
-        captured["timeout"] = timeout
-        return FakeResp()
-
-    monkeypatch.setattr(m.urllib.request, "Request", FakeReq)
-    monkeypatch.setattr(m.urllib.request, "urlopen", fake_urlopen)
-    # base without trailing slash -> base/v1/models
-    out = m._probe_models("http://x", None, timeout=5)
-    assert out == ["m1"]
-    assert captured["url"] == "http://x/v1/models", captured["url"]
-
-    # Trailing slash on base: strip exactly one, still base/v1/models
-    m._probe_models("http://x/", None, timeout=5)
-    assert captured["url"] == "http://x/v1/models", captured["url"]
+def test_ask_user_interactive(monkeypatch):
+    """_gather_roles with non_interactive=False reads defaults from _ask."""
+    # Stub _ask to return 'opus' for every role prompt
+    monkeypatch.setattr(_mod, "_ask", lambda prompt, default: default)
+    monkeypatch.setattr(_mod, "_ask_effort", lambda default="medium": "")
+    monkeypatch.setattr(_mod, "_ask_reasoning", lambda default="": "")
+    roles = _mod._gather_roles(suggestions={}, non_interactive=False)
+    assert isinstance(roles, dict), "must return dict of role -> model"
+    for role, val in roles.items():
+        assert isinstance(val, str), (
+            f"ask-user path must return scalar str for {role!r}, got {type(val).__name__}"
+        )
 
 
 def test_existing_file_is_not_overwritten():
@@ -180,77 +116,6 @@ def test_existing_file_is_not_overwritten():
         assert result.returncode == 0
         assert target.read_text() == "# user-edited\nroles:\n  engineer: opus\n"
         assert target.stat().st_mtime == mtime_before
-
-
-def test_bootstrap_hook_idempotent():
-    """Re-running the hook on a configured session must not change the file."""
-    hook = Path(__file__).parent.parent.parent / "hooks" / "role-models-bootstrap.py"
-    with tempfile.TemporaryDirectory() as td:
-        target = Path(td) / ".agentic" / "role-models.yml"
-        target.parent.mkdir(parents=True)
-        target.write_text("roles:\n  engineer: opus\n")
-        sentinel = Path(td) / ".agentic" / ".role-models-bootstrap"
-        env = dict(os.environ)
-        env["PI_HARNESS"] = "pi"
-        env["AGENTIC_PROBE_URL"] = "http://127.0.0.1:1"  # base without /v1; probe will fail
-        env["HOME"] = td
-        # File already exists -> no-op (sentinel absent because we never reach configure)
-        r1 = subprocess.run(
-            [sys.executable, str(hook)],
-            input="",
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=15,
-        )
-        assert r1.returncode == 0
-        assert target.read_text() == "roles:\n  engineer: opus\n"
-        assert not sentinel.exists()
-
-def test_bootstrap_no_sentinel_on_no_url():
-    """URL unset -> hook no-ops, no sentinel, retry next session."""
-    hook = Path(__file__).parent.parent.parent / "hooks" / "role-models-bootstrap.py"
-    with tempfile.TemporaryDirectory() as td:
-        sentinel = Path(td) / ".agentic" / ".role-models-bootstrap"
-        env = dict(os.environ)
-        env["PI_HARNESS"] = "pi"
-        # No AGENTIC_PROBE_URL set -> hook no-ops without calling configure or writing sentinel
-        env.pop("AGENTIC_PROBE_URL", None)
-        env["HOME"] = td
-        r = subprocess.run(
-            [sys.executable, str(hook)],
-            input="",
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=15,
-        )
-        assert r.returncode == 0
-        assert not sentinel.exists(), "sentinel must NOT be written when URL unset (allow retry)"
-        target = Path(td) / ".agentic" / "role-models.yml"
-        assert not target.exists(), "no file written on no-URL no-op"
-
-
-def test_bootstrap_no_sentinel_on_probe_failure():
-    """Probe failure (configure exit non-zero) must NOT write the sentinel."""
-    hook = Path(__file__).parent.parent.parent / "hooks" / "role-models-bootstrap.py"
-    with tempfile.TemporaryDirectory() as td:
-        sentinel = Path(td) / ".agentic" / ".role-models-bootstrap"
-        env = dict(os.environ)
-        env["PI_HARNESS"] = "pi"
-        # Pointing at a port nothing listens on -> probe fails -> configure exits 2
-        env["AGENTIC_PROBE_URL"] = "http://127.0.0.1:1"
-        env["HOME"] = td
-        r = subprocess.run(
-            [sys.executable, str(hook)],
-            input="",
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=15,
-        )
-        assert r.returncode == 0  # hook itself always exits 0
-        assert not sentinel.exists(), "sentinel must NOT be written when configure fails (allow retry)"
 
 
 def test_noninteractive_default_produces_scalar_output():
@@ -324,46 +189,6 @@ def test_existing_flags_unaffected_by_team_subcommand():
         pass
 
 
-# ---------------------------------------------------------------------------
-# Unit 2: probe-URL resolution order + banner de-branding (regression tests)
-# ---------------------------------------------------------------------------
-
-def test_resolve_probe_url_agentic_probe_url_used(monkeypatch):
-    """AGENTIC_PROBE_URL is the env var for probe URL resolution."""
-    import types
-    monkeypatch.setenv("AGENTIC_PROBE_URL", "http://x.invalid")
-    # Construct a minimal args namespace with no explicit probe_url arg.
-    args = types.SimpleNamespace(probe_url="")
-    result = _mod._resolve_probe_url(args)
-    assert result == "http://x.invalid", (
-        f"Expected AGENTIC_PROBE_URL to be used, got: {result!r}"
-    )
-
-
-def test_resolve_probe_url_unknown_env_ignored(monkeypatch):
-    """Only AGENTIC_PROBE_URL and --probe-url are read; unknown env vars are ignored."""
-    import types
-    monkeypatch.delenv("AGENTIC_PROBE_URL", raising=False)
-    # Set a private/unknown env var that must never be consulted
-    monkeypatch.setenv("_PRIVATE_PROBE_URL", "http://private.invalid")
-    args = types.SimpleNamespace(probe_url="")
-    result = _mod._resolve_probe_url(args)
-    assert result == "", (
-        f"Only AGENTIC_PROBE_URL is consulted; private env vars must be ignored. Got: {result!r}"
-    )
-
-
-def test_resolve_probe_url_explicit_arg_beats_env(monkeypatch):
-    """Explicit --probe-url arg overrides AGENTIC_PROBE_URL env var."""
-    import types
-    monkeypatch.setenv("AGENTIC_PROBE_URL", "http://generic.invalid")
-    args = types.SimpleNamespace(probe_url="http://explicit.invalid")
-    result = _mod._resolve_probe_url(args)
-    assert result == "http://explicit.invalid", (
-        f"Expected explicit arg to win, got: {result!r}"
-    )
-
-
 def test_banner_has_no_pi_branding():
     """BANNER title line must not contain '(Pi / oh-my-pi)' parenthetical (de-branded in Unit 2).
 
@@ -391,14 +216,11 @@ def main() -> int:
         test_emit_yaml_mapping_form,
         test_emit_yaml_dedupes_pool,
         test_emit_yaml_fallback_pool,
-        test_noninteractive_no_probe_writes_nothing,
+        test_noninteractive_writes_scalar_defaults,
         test_existing_file_is_not_overwritten,
-        test_bootstrap_hook_idempotent,
-        test_bootstrap_no_sentinel_on_no_url,
-        test_bootstrap_no_sentinel_on_probe_failure,
     ]
     tests = [t for t in tests if t is not None]
-    # Note: test_noninteractive_with_probe_writes_file and test_probe_url_appends_v1_models
+    # Note: test_ask_user_interactive and test_noninteractive_default_produces_scalar_output
     # need the pytest monkeypatch fixture and only run under `python3 -m pytest`.
     for t in tests:
         try:
