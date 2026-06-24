@@ -63,26 +63,27 @@ def is_deny(returncode: int, stdout: str) -> bool:
 
 cases = [
     # (label, payload_str, expected, extra_env)
+    # --- Legacy tool_name="Task" cases ---
     (
-        "absent agent_id",
+        "Task: absent agent_id",
         json.dumps({"tool_name": "Task", "tool_input": {}}),
         "ALLOW",
         None,
     ),
     (
-        "null agent_id",
+        "Task: null agent_id",
         json.dumps({"tool_name": "Task", "agent_id": None}),
         "ALLOW",
         None,
     ),
     (
-        "empty-string agent_id",
+        "Task: empty-string agent_id",
         json.dumps({"tool_name": "Task", "agent_id": ""}),
         "ALLOW",
         None,
     ),
     (
-        "non-empty agent_id",
+        "Task: non-empty agent_id",
         json.dumps({
             "tool_name": "Task",
             "agent_id": "abc-123",
@@ -92,7 +93,59 @@ cases = [
         None,
     ),
     (
-        "non-Task tool (passthrough)",
+        "Task: kill-switch (AE_SINGULARITY_GUARD_DISABLE=1)",
+        json.dumps({
+            "tool_name": "Task",
+            "agent_id": "abc-123",
+            "agent_type": "engineer",
+        }),
+        "ALLOW",
+        {"AE_SINGULARITY_GUARD_DISABLE": "1"},
+    ),
+    # --- Regression tests: tool_name="Agent" (CC rename, was failing silently) ---
+    # These cases MUST deny under the fixed hook. Against the buggy guard
+    # (tool_name != "Task" -> sys.exit(0)), they would all incorrectly ALLOW.
+    (
+        "Agent: non-empty agent_id - DENY (regression: was silently ALLOW)",
+        json.dumps({
+            "tool_name": "Agent",
+            "agent_id": "abc-123",
+            "agent_type": "engineer",
+        }),
+        "DENY",
+        None,
+    ),
+    (
+        "Agent: absent agent_id - ALLOW (conductor has no agent_id)",
+        json.dumps({"tool_name": "Agent", "tool_input": {}}),
+        "ALLOW",
+        None,
+    ),
+    (
+        "Agent: null agent_id - ALLOW",
+        json.dumps({"tool_name": "Agent", "agent_id": None}),
+        "ALLOW",
+        None,
+    ),
+    (
+        "Agent: empty-string agent_id - ALLOW",
+        json.dumps({"tool_name": "Agent", "agent_id": ""}),
+        "ALLOW",
+        None,
+    ),
+    (
+        "Agent: kill-switch disables guard",
+        json.dumps({
+            "tool_name": "Agent",
+            "agent_id": "abc-123",
+            "agent_type": "engineer",
+        }),
+        "ALLOW",
+        {"AE_SINGULARITY_GUARD_DISABLE": "1"},
+    ),
+    # --- Other tool passthrough ---
+    (
+        "non-Task/Agent tool (passthrough)",
         json.dumps({"tool_name": "Read", "agent_id": "abc-123"}),
         "ALLOW",
         None,
@@ -102,16 +155,6 @@ cases = [
         "not-json",
         "ALLOW",
         None,
-    ),
-    (
-        "kill-switch (AE_SINGULARITY_GUARD_DISABLE=1)",
-        json.dumps({
-            "tool_name": "Task",
-            "agent_id": "abc-123",
-            "agent_type": "engineer",
-        }),
-        "ALLOW",
-        {"AE_SINGULARITY_GUARD_DISABLE": "1"},
     ),
 ]
 

@@ -21,11 +21,24 @@
  *             writeSessionLogGlobal(identity, sessionId, data),
  *             writePendingBuffer(cwd, sessionId),
  *             appendIdentityNudgeToContextMd(repoRoot),
- *             detectCaptureGap(cwd, sessionId),
- *             appendCaptureGapNoticeToContextMd(cwd, residualOnly).
+ *             appendCaptureGapNoticeToContextMd(cwd, residualOnly),
+ *             wrapLockHeld(cwd) (thin alias to wrap-marker lib),
+ *             appendSpilloverRecord(cwd, record),
+ *             writeContextMdOrSpill(cwd, outputPath, projectDir, body, record),
+ *             stageWrapPending(cwd, sessionId, scan) (thin alias to wrap-marker
+ *             lib stagePending). The marker reads/transitions (readLastWrap,
+ *             liveMarkerForSession - which replaces the former liveMarkerExists -
+ *             stagePending, touchHeartbeat, etc.) now live in
+ *             hooks/lib/wrap-marker.js, the single source of truth.
  *
- * Upstream deps: Node built-ins only (fs, path, os, child_process). No npm
- *                dependencies. Reads from stdin (fd 0). Reads/writes
+ * Upstream deps: Node built-ins only (fs, path, os, child_process) plus two
+ *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/wrap
+ *                marker single source of truth - lock gate, per-session staging,
+ *                heartbeat) and hooks/lib/capture-gap.js (the shared capture-gap
+ *                detector - detectCaptureGap, GUARDRAIL_PATTERNS, _tokenize,
+ *                extracted so the in-session PostToolUse nudge reuses it).
+ *                No npm dependencies. Reads from stdin (fd 0).
+ *                Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
  *                [cwd]/.agentic/loop-state.json,
  *                [cwd]/.agentic/batch-state.json,
@@ -35,10 +48,14 @@
  *                ~/.agentic/identity.yml (read-only, global),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
  *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
+ *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon toggle),
  *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop),
  *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor; atomic
  *                tmp+rename on write).
+ *                Via wrap-marker.js it also touches [cwd]/.agentic/wrap/heartbeats/<session_id>
+ *                (per-turn liveness mtime) and may stage
+ *                [cwd]/.agentic/wrap/pending-<session_id>.json (per-session marker).
  *
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
@@ -50,7 +67,7 @@
  *                        globbed by agentic-cost (operator or team) - it is consumed
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
- * Failure modes: All failures are silent (process.exit(0)). Nine independent
+ * Failure modes: All failures are silent (process.exit(0)). Eleven independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -66,7 +83,11 @@
  *                (5) writeSessionLog appends to .agentic/session-log/<dev>.jsonl;
  *                any fs error is swallowed independently of all other paths.
  *                (6) appendIdentityNudgeToContextMd appends to context.md; any
- *                fs error is swallowed independently.
+ *                fs error is swallowed independently. Because the nudge is a
+ *                context.md writer, it is deferred while wrapLockHeld(cwd) is
+ *                true (the sentinel is consumed atomically with the nudge, so
+ *                deferring both fires the one-time nudge on a later unlocked
+ *                session rather than losing it).
  *                (7) writeSessionLogGlobal appends to ~/.agentic/session-log/<dev>.jsonl;
  *                any fs error is swallowed independently of the per-project write
  *                (path 5) - a global failure never affects the per-project write.
@@ -77,11 +98,39 @@
  *                (9) appendCaptureGapNoticeToContextMd appends to context.md; any
  *                fs error is swallowed independently. The .capture-gap-last-sweep
  *                cursor update is also best-effort and never blocks exit.
- *                All nine paths are independent - a failure in one does not
+ *                (10) appendSpilloverRecord appends one JSONL record to
+ *                .agentic/wrap/deferred-activity.jsonl when wrapLockHeld(cwd) is
+ *                true (a /wrap holds .agentic/wrap/lock); in that case BOTH
+ *                context.md write paths (path 1) are skipped so the background
+ *                enrichment's locked Part-A merge is not clobbered, and the
+ *                skipped activity is spilled instead for the enrichment to drain.
+ *                Append-only, fail-open.
+ *                (11) wrapMarker.touchHeartbeat writes/utimes
+ *                .agentic/wrap/heartbeats/<session_id> once per turn (per-session
+ *                liveness mtime); no-op under the AGENTIC_WRAP_DAEMON loop-guard;
+ *                any fs error swallowed independently of all other paths.
+ *                Marker staging (stageWrapPending -> wrap-marker lib) shares this
+ *                fail-open discipline and is never counted as blocking exit.
+ *                All eleven paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
  *                traversal components are rejected for the loop-state and
  *                batch-state writes (defence in depth).
+ *
+ *                Lock-aware interactions: wrapLockHeld(cwd) (a single fail-open
+ *                fs.existsSync on .agentic/wrap/lock, a DIRECTORY created by
+ *                /wrap) gates path 1; it is re-checked immediately before each
+ *                context.md writeFileSync to minimize TOCTOU. stageWrapPending
+ *                (delegated to wrap-marker lib stagePending) stages a per-session
+ *                .agentic/wrap/pending-<session_id>.json marker (schema_version 3,
+ *                atomic tmp+rename, NORMATIVE schema in content/commands/wrap.md)
+ *                so the next session or the daemon can complete enrichment for an
+ *                un-wrapped session; staging is suppressed when the current
+ *                session_id equals .agentic/wrap/last-wrap (this session already
+ *                wrapped), when this session's marker is already ready / pending /
+ *                in_progress (MAJOR-3), when the session had no substantive
+ *                activity, or under the AGENTIC_WRAP_DAEMON loop-guard. Staging is
+ *                fail-open and never blocks exit.
  *
  * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout)
  *              plus one git diff subprocess call for the capture-gap backstop
@@ -118,6 +167,42 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
+
+// Single source of truth for the deferred-/wrap marker state machine, lock,
+// heartbeat, and sentinel. The local helpers that previously lived in this file
+// (wrapLockHeld, readLastWrap, liveMarkerExists, stageWrapPending) are now
+// delegated to this lib so stop-context.js, the SessionEnd hook, and the daemon
+// share one atomic, fail-open implementation.
+const wrapMarker = require('./lib/wrap-marker.js');
+
+// Shared capture-gap detector extracted to hooks/lib/capture-gap.js so the
+// Stop-hook backstop below and the in-session PostToolUse(Task) nudge
+// (hooks/post-tool-use-capture-nudge.js) share one implementation. Only
+// detectCaptureGap is used here; GUARDRAIL_PATTERNS and _tokenize remain
+// exported by the lib for test-capture-gap.js. appendCaptureGapNoticeToContextMd
+// (the sole writer of the .capture-gap-last-sweep cursor) stays in this file.
+const { detectCaptureGap } = require('./lib/capture-gap.js');
+
+/**
+ * Read the `deferred_wrap_daemon` toggle from [cwd]/.agentic/config.json.
+ * Fail-open: absent file, unreadable file, parse error, or absent key all
+ * resolve to false. This is an OUTER config gate; the in-lib daemonGuardActive()
+ * inner guard inside touchHeartbeat is PRESERVED (they serve different purposes).
+ * Sister implementation: hooks/session-end-wrap.js deferredDaemonEnabled (keep in sync).
+ *
+ * @param {string} cwd - Project root directory.
+ * @returns {boolean}
+ */
+function deferredDaemonEnabled(cwd) {
+  try {
+    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(raw);
+    return config && config.deferred_wrap_daemon === true;
+  } catch (_) {
+    return false;
+  }
+}
 
 /**
  * Write interrupted status to loop-state.json if an active loop exists.
@@ -643,223 +728,91 @@ function writePendingBuffer(cwd, sessionId) {
   }
 }
 
+// OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+// Thin alias: the implementation lives in hooks/lib/wrap-marker.js so the lock
+// gate is shared with the SessionEnd hook and the daemon. Fail-open in the lib.
+function wrapLockHeld(cwd) {
+  return wrapMarker.wrapLockHeld(cwd);
+}
+
+/**
+ * Append one spillover record to .agentic/wrap/deferred-activity.jsonl.
+ * Called only when wrapLockHeld(cwd) is true and a context.md write was therefore
+ * skipped; the background enrichment drains this file into the context.md activity
+ * block when it next writes (inside the held Part-A lock). Append-only, fail-open.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {object} record - Spillover record (NORMATIVE schema in wrap.md).
+ */
+function appendSpilloverRecord(cwd, record) {
+  try {
+    const spilloverPath = wrapMarker.stopDeferredActivityPath(cwd);
+    fs.mkdirSync(path.dirname(spilloverPath), { recursive: true });
+    fs.appendFileSync(spilloverPath, JSON.stringify(record) + '\n', 'utf8');
+  } catch (_) {
+    // Silent failure - spillover is best-effort; a missed record is tolerated.
+  }
+}
+
+/**
+ * Write context.md, OR spill the activity when a /wrap holds the lock.
+ * Lock-aware: if wrapLockHeld(cwd) is true, the context.md write is skipped and
+ * one spillover record is appended instead (so the enrichment's locked Part-A
+ * merge is not clobbered). The lock is re-checked immediately before the
+ * writeFileSync to minimize the TOCTOU window. Silent-fail on any fs error.
+ * Shared by both context.md write paths (the /wrap-coexistence append and the
+ * normal write) so the lock-gate logic lives in exactly one place.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string} outputPath - Absolute path to context.md.
+ * @param {string} projectDir - Absolute path to the .agentic/ directory.
+ * @param {string} body - The full context.md content to write.
+ * @param {object} spilloverRecord - Record to spill when the lock is held.
+ */
+function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecord) {
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+  if (wrapLockHeld(cwd)) {
+    appendSpilloverRecord(cwd, spilloverRecord);
+    return;
+  }
+  try {
+    fs.mkdirSync(projectDir, { recursive: true });
+    // Re-check immediately before the write to minimize the TOCTOU window.
+    if (wrapLockHeld(cwd)) {
+      appendSpilloverRecord(cwd, spilloverRecord);
+    } else {
+      fs.writeFileSync(outputPath, body, 'utf8');
+    }
+  } catch (_) {
+    // Silent failure
+  }
+}
+
+/**
+ * Stage a per-session .agentic/wrap/pending-<session_id>.json enrichment marker
+ * (schema_version 3) so the next session in this project (or the daemon) can
+ * complete enrichment for a session that exited un-wrapped. The full staging
+ * predicate, the MAJOR-3 ready/pending/in_progress suppression, the .last-wrap
+ * suppression, the substantive-activity gate, the atomic tmp+rename write, and
+ * the loop-guard NO-OP all live in hooks/lib/wrap-marker.js (single source of
+ * truth). NORMATIVE marker schema lives in content/commands/wrap.md.
+ *
+ * @param {string} cwd - Verified project directory.
+ * @param {string|null} sessionId - Current session uuid from the Stop payload.
+ * @param {{uncommittedCount: number, pathsReferencedCount: number,
+ *          recentFocusCount: number}} scan - Already-computed activity counts.
+ */
+function stageWrapPending(cwd, sessionId, scan) {
+  wrapMarker.stagePending(cwd, sessionId, scan);
+}
+
 // ---------------------------------------------------------------------------
 // Capture-gap backstop helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Guardrail glob patterns used to detect test / lint / schema files added
- * during the session. Matched against the basename of each changed path.
- * @type {RegExp[]}
- */
-const GUARDRAIL_PATTERNS = [
-  /test/i,
-  /spec/i,
-  /\.eslintrc/i,
-  /\.schema\./i,
-  /ruff\.toml/i,
-  /mypy\.ini/i,
-];
-
-/**
- * Normalize a string into tokens for domain-proximity matching.
- * Splits on '/', '.', '-', '_' and lowercases; filters tokens shorter than 4
- * chars (too generic to carry domain signal).
- *
- * @param {string} str
- * @returns {string[]}
- */
-function _tokenize(str) {
-  return str.toLowerCase().split(/[\/.\-_]/).filter((t) => t.length >= 4);
-}
-
-/**
- * Detect whether this session has learning-worthy events with no learnings
- * captured. Pure function: reads files, runs one git subprocess, returns a
- * result object. Never throws - all errors are absorbed and return
- * { shouldNudge: false }.
- *
- * Three conditions must ALL hold for shouldNudge === true:
- *   (a) At least one learning-worthy event this session (debugger/investigator
- *       spawn_complete, skeptic spawn_complete with major/critical resolved, or
- *       tool_failure_workaround). Events without session_uuid are DELIBERATELY
- *       EXCLUDED (inverse of scanSessionAggregate which includes absent uuids
- *       for back-compat). This exclusion prevents false nags from legacy event
- *       lines whose session cannot be determined. Self-heals after one post-upgrade
- *       session where emits carry session_uuid.
- *   (b) No today-dated [LRN- or [KNW- entries in .agentic/learnings.md.
- *   (c) No domain-proximate guardrail added this session (suppression). The
- *       suppressor checks git diff --name-only origin/HEAD..HEAD (all session
- *       commits since branch diverged from upstream - primary) falling back to
- *       git diff --name-only HEAD~1 HEAD (single-commit fallback when no
- *       upstream ref exists). If guardrails were added but none are domain-
- *       proximate with the event domain tokens, residualOnly is set true and
- *       the nudge still fires with residual-WHY wording.
- *
- * @param {string} cwd - Project root (absolute, already validated by run()).
- * @param {string|null} sessionId - Stop payload session_id (harness uuid).
- * @returns {{ shouldNudge: boolean, residualOnly: boolean }}
- */
-function detectCaptureGap(cwd, sessionId) {
-  try {
-    if (!sessionId) return { shouldNudge: false, residualOnly: false };
-
-    // --- (a) Scan events.jsonl for learning-worthy events this session ---
-    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
-
-    // Pagination: read only lines after the last sweep cursor.
-    let lastSweepTs = '';
-    try {
-      const cursorPath = path.join(cwd, '.agentic', '.capture-gap-last-sweep');
-      if (fs.existsSync(cursorPath)) {
-        lastSweepTs = fs.readFileSync(cursorPath, 'utf8').trim();
-      }
-    } catch (_) { /* silent */ }
-
-    let rawEvents = '';
-    try {
-      if (fs.existsSync(eventsPath)) {
-        rawEvents = fs.readFileSync(eventsPath, 'utf8');
-      }
-    } catch (_) { return { shouldNudge: false, residualOnly: false }; }
-
-    const eventLines = rawEvents.split('\n');
-    // On cold start (no cursor), cap to the last 100 lines.
-    const linesToScan = lastSweepTs
-      ? eventLines
-      : eventLines.slice(-100);
-
-    const LEARNING_AGENTS = new Set(['debugger', 'investigator']);
-    let hasLearningWorthyEvent = false;
-    const eventDomainTokens = new Set();
-
-    for (const line of linesToScan) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let obj;
-      try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-
-      const data = (obj && obj.data) || {};
-
-      // DELIBERATE: lines without data.session_uuid are EXCLUDED here.
-      // This is the inverse of scanSessionAggregate (which includes absent uuids
-      // for back-compat). The backstop must not nag on legacy event lines from
-      // prior sessions that lack session attribution - that would cause false
-      // positives on every session until the file rotates. scanSessionAggregate
-      // keeps absent=include for back-compat; only this backstop uses absent=exclude.
-      if (!data.session_uuid || data.session_uuid !== sessionId) continue;
-
-      // Pagination: skip lines at or before the last sweep timestamp.
-      if (lastSweepTs && obj.ts && obj.ts <= lastSweepTs) continue;
-
-      const ev = obj.event;
-      const agentName = (obj.agent || '').toLowerCase();
-
-      let worthy = false;
-      if (ev === 'tool_failure_workaround') {
-        worthy = true;
-      } else if (ev === 'spawn_complete') {
-        if (LEARNING_AGENTS.has(agentName)) {
-          worthy = true;
-        } else if (agentName === 'skeptic') {
-          const fc = data.findings_count || {};
-          if ((Number(fc.critical) || 0) > 0 || (Number(fc.major) || 0) > 0) {
-            if (data.signed_off) worthy = true;
-          }
-        }
-      }
-
-      if (worthy) {
-        hasLearningWorthyEvent = true;
-        // Collect domain tokens from domain_tag and tool references
-        for (const src of [data.domain_tag, data.tool]) {
-          if (typeof src === 'string' && src) {
-            for (const tok of _tokenize(src)) eventDomainTokens.add(tok);
-          }
-        }
-      }
-    }
-
-    if (!hasLearningWorthyEvent) return { shouldNudge: false, residualOnly: false };
-
-    // --- (b) Check .agentic/learnings.md for today-dated entries ---
-    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    try {
-      const learningsPath = path.join(cwd, '.agentic', 'learnings.md');
-      if (fs.existsSync(learningsPath)) {
-        const learningsRaw = fs.readFileSync(learningsPath, 'utf8');
-        // Match [LRN-YYYYMMDD-XXX] or [KNW-YYYYMMDD-XXX] with today's date, OR
-        // a "Discovered: YYYY-MM-DD" line dated today.
-        const dateCompact = todayStr.replace(/-/g, '');
-        const hasToday =
-          learningsRaw.includes(`[LRN-${dateCompact}`) ||
-          learningsRaw.includes(`[KNW-${dateCompact}`) ||
-          learningsRaw.includes(`Discovered: ${todayStr}`);
-        if (hasToday) return { shouldNudge: false, residualOnly: false };
-      }
-    } catch (_) { /* silent - absent learnings.md means no learning captured */ }
-
-    // --- (c) Guardrail suppression ---
-    // Collect names of guardrail files added this session via git diff.
-    // Primary: git diff --name-only origin/HEAD..HEAD  (all commits since branch diverged)
-    // Fallback: git diff --name-only HEAD~1 HEAD       (last commit only; used when no upstream)
-    let changedPaths = [];
-    try {
-      let diffOutput = '';
-      try {
-        diffOutput = execSync(
-          'git diff --name-only origin/HEAD..HEAD',
-          { cwd, timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
-        );
-      } catch (_primaryErr) {
-        // No upstream ref - fall back to last commit only.
-        try {
-          diffOutput = execSync(
-            'git diff --name-only HEAD~1 HEAD',
-            { cwd, timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
-          );
-        } catch (_) { /* no commits yet or non-git dir; diffOutput stays '' */ }
-      }
-      changedPaths = diffOutput.split('\n').map((p) => p.trim()).filter(Boolean);
-    } catch (_) { /* soft-fail: no suppression applied */ }
-
-    const addedGuardrailPaths = changedPaths.filter((p) => {
-      const base = path.basename(p);
-      if (GUARDRAIL_PATTERNS.some((re) => re.test(base))) return true;
-      // Also match directory segments: tests/, evals/, spec/
-      return /(?:^|\/)(?:tests|evals|spec)\//i.test(p + '/');
-    });
-
-    if (addedGuardrailPaths.length === 0) {
-      // No guardrails added - fire standard nudge.
-      return { shouldNudge: true, residualOnly: false };
-    }
-
-    // Check domain proximity: does any guardrail path share a >=4-char token
-    // with any event domain token?
-    let domainProximate = false;
-    if (eventDomainTokens.size > 0) {
-      for (const gp of addedGuardrailPaths) {
-        const gpTokens = _tokenize(gp);
-        if (gpTokens.some((t) => eventDomainTokens.has(t))) {
-          domainProximate = true;
-          break;
-        }
-      }
-    }
-
-    if (domainProximate) {
-      // Domain-proximate guardrail added - suppress nudge entirely.
-      return { shouldNudge: false, residualOnly: false };
-    }
-
-    // Guardrails added but none domain-proximate - fire with residual-WHY text.
-    return { shouldNudge: true, residualOnly: true };
-  } catch (_) {
-    // Top-level safety net: any unexpected error -> no nudge (never blocks exit).
-    return { shouldNudge: false, residualOnly: false };
-  }
-}
+// detectCaptureGap, GUARDRAIL_PATTERNS, and _tokenize now live in
+// hooks/lib/capture-gap.js (required at the top of this file) so the in-session
+// PostToolUse(Task) nudge shares the detector. appendCaptureGapNoticeToContextMd
+// below - the sole writer of the .capture-gap-last-sweep cursor - stays here.
 
 /**
  * Append a capture-gap nudge to .agentic/context.md. Sentinel-gated per session
@@ -942,6 +895,13 @@ function run() {
   const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())
     ? payload.session_id.trim()
     : null;
+
+  // --- 3b. Touch this session's heartbeat (per-turn liveness signal) ---
+  // Pure wastefulness defense: the daemon defers claiming a `ready` marker whose
+  // session still emits turns. Local fs only (no git/network); no-op under the
+  // loop-guard; fail-open. Never blocks exit.
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+  if (sessionId && deferredDaemonEnabled(cwd)) wrapMarker.touchHeartbeat(cwd, sessionId);
 
   const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
 
@@ -1077,6 +1037,32 @@ function run() {
     ? uncommittedFilesLimited.map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`).join('\n')
     : '(working tree clean)';
 
+  // --- 8b. Deferred-wrap inputs (lock-aware skip + marker staging) ---
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+  // The spillover record (NORMATIVE schema in content/commands/wrap.md) is built
+  // from the already-computed scan vars - no new git/subprocess calls. It is
+  // appended only when wrapLockHeld(cwd) is true and the context.md write is
+  // therefore skipped. spilloverScan carries the substantive-activity counts the
+  // marker-staging predicate needs.
+  const pathsReferencedArr = [...filePaths].sort();
+  const uncommittedArr = uncommittedFilesLimited.map(
+    ({ statusCode, filePath }) => `${statusCode} ${filePath}`
+  );
+  const spilloverRecord = {
+    schema_version: 1,
+    ts: new Date().toISOString(),
+    session_id: sessionId,
+    recent_focus: recentUserMessages,
+    paths_referenced: pathsReferencedArr,
+    uncommitted: uncommittedArr,
+    tools_used: uniqueTools,
+  };
+  const spilloverScan = {
+    uncommittedCount: uncommittedFiles.length,
+    pathsReferencedCount: filePaths.size,
+    recentFocusCount: recentUserMessages.length,
+  };
+
   const content = `# Session Context
 *Auto-updated by Stop hook — ${dateStr}. Overwritten each turn. Not committed to git.*
 *Project: ${cwd}*
@@ -1127,12 +1113,8 @@ ${uncommittedChangesLines}
 ### Tools Used
 ${toolsLine}
 `;
-      try {
-        fs.mkdirSync(projectDir, { recursive: true });
-        fs.writeFileSync(outputPath, wrapContent + activityBlock, 'utf8');
-      } catch (_) {
-        // Silent failure
-      }
+      // Lock-aware context.md write: skip + spill while a /wrap holds the lock.
+      writeContextMdOrSpill(cwd, outputPath, projectDir, wrapContent + activityBlock, spilloverRecord);
       // M1: write loop-state on ALL exit paths, including the wrap-coexistence path.
       writeLoopState(cwd);
       // Mirror to batch-state.json (sibling envelope; ordered after loop-state
@@ -1167,7 +1149,13 @@ ${toolsLine}
         } else {
           // Provisional or no identity: pending buffer
           writePendingBuffer(cwd, sessionId);
-          if (!identity) {
+          // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+          // The identity nudge is a context.md writer; defer it while a /wrap
+          // holds the lock so the locked Part-A merge is not clobbered. The
+          // sentinel is consumed atomically with the nudge, so skipping both
+          // here means the one-time nudge fires on a later unlocked session
+          // rather than being lost.
+          if (!identity && !wrapLockHeld(cwd)) {
             // No identity at all: also nudge once
             const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
             try {
@@ -1191,6 +1179,11 @@ ${toolsLine}
         }
       } catch (_) { /* silent */ }
       removeLearningsAgentSession(cwd, sessionId);
+      // Stage the wrap-pending marker (after the context.md decision, on every
+      // exit path). Gated on deferredDaemonEnabled so the flag-off default never
+      // accumulates markers. Fail-open; never blocks exit.
+      // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+      if (deferredDaemonEnabled(cwd)) stageWrapPending(cwd, sessionId, spilloverScan);
       process.exit(0);
     }
   } catch (_) {
@@ -1198,12 +1191,8 @@ ${toolsLine}
   }
 
   // --- 10. Write file (silent failure on any error) ---
-  try {
-    fs.mkdirSync(projectDir, { recursive: true });
-    fs.writeFileSync(outputPath, content, 'utf8');
-  } catch (_) {
-    // Silent failure
-  }
+  // Lock-aware context.md write: skip + spill while a /wrap holds the lock.
+  writeContextMdOrSpill(cwd, outputPath, projectDir, content, spilloverRecord);
 
   // --- 11. Write interrupted status to loop-state.json if an active loop exists ---
   // Delegated to writeLoopState() which is also called from the wrap-coexistence
@@ -1247,7 +1236,11 @@ ${toolsLine}
     } else {
       // Provisional or no identity: pending buffer
       writePendingBuffer(cwd, sessionId);
-      if (!identity) {
+      // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+      // Defer the identity nudge (a context.md writer) while a /wrap holds the
+      // lock; the sentinel is consumed atomically with the nudge, so skipping
+      // both defers the one-time nudge to a later unlocked session.
+      if (!identity && !wrapLockHeld(cwd)) {
         // No identity at all: also nudge once
         const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
         try {
@@ -1276,6 +1269,15 @@ ${toolsLine}
       appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
     }
   } catch (_) { /* silent */ }
+
+  // --- 16. Stage the wrap-pending marker (deferred-wrap safety-net) ---
+  // Runs after the context.md decision, on this exit path. Gated on
+  // deferredDaemonEnabled so the flag-off default never accumulates markers.
+  // Fail-open; never blocks exit. Staged only when no live marker exists, this
+  // session has not already wrapped (.last-wrap), and the session had substantive
+  // activity.
+  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
+  if (deferredDaemonEnabled(cwd)) stageWrapPending(cwd, sessionId, spilloverScan);
 
   process.exit(0);
 }

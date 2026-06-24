@@ -1,0 +1,104 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * Purpose: Portable, permission-safe release of the /wrap directory lock
+ *          (.agentic/wrap/lock). Replaces the inline `rm -rf .agentic/wrap/lock`
+ *          that Claude Code's permission system denies even under bypass. Invoked
+ *          by BARE NAME (PATH-wired like agentic-migrate) from any project root.
+ *
+ * Public API: CLI. `agentic-wrap-release-lock [cwd]`
+ *   - cwd defaults to process.cwd() (the project root during /wrap). Resolved to
+ *     absolute before use (releaseWrapLock -> safeCwd rejects non-absolute paths).
+ *   - Always exits 0 (fail-open). Prints exactly one status line to stdout:
+ *       "released <lockPath>"            lock existed and was removed
+ *       "no lock present"               nothing to remove
+ *       "WARNING: lock release failed, lock may persist at <lockPath>"
+ *                                       releaseWrapLock returned false (fs error)
+ *
+ * Upstream dependencies: hooks/lib/wrap-marker.js (REPO copy, resolved via a
+ *   __dirname-relative require so a symlinked bin still loads the repo lib, NOT a
+ *   cwd-relative copy). Depends on releaseWrapLock's RETURN CONTRACT:
+ *   true = lock removed-or-already-absent (ENOENT suppressed by force:true),
+ *   false = genuine fs error (EACCES/EPERM) or safeCwd rejection. This helper is
+ *   the FIRST production caller of releaseWrapLock; a future change to that
+ *   contract (e.g. returning false on absent) must update the stat-driven
+ *   messaging here to stay in sync. Also reads wrapLockPath(cwd) for the
+ *   stat-before-release existence check that disambiguates the true return.
+ *   Node built-ins: fs, path. No npm dependencies.
+ *
+ * Downstream consumers: content/commands/wrap.md (Step 6 + mandatory-release
+ *   block), content/commands/implement-ticket.md Phase 11b (conductor-run lock
+ *   release after wrap-ticket returns). NOT the deferred path: /wrap-deferred and
+ *   the daemon clear the lock via clearProvablyStaleWrapLock (Bash removed there).
+ *   Lock path: .agentic/wrap/lock (resolved via lib.wrapLockPath; fallback to
+ *   hardcoded path.join(cwd, '.agentic', 'wrap', 'lock')).
+ *
+ * Failure modes: fail-open. Any error (require failure, fs error, bad cwd) is
+ *   swallowed and the process still exits 0 so a release failure never aborts the
+ *   caller's exit path. A genuine release failure prints the WARNING line so the
+ *   conductor can surface it. SAFETY NET if the lock truly persists: the next
+ *   /wrap's acquireWrapLock auto-clears a >30-min stale lock in code, and wrap.md's
+ *   acquisition block gives the human a 30-min manual-removal path -- so a persisted
+ *   lock is self-healing and never wedges the project permanently.
+ *
+ * Performance: standard. One stat + one rmSync, synchronous, no network/subprocess.
+ */
+
+const path = require('path');
+
+function main() {
+  const cwd = path.resolve(process.argv[2] || process.cwd());
+  let lib;
+  try {
+    // __dirname-relative require: resolves to the REPO's lib even when this file
+    // is invoked through a symlink in ~/.local/bin (Node resolves symlinks by
+    // default, so __dirname is <repo>/bin). Never cwd-relative.
+    lib = require(path.join(__dirname, '..', 'hooks', 'lib', 'wrap-marker.js'));
+  } catch (_) {
+    // Lib not loadable (e.g. running outside a proper install): fail-open, exit 0.
+    process.stdout.write('WARNING: lock release helper could not load wrap-marker lib; lock may persist\n');
+    process.exit(0);
+  }
+
+  let lockPath = path.join(cwd, '.agentic', 'wrap', 'lock');
+  try {
+    if (typeof lib.wrapLockPath === 'function') lockPath = lib.wrapLockPath(cwd) || lockPath;
+  } catch (_) { /* fall back to the joined path */ }
+
+  // Defense-in-depth: reject any resolved path not ending in the expected suffix.
+  // safeCwd/releaseWrapLock already block traversal; this is an additional guard
+  // so a misconfigured or tampered lib cannot redirect the release to an unexpected path.
+  const LOCK_SUFFIX = path.join('.agentic', 'wrap', 'lock');
+  if (!lockPath.endsWith(LOCK_SUFFIX)) {
+    process.stdout.write('WARNING: resolved lock path does not end in ' + LOCK_SUFFIX + '; refusing release (path: ' + lockPath + ')\n');
+    process.exit(0);
+  }
+
+  // Stat BEFORE release so we can label the outcome accurately. releaseWrapLock
+  // returns true for both "removed" and "already absent" (ENOENT suppressed), so
+  // the lib's return alone cannot distinguish them.
+  let existedBefore = false;
+  try {
+    const fs = require('fs');
+    existedBefore = fs.existsSync(lockPath);
+  } catch (_) { /* treat as not-present */ }
+
+  let released = false;
+  try {
+    released = lib.releaseWrapLock(cwd) === true;
+  } catch (_) {
+    released = false;
+  }
+
+  if (!released) {
+    process.stdout.write('WARNING: lock release failed, lock may persist at ' + lockPath + '\n');
+  } else if (existedBefore) {
+    process.stdout.write('released ' + lockPath + '\n');
+  } else {
+    process.stdout.write('no lock present\n');
+  }
+  process.exit(0);
+}
+
+main();

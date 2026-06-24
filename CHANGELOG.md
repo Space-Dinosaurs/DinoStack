@@ -3,6 +3,29 @@
 
 # Changelog
 
+## 2026-06-23
+
+### Fixes
+
+- **#295** [pin ossf/scorecard-action to v2.4.3 SHA (bare @v2 tag does not exist)](https://github.com/Space-Dinosaurs/DinoStack/pull/295) - tyson-solara6
+
+## 2026-06-22
+
+### Features
+
+- **#294** [cross-harness agent teams (extends #256)](https://github.com/Space-Dinosaurs/DinoStack/pull/294) - bloodf
+- **#291** [zero-opt-in graph signal + autonomous graphify update refresh](https://github.com/Space-Dinosaurs/DinoStack/pull/291) - tyson-solara6
+- **#289** [opt-in graphify_risk_signals - graph-derived escalation for conductor risk classification](https://github.com/Space-Dinosaurs/DinoStack/pull/289) - tyson-solara6
+- **#288** [optional Graphify graph-aware blast-radius via capability-preflight](https://github.com/Space-Dinosaurs/DinoStack/pull/288) - tyson-solara6
+
+### Fixes
+
+- **#292** [backfill missing template toggles + correct capability_preflight_mode default](https://github.com/Space-Dinosaurs/DinoStack/pull/292) - tyson-solara6
+
+### Documentation
+
+- **#293** [split Open Questions from Deferred defaults so the hard gate fires only on real blockers](https://github.com/Space-Dinosaurs/DinoStack/pull/293) - tyson-solara6
+
 ## 2026-06-21
 
 ### Uncategorized

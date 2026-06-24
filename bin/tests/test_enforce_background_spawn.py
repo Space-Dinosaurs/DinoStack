@@ -385,6 +385,101 @@ def test_sentinel_is_live_stale_mtime():
 
 
 # ---------------------------------------------------------------------------
+# Tests: PR #256 merge - Task/Agent rename UNION + reap-string removal
+# ---------------------------------------------------------------------------
+
+def test_agent_denied_when_no_run_in_background():
+    """PR256 (a): tool_name='Agent' with no run_in_background -> denied.
+
+    origin/main renamed the spawn tool Task -> Agent. The background-enforcement
+    path must guard on Agent too, and the deny reason must name 'Agent'.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            "tool_input": {"subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed), f"Expected deny for Agent without bg flag, got: {parsed}"
+        reason = _deny_reason(parsed)
+        assert "run_in_background" in reason
+        assert "Agent spawn blocked" in reason, f"deny reason must name Agent: {reason}"
+
+
+def test_agent_denied_outright_when_sentinel_live_not_skill_detection():
+    """PR256 (b): sentinel-live + Agent -> denied OUTRIGHT via the team-run path.
+
+    Agent must be _deny()'d by the sentinel-suppression block and NEVER reach
+    the oh-my-claudecode skill-detection sub-block. Assert the deny reason is the
+    team-run reason (mentions 'cross-harness team'), NOT a skill reason.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())  # live sentinel
+
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            # run_in_background True so that, were ordering wrong, the bg path
+            # would ALLOW it; a deny here proves the sentinel path fired first.
+            "tool_input": {"run_in_background": True, "subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed), f"Expected outright deny for Agent, got: {parsed}"
+        reason = _deny_reason(parsed)
+        assert "cross-harness team" in reason, f"must be team-run deny: {reason}"
+        assert "Skill" not in reason, f"Agent must NOT enter skill detection: {reason}"
+
+
+def test_omc_skill_denied_when_sentinel_live_agent_rename():
+    """PR256 (c): sentinel-live + Skill 'oh-my-claudecode:foo' -> denied.
+
+    Confirms the skill sub-block is still reachable (and only) for tool_name=Skill
+    after the Task/Agent UNION.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())
+
+        payload = {
+            "tool_name": "Skill",
+            "cwd": tmpdir,
+            "tool_input": {"skill": "oh-my-claudecode:foo"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed), f"Expected deny for OMC skill, got: {parsed}"
+        assert "oh-my-claudecode:foo" in _deny_reason(parsed)
+
+
+def test_no_reap_string_in_any_deny_reason():
+    """PR256 (d): M1 - the Task/Agent sentinel deny reason contains no '--reap'.
+
+    The phantom `agentic-team status --reap` clause was removed; the sentinel now
+    self-expires. No deny path may emit a '--reap' substring.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())  # live sentinel
+
+        for tname in ("Task", "Agent"):
+            payload = {
+                "tool_name": tname,
+                "cwd": tmpdir,
+                "tool_input": {"run_in_background": True, "subagent_type": "engineer"},
+            }
+            rc, parsed = _run_hook(payload)
+            assert rc == 0
+            assert _is_denied(parsed), f"{tname}: expected sentinel deny, got: {parsed}"
+            assert "--reap" not in _deny_reason(parsed), (
+                f"{tname} deny reason must not reference --reap: {_deny_reason(parsed)}"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Standalone runner
 # ---------------------------------------------------------------------------
 
