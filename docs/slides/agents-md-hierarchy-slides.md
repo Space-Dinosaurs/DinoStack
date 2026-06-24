@@ -293,11 +293,14 @@ And what does **not** go in AGENTS.md - the rest of the **intent layer**:
 
 | File | Purpose |
 |---|---|
+| `docs/overview/vision.md` + `requirements.md` | Operator-owned product intent - agents read, never write |
 | `decisions.md` | Architecture decisions with full rationale (auto-loaded from rules) |
 | `.agentic/context.md` | Ephemeral session state - auto-written by the Stop hook |
 | `MEMORY.md` | Stable facts learned across sessions |
+| `.agentic/learnings.md` | Structured fix-pattern learnings from resolved Skeptic cycles |
+| `.agentic/findings.md` | Curated recurring Skeptic-finding patterns |
 | `glossary.md` | Ubiquitous Language - the project's domain terms; agents prefer these over inventing synonyms |
-| `.agentic/qa.md` | QA triggers and accumulated runtime knowledge |
+| `qa.md` | QA triggers and accumulated runtime knowledge |
 
 <div class="callout">
 AGENTS.md, MEMORY.md, decisions.md, qa.md, module manifests, and glossary.md together form the project's <strong>intent layer</strong> - the artifacts that capture what the project means to be. Drift between code and these files is intent debt, distinct from technical debt in the code.

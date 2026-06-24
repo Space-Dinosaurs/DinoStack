@@ -199,7 +199,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>debugger</strong><br/>Root cause analysis. Given a failure, returns a diagnosis and fix brief.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>orchestration-planner</strong><br/>Picks the team. Given a goal, produces a structured execution plan.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>product-discovery</strong><br/>Facilitated discovery before architecture. Frames the problem, names personas, runs an attributed market scan, stages a proposed vision + requirements.<div class="tier">Default Tier: 2</div></div>
-<div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase, reads <code>.claude/findings.md</code> at plan time, returns a structured technical plan.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase and returns a structured technical plan.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, writes module manifests, adds regression tests for Critical/Major fixes, runs quality gates.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor. Checks module manifests and regression tests.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.<div class="tier">Default Tier: 1</div></div>
@@ -247,7 +247,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 - Spawned into their own **isolated worktree** - their own files, their own context
 - Given a **structured brief** - goal, constraints, acceptance criteria, non-goals
 - Do their narrow job and return a **structured result** - not raw transcript
-- Most agents are read-only analysis/planning. `engineer`, `adr-generator`, `release-orchestrator`, `learnings-agent`, and `wrap-ticket` write files.
+- Most agents are read-only analysis/planning. `engineer`, `adr-generator`, `release-orchestrator`, `learning-extractor`, `learnings-agent`, and `wrap-ticket` write files.
 
 <div class="callout">
 The main thread never sees their raw work - only their conclusion. That's the whole point: heavy work without heavy context.
@@ -286,7 +286,7 @@ Plans get reviewed before code. Code gets reviewed before QA. Each stage hands o
 - **Always a fresh spawn.** Never resumed, never continued from a prior round.
 - A resumed Skeptic has seen its own previous criticism - it gets polite and misses things.
 - Fresh context = adversarial teeth.
-- Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major requires action or a justified waiver.
+- Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major blocks sign-off until resolved.
 - **Two new obligations:** (1) tiered manifest enforcement on non-trivial files (missing = Minor, stale = Major, stale-on-correctness/security path = Critical); (2) verifies regression tests exist for any Critical/Major fix before granting sign-off.
 - **Domain fit comes from the adversarial brief**, not the agent. The conductor writes a brief tailored to the change - auth flow, migration, perf regression - and the Skeptic reviews through that lens.
 
