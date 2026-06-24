@@ -50,8 +50,13 @@ Failure modes:
     - Invalid/garbage stdout: guarded via atomic print-then-exit pattern;
       any exception before the print results in no stdout = allow.
 
-Performance: < 5 ms per call (one file read for config, one JSONL tail scan
-             for transcript fallback, one small counter file read/write).
+Performance: < 5 ms per call on typical transcripts (one file read for config,
+             a small counter file read/write, and up to two full-file scans of
+             the transcript JSONL - one forward scan to count genuine human
+             turns, and one reverse-from-readlines scan for the
+             last-assistant-message fallback). Both transcript scans are skipped
+             when transcript_path is absent; the fallback scan is skipped when
+             last_assistant_message is already populated.
 """
 
 import json
@@ -98,10 +103,16 @@ _PERMISSION_PHRASES = re.compile(
 
 # Tier 2 (negative gate): hard-stop or legitimate-question signals.
 # Presence of any of these tokens suppresses the block even if a permission
-# phrase is present. "(recommended)" and "proceeding with" / "unless you say
-# otherwise" indicate correct surface-and-proceed usage - never block those.
+# phrase is present. Three groups:
+#   (a) destructive/irreversible signals - blocking here would force the
+#       conductor to execute an irreversible action it correctly paused on.
+#   (b) product-judgment / design-fork signals - genuine "I need your
+#       judgment" questions the conductor cannot derive a default for.
+#   (c) correct surface-and-proceed markers ("(recommended)", "proceeding
+#       with", "unless you say otherwise") - already-compliant behavior.
 _NEGATIVE_GATE_PATTERNS = re.compile(
     r'(?:'
+    # --- (a) destructive / irreversible ---
     r'\bdestructive\b'
     r'|\birreversible\b'
     r'|\bforce push\b'
@@ -110,12 +121,30 @@ _NEGATIVE_GATE_PATTERNS = re.compile(
     r'|\bdrop table\b'
     r'|\bschema migration\b'
     r'|\bproduction deploy\b'
+    r'|\bpermanently (?:remove|delete)\b'
+    r'|\bpermanently\b'
+    r'|\bcan(?:not|\'t|not) be undone\b'
+    r'|\bno undo\b'
+    r'|\bunrecoverable\b'
+    r'|\bdata loss\b'
+    r'|\bwipe\b'
+    r'|\boverwrite\b'
+    # --- (b) cannot-derive / credential / target-selection ---
     r'|\bcannot derive\b'
     r'|\bmissing credential\b'
     r'|\bapi key\b'
     r'|\bwhich environment\b'
     r'|\bwhich workspace\b'
     r'|\bmerge to main\b'
+    # --- (b cont.) product-judgment / design-fork signals ---
+    r'|\bwhich direction\b'
+    r'|\bwhich approach\b'
+    r'|\bwhich option\b'
+    r'|\bwhich of these\b'
+    r'|\bchanges the (?:data model|schema|api|contract)\b'
+    r'|\bload-bearing\b'
+    r'|\bdesign (?:decision|fork|choice)\b'
+    # --- (c) correct surface-and-proceed markers ---
     r'|\(recommended\)'
     r'|proceeding with'
     r'|unless you say otherwise'
@@ -202,8 +231,71 @@ def _reset_counter(cwd: str, current_user_msg_count: int) -> None:
 # Transcript helpers
 # ---------------------------------------------------------------------------
 
+def _is_genuine_user_turn(obj: dict) -> bool:
+    """Return True only for a GENUINE human turn line in a CC transcript.
+
+    Critical loop-safety constraint: in real Claude Code transcripts EVERY
+    tool_result is recorded as a `type:"user"` line (the model running a tool
+    while "proceeding" produces tool_result lines with type=="user"). If those
+    counted as user turns, the #54360 backstop counter would reset on every
+    re-entry that ran a tool, pinning count at 1 and never reaching the cap -
+    an infinite block loop. So a genuine human turn is a `type:"user"` line
+    that carries real text content and is NEITHER a tool_result NOR a meta line.
+    """
+    if not isinstance(obj, dict):
+        return False
+    # Top-level role in CC transcripts is typically absent for user lines;
+    # the discriminator is `type`. Accept either shape defensively.
+    role = obj.get("role") or obj.get("type", "")
+    if role != "user":
+        return False
+    # Exclude meta/system-injected lines (e.g. interleaved system reminders).
+    if obj.get("isMeta") is True:
+        return False
+
+    # Locate the message content. CC shape: {"type":"user","message":{"content":...}}
+    msg = obj.get("message")
+    content = None
+    if isinstance(msg, dict):
+        content = msg.get("content")
+    if content is None:
+        content = obj.get("content")
+
+    # A tool_result line is NOT a human turn. content may be:
+    #   - a list of blocks, any of which has type=="tool_result"
+    #   - (defensively) a single dict block with type=="tool_result"
+    if isinstance(content, list):
+        has_tool_result = any(
+            isinstance(b, dict) and b.get("type") == "tool_result"
+            for b in content
+        )
+        if has_tool_result:
+            return False
+        # Genuine turn requires at least one real text block with text.
+        has_text = any(
+            (isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip())
+            or (isinstance(b, str) and b.strip())
+            for b in content
+        )
+        return has_text
+    if isinstance(content, dict):
+        if content.get("type") == "tool_result":
+            return False
+        if content.get("type") == "text":
+            return bool(content.get("text", "").strip())
+        return False
+    if isinstance(content, str):
+        return bool(content.strip())
+    return False
+
+
 def _count_user_messages(transcript_path: str) -> int:
-    """Count user-role messages in transcript. Returns 0 on error."""
+    """Count GENUINE human turns in the transcript. Returns 0 on error.
+
+    Counts only real human messages - NOT tool_result lines (which CC records
+    as type:"user") and NOT meta lines. See _is_genuine_user_turn for the
+    rationale: counting tool_results here would break the #54360 loop backstop.
+    """
     try:
         count = 0
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
@@ -213,11 +305,10 @@ def _count_user_messages(transcript_path: str) -> int:
                     continue
                 try:
                     obj = json.loads(line)
-                    role = obj.get("role") or obj.get("type", "")
-                    if role == "user":
-                        count += 1
                 except Exception:
                     continue
+                if _is_genuine_user_turn(obj):
+                    count += 1
         return count
     except Exception:
         return 0

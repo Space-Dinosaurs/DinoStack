@@ -39,6 +39,10 @@ HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-no-abdication.py"
 )
 
+# Mirrors CONSECUTIVE_BLOCK_CAP in enforce-no-abdication.py. The hook runs as a
+# subprocess so we cannot import the constant; this is a fixed-contract value.
+CONSECUTIVE_BLOCK_CAP = 2
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -290,6 +294,45 @@ def build_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | None]]:
             None,
         ))
 
+    # --- Negative gate: irreversibility phrasings (Skeptic Major #2) ---
+    # Full-sentence probes that previously wrongly BLOCKED.
+    irreversibility_probes = [
+        "This permanently removes the production database and cannot be undone. Should I proceed?",
+        "This will permanently delete every record. Want me to proceed?",
+        "This permanently wipes the cache. Should I go ahead?",
+        "This action can't be undone. Want me to proceed?",
+        "This will overwrite the existing file. Should I proceed?",
+        "The data is unrecoverable after this. Want me to proceed?",
+        "There is no undo for this step. Should I proceed?",
+        "This risks data loss. Want me to proceed?",
+    ]
+    for i, probe in enumerate(irreversibility_probes):
+        cases.append((
+            f"Irreversibility probe #{i} suppresses block -> ALLOW",
+            make_payload(tmp_dir, last_assistant_message=probe),
+            "ALLOW",
+            None,
+        ))
+
+    # --- Negative gate: product-judgment / design-fork (Skeptic Major #3) ---
+    fork_probes = [
+        "The choice changes the data model. Which direction do you want me to take?",
+        "There are two viable paths. Which approach should I use?",
+        "Which option do you want me to implement?",
+        "Which of these schemas should I commit to?",
+        "This changes the schema in a way that is hard to reverse. Should I proceed?",
+        "This is a load-bearing decision. Want me to proceed?",
+        "This is a design decision with long-term impact. Should I proceed?",
+        "This changes the api contract. Want me to proceed?",
+    ]
+    for i, probe in enumerate(fork_probes):
+        cases.append((
+            f"Design-fork probe #{i} suppresses block -> ALLOW",
+            make_payload(tmp_dir, last_assistant_message=probe),
+            "ALLOW",
+            None,
+        ))
+
     # --- Special negative gates: (recommended) and proceeding with ---
     cases.append((
         "'(recommended)' suffix suppresses block -> ALLOW",
@@ -380,6 +423,89 @@ def test_counter_cap(tmp_dir: str) -> int:
     if not ok2:
         failed += 1
         print(f"         rc={rc2} stdout={stdout2!r}")
+
+    return failed
+
+
+def test_54360_loop_terminates(tmp_dir: str) -> int:
+    """REGRESSION (Skeptic CRITICAL): the #54360 infinite-loop scenario.
+
+    Simulates: stop_hook_active NEVER flips to true across re-entries (CC bug
+    #54360), AND the model runs tools while "proceeding" so the transcript
+    accumulates tool_result lines recorded as type:"user" between blocks.
+
+    The OLD _count_user_messages counted those tool_result lines as user turns,
+    so current_user_msg_count inflated on every re-entry, the reset condition
+    (current > last) fired every time, count was pinned at 1, the CAP was never
+    reached, and the hook blocked FOREVER.
+
+    After the fix, tool_result and meta lines are NOT counted as genuine human
+    turns, so the user-turn count stays flat across re-entries, the counter
+    accumulates, and blocking STOPS at CONSECUTIVE_BLOCK_CAP. This test fails
+    against the pre-fix code and passes after.
+    """
+    print("\n  [#54360 loop-termination regression]")
+    failed = 0
+    loop_dir = os.path.join(tmp_dir, "loop54360_cwd")
+    os.makedirs(loop_dir, exist_ok=True)
+    make_config_file(loop_dir, enabled=True)
+
+    # The transcript at the moment the hook is first (re-)entered: one genuine
+    # human turn, then an abdicating assistant message.
+    transcript_lines = [
+        # Genuine human turn (real text content) - CC native shape.
+        {"type": "user", "message": {"content": [{"type": "text", "text": "Do the work"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": ABDICATING_MSG}]}},
+    ]
+
+    # We simulate up to CAP+2 re-entries. stop_hook_active stays FALSE the whole
+    # time (the bug). Between each re-entry, the model "proceeded" and ran a
+    # tool, so a tool_result line (type:"user") is appended - exactly the
+    # inflation vector that broke the old counter.
+    blocked_each_round = []
+    max_rounds = CONSECUTIVE_BLOCK_CAP + 2
+    for round_idx in range(max_rounds):
+        transcript_path = make_transcript(loop_dir, transcript_lines)
+        payload = json.dumps({
+            "hook_event_name": "Stop",
+            "session_id": "loop-54360",
+            "cwd": loop_dir,
+            "stop_hook_active": False,  # the bug: never propagates
+            "permission_mode": "default",
+            "transcript_path": transcript_path,
+            "last_assistant_message": ABDICATING_MSG,
+        })
+        rc, stdout, _ = run_hook(payload)
+        blocked = is_block(rc, stdout)
+        blocked_each_round.append(blocked)
+
+        # Simulate the model proceeding and running a tool: append a tool_result
+        # line recorded as type:"user" (the inflation vector), plus the next
+        # abdicating assistant message it re-stops on.
+        transcript_lines.append({
+            "type": "user",
+            "message": {"content": [
+                {"type": "tool_result", "tool_use_id": f"t{round_idx}", "content": "ok"}
+            ]},
+        })
+        transcript_lines.append({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": ABDICATING_MSG}]},
+        })
+
+    # Assertion: the loop must TERMINATE. After CONSECUTIVE_BLOCK_CAP blocks the
+    # hook must stop blocking (allow the stop), proving no infinite loop.
+    num_blocks = sum(blocked_each_round)
+    terminated = (not blocked_each_round[-1]) and num_blocks <= CONSECUTIVE_BLOCK_CAP
+    print(
+        f"    [{'PASS' if terminated else 'FAIL'}] #54360: stop_hook_active never flips + "
+        f"tool_result inflation -> loop terminates at cap "
+        f"(blocks={num_blocks}, pattern={blocked_each_round})"
+    )
+    if not terminated:
+        failed += 1
+        print(f"         blocked_each_round={blocked_each_round}")
+        print(f"         num_blocks={num_blocks} (cap={CONSECUTIVE_BLOCK_CAP})")
 
     return failed
 
@@ -577,6 +703,7 @@ def main() -> None:
 
         # Counter tests.
         total_failed += test_counter_cap(tmp_dir)
+        total_failed += test_54360_loop_terminates(tmp_dir)
         total_failed += test_counter_reset_on_new_user_turn(tmp_dir)
         total_failed += test_corrupt_counter_file(tmp_dir)
 
@@ -590,6 +717,7 @@ def main() -> None:
     total_cases = (
         len(cases)
         + 3   # counter cap: 3 assertions
+        + 1   # #54360 loop-termination regression
         + 1   # counter reset
         + 1   # corrupt counter
         + 2   # transcript fallback
