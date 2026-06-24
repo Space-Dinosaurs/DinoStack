@@ -250,9 +250,8 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 - Operator has exploratory framing ("I want to build...")
 - Conductor auto-triggers or operator invokes `/brief [topic]`
 - Multi-turn dialogue: intent, gray areas, Q&A, draft, iterate
-- Brief committed to feature worktree BEFORE architect spawns
+- Brief committed to the conductor's current branch BEFORE architect spawns (`/brief` creates no worktree)
 - `brief_source: operator` - Skeptic does completeness-only review (framing is already confirmed)
-- Worktree persists through architect + engineer flow
 
 </div>
 </div>
@@ -354,11 +353,17 @@ Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines)
                         and regression tests required by .agentic/findings.md that prove this is done.
                         "Cannot specify" is itself a planning gap and blocks Skeptic sign-off.>
 
+**Outcome rubric:**    <Operator-confirmed pass/fail lines (max 6), each tagged
+                        verification_type: deterministic | judgment. Required for Elevated;
+                        absence on an Elevated ticket is a Critical Skeptic finding.>
+- [ ] <criterion, e.g. all existing tests pass with zero regressions> [deterministic]
+- [ ] <criterion, e.g. the new flow is coherent from an operator perspective> [judgment]
+
 **QA criteria:**       <Required for Elevated. YAML block: qa_skip (one of 5 valid enums or null),
-                        qa_skip_rationale (required if qa_skip != null), scenarios[] (required if
-                        qa_skip null; method in {browser, api, runtime-required, visual_conformance,
-                        accessibility, perceptual_diff}), manual_smoke. Absence on Elevated is a
-                        Critical Skeptic finding.>
+                        qa_skip_rationale (required if qa_skip != null), viewport (root default
+                        [desktop]), scenarios[] (required if qa_skip null; method in {browser, api,
+                        runtime-required, visual_conformance, accessibility, perceptual_diff, motion}),
+                        manual_smoke. Absence on Elevated is a Critical Skeptic finding.>
 
 **Linked artifacts:**  architect-plan: <path>; orchestration: <path or inline JSONL block>
 ```
@@ -380,6 +385,7 @@ Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines)
 - **Non-goals** - written to defeat the most likely scope-creep direction.
 - **Constraints** - list only what would change the architect's design if violated.
 - **Verification** - non-skippable. Name the concrete tests, gates, qa.md trigger patterns, and regression tests required by the findings flywheel. If verification cannot be specified at planning time, that is a planning gap - the Brief is not Skeptic-eligible until verification is named.
+- **Outcome rubric** - distinct from Verification. Verification names gate commands; the Outcome rubric is the operator's semantic definition of done. Deterministic lines name a gate; judgment lines are graded adversarially by the Skeptic.
 - **QA criteria** - required for Elevated. YAML block with `qa_skip` enum (or null) and `scenarios[]`. Absence on an Elevated Brief is a Critical Skeptic finding.
 - **Linked artifacts** - makes the Brief auditable against its own inputs.
 
