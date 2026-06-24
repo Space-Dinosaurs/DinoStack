@@ -1,4 +1,34 @@
 #!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Purpose: One-shot installer for agentic-engineering. Symlinks agents,
+#          commands, and the skill directory into ~/.claude/; wires hooks into
+#          ~/.claude/settings.json; writes activation mode + risk profile;
+#          optionally configures permissions, MCPs, and developer identity;
+#          writes repo_dir to ~/.agentic/agentic-engineering-config.json with
+#          a clobber-guard (never overwrites a valid different repo_dir).
+#
+# Public API:
+#   bash .claude/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
+#                           [--identity=<handle>] [--no-identity] [--dry-run]
+#   --dry-run: print symlink actions and repo_dir write intent without executing
+#              them. Hook wiring, build, and permission phases still execute.
+#
+# Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
+#
+# Downstream consumers: bootstrap.sh (calls this), /update-agentic-engineering,
+#   developers running directly.
+#
+# Failure modes:
+#   - Stale symlinks pointing to another methodology checkout are RE-POINTED
+#     (converging / self-healing). Real files at dst are skipped (never touched).
+#   - Symlinks to non-methodology paths are skipped; a warning is printed.
+#   - repo_dir clobber-guard: if ~/.agentic/agentic-engineering-config.json
+#     already holds a valid DIFFERENT repo_dir, a warning is printed and the
+#     existing value is preserved. Only absent/invalid/same values are written.
+#   - All interactive prompts fall back to a default when stdin is not a TTY.
+#
+# Performance: ~5-10 s (one build pass, node/python3 calls for hooks/settings).
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,6 +57,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -46,6 +77,9 @@ for arg in "$@"; do
       ;;
     --no-identity)
       AE_NO_IDENTITY=true
+      ;;
+    --dry-run)
+      AE_DRY_RUN=true
       ;;
   esac
 done
@@ -205,6 +239,39 @@ SETTINGS="$HOME/.claude/settings.json"
 # Helpers
 # ---------------------------------------------------------------------------
 
+# _ae_is_ours DST
+#   Returns 0 (true) iff DST is "ours to own" - i.e. safe to re-point.
+#   A destination is ours iff:
+#     - it IS a symlink (never touch real files), AND
+#     - its current target is broken OR resolves under a methodology checkout
+#       (path contains a component equal to "DinoStack" or ending with "-DinoStack").
+#   Intentionally more conservative than agentic-doctor on broken symlinks:
+#   agentic-doctor reclaims ALL broken symlinks in managed dirs regardless of
+#   origin, while this predicate only reclaims broken symlinks whose target
+#   string contains a /DinoStack/ or -DinoStack/ component (i.e., was clearly
+#   a methodology path). Non-methodology broken symlinks are left untouched.
+#   Must NOT match "MyDinoStackFork" or similar; only exact-component matches count.
+_ae_is_ours() {
+  local dst="$1"
+  # Not a symlink -> not ours (real file: never touch)
+  [[ -L "$dst" ]] || return 1
+  # Broken symlink pointing to a non-methodology path is still "ours" when
+  # the original target was under a DinoStack checkout. If it's broken and
+  # clearly not a DinoStack path we should not re-point it.
+  local current_target
+  current_target="$(readlink "$dst")"
+  # Broken symlink: if target was under a methodology checkout, ours.
+  # The target string itself encodes the path even when the file is gone.
+  if [[ ! -e "$dst" ]]; then
+    # Broken - check if original target is a methodology path
+    [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+    return 1
+  fi
+  # Live symlink: check if it resolves under a methodology checkout.
+  [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+  return 1
+}
+
 symlink_files() {
   local src_dir="$1"
   local dst_dir="$2"
@@ -229,17 +296,38 @@ symlink_files() {
       if [[ "$current_target" == "$src_file" ]]; then
         echo "  = $name (already linked)"
         continue
+      elif _ae_is_ours "$dst_file"; then
+        # Stale symlink pointing to another methodology checkout - re-point it.
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  ~ $name (would re-point to repo_dir)"
+        else
+          ln -sfn "$src_file" "$dst_file"
+          echo "  ~ $name (re-pointed to repo_dir)"
+        fi
+        continue
       else
-        echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  ! $name (would skip: symlink points outside methodology checkout: $current_target)"
+        else
+          echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        fi
         continue
       fi
     elif [[ -e "$dst_file" ]]; then
-      echo "  ! $name (real file exists at destination - skipping)"
+      if [[ "$AE_DRY_RUN" == "true" ]]; then
+        echo "  ! $name (would skip: real file exists at destination)"
+      else
+        echo "  ! $name (real file exists at destination - skipping)"
+      fi
       continue
     fi
 
-    ln -s "$src_file" "$dst_file"
-    echo "  + $name"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  + $name (would create)"
+    else
+      ln -s "$src_file" "$dst_file"
+      echo "  + $name"
+    fi
   done
 }
 
@@ -269,14 +357,34 @@ if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
     echo "  = engineering (already linked)"
+  elif _ae_is_ours "$SKILLS_DST"; then
+    # Stale symlink pointing to another methodology checkout - re-point it.
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ engineering (would re-point to repo_dir)"
+    else
+      ln -sfn "$SKILLS_SRC" "$SKILLS_DST"
+      echo "  ~ engineering (re-pointed to repo_dir)"
+    fi
   else
-    echo "  ! engineering (symlink points elsewhere: $current_target - skipping)"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ! engineering (would skip: symlink points outside methodology checkout: $current_target)"
+    else
+      echo "  ! engineering (symlink points elsewhere: $current_target - skipping)"
+    fi
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
-  echo "  ! engineering (real file/directory exists at destination - skipping)"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  ! engineering (would skip: real file/directory exists at destination)"
+  else
+    echo "  ! engineering (real file/directory exists at destination - skipping)"
+  fi
 else
-  ln -s "$SKILLS_SRC" "$SKILLS_DST"
-  echo "  + agentic-engineering"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + agentic-engineering (would create)"
+  else
+    ln -s "$SKILLS_SRC" "$SKILLS_DST"
+    echo "  + agentic-engineering"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -635,6 +743,122 @@ else:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Write repo_dir to ~/.agentic/agentic-engineering-config.json (guarded)
+#
+# Persists the canonical checkout path so hooks and /update-agentic-engineering
+# can find it in future sessions (bootstrap.sh does this unconditionally, but
+# standalone `bash .claude/install.sh` runs skip bootstrap, leaving repo_dir
+# unset until now).
+#
+# Clobber-guard: ONLY writes when the config is absent, has no repo_dir key,
+# has an invalid (non-git-repo) repo_dir, or already equals REPO_DIR.
+# A valid DIFFERENT repo_dir is NEVER overwritten - a warning is printed
+# instead. Use agentic-doctor or set repo_dir manually if the intent is to
+# switch canonical checkouts.
+# ---------------------------------------------------------------------------
+
+# Source the lib so we can call validate_repo_dir.
+# Gracefully skip if the lib is not available (e.g. older checkout).
+if [[ -f "$REPO_DIR/scripts/lib/repo-dir.sh" ]]; then
+  # shellcheck source=scripts/lib/repo-dir.sh
+  . "$REPO_DIR/scripts/lib/repo-dir.sh"
+
+  _ae_write_repo_dir() {
+    local target_repo_dir="$1"
+    python3 - "$HOME/.agentic/agentic-engineering-config.json" "$target_repo_dir" <<'PYEOF'
+import json, sys, os
+cfg, repo_dir = sys.argv[1], sys.argv[2]
+os.makedirs(os.path.dirname(cfg), exist_ok=True)
+data = {}
+if os.path.exists(cfg):
+    try:
+        with open(cfg) as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+data["repo_dir"] = repo_dir
+# Atomic: write to tmp then rename
+import tempfile
+tmp = cfg + ".tmp." + str(os.getpid())
+with open(tmp, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+os.replace(tmp, cfg)
+PYEOF
+  }
+
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    # Under --dry-run: determine which branch WOULD run and print intent only.
+    _ae_config="$HOME/.agentic/agentic-engineering-config.json"
+    _existing_repo_dir=""
+    if [[ -f "$_ae_config" ]]; then
+      _existing_repo_dir="$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('repo_dir', ''))
+except Exception:
+    print('')
+" "$_ae_config" 2>/dev/null)" || _existing_repo_dir=""
+    fi
+    if [[ -z "$_existing_repo_dir" ]]; then
+      echo "  [dry-run] would write repo_dir=$REPO_DIR to $_ae_config"
+    elif ! validate_repo_dir "$_existing_repo_dir"; then
+      echo "  [dry-run] would update repo_dir=$REPO_DIR (previous '$_existing_repo_dir' was not a valid git repo)"
+    else
+      _existing_real="$(cd "$_existing_repo_dir" 2>/dev/null && pwd -P || echo "$_existing_repo_dir")"
+      _this_real="$(cd "$REPO_DIR" 2>/dev/null && pwd -P || echo "$REPO_DIR")"
+      if [[ "$_existing_real" == "$_this_real" ]]; then
+        echo "  [dry-run] would skip repo_dir (already set to this checkout)"
+      else
+        echo "  [dry-run] would warn: existing repo_dir '$_existing_repo_dir' differs from '$REPO_DIR'; not overwriting"
+      fi
+    fi
+  else
+    _ae_config="$HOME/.agentic/agentic-engineering-config.json"
+    _existing_repo_dir=""
+    if [[ -f "$_ae_config" ]]; then
+      _existing_repo_dir="$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('repo_dir', ''))
+except Exception:
+    print('')
+" "$_ae_config" 2>/dev/null)" || _existing_repo_dir=""
+    fi
+
+    if [[ -z "$_existing_repo_dir" ]]; then
+      # No existing repo_dir - write unconditionally.
+      if _ae_write_repo_dir "$REPO_DIR" 2>/dev/null; then
+        echo "  + wrote repo_dir=$REPO_DIR to $_ae_config"
+      else
+        echo "  ! warning: failed to write repo_dir to $_ae_config (non-fatal)" >&2
+      fi
+    elif ! validate_repo_dir "$_existing_repo_dir"; then
+      # Existing value is not a valid git repo - overwrite with current checkout.
+      if _ae_write_repo_dir "$REPO_DIR" 2>/dev/null; then
+        echo "  ~ updated repo_dir=$REPO_DIR (previous '$_existing_repo_dir' was not a valid git repo)"
+      else
+        echo "  ! warning: failed to update repo_dir in $_ae_config (non-fatal)" >&2
+      fi
+    else
+      # Resolve both paths to canonical forms before comparing.
+      _existing_real="$(cd "$_existing_repo_dir" 2>/dev/null && pwd -P || echo "$_existing_repo_dir")"
+      _this_real="$(cd "$REPO_DIR" 2>/dev/null && pwd -P || echo "$REPO_DIR")"
+      if [[ "$_existing_real" == "$_this_real" ]]; then
+        echo "  = repo_dir already set to this checkout (keeping)"
+      else
+        # Valid DIFFERENT repo_dir - do NOT overwrite.
+        echo "  warning: existing canonical repo_dir '$_existing_repo_dir' differs from this checkout '$REPO_DIR'; not overwriting. Run agentic-doctor or set repo_dir manually if this is intended." >&2
+      fi
+    fi
+  fi
+else
+  echo "  [skip] scripts/lib/repo-dir.sh not found - repo_dir write skipped"
+fi
+
+# ---------------------------------------------------------------------------
 # Run initial build
 # ---------------------------------------------------------------------------
 
@@ -655,14 +879,30 @@ if [[ -L "$HOOK_DST" ]]; then
   current_target="$(readlink "$HOOK_DST")"
   if [[ "$current_target" == "$HOOK_SRC" ]]; then
     echo "  = pre-commit hook already linked"
+  elif _ae_is_ours "$HOOK_DST"; then
+    # Stale symlink pointing to another methodology checkout - re-point it.
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ pre-commit hook (would re-point to repo_dir)"
+    else
+      ln -sfn "$HOOK_SRC" "$HOOK_DST"
+      echo "  ~ pre-commit hook (re-pointed to repo_dir)"
+    fi
   else
-    echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ! pre-commit hook (would skip: symlink points outside methodology checkout: $current_target)"
+    else
+      echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    fi
   fi
 elif [[ -e "$HOOK_DST" ]]; then
   echo "  ! pre-commit hook is a real file (not a symlink) - skipping to preserve existing hook"
 else
-  ln -s "$HOOK_SRC" "$HOOK_DST"
-  echo "  + pre-commit hook installed"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + pre-commit hook (would create)"
+  else
+    ln -s "$HOOK_SRC" "$HOOK_DST"
+    echo "  + pre-commit hook installed"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
