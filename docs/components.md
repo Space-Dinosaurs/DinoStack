@@ -5,7 +5,7 @@
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (18 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (19 files) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
@@ -24,6 +24,7 @@
 - Spawn presets - per-spawn capability bundles and resolution rules
 - Trigger catalog - manual/scheduled/action-triggered loops and the yolo-guard
 - Worktree lifecycle - isolation vs feature worktrees and cleanup command blocks
+- Wrap context format - canonical schema for the /wrap session-context block
 
 **Agents** (17) - named specialist roles:
 adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
