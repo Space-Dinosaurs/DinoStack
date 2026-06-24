@@ -1,8 +1,7 @@
 ---
 name: architect
-description: Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files.
-tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+description: "Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files."
+tools: [read_file, glob, grep_search, run_shell_command]
 kind: local
 ---
 
