@@ -222,8 +222,8 @@ orchestration-planner returns N units
          ▼
 1. Conductor writes N pending entries to .agentic/tasks.jsonl
 2. Conductor creates N worktrees from BASE_BRANCH
-   git worktree add .worktrees/feature-unit1 -b feature-unit1 origin/main
-   git worktree add .worktrees/feature-unit2 -b feature-unit2 origin/main
+   git worktree add .agentic/worktrees/feature-unit1 -b feature-unit1 origin/$BASE_BRANCH
+   git worktree add .agentic/worktrees/feature-unit2 -b feature-unit2 origin/$BASE_BRANCH
 
 3. Conductor updates entries to in_progress, then spawns N engineers
    in a SINGLE MESSAGE (parallel)
@@ -437,8 +437,8 @@ The integration quality check catches failures invisible to individual worktrees
 `.agentic/tasks.jsonl` is the durable fan-out coordination surface:
 
 ```jsonl
-{"task_id":"sess1-auth-middleware","unit_slug":"auth-middleware","status":"pending","branch_name":"feature-auth-unit1","worktree_path":".worktrees/feature-auth-unit1","inputs":{...}}
-{"task_id":"sess1-user-profile-api","unit_slug":"user-profile-api","status":"in_progress","branch_name":"feature-auth-unit2","worktree_path":".worktrees/feature-auth-unit2","inputs":{...}}
+{"task_id":"sess1-auth-middleware","unit_slug":"auth-middleware","status":"pending","branch_name":"feature-auth-unit1","worktree_path":".agentic/worktrees/feature-auth-unit1","inputs":{...}}
+{"task_id":"sess1-user-profile-api","unit_slug":"user-profile-api","status":"in_progress","branch_name":"feature-auth-unit2","worktree_path":".agentic/worktrees/feature-auth-unit2","inputs":{...}}
 ```
 
 **Entry lifecycle (conductor writes all):**
