@@ -921,9 +921,9 @@
   <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Parallel Fan-out</a>
   <a class="deck-index-link" href="slides/quality-assurance-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Quality Assurance</a>
   <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">13</span> Work Tracking</a>
-  <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Skill Creator</a>
-  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">15</span> Contributing</a>
-  <a class="deck-index-link" href="agentic-engineering-comparison.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">16</span> Ecosystem Comparison</a>
+  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Contributing</a>
+  <span class="deck-index-label deck-index-label-docs">Docs</span>
+  <a class="deck-index-link" href="agentic-engineering-comparison.html" target="_blank" rel="noopener noreferrer">Ecosystem Comparison</a>
 </nav>
 
 <div class="diagram">
@@ -1002,7 +1002,7 @@
   </div>
   <div class="note">
     <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
-    <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), and Hermes (<code>.hermes/</code>) - the same methodology in each tool's native format.<br>
+    <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), Hermes (<code>.hermes/</code>), and OpenClaw (<code>.openclaw/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
@@ -1353,7 +1353,7 @@
   <div style="margin-bottom: 8px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 12 agent roles, 5 composed flows, decision rules, and spawn instructions.</div>
+      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 17 named agents, 5 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
@@ -1574,8 +1574,8 @@
 
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
-  <div class="section-title" data-num="06"><h2>Skill Layer <a class="slide-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer">slides: skill creator</a></h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships exactly 18 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
+  <div class="section-title" data-num="06"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 19 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1637,10 +1637,10 @@
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4>Persistence Hierarchy <span style="font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 12px; color: var(--text-muted);">(all at <code>~/.claude/projects/[hash]/</code>)</span></h4>
+        <h4>Persistence Hierarchy</h4>
         <ul>
-          <li><strong>MEMORY.md</strong> <span class="load-badge always">always loaded</span> - index of all memory files. Auto-injected into every conversation at startup. One-line pointers to individual memory files. Keep under 200 lines.</li>
-          <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
+          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and auto-injected into every conversation at startup. Stable architecture, key paths, and preferences with rationale.</li>
+          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
           <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
@@ -2023,9 +2023,7 @@
       "Bash(sudo rm*)",
       "Bash(dd if=*)",
       "Bash(shutdown*)",
-      "Bash(reboot*)",
-      "Bash(mkfs*)",
-      "Bash(chmod -R 777*)"
+      "Bash(reboot*)"
     ],
     "defaultMode": "bypassPermissions"
   }

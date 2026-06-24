@@ -174,7 +174,6 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - `~/DinoStack/docs/slides/agent-team-slides.html` - the agent team and how they compose
 - `~/DinoStack/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.agentic/qa.md` (legacy `.claude/qa.md` fallback) as project QA memory
 - `~/DinoStack/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / `.agentic/loop-state.json`
-- `~/DinoStack/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/DinoStack/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/DinoStack/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/DinoStack/docs/slides/contributing-slides.html` - how to contribute to the repo
