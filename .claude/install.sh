@@ -451,43 +451,47 @@ upsert_hook(
     "SessionStart deferred-wrap hook",
 )
 
-# ---- PreToolUse background-spawn enforcement hook ---------------------------
+# ---- PreToolUse background-spawn + orchestrator-singularity hooks -----------
+# NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool from
+# "Task" to "Agent". We wire BOTH matcher names so the hooks fire under either
+# CC version. The hooks themselves also guard on both names internally for
+# belt-and-suspenders coverage. Two PreToolUse blocks are created: one for
+# "Task" (legacy) and one for "Agent" (current), each containing both hooks.
 ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
+ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
-# Find or create a matcher "Task" block
-ptu_task = None
-for block in ptu_list:
-    if block.get("matcher") == "Task":
-        ptu_task = block
-        break
+for spawn_matcher in ("Task", "Agent"):
+    # Find or create a matcher block for this tool name.
+    ptu_block = None
+    for block in ptu_list:
+        if block.get("matcher") == spawn_matcher:
+            ptu_block = block
+            break
 
-if ptu_task is None:
-    ptu_task = {"matcher": "Task", "hooks": []}
-    ptu_list.append(ptu_task)
+    if ptu_block is None:
+        ptu_block = {"matcher": spawn_matcher, "hooks": []}
+        ptu_list.append(ptu_block)
 
-ptu_task.setdefault("hooks", [])
+    ptu_block.setdefault("hooks", [])
 
-upsert_hook(
-    ptu_task["hooks"],
-    "enforce-background-spawn.py",
-    {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
-    "PreToolUse background-spawn enforcement hook",
-)
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-background-spawn.py",
+        {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) background-spawn enforcement hook",
+    )
 
-# ---- PreToolUse orchestrator-singularity enforcement hook -------------------
-# Denies Task spawns issued from inside a subagent context (detected via the
-# top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1
-# in the environment that launches Claude Code, then restart.
-ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
-
-upsert_hook(
-    ptu_task["hooks"],
-    "enforce-orchestrator-singularity.py",
-    {"type": "command", "command": ENFORCE_SINGULARITY_CMD, "timeout": 5},
-    "PreToolUse orchestrator-singularity enforcement hook",
-)
+    # Denies spawns issued from inside a subagent context (detected via the
+    # top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1
+    # in the environment that launches Claude Code, then restart.
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-orchestrator-singularity.py",
+        {"type": "command", "command": ENFORCE_SINGULARITY_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) orchestrator-singularity enforcement hook",
+    )
 
 # ---- PostToolUse capture-nudge hook -----------------------------------------
 # Surfaces an in-session capture-gap nudge when a Task spawn launches and the
