@@ -16,10 +16,14 @@
  *   1. fires-when-worthy-event:       debugger spawn_complete -> additionalContext emitted
  *   2. dedup-suppresses-repeat:       second identical spawn -> no second emit
  *   3. no-fire-when-no-worthy-event:  empty events.jsonl -> no emit
- *   4. no-fire-when-wrong-tool:       tool_name !== "Task" -> no emit
+ *   4. no-fire-when-wrong-tool:       tool_name is a non-spawn tool (Bash) -> no emit
  *   5. no-fire-when-not-async-launched: status !== "async_launched" -> no emit
  *   6. soft-fail-on-malformed-stdin:  non-JSON stdin -> exit 0, no emit, no throw
  *   7. residualOnly-wording:          unrelated guardrail -> residual nudge text
+ *   8. fires-when-tool-name-Agent:    REGRESSION (CC Task->Agent rename) -
+ *                                     tool_name "Agent" -> nudge fires. Under the
+ *                                     old `!== 'Task'` guard this early-exited
+ *                                     and the nudge was silently disabled.
  *
  * Run with: node hooks/tests/test-post-tool-use-capture-nudge.js
  */
@@ -312,6 +316,42 @@ console.log('\nTest 7: residualOnly-wording');
       'residual case does NOT use the standard wording'
     );
   }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: fires-when-tool-name-Agent (REGRESSION: CC Task->Agent rename)
+// Identical to Test 1 but with tool_name "Agent". Under the pre-fix guard
+// (`if (toolName !== 'Task') process.exit(0)`) this early-exited and emitted
+// nothing - the nudge was silently disabled for every Agent spawn. The fixed
+// guard (`toolName !== 'Task' && toolName !== 'Agent'`) must let it fire.
+// ---------------------------------------------------------------------------
+console.log('\nTest 8: fires-when-tool-name-Agent (regression)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'ptu-session-008';
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'events.jsonl'),
+    makeEvent(sessionId, 'spawn_complete', 'debugger') + '\n', 'utf8'
+  );
+
+  // tool_name is "Agent" (post-rename) - a worthy event exists, so the nudge
+  // MUST fire. This asserts the dual Task/Agent guard.
+  const payload = taskPayload(cwd, sessionId, { tool_name: 'Agent' });
+  const { stdout, status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0');
+  let out = null;
+  try { out = JSON.parse(stdout); } catch (_) { /* leave null */ }
+  assert(out !== null, 'Agent spawn emits parseable JSON (regression guard)');
+  assert(
+    out && out.hookSpecificOutput
+    && out.hookSpecificOutput.additionalContext.includes('CAPTURE-NUDGE'),
+    'Agent spawn emits the CAPTURE-NUDGE text (would have been silent pre-fix)'
+  );
+  assert(
+    fs.existsSync(path.join(cwd, '.agentic', '.capture-gap-surfaced')),
+    'dedup tracker written after Agent spawn fires'
+  );
   cleanup(cwd);
 }
 

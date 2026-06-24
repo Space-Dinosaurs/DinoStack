@@ -494,33 +494,35 @@ for spawn_matcher in ("Task", "Agent"):
     )
 
 # ---- PostToolUse capture-nudge hook -----------------------------------------
-# Surfaces an in-session capture-gap nudge when a Task spawn launches and the
-# session has a learning-worthy event with no learning captured yet. Matcher
-# "Task"; find-or-create idempotent, identical pattern to the PreToolUse Task
-# blocks above. Claude-Code-only (consistent with the deferred-wrap hooks).
+# Surfaces an in-session capture-gap nudge when a subagent spawn launches and the
+# session has a learning-worthy event with no learning captured yet. Claude Code
+# renamed the spawn tool from "Task" to "Agent", so we wire BOTH matcher names
+# (same dual Task/Agent block pattern as the PreToolUse hooks above), each
+# find-or-create idempotent. Claude-Code-only (consistent with deferred-wrap hooks).
 CAPTURE_NUDGE_CMD = f"node {repo_dir}/hooks/post-tool-use-capture-nudge.js"
 
 ptu_post_list = hooks.setdefault("PostToolUse", [])
 
-# Find or create a matcher "Task" block.
-ptu_post_task = None
-for block in ptu_post_list:
-    if block.get("matcher") == "Task":
-        ptu_post_task = block
-        break
+for spawn_matcher in ("Task", "Agent"):
+    # Find or create a matcher block for this tool name.
+    ptu_post_block = None
+    for block in ptu_post_list:
+        if block.get("matcher") == spawn_matcher:
+            ptu_post_block = block
+            break
 
-if ptu_post_task is None:
-    ptu_post_task = {"matcher": "Task", "hooks": []}
-    ptu_post_list.append(ptu_post_task)
+    if ptu_post_block is None:
+        ptu_post_block = {"matcher": spawn_matcher, "hooks": []}
+        ptu_post_list.append(ptu_post_block)
 
-ptu_post_task.setdefault("hooks", [])
+    ptu_post_block.setdefault("hooks", [])
 
-upsert_hook(
-    ptu_post_task["hooks"],
-    "post-tool-use-capture-nudge.js",
-    {"type": "command", "command": CAPTURE_NUDGE_CMD, "timeout": 5},
-    "PostToolUse capture-nudge hook",
-)
+    upsert_hook(
+        ptu_post_block["hooks"],
+        "post-tool-use-capture-nudge.js",
+        {"type": "command", "command": CAPTURE_NUDGE_CMD, "timeout": 5},
+        f"PostToolUse({spawn_matcher}) capture-nudge hook",
+    )
 
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"

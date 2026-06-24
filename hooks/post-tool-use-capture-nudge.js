@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Purpose: Claude Code PostToolUse(Task) hook that surfaces an in-session
- *          capture-gap nudge. When a Task spawn launches (async_launched) and the
+ * Purpose: Claude Code PostToolUse(Task/Agent) hook that surfaces an in-session
+ *          capture-gap nudge. When a subagent spawn launches (async_launched) and the
  *          session has a learning-worthy event with no learning captured yet, the
  *          hook prints a hookSpecificOutput.additionalContext message so the
  *          conductor emits its Capture: declaration and spawns learnings-agent
@@ -12,8 +12,8 @@
  *
  * Public API: run() - invoked immediately at module load via run() call at the
  *             bottom of the file. Not imported in production; executed as a CLI
- *             script by the Claude Code PostToolUse(Task) hook. The test loads it
- *             via a tmp shim that suppresses run() and exercises the body.
+ *             script by the Claude Code PostToolUse(Task/Agent) hook. The test loads
+ *             it via a tmp shim that suppresses run() and exercises the body.
  *
  * Upstream deps: Node built-ins only (fs, path) plus the local CommonJS module
  *                hooks/lib/capture-gap.js (detectCaptureGap). No npm dependencies.
@@ -26,14 +26,15 @@
  *                tmp+rename). NEVER writes .capture-gap-last-sweep (owned by
  *                stop-context.js) and NEVER writes learnings.md / context.md.
  *
- * Downstream consumers: Claude Code PostToolUse(Task) hook (wired by
- *                        .claude/install.sh; matcher "Task"). The conductor reads
- *                        the additionalContext message next to the Task tool result.
+ * Downstream consumers: Claude Code PostToolUse(Task/Agent) hook (wired by
+ *                        .claude/install.sh; matchers "Task" and "Agent"). The
+ *                        conductor reads the additionalContext message next to the
+ *                        spawn tool result.
  *
  * Failure modes: Fully soft-fail. The entire body is wrapped in try/catch and
  *                always process.exit(0) - the hook NEVER blocks a spawn, never
  *                writes to stderr, never emits non-JSON to stdout. Malformed
- *                stdin, a non-Task tool, a non-async_launched response, an absent
+ *                stdin, a non-Task/Agent tool, a non-async_launched response, an absent
  *                dedup tracker, a detector error, or a tracker-write failure all
  *                resolve to a silent exit 0. The dedup tracker is fail-open: a
  *                missing or unreadable tracker is treated as "not yet surfaced"
@@ -145,13 +146,15 @@ function run() {
       process.exit(0);
     }
 
-    // --- 2. Gate on tool_name === "Task" && tool_response.status === "async_launched" ---
-    // Background Task spawns (which this methodology mandates) fire PostToolUse at
+    // --- 2. Gate on tool_name in {"Task","Agent"} && tool_response.status === "async_launched" ---
+    // Background subagent spawns (which this methodology mandates) fire PostToolUse at
     // LAUNCH with status "async_launched"; the subagent output is not yet available,
     // so the signal source is events.jsonl via detectCaptureGap, not tool_response.
+    // Claude Code renamed the spawn tool from "Task" to "Agent"; accept both names so
+    // the nudge keeps firing across CC versions (install.sh wires both matchers).
     const toolName = payload && payload.tool_name;
     const toolResponse = (payload && payload.tool_response) || {};
-    if (toolName !== 'Task') process.exit(0);
+    if (toolName !== 'Task' && toolName !== 'Agent') process.exit(0);
     if (toolResponse.status !== 'async_launched') process.exit(0);
 
     // --- 3. Resolve cwd + session_id (top-level fields on the PostToolUse payload) ---
