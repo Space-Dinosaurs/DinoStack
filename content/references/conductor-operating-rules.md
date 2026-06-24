@@ -32,6 +32,10 @@ Downstream consumers: content/sections/02-delegation.md (inline pointers from
                       (required reading directive), content/agents/learnings-
                       agent.md (required reading directive), conductor (applies
                       mandatory trigger protocol at each capture gate).
+                      hooks/post-tool-use-capture-nudge.js (the in-session
+                      PostToolUse(Task) capture-gap nudge that mechanically
+                      surfaces the §learnings-agent "spawn autonomously, do not
+                      ask the user" rule mid-session).
 
 Failure modes: Prose reference; does not auto-execute. Permission-blocked
                fallback requires immediate Skeptic on the applied edit -
@@ -166,7 +170,9 @@ When `Capture: MUST` is declared, the conductor spawns `learnings-agent` in the
 background with `run_in_background: true`. Before spawning, check
 `.agentic/learnings-agent.session`; if present and its `session_id` matches the
 current session, the agent is already active - send the event message to the running
-agent rather than re-spawning.
+agent rather than re-spawning. When `Capture: MUST` is declared, the conductor writes
+the entry or spawns `learnings-agent` autonomously - do not ask the user whether to
+capture, do not wait for acknowledgment.
 
 The conductor's message contains: `event_type`, `description`, `resolution`,
 `domain_tag`, `severity` (omit `severity` for KNW-producing event types). The agent
