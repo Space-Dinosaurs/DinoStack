@@ -3,6 +3,12 @@
 
 # Changelog
 
+## 2026-06-23
+
+### Fixes
+
+- **#295** [pin ossf/scorecard-action to v2.4.3 SHA (bare @v2 tag does not exist)](https://github.com/Space-Dinosaurs/DinoStack/pull/295) - tyson-solara6
+
 ## 2026-06-22
 
 ### Features
