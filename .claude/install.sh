@@ -451,72 +451,78 @@ upsert_hook(
     "SessionStart deferred-wrap hook",
 )
 
-# ---- PreToolUse background-spawn enforcement hook ---------------------------
+# ---- PreToolUse background-spawn + orchestrator-singularity hooks -----------
+# NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool from
+# "Task" to "Agent". We wire BOTH matcher names so the hooks fire under either
+# CC version. The hooks themselves also guard on both names internally for
+# belt-and-suspenders coverage. Two PreToolUse blocks are created: one for
+# "Task" (legacy) and one for "Agent" (current), each containing both hooks.
 ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
+ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
-# Find or create a matcher "Task" block
-ptu_task = None
-for block in ptu_list:
-    if block.get("matcher") == "Task":
-        ptu_task = block
-        break
+for spawn_matcher in ("Task", "Agent"):
+    # Find or create a matcher block for this tool name.
+    ptu_block = None
+    for block in ptu_list:
+        if block.get("matcher") == spawn_matcher:
+            ptu_block = block
+            break
 
-if ptu_task is None:
-    ptu_task = {"matcher": "Task", "hooks": []}
-    ptu_list.append(ptu_task)
+    if ptu_block is None:
+        ptu_block = {"matcher": spawn_matcher, "hooks": []}
+        ptu_list.append(ptu_block)
 
-ptu_task.setdefault("hooks", [])
+    ptu_block.setdefault("hooks", [])
 
-upsert_hook(
-    ptu_task["hooks"],
-    "enforce-background-spawn.py",
-    {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
-    "PreToolUse background-spawn enforcement hook",
-)
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-background-spawn.py",
+        {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) background-spawn enforcement hook",
+    )
 
-# ---- PreToolUse orchestrator-singularity enforcement hook -------------------
-# Denies Task spawns issued from inside a subagent context (detected via the
-# top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1
-# in the environment that launches Claude Code, then restart.
-ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
-
-upsert_hook(
-    ptu_task["hooks"],
-    "enforce-orchestrator-singularity.py",
-    {"type": "command", "command": ENFORCE_SINGULARITY_CMD, "timeout": 5},
-    "PreToolUse orchestrator-singularity enforcement hook",
-)
+    # Denies spawns issued from inside a subagent context (detected via the
+    # top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1
+    # in the environment that launches Claude Code, then restart.
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-orchestrator-singularity.py",
+        {"type": "command", "command": ENFORCE_SINGULARITY_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) orchestrator-singularity enforcement hook",
+    )
 
 # ---- PostToolUse capture-nudge hook -----------------------------------------
-# Surfaces an in-session capture-gap nudge when a Task spawn launches and the
-# session has a learning-worthy event with no learning captured yet. Matcher
-# "Task"; find-or-create idempotent, identical pattern to the PreToolUse Task
-# blocks above. Claude-Code-only (consistent with the deferred-wrap hooks).
+# Surfaces an in-session capture-gap nudge when a subagent spawn launches and the
+# session has a learning-worthy event with no learning captured yet. Claude Code
+# renamed the spawn tool from "Task" to "Agent", so we wire BOTH matcher names
+# (same dual Task/Agent block pattern as the PreToolUse hooks above), each
+# find-or-create idempotent. Claude-Code-only (consistent with deferred-wrap hooks).
 CAPTURE_NUDGE_CMD = f"node {repo_dir}/hooks/post-tool-use-capture-nudge.js"
 
 ptu_post_list = hooks.setdefault("PostToolUse", [])
 
-# Find or create a matcher "Task" block.
-ptu_post_task = None
-for block in ptu_post_list:
-    if block.get("matcher") == "Task":
-        ptu_post_task = block
-        break
+for spawn_matcher in ("Task", "Agent"):
+    # Find or create a matcher block for this tool name.
+    ptu_post_block = None
+    for block in ptu_post_list:
+        if block.get("matcher") == spawn_matcher:
+            ptu_post_block = block
+            break
 
-if ptu_post_task is None:
-    ptu_post_task = {"matcher": "Task", "hooks": []}
-    ptu_post_list.append(ptu_post_task)
+    if ptu_post_block is None:
+        ptu_post_block = {"matcher": spawn_matcher, "hooks": []}
+        ptu_post_list.append(ptu_post_block)
 
-ptu_post_task.setdefault("hooks", [])
+    ptu_post_block.setdefault("hooks", [])
 
-upsert_hook(
-    ptu_post_task["hooks"],
-    "post-tool-use-capture-nudge.js",
-    {"type": "command", "command": CAPTURE_NUDGE_CMD, "timeout": 5},
-    "PostToolUse capture-nudge hook",
-)
+    upsert_hook(
+        ptu_post_block["hooks"],
+        "post-tool-use-capture-nudge.js",
+        {"type": "command", "command": CAPTURE_NUDGE_CMD, "timeout": 5},
+        f"PostToolUse({spawn_matcher}) capture-nudge hook",
+    )
 
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"

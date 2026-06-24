@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation background-by-default
-         rule by denying any Task (subagent spawn) tool call that lacks
+         rule by denying any subagent spawn tool call that lacks
          run_in_background: true. Converts a prose advisory into a hard gate on
          Claude Code. Feeds the deny reason back to the model so it can re-issue
          the call correctly. Documented foreground-exempt agents (see
@@ -11,13 +11,23 @@ Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation background-b
          release). The hook fails open on parse error, so older builds degrade
          to no-enforcement rather than breaking.
 
-Public API: Run as a Claude Code PreToolUse hook. Reads JSON from stdin,
-            writes hookSpecificOutput JSON to stdout when denying, exits 0 always.
+         NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool
+         from "Task" to "Agent" in a recent release. This hook guards on BOTH
+         names (`tool_name in ("Task", "Agent")`) for backward compatibility
+         across Claude Code versions. The settings.json matcher is also wired
+         for both names by install.sh (two PreToolUse blocks: one for "Task",
+         one for "Agent"). The hook fires under either name; the internal guard
+         is defensive belt-and-suspenders.
+
+Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or "Agent").
+            Reads JSON from stdin, writes hookSpecificOutput JSON to stdout when
+            denying, exits 0 always.
 
 Upstream deps: Python 3 stdlib only (json, sys). No external dependencies.
 
-Downstream consumers: Claude Code hook runner (PreToolUse event for the Task tool).
-                      Wired via ~/.claude/settings.json by .claude/install.sh.
+Downstream consumers: Claude Code hook runner (PreToolUse event for the Task /
+                      Agent tool). Wired via ~/.claude/settings.json by
+                      .claude/install.sh (two matcher blocks: "Task" and "Agent").
 
 Failure modes:
     - Malformed stdin: fail-open (exit 0, no deny). A hook bug must never brick
@@ -25,7 +35,8 @@ Failure modes:
     - Null or non-dict tool_input: fail-open (exit 0). Same contract - any parse
       or logic error exits 0 so enforcement gaps are never converted to blanket
       blocks.
-    - Non-Task tool_name: passthrough (exit 0). This hook is scoped to Task only.
+    - Non-Task/Agent tool_name: passthrough (exit 0). This hook is scoped to
+      Task/Agent only.
     - run_in_background absent, false, or non-boolean: deny with reason fed back
       to model. Only boolean True is accepted as the allow signal.
     - Foreground-exempt subagent_type (FOREGROUND_EXEMPT): allow regardless of
@@ -58,10 +69,12 @@ def main() -> None:
         except Exception:
             sys.exit(0)
 
-        # Only enforce on Task (subagent spawn). All direct-action tools
-        # (Read, Bash, Write, Edit, Glob, Grep, etc.) never use Task, so
-        # there are no false positives from a blanket Task-scoped deny.
-        if data.get("tool_name") != "Task":
+        # Only enforce on Task/Agent (subagent spawn). Claude Code renamed
+        # this tool from "Task" to "Agent"; guard on both names so the hook
+        # works across CC versions. All direct-action tools (Read, Bash,
+        # Write, Edit, Glob, Grep, etc.) never use Task/Agent, so there
+        # are no false positives from this scoped deny.
+        if data.get("tool_name") not in ("Task", "Agent"):
             sys.exit(0)
 
         # tool_input may be null/missing. Null means no structured params -
@@ -83,17 +96,18 @@ def main() -> None:
 
         # Deny foreground spawns and feed back a clear, actionable reason
         # so the conductor re-issues with run_in_background: true.
+        tool_name = data.get("tool_name", "Task/Agent")
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": (
-                    "Task spawn blocked: run_in_background is missing or false. "
+                    tool_name + " spawn blocked: run_in_background is missing or false. "
                     "All delegated subagent spawns MUST set run_in_background: true "
-                    "(METHODOLOGY.md §Delegation). Re-issue the Task call with "
+                    "(METHODOLOGY.md §Delegation). Re-issue the " + tool_name + " call with "
                     "run_in_background: true. Direct-action cases (reads, memory "
-                    "answers, synthesis) do not use Task at all - use the appropriate "
-                    "dedicated tool instead."
+                    "answers, synthesis) do not use " + tool_name + " at all - use the "
+                    "appropriate dedicated tool instead."
                 )
             }
         }))

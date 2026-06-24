@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 """
 Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation
-         orchestrator-singularity invariant by denying any Task (subagent
-         spawn) issued from inside a subagent context. Only the main conductor
+         orchestrator-singularity invariant by denying any subagent spawn
+         issued from inside a subagent context. Only the main conductor
          session may spawn subagents; workers must return BLOCKED when they
          would otherwise try to delegate further. This converts a prose
          advisory into a hard gate on Claude Code.
 
-Public API: Run as a Claude Code PreToolUse hook (matcher: "Task"). Reads
-            JSON from stdin, writes hookSpecificOutput JSON to stdout when
+         NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool
+         from "Task" to "Agent" in a recent release. This hook guards on BOTH
+         names (`tool_name in ("Task", "Agent")`) for backward compatibility
+         across Claude Code versions. The settings.json matcher is also wired
+         for both names by install.sh (two PreToolUse blocks: one for "Task",
+         one for "Agent"). The hook fires under either name; the internal guard
+         is defensive belt-and-suspenders.
+
+Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or "Agent").
+            Reads JSON from stdin, writes hookSpecificOutput JSON to stdout when
             denying, exits 0 always.
 
 Upstream deps: Python 3 stdlib only (os, sys, json). No external dependencies.
 
-Downstream consumers: Claude Code hook runner (PreToolUse event for the Task
-                      tool). Wired via ~/.claude/settings.json by
-                      .claude/install.sh.
+Downstream consumers: Claude Code hook runner (PreToolUse event for the Task /
+                      Agent tool). Wired via ~/.claude/settings.json by
+                      .claude/install.sh (two matcher blocks: "Task" and "Agent").
 
 Failure modes:
     - Malformed stdin: fail-open (exit 0, no deny). A hook bug must never
@@ -27,7 +35,7 @@ Failure modes:
       (exit 0) before reading stdin. To disable: set
       AE_SINGULARITY_GUARD_DISABLE=1 in the shell that launches Claude Code,
       or remove the hook entry from ~/.claude/settings.json and restart.
-    - Non-Task tool_name: passthrough (exit 0). Scoped to Task only.
+    - Non-Task/Agent tool_name: passthrough (exit 0). Scoped to Task/Agent only.
     - Older Claude Code versions: if permissionDecision: deny is not
       honoured, switch to exit 2 with the reason on stderr as fallback.
 
@@ -67,8 +75,11 @@ def main() -> None:
         except Exception:
             sys.exit(0)
 
-        # Only enforce on Task (subagent spawn).
-        if data.get("tool_name") != "Task":
+        # Only enforce on Task/Agent (subagent spawn). Claude Code renamed
+        # this tool from "Task" to "Agent"; guard on both names so the hook
+        # works across CC versions. install.sh wires two matcher blocks
+        # ("Task" and "Agent") for belt-and-suspenders coverage.
+        if data.get("tool_name") not in ("Task", "Agent"):
             sys.exit(0)
 
         # Read agent_id from the TOP LEVEL of the payload (not tool_input).
@@ -79,12 +90,13 @@ def main() -> None:
             sys.exit(0)
 
         # Deny: a subagent attempted to spawn a nested subagent.
+        tool_name = data.get("tool_name", "Task/Agent")
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": (
-                    "Task spawn blocked: a subagent (agent_id="
+                    tool_name + " spawn blocked: a subagent (agent_id="
                     + repr(agent_id)
                     + ") attempted to spawn a nested subagent. "
                     "The AE invariant is that the main conductor is the sole "
