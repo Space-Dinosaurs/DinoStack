@@ -22,6 +22,7 @@ No subcommands, no flags. Reads:
 - `~/.claude/agentic-engineering.json` (global config)
 - `<cwd>/AGENTS.md` (project marker; resolves through `CLAUDE.md` `@AGENTS.md` import if present)
 - `<cwd>/.agentic/.activated` (first-activation sentinel)
+- `<cwd>/.agentic/config.json` (project config; surfaces the `deferred_wrap_daemon` toggle - prints its value, or `false` when the file or key is absent)
 
 ## Output
 
@@ -36,6 +37,7 @@ agentic-engineering status
   marker: none
   active: yes (mode=opt-out + marker=none -> active: opt-out activates everywhere unless a project opts out)
   sentinel: .agentic/.activated (present)
+  deferred_wrap_daemon: false (source: .agentic/config.json; out-of-session daemon for deferred /wrap jobs)
 
 What this means
   Active here: yes. The methodology governs how work gets done in this project.
@@ -77,6 +79,9 @@ the effective value came from:
 - `preset-resolved` - the profile was resolved from a preset (e.g.
   `lean -> relaxed`).
 - `none` - no preset is in effect.
+- `.agentic/config.json` - the `deferred_wrap_daemon` line comes from the
+  project config file; when the file or the key is absent, the line prints the
+  documented default (`false`).
 
 The `active` line carries the derivation that produced the active state -
 the `(mode=... + marker=... -> active|inactive: <reason>)` clause - so it is

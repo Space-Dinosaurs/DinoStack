@@ -1,8 +1,9 @@
 <!--
 Purpose: Conductor operating rules reference for on-demand consultation.
          Covers permission-blocked fallback, methodology-file editing routing,
-         parallel Investigator pattern, wrap-ticket writer carve-out, and
-         the mandatory learnings capture gate (§learnings-agent). Anti-patterns
+         parallel Investigator pattern, wrap-ticket writer carve-out (incl. the
+         two lock-aware context.md auto-writers under the deferred-wrap feature),
+         and the mandatory learnings capture gate (§learnings-agent). Anti-patterns
          and Common rationalizations were reverted to content/sections/02-
          delegation.md (hot-path rules belong inline, not in a reference).
 
@@ -16,6 +17,15 @@ Upstream deps: content/sections/02-delegation.md (parent section; gate rules,
                content/references/capture-classification.md (guardrail-first
                precedence chain and two-gate MUST/SHOULD/SKIP table).
                content/agents/wrap-ticket.md, content/agents/learnings-agent.md.
+               content/commands/wrap.md (authoritative `/wrap` write paths and
+               wrap/lock scope) and content/commands/wrap-deferred.md (the
+               non-interactive single-pass enrichment the daemon runs; owns the
+               `pending.json` marker data model and the spillover drain). The
+               carve-out points to both rather than restating field semantics.
+               hooks/stop-context.js and .opencode/plugins/session-context.ts (the
+               two lock-aware context.md auto-writers the carve-out names) and
+               hooks/wrap-daemon.js (the per-project daemon that drains the
+               spillover by running `/wrap-deferred` headlessly).
 
 Downstream consumers: content/sections/02-delegation.md (inline pointers from
                       each extracted block), content/agents/wrap-ticket.md
@@ -30,6 +40,12 @@ Failure modes: Prose reference; does not auto-execute. Permission-blocked
                removed by Stop hook on exit; a missed removal blocks re-spawn.
                A mandatory trigger with no Capture: declaration is a protocol
                gap; the Stop-hook backstop is the mechanical catch.
+               The deferred-wrap marker data model and lock semantics are owned by
+               content/commands/wrap-deferred.md and hooks/wrap-daemon.js; this
+               carve-out only summarizes that the two context.md auto-writers are
+               lock-aware and that the daemon drains their spillover, and points
+               there - it is not the implementation contract, so divergence from
+               wrap-deferred.md is the drift risk to watch.
 
 Performance: Standard.
 -->
@@ -60,7 +76,11 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. The Stop hook retains its `.agentic/context.md` auto-write. `/wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap.lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. `/wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+
+**`.agentic/context.md` lock-aware auto-writers (deferred-wrap feature).** Under the deferred / background `/wrap` feature there are **two** lock-aware `context.md` auto-writers, not one: the Node Stop hook (`hooks/stop-context.js`) on Claude Code and the OpenCode plugin (`.opencode/plugins/session-context.ts`). Both check `.agentic/wrap/lock` before writing `context.md`; while the lock is held they **skip** their `context.md` write and append a spillover record to `.agentic/wrap/deferred-activity.jsonl`, which the per-project deferred-wrap daemon drains into the activity block when it runs `/wrap-deferred` and performs its own `context.md` write. Neither hook is "the one/only unlocked `context.md` writer" any longer - both serialize against the daemon's `/wrap-deferred` (and a manual `/wrap`) via `wrap/lock`. The daemon's headless `/wrap-deferred` likewise serializes its own `context.md` write via `.agentic/wrap/lock`, holding the lock only around the narrow Part-A read-merge-write window (not the whole flow); correctness otherwise rests on idempotency (the Part A merge dedups). The daemon is launched by the SessionStart hook (see the daemon `hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/wrap-deferred`, which is the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/wrap-deferred.md`.
+
+The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learnings-agent, append-with-dedup) and `/wrap`'s own paths is unchanged by the deferred-wrap feature: root `MEMORY.md` is not a `/wrap` target and is not added to the `wrap/lock` scope.
 
 ## learnings-agent background capture
 
