@@ -300,6 +300,30 @@ else:
 
 hooks = settings.setdefault("hooks", {})
 
+def upsert_hook(hook_list, script_basename, expected_entry, label):
+    """Upsert a hook entry using equality-based idempotency.
+
+    Identifies an existing entry by script_basename appearing in its command
+    (stable identity that survives repo moves). Then:
+    - command already equals expected -> leave it, print '= already present'
+    - command differs (stale/moved path) -> replace command in-place,
+      print '~ updated stale hook'
+    - no match -> append new entry, print '+ added'
+    """
+    expected_cmd = expected_entry["command"]
+    for entry in hook_list:
+        if script_basename in entry.get("command", ""):
+            if entry["command"] == expected_cmd:
+                print(f"  = {label} already present")
+            else:
+                entry["command"] = expected_cmd
+                if "name" in expected_entry:
+                    entry["name"] = expected_entry["name"]
+                print(f"  ~ {label} updated stale hook -> {expected_cmd}")
+            return
+    hook_list.append(expected_entry)
+    print(f"  + Added {label}: {expected_cmd}")
+
 # ---- UserPromptSubmit hook --------------------------------------------------
 RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
@@ -324,6 +348,7 @@ if ups_star is None:
 
 ups_star.setdefault("hooks", [])
 
+# Risk-classification hook uses full command equality (no path component to go stale)
 already_has_risk = any(
     entry.get("command") == RISK_CMD
     for entry in ups_star["hooks"]
@@ -341,20 +366,12 @@ else:
 
 SKILL_AUTO_CMD = f"bash {repo_dir}/hooks/skill-auto-load-check.sh"
 
-already_has_skill_auto = any(
-    "skill-auto-load-check.sh" in entry.get("command", "")
-    for entry in ups_star["hooks"]
+upsert_hook(
+    ups_star["hooks"],
+    "skill-auto-load-check.sh",
+    {"type": "command", "command": SKILL_AUTO_CMD, "timeout": 5},
+    "UserPromptSubmit skill-auto-load-check hook",
 )
-
-if already_has_skill_auto:
-    print("  = UserPromptSubmit skill-auto-load-check hook already present")
-else:
-    ups_star["hooks"].append({
-        "type": "command",
-        "command": SKILL_AUTO_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added UserPromptSubmit skill-auto-load-check hook")
 
 # ---- Stop hook --------------------------------------------------------------
 STOP_CMD = f"node {repo_dir}/hooks/stop-context.js"
@@ -374,30 +391,12 @@ if stop_star is None:
 
 stop_star.setdefault("hooks", [])
 
-# Look for any existing stop-context.js entry
-replaced = False
-already_correct = False
-for entry in stop_star["hooks"]:
-    cmd = entry.get("command", "")
-    if "stop-context.js" in cmd:
-        if cmd == STOP_CMD:
-            already_correct = True
-        else:
-            entry["command"] = STOP_CMD
-            replaced = True
-        break
-
-if already_correct:
-    print("  = Stop hook already points to correct stop-context.js")
-elif replaced:
-    print(f"  ~ Replaced Stop hook stop-context.js with: {STOP_CMD}")
-else:
-    stop_star["hooks"].append({
-        "type": "command",
-        "command": STOP_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added Stop hook: {STOP_CMD}")
+upsert_hook(
+    stop_star["hooks"],
+    "stop-context.js",
+    {"type": "command", "command": STOP_CMD, "timeout": 5},
+    "Stop hook stop-context.js",
+)
 
 # ---- SessionEnd hook (deferred-wrap finalize) -------------------------------
 # Finalizes a cleanly-ended session's pending marker to `ready` so the daemon
@@ -418,20 +417,12 @@ if session_end_star is None:
 
 session_end_star.setdefault("hooks", [])
 
-already_has_session_end = any(
-    "session-end-wrap.js" in entry.get("command", "")
-    for entry in session_end_star["hooks"]
+upsert_hook(
+    session_end_star["hooks"],
+    "session-end-wrap.js",
+    {"type": "command", "command": SESSION_END_CMD, "timeout": 5},
+    "SessionEnd deferred-wrap hook",
 )
-
-if already_has_session_end:
-    print("  = SessionEnd deferred-wrap hook already present")
-else:
-    session_end_star["hooks"].append({
-        "type": "command",
-        "command": SESSION_END_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added SessionEnd hook: {SESSION_END_CMD}")
 
 # ---- SessionStart hook (version notice + deferred-wrap self-heal/launch) -----
 # First SessionStart registration: the wrapper composes the version-check
@@ -453,20 +444,12 @@ if session_start_star is None:
 
 session_start_star.setdefault("hooks", [])
 
-already_has_session_start = any(
-    "session-start-wrap.sh" in entry.get("command", "")
-    for entry in session_start_star["hooks"]
+upsert_hook(
+    session_start_star["hooks"],
+    "session-start-wrap.sh",
+    {"type": "command", "command": SESSION_START_CMD, "timeout": 5},
+    "SessionStart deferred-wrap hook",
 )
-
-if already_has_session_start:
-    print("  = SessionStart deferred-wrap hook already present")
-else:
-    session_start_star["hooks"].append({
-        "type": "command",
-        "command": SESSION_START_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added SessionStart hook: {SESSION_START_CMD}")
 
 # ---- PreToolUse background-spawn enforcement hook ---------------------------
 ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
@@ -486,20 +469,12 @@ if ptu_task is None:
 
 ptu_task.setdefault("hooks", [])
 
-already_has_enforce_bg = any(
-    "enforce-background-spawn" in entry.get("command", "")
-    for entry in ptu_task["hooks"]
+upsert_hook(
+    ptu_task["hooks"],
+    "enforce-background-spawn.py",
+    {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
+    "PreToolUse background-spawn enforcement hook",
 )
-
-if already_has_enforce_bg:
-    print("  = PreToolUse background-spawn enforcement hook already present")
-else:
-    ptu_task["hooks"].append({
-        "type": "command",
-        "command": ENFORCE_BG_CMD,
-        "timeout": 5
-    })
-    print("  + Added PreToolUse background-spawn enforcement hook")
 
 # ---- PreToolUse orchestrator-singularity enforcement hook -------------------
 # Denies Task spawns issued from inside a subagent context (detected via the
@@ -507,21 +482,12 @@ else:
 # in the environment that launches Claude Code, then restart.
 ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
 
-already_has_enforce_singularity = any(
-    "enforce-orchestrator-singularity" in entry.get("command", "")
-    for entry in ptu_task["hooks"]
+upsert_hook(
+    ptu_task["hooks"],
+    "enforce-orchestrator-singularity.py",
+    {"type": "command", "command": ENFORCE_SINGULARITY_CMD, "timeout": 5},
+    "PreToolUse orchestrator-singularity enforcement hook",
 )
-
-if already_has_enforce_singularity:
-    print("  = PreToolUse orchestrator-singularity enforcement hook already present")
-else:
-    ptu_task["hooks"].append({
-        "type": "command",
-        "command": ENFORCE_SINGULARITY_CMD,
-        "timeout": 5
-    })
-    print("  + Added PreToolUse orchestrator-singularity enforcement hook")
-    print("    (To disable: set AE_SINGULARITY_GUARD_DISABLE=1 and restart Claude Code)")
 
 # ---- PostToolUse capture-nudge hook -----------------------------------------
 # Surfaces an in-session capture-gap nudge when a Task spawn launches and the
@@ -545,20 +511,12 @@ if ptu_post_task is None:
 
 ptu_post_task.setdefault("hooks", [])
 
-already_has_capture_nudge = any(
-    "post-tool-use-capture-nudge" in entry.get("command", "")
-    for entry in ptu_post_task["hooks"]
+upsert_hook(
+    ptu_post_task["hooks"],
+    "post-tool-use-capture-nudge.js",
+    {"type": "command", "command": CAPTURE_NUDGE_CMD, "timeout": 5},
+    "PostToolUse capture-nudge hook",
 )
-
-if already_has_capture_nudge:
-    print("  = PostToolUse capture-nudge hook already present")
-else:
-    ptu_post_task["hooks"].append({
-        "type": "command",
-        "command": CAPTURE_NUDGE_CMD,
-        "timeout": 5
-    })
-    print("  + Added PostToolUse capture-nudge hook")
 
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
@@ -576,20 +534,12 @@ if ptu_auq is None:
 
 ptu_auq.setdefault("hooks", [])
 
-already_has_enforce_auq = any(
-    "enforce-askuserquestion-default" in entry.get("command", "")
-    for entry in ptu_auq["hooks"]
+upsert_hook(
+    ptu_auq["hooks"],
+    "enforce-askuserquestion-default.py",
+    {"type": "command", "command": ENFORCE_AUQ_CMD, "timeout": 5},
+    "PreToolUse AskUserQuestion default-enforcement hook",
 )
-
-if already_has_enforce_auq:
-    print("  = PreToolUse AskUserQuestion default-enforcement hook already present")
-else:
-    ptu_auq["hooks"].append({
-        "type": "command",
-        "command": ENFORCE_AUQ_CMD,
-        "timeout": 5
-    })
-    print("  + Added PreToolUse AskUserQuestion default-enforcement hook")
 
 # ---- Write back -------------------------------------------------------------
 with open(settings_path, "w") as f:
