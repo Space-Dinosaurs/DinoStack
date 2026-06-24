@@ -68,6 +68,7 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 // path to the REAL hooks/lib/wrap-marker.js before writing the shim, so the
 // shimmed copy still loads the real lib (no behavior change, just resolution).
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
+const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
 const shimmedSource = hookSource
   // Replace the final bare `run();` call so the hook doesn't try to read stdin.
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
@@ -78,14 +79,24 @@ const shimmedSource = hookSource
     /require\(['"]\.\/lib\/wrap-marker\.js['"]\)/,
     `require(${JSON.stringify(libMarkerAbs)})`
   )
+  // Second re-anchor: stop-context.js now requires the shared capture-gap
+  // detector via ./lib/capture-gap.js. Anchor it to the real lib too so the
+  // /tmp shim resolves both relative lib requires.
+  .replace(
+    /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
+    `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
   + `\n
 // Expose helpers for unit tests via a module-level export shim.
-// This block is appended by the test loader.
+// This block is appended by the test loader. detectCaptureGap and
+// appendCaptureGapNoticeToContextMd live in stop-context.js's scope;
+// _tokenize is now owned by hooks/lib/capture-gap.js (stop-context.js no longer
+// imports it), so pull it straight from the lib rather than module scope.
 if (typeof module !== 'undefined') {
   module.exports = {
     detectCaptureGap,
     appendCaptureGapNoticeToContextMd,
-    _tokenize,
+    _tokenize: require(${JSON.stringify(libCaptureGapAbs)})._tokenize,
   };
 }
 `;

@@ -523,6 +523,43 @@ else:
     print("  + Added PreToolUse orchestrator-singularity enforcement hook")
     print("    (To disable: set AE_SINGULARITY_GUARD_DISABLE=1 and restart Claude Code)")
 
+# ---- PostToolUse capture-nudge hook -----------------------------------------
+# Surfaces an in-session capture-gap nudge when a Task spawn launches and the
+# session has a learning-worthy event with no learning captured yet. Matcher
+# "Task"; find-or-create idempotent, identical pattern to the PreToolUse Task
+# blocks above. Claude-Code-only (consistent with the deferred-wrap hooks).
+CAPTURE_NUDGE_CMD = f"node {repo_dir}/hooks/post-tool-use-capture-nudge.js"
+
+ptu_post_list = hooks.setdefault("PostToolUse", [])
+
+# Find or create a matcher "Task" block.
+ptu_post_task = None
+for block in ptu_post_list:
+    if block.get("matcher") == "Task":
+        ptu_post_task = block
+        break
+
+if ptu_post_task is None:
+    ptu_post_task = {"matcher": "Task", "hooks": []}
+    ptu_post_list.append(ptu_post_task)
+
+ptu_post_task.setdefault("hooks", [])
+
+already_has_capture_nudge = any(
+    "post-tool-use-capture-nudge" in entry.get("command", "")
+    for entry in ptu_post_task["hooks"]
+)
+
+if already_has_capture_nudge:
+    print("  = PostToolUse capture-nudge hook already present")
+else:
+    ptu_post_task["hooks"].append({
+        "type": "command",
+        "command": CAPTURE_NUDGE_CMD,
+        "timeout": 5
+    })
+    print("  + Added PostToolUse capture-nudge hook")
+
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
 
