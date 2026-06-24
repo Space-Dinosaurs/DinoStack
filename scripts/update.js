@@ -57,16 +57,25 @@ function loadConfig() {
 
 function saveConfig(selectedAdapters) {
   const configPath = getConfigPath();
-  const config = {
-    adapters: {},
-    updatedAt: new Date().toISOString()
-  };
+  // Read-merge-write: load existing config to preserve keys like repo_dir.
+  let config = {};
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (_) {
+    // File absent or unreadable - start from empty object.
+  }
+  config.adapters = {};
   for (const adapter of selectedAdapters) {
     config.adapters[adapter] = true;
   }
+  config.updatedAt = new Date().toISOString();
+  // Atomic write: tmp + rename to avoid partial-write corruption.
+  const tmpPath = `${configPath}.tmp.${process.pid}`;
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmpPath, configPath);
   } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
     console.error(`Warning: failed to write config: ${err.message}`);
   }
 }
