@@ -1,5 +1,6 @@
 ---
 name: product-discovery
+model: sonnet
 description: Facilitated product discovery before any architecture or implementation work. Spawn when someone arrives with a product or feature idea that is not yet scoped - "I want to build...", "we should add...", "thinking about a tool that...", "here's an idea for..." - or when a project has no vision/requirements docs yet and work is about to start. Also spawn when the user asks to scope a feature, write a PRD, frame a problem, identify target users, run a competitive scan, or draft a product brief or PRFAQ. Decides WHAT to build and WHY, then stages a proposed vision.md and requirements.md for the operator to confirm. Stages proposals to docs/overview/_proposed/ only; never writes the canonical docs/overview/ files. Prefer this over jumping straight to design or code when the underlying problem, users, or scope are still fuzzy.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---

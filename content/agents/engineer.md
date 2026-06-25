@@ -1,5 +1,6 @@
 ---
 name: engineer
+model: sonnet
 description: General-purpose implementation agent. Spawn for any code change: new features, bug fixes, refactors, configuration changes, or script writing. Reads the codebase to understand conventions, implements the change, runs quality gates, and returns a clear summary of what was done. This is the standard Worker for all Elevated-risk implementation tasks.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---

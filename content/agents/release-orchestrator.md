@@ -1,5 +1,6 @@
 ---
 name: release-orchestrator
+model: sonnet
 description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Hands failures to the debugger.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---

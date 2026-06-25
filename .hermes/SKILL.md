@@ -506,7 +506,7 @@ The conductor reads `.agentic/config.json` to resolve thirteen project-level orc
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
-- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`.
+- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
 - `capability_preflight_mode` - enum (`advisory | blocking`); default `blocking` as of P2 (all agent manifests are populated). The conductor reads this before every Agent spawn to decide whether missing required capabilities warn-and-proceed (`advisory`) or halt the spawn (`blocking`). Canonical reference: `content/references/capability-preflight.md`.
 - `perceptual_diff_enabled` - boolean, default `false`. Opt-in for the `perceptual_diff` QA scenario method; when `true`, qa-engineer runs Playwright `page.screenshot()` + pixelmatch comparison against committed baselines.
@@ -551,10 +551,12 @@ Separately, the operator-owned product-intent layer `docs/overview/vision.md` + 
 
 ```
 Risk: Elevated - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review.
 ```
 ```
 Risk: Elevated + Cleanup - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -584,15 +586,55 @@ Tier: 3  (max reasoning depth - security audit; Tier 3)
 Spawning security-auditor.
 ```
 
-**Default:** Tier 2. When no tier is declared, the agent uses the Tier 2 model for the active harness. Most spawns are Tier 2 - omit the declaration entirely.
+**Tier is a required field of the spawn declaration.** Every Elevated spawn carries a `Tier:` line directly below `Risk:`. The conductor either (a) names a tier explicitly with a justification, or (b) writes `Tier: <n> (role default)` to consciously accept the spawned agent's role-default tier from the Role-default tier table below. "Forgetting" to think about tier is no longer available: an Elevated declaration with no `Tier:` line is malformed. Most implementation spawns resolve to Tier 2 by role default; review spawns (skeptic, security-auditor) resolve to Tier 3 by role default.
 
 **Model param mapping (Claude Code):**
 
 | Tier | Claude Code `model` param | Use when |
 |---|---|---|
 | 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
-| 2 | `"sonnet"` | Standard work - engineer, investigator, skeptic at normal depth |
-| 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
+| 2 | `"sonnet"` | Standard work - engineer, investigator, qa-engineer at normal depth |
+| 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis; skeptic and security-auditor review by default |
+
+**Mandatory Tier-3 review escalation.** When a unit is Elevated AND matches any of the following signals, the Skeptic (or security-auditor) reviewing that unit MUST be Tier 3 (Opus), regardless of the agent's role default or the project `model_profile`:
+- security, auth, crypto, payments, or secrets
+- irreversible operation: delete, migration, schema change, force push
+- novel architecture constraining future choices
+- high blast radius / shared-utility change
+- release, deploy, or production-state change
+
+This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model.
+
+**Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
+
+| Agent | Default tier | Claude `model:` | Rationale |
+|---|---|---|---|
+| skeptic | 3 | opus | Adversarial review quality binds correctness |
+| security-auditor | 3 | opus | Spec-mandated Tier 3; threat-model depth |
+| architect | 2 | sonnet | Standard design; upgrade to Tier 3 per the escalation rule for novel-architecture units |
+| engineer | 2 | sonnet | Implementation |
+| investigator | 2 | sonnet | Terrain mapping |
+| orchestration-planner | 2 | sonnet | Decomposition |
+| qa-engineer | 2 | sonnet | Runtime verification |
+| debugger | 2 | sonnet | Root-cause analysis |
+| dependency-auditor | 2 | sonnet | Dependency review |
+| perf-analyst | 2 | sonnet | Performance analysis |
+| release-orchestrator | 2 | sonnet | Release execution; escalate the reviewing Skeptic per the rule above |
+| product-discovery | 2 | sonnet | Requirements synthesis |
+| adr-generator | 2 | sonnet | ADR authoring |
+| adr-drift-detector | 2 | sonnet | Compliance audit |
+| learning-extractor | 2 | sonnet | Pattern extraction |
+| learnings-agent | 2 | sonnet | Discretionary capture |
+| wrap-ticket | 2 | sonnet | Session wrap |
+
+Tier 1 (haiku) has no default-role owner; it is opt-in per spawn for shallow mechanical tasks.
+
+**Frontmatter defaults and the model param.** Each agent's frontmatter `model:` encodes its role-default tier. Resolution precedence (Claude Code): `CLAUDE_CODE_SUBAGENT_MODEL` env var > spawn-call `model` param > frontmatter `model:` > inherited session model. Therefore:
+- To accept an agent's role default, the conductor OMITS the `model` param; the frontmatter supplies the model (a skeptic spawn with no param runs Opus).
+- To OVERRIDE for a specific spawn (upgrade a Tier-2 agent to Tier 3 for a novel-architecture unit, or assert a mandated-Tier-3 Skeptic), the conductor passes an explicit `model` param, which wins.
+- Every agent declares an explicit frontmatter `model:` so an omitted param is always correct and a Sonnet-intended agent never silently inherits Opus from an Opus session.
+- Budget mode: `model_profile: budget` acts ONLY through the spawn-call param, never by rewriting frontmatter. To get a Tier-1 (haiku) review on a NON-mandated skeptic spawn under budget mode, the conductor passes an explicit downgrade param; omitting the param yields the Opus frontmatter default. Budget mode never downgrades a mandated-Tier-3 Skeptic (see the escalation rule above).
+- Org allowlist caveat: if `availableModels` excludes opus, frontmatter `model: opus` is silently dropped and the agent inherits the session model. On a mandated-Tier-3 unit in such an org, the conductor must surface that Opus is unavailable rather than proceed on an inherited model.
 
 **Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
 
@@ -606,7 +648,7 @@ Spawning security-auditor.
 
 **Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
 
-For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
+For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
 
 ## QA Gate
 
@@ -1055,7 +1097,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
-- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`.
+- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
 - `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls what happens when the conductor finds a missing required dependency during capability preflight. `advisory` emits a warning with the install command and proceeds with the spawn. `blocking` refuses the spawn when any required dependency remains missing after auto-install. Default flipped to `blocking` at P2 now that all agent manifests are populated. See `content/references/capability-preflight.md` for the full preflight protocol.
 - `perceptual_diff_enabled` - boolean, default `false`. When `true`, qa-engineer runs Playwright `toHaveScreenshot` against committed baselines in `tests/visual-baselines/` and raises auto-Major on drift exceeding per-scenario `tolerance`. Opt-in; baseline maintenance overhead justifies the default of `false`.
@@ -3120,6 +3162,7 @@ When classifying as Elevated, the main agent declares before acting:
 
 ```
 Risk: Elevated - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review.
 ```
 
@@ -3703,6 +3746,7 @@ When classifying as Elevated + Cleanup, the main agent declares before acting:
 
 ```
 Risk: Elevated + Cleanup - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -3741,6 +3785,7 @@ When using this strategy, the conductor declares before spawning:
 
 ```
 Risk: Elevated (multi-dimensional review) - [specific signal]
+Tier: 3 (Opus)
 Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
 ```
 
@@ -4319,7 +4364,7 @@ The Subagent Protocol does not replace The Skeptic Protocol — it provides the 
 
 When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `METHODOLOGY.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
 
-For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (Claude Code: `haiku` for Tier 1, `opus` for Tier 3; other harnesses resolve from tier-map or omit). This param is omitted for Tier 2 (default). Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
+The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in 04-risk-classification.md); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3 for a novel-architecture unit, asserting a mandated-Tier-3 Skeptic, or a Tier-1 mechanical task. Claude Code: `haiku`/`opus` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
@@ -4737,6 +4782,7 @@ Named specialist agents available for delegation. Spawn via `delegate_task` or u
 
 ---
 name: adr-drift-detector
+model: sonnet
 description: Audits codebase compliance against Architecture Decision Records (ADRs). Invoke when the user mentions ADR compliance, architecture drift, "does code match ADRs", architectural audit, or wants to verify decisions are being followed. Automatically finds ADRs, extracts decisions, searches code for evidence, and produces a structured drift report.
 tools: Read, Bash, Grep, Glob
 disallowedTools: [Edit, Write, Task]
@@ -5010,6 +5056,7 @@ If there are no items in a section, write "[None]" under that heading - do not o
 
 ---
 name: adr-generator
+model: sonnet
 description: Expert agent for creating comprehensive Architectural Decision Records (ADRs) with structured formatting optimized for AI consumption and human readability.
 tools: Read, Bash, Grep, Glob, Edit, Write
 ---
@@ -5247,6 +5294,7 @@ Your work is complete when:
 
 ---
 name: architect
+model: sonnet
 description: Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -5509,6 +5557,7 @@ Runs at Tier 3 because grill mode demands the widest design-question aperture; s
 
 ---
 name: debugger
+model: sonnet
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -5618,6 +5667,7 @@ Use this exact structure:
 
 ---
 name: dependency-auditor
+model: sonnet
 description: Supply-chain review specialist. Spawn when the user says "audit our dependencies", "is this upgrade safe", "any CVEs in our lockfile", "check license compliance", "review this new dependency", "do we have vulnerable packages", or "check our supply chain". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -5857,6 +5907,7 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 
 ---
 name: engineer
+model: sonnet
 description: General-purpose implementation agent. Spawn for any code change: new features, bug fixes, refactors, configuration changes, or script writing. Reads the codebase to understand conventions, implements the change, runs quality gates, and returns a clear summary of what was done. This is the standard Worker for all Elevated-risk implementation tasks.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -6046,6 +6097,7 @@ See `content/references/frontend-discipline.md` for full rules and canonical vio
 
 ---
 name: investigator
+model: sonnet
 description: Codebase investigation agent. Spawn when you need to understand code before deciding how to change it - tracing data flow, mapping blast radius, understanding feature behavior without a stack trace, or exploring an unfamiliar area. Returns a structured investigation brief the conductor can hand directly to architect or engineer. Does NOT implement changes or write to disk.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -6174,6 +6226,7 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 
 ---
 name: learning-extractor
+model: sonnet
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
 tools: Read, Glob, Edit, Write
 ---
@@ -6365,6 +6418,7 @@ The only file you may write is:
 
 ---
 name: learnings-agent
+model: sonnet
 description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
 tools: Read, Glob, Grep, Edit, Write
 ---
@@ -6617,6 +6671,7 @@ The only files you may write are:
 
 ---
 name: orchestration-planner
+model: sonnet
 description: Agent team composition planner. Spawn when you have a complex goal or task and need to determine the optimal combination of agents, their sequencing, handoff points, and parallelization strategy before executing. Use when the right agent team is not obvious, when multiple phases are involved, when a high-level requirement needs decomposing into a concrete execution plan, or when you want to avoid costly mid-task reclassification. Returns a structured orchestration plan the conductor can execute directly. Does not implement anything - planning only.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -6832,6 +6887,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 
 ---
 name: perf-analyst
+model: sonnet
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -7024,6 +7080,7 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 
 ---
 name: product-discovery
+model: sonnet
 description: Facilitated product discovery before any architecture or implementation work. Spawn when someone arrives with a product or feature idea that is not yet scoped - "I want to build...", "we should add...", "thinking about a tool that...", "here's an idea for..." - or when a project has no vision/requirements docs yet and work is about to start. Also spawn when the user asks to scope a feature, write a PRD, frame a problem, identify target users, run a competitive scan, or draft a product brief or PRFAQ. Decides WHAT to build and WHY, then stages a proposed vision.md and requirements.md for the operator to confirm. Stages proposals to docs/overview/_proposed/ only; never writes the canonical docs/overview/ files. Prefer this over jumping straight to design or code when the underlying problem, users, or scope are still fuzzy.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -7247,6 +7304,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 
 ---
 name: qa-engineer
+model: sonnet
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -8126,6 +8184,7 @@ fs.writeFileSync(diff_image, PNG.sync.write(diff));
 
 ---
 name: release-orchestrator
+model: sonnet
 description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Hands failures to the debugger.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -8424,6 +8483,7 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 
 ---
 name: security-auditor
+model: opus
 description: Specialized security reviewer. Spawn when a deep, threat-model-driven security audit is needed on code changes. Applies OWASP Top 10 and CWE-category analysis systematically, assumes a capable attacker, and produces a structured findings report with severity ratings, specific code locations, and remediation guidance. The spawn prompt provides the files or code to audit, the security domain, and any known prior mitigations.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Task]
@@ -8543,6 +8603,7 @@ Use this exact structure. Do not paraphrase the section headers.
 
 ---
 name: skeptic
+model: opus
 description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a "## Global-context inputs" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format.
 tools: Read, Grep, Glob, Bash
 disallowedTools: [Edit, Write, Task]
@@ -8660,6 +8721,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 
 ---
 name: wrap-ticket
+model: sonnet
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Glob, Grep, Edit, Write
 ---

@@ -101,6 +101,7 @@ When classifying as Elevated, the main agent declares before acting:
 
 ```
 Risk: Elevated - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review.
 ```
 
@@ -684,6 +685,7 @@ When classifying as Elevated + Cleanup, the main agent declares before acting:
 
 ```
 Risk: Elevated + Cleanup - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -722,6 +724,7 @@ When using this strategy, the conductor declares before spawning:
 
 ```
 Risk: Elevated (multi-dimensional review) - [specific signal]
+Tier: 3 (Opus)
 Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
 ```
 
