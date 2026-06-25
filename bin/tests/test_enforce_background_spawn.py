@@ -300,6 +300,30 @@ def test_wrap_ticket_allowed_when_sentinel_live():
         )
 
 
+def test_wrap_ticket_allowed_when_sentinel_live_agent_tool():
+    """FOREGROUND_EXEMPT invariant under tool_name=Agent: wrap-ticket ALLOWED even
+    when sentinel is live and the spawn tool is Agent (origin/main rename).
+
+    Mirrors test_wrap_ticket_allowed_when_sentinel_live but uses tool_name='Agent'
+    to pin that the FOREGROUND_EXEMPT check fires before sentinel suppression
+    regardless of which tool name the harness uses.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())  # live sentinel
+
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            "tool_input": {"subagent_type": "wrap-ticket"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), (
+            f"wrap-ticket Agent spawn must be allowed even when sentinel is live; got: {parsed}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tests: MAJOR-2 regression - Skill field name and absent-field fail-open
 # ---------------------------------------------------------------------------
