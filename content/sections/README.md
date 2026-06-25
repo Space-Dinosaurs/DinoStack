@@ -81,3 +81,5 @@ If you previously installed the agentic-engineering skill (via `bash .claude/ins
 ## Baseline SHA semantics
 
 `scripts/.methodology-baseline.sha256` contains the SHA256 of the assembled output (`bash scripts/build-methodology.sh`) at the moment Wave 1 landed. The architect plan originally specified the baseline as the SHA of the pre-split monolith; that was overridden by the Worker because the Wave 1 commit also promotes 6 bold-prose anchors to `###` sub-headings (an M1 fix), so the assembled output cannot byte-equal the pre-split monolith. Drift-check intent is "no future unintentional drift between sections and assembled output," not "byte-identity to original" - the post-promotion baseline serves that intent.
+
+Section content is kernel-only (always-loaded). Detail that passes the three-question partition test (see `content/references/design-goals.md` Goal 4) belongs in `content/references/**`, reached by a read-on-trigger pointer in `12-protocol-details.md`.
