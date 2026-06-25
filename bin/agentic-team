@@ -13,7 +13,10 @@ Purpose: Cross-harness team configuration loader, discovery, dispatch, and
 Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
             discover   - probe installed harnesses (installed/version/family)
             dispatch   --harness <h> --role <r> --brief <file> --workdir <dir>
-                         spawn a worker (background); prints run-id to stdout
+                         [--model <m>]
+                         spawn a worker (background); prints run-id to stdout.
+                         --model forwarded to codex/gemini (-m) or claude
+                         (--model); rejected for any other harness.
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
             configure  [--non-interactive] [--assign role=harness:model ...]
@@ -36,7 +39,17 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                discover: models always [] (harness-native discovery not available), exit 0.
                dispatch: unknown harness -> non-zero exit immediately.
                dispatch: workdir not writable -> non-zero exit.
+               dispatch: --model supplied for a harness with no confirmed
+                 --model flag (anything other than codex/gemini/claude) ->
+                 exit 2 fail-fast BEFORE any filesystem side effect (no run
+                 dir, no .active sentinel, no subprocess).
                status/collect: unknown run-id -> non-zero exit.
+               collect: on terminal status, unlinks the shared .active
+                 sentinel ONLY when no sibling run is still live (read-only
+                 liveness scan; never mutates siblings).
+               NOTE: _run_status writes exit=1 on a dead-PID dir with no exit
+                 file (status reads are not pure); the .active-cleanup path
+                 deliberately uses _is_live_readonly to avoid this.
                configure: unknown harness in --assign -> exit 2.
                configure: --non-interactive without --assign -> exit 2.
 
@@ -186,8 +199,8 @@ _HARNESS_BASE_SCORES: dict[str, dict[str, int]] = {
 #     <role>:                # mapping form
 #       harness: <str>
 #       model: <str>
-#       effort: <str>        # optional
-#       reasoning: <str>     # optional
+#       effort: <str>        # optional; parsed but NOT used by cross-harness
+#       reasoning: <str>     #   dispatch (Pi role-models.yml path only).
 #   dispatch:
 #     timeout_seconds: <int>
 #     output_format: <str>
@@ -646,6 +659,11 @@ _SHIM_TARGETS: tuple[str, ...] = (
     "pi", "omp", "claude",
 )
 
+# Harnesses with a CONFIRMED non-interactive --model/-m flag. dispatch --model
+# is forwarded only for these; supplying --model for any other harness is
+# rejected fail-fast (no silent drop). cursor-agent/kimi/pi/omp are NOT here.
+_MODEL_FLAG_HARNESSES: frozenset[str] = frozenset({"codex", "gemini", "claude"})
+
 # Harnesses that need stdin from /dev/null to avoid hangs (AC8 / plan table).
 _STDIN_DEVNULL_HARNESSES: frozenset[str] = frozenset({"cursor-agent"})
 
@@ -677,6 +695,7 @@ def _build_worker_argv(
     harness: str,
     brief_text: str,
     discovery: dict | None = None,
+    model: str | None = None,
 ) -> list[str]:
     """Build the non-interactive argv for the given harness.
 
@@ -689,6 +708,14 @@ def _build_worker_argv(
     discovery:
         Optional discovery payload for this harness (for future flag probing);
         currently only used to read native_subagent_disable_flag.
+    model:
+        Optional model id. When truthy, appended at argv END (after the
+        positional brief and all existing flags) for the confirmed model-flag
+        harnesses only (codex/gemini -> "-m", claude -> "--model"). NEVER
+        inserted before the positional brief, which would make the brief be
+        misparsed as the model value. Harnesses without a confirmed --model
+        flag never reach here with a truthy model (rejected fail-fast in
+        _cmd_dispatch).
 
     Returns
     -------
@@ -699,12 +726,18 @@ def _build_worker_argv(
     if harness == "codex":
         # codex exec "<brief>" --json --sandbox read-only
         # --skip-git-repo-check suppresses the git-repo warning in detached dirs.
-        return [binary, "exec", brief_text, "--json",
+        argv = [binary, "exec", brief_text, "--json",
                 "--sandbox", "read-only", "--skip-git-repo-check"]
+        if model:
+            argv += ["-m", model]
+        return argv
 
     if harness == "gemini":
         # gemini -p "<brief>" --output-format json
-        return [binary, "-p", brief_text, "--output-format", "json"]
+        argv = [binary, "-p", brief_text, "--output-format", "json"]
+        if model:
+            argv += ["-m", model]
+        return argv
 
     if harness == "cursor-agent":
         # cursor-agent -p --force "<brief>" --output-format json
@@ -713,7 +746,10 @@ def _build_worker_argv(
 
     if harness == "claude":
         # claude -p "<brief>" --output-format json
-        return [binary, "-p", brief_text, "--output-format", "json"]
+        argv = [binary, "-p", brief_text, "--output-format", "json"]
+        if model:
+            argv += ["--model", model]
+        return argv
 
     # kimi / pi / omp: invocation family from discovery; flags are best-effort.
     # We do NOT hardcode model IDs per plan principle 1 / AC2.
@@ -847,6 +883,19 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     # AC5 defense-in-depth: embed leaf-worker clause into the brief.
     augmented_brief = _LEAF_WORKER_CLAUSE + brief_text
 
+    # M2b fail-fast: reject --model for harnesses with no confirmed --model
+    # flag BEFORE any filesystem side effect (no run dir, no sentinel, no
+    # subprocess). Forwarding model to an unconfirmed harness would silently
+    # drop it; reject loudly instead.
+    if getattr(args, "model", None) and harness not in _MODEL_FLAG_HARNESSES:
+        print(
+            f"agentic-team dispatch: --model is not supported for harness {harness!r}. "
+            f"Confirmed model-flag harnesses: {', '.join(sorted(_MODEL_FLAG_HARNESSES))}. "
+            f"Remove --model or assign this role to a confirmed harness.",
+            file=sys.stderr,
+        )
+        return 2
+
     run_id = _make_run_id(role)
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -884,7 +933,7 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     if disable_flag:
         worker_env[disable_flag] = "1"
 
-    argv = _build_worker_argv(harness, augmented_brief)
+    argv = _build_worker_argv(harness, augmented_brief, model=getattr(args, "model", None))
 
     stdout_file = run_dir / "stdout"
     stderr_file = run_dir / "stderr"
@@ -980,6 +1029,20 @@ def _pid_alive(pid: int) -> bool:
         return True
     except OSError:
         return False
+
+
+def _is_live_readonly(rd: Path) -> bool:
+    """Read-only liveness check for a sibling run dir.
+
+    Returns True only when the run has no exit file AND its recorded PID is
+    still alive. Unlike _run_status, this NEVER writes an exit file as a side
+    effect on dead-PID dirs, so it is safe to call across sibling runs during
+    sentinel cleanup.
+    """
+    if (rd / "exit").exists():
+        return False
+    pid = _read_pid(rd)
+    return pid is not None and _pid_alive(pid)
 
 
 def _run_status(run_dir: Path) -> str:
@@ -1116,6 +1179,28 @@ def _cmd_collect(args: argparse.Namespace) -> int:
     sys.stdout.write(output)
     if output and not output.endswith("\n"):
         sys.stdout.write("\n")
+
+    # Sibling-gated .active sentinel cleanup. The sentinel is a SINGLE shared
+    # file; unlink it ONLY when no other run is still live (read-only check, so
+    # scanning siblings never mutates them). On scan failure, fail toward
+    # unlink to avoid a permanently stuck sentinel.
+    teamrun_dir = workdir / ".agentic" / "teamrun"
+    any_live = False
+    try:
+        for child in teamrun_dir.iterdir():
+            if not child.is_dir() or child.name == run_id:
+                continue
+            if _is_live_readonly(child):
+                any_live = True
+                break
+    except OSError:
+        any_live = False
+    if not any_live:
+        try:
+            (teamrun_dir / ".active").unlink(missing_ok=True)
+        except OSError:
+            pass
+
     return 0 if status == "done" else 1
 
 
@@ -1166,6 +1251,11 @@ def main(argv: list[str]) -> int:
     p_dispatch.add_argument("--role", required=True)
     p_dispatch.add_argument("--brief", required=True)
     p_dispatch.add_argument("--workdir", required=True)
+    p_dispatch.add_argument(
+        "--model", default=None,
+        help="model id; forwarded to codex/gemini (-m) or claude (--model). "
+             "Rejected for harnesses without a confirmed --model flag.",
+    )
 
     p_status = sub.add_parser("status", help="check run status (running|done|failed)")
     p_status.add_argument("run_id")
