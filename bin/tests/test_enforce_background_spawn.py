@@ -482,7 +482,7 @@ def test_omc_skill_denied_when_sentinel_live_agent_rename():
 def test_no_reap_string_in_any_deny_reason():
     """PR256 (d): M1 - the Task/Agent sentinel deny reason contains no '--reap'.
 
-    The phantom `agentic-team status --reap` clause was removed; the sentinel now
+    The phantom --reap clause was removed from agentic-team status; the sentinel now
     self-expires. No deny path may emit a '--reap' substring.
     """
     with tempfile.TemporaryDirectory() as tmpdir:

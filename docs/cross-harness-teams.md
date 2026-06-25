@@ -248,7 +248,7 @@ The guard is layered. Layers are listed strongest to weakest:
    (`hooks/enforce-background-spawn.py`). On all other harnesses it is a prose
    convention, not a mechanically enforced constraint. The sentinel is created
    by `dispatch` on first run and removed by `collect` when the last run
-   completes. `agentic-team status --reap` clears expired sentinels explicitly.
+   completes. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
 
 ## Failure modes
 
