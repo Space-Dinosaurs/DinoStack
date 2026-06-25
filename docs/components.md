@@ -1,7 +1,7 @@
 # What's included
 
 **Rules** (3 files) - the core methodology:
-- Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
+- Module manifest - required manifest header for non-trivial source files (exports, 50+ LOC, or side-effecting)
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
