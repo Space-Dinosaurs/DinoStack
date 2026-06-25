@@ -299,7 +299,7 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 </div>
 
 <div class="callout">
-<strong>Tier declaration:</strong> Conductors declare <code>Tier: 1/2/3</code> when spawning. Tier 2 is the default - no change to existing spawns. Tier 1 = cheap/fast (Haiku). Tier 3 = max capability (Opus). Declaration is documentation; the <code>model</code> param in the Agent tool call is enforcement.
+<strong>Tier declaration:</strong> Tier is a required field of every Elevated spawn - each carries a <code>Tier:</code> line below <code>Risk:</code>. Tier 1 = cheap/fast (Haiku, opt-in for shallow tasks). Tier 2 = implementation default (Sonnet) - engineer, investigator, qa-engineer. Tier 3 = review default (Opus) - skeptic and security-auditor default here via frontmatter. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; pass an explicit param only to override.
 </div>
 
 ---

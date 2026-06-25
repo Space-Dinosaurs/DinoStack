@@ -70,6 +70,13 @@ Run `/agentic-help` for the full command inventory.
   orchestrating parallel agent teams across multiple AI harnesses; read when using
   `agentic-team` or configuring cross-harness dispatch with `team.yml`.
 
+- **references/digest-return-pattern.md** - digest-return discipline: when a background
+  loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns, the conductor
+  reads the structured digest and acts - it does not re-read the internal transcript; read
+  when running a multi-unit plan with parallel background loops.
+
+## Rules (read on trigger)
+
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;
   read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
   LOC, or implements a side-effecting operation.

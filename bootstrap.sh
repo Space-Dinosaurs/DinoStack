@@ -23,7 +23,7 @@ set -euo pipefail
 #   - ~/.agentic/agentic-engineering-config.json (written with repo_dir key)
 #
 # Failure modes:
-#   Exit 0: success
+#   Exit 0: success OR rogue-clone guard fired (second-checkout prevented; message on stderr)
 #   Exit 1: preflight failure (missing git/python3, or unwritable AE_DEST_DIR parent)
 #   Exit 2: clone/pull failure (both HTTPS and SSH failed, or dest exists but is
 #            not a git repo)
@@ -82,6 +82,63 @@ if ! mkdir -p "$AE_PARENT" 2>/dev/null; then
   echo "bootstrap.sh: cannot create parent directory '$AE_PARENT' - check write permissions" >&2
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# Rogue-clone guard: warn and exit if a valid install already exists elsewhere
+# ---------------------------------------------------------------------------
+# Reads repo_dir from ~/.agentic/agentic-engineering-config.json (inline Python
+# parse - scripts/lib/repo-dir.sh does not exist at bootstrap time since the
+# repo may not be cloned yet). Prints "existing_path|dest_path" to stdout and
+# exits 1 only when a rogue-clone would occur; exits 0 silently otherwise.
+_GUARD_OUT="$(python3 - "$HOME/.agentic/agentic-engineering-config.json" "$AE_DEST_DIR" <<'GUARD_PYEOF'
+import json, os, subprocess, sys
+
+cfg, dest = sys.argv[1], sys.argv[2]
+
+if not os.path.exists(cfg):
+    sys.exit(0)          # no config - first install, proceed
+
+try:
+    with open(cfg) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(0)          # unreadable / malformed config, proceed
+
+repo_dir = data.get("repo_dir", "")
+if not repo_dir:
+    sys.exit(0)          # no repo_dir key, proceed
+
+# Check it is a live git repo
+rc = subprocess.call(
+    ["git", "-C", repo_dir, "rev-parse", "--git-dir"],
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+)
+if rc != 0:
+    sys.exit(0)          # not a valid git repo, proceed
+
+# Canonicalize both paths
+try:
+    canon_existing = os.path.realpath(repo_dir)
+    canon_dest     = os.path.realpath(dest)
+except Exception:
+    sys.exit(0)
+
+if canon_existing == canon_dest:
+    sys.exit(0)          # same path - in-place update, proceed
+
+# Different valid repo exists: signal guard fires via stdout + exit 1
+print(repo_dir + "|" + dest)
+sys.exit(1)
+GUARD_PYEOF
+)" || {
+  _GUARD_EXISTING="${_GUARD_OUT%%|*}"
+  _GUARD_DEST="${_GUARD_OUT##*|}"
+  echo "bootstrap.sh: An existing DinoStack install is at $_GUARD_EXISTING." >&2
+  echo "Running bootstrap from here would create a second clone at $_GUARD_DEST and cause split-brain." >&2
+  echo "To update in place: AE_DEST_DIR=$_GUARD_EXISTING $0, or run $_GUARD_EXISTING/update.sh." >&2
+  echo "Aborting without cloning." >&2
+  exit 0
+}
 
 # ---------------------------------------------------------------------------
 # Clone-or-update logic

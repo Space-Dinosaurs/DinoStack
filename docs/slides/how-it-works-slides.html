@@ -1178,7 +1178,7 @@ hr {
 When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a review is cheap; the cost of a bad change is not.
 </div>
 <div class="callout">
-<strong>Tier declaration:</strong> Conductors declare <code>Tier: 1/2/3</code> when spawning. Tier 2 is the default - no change to existing spawns. Tier 1 = cheap/fast (Haiku). Tier 3 = max capability (Opus). Declaration is documentation; the <code>model</code> param in the Agent tool call is enforcement.
+<strong>Tier declaration:</strong> Tier is a required field of every Elevated spawn - each carries a <code>Tier:</code> line below <code>Risk:</code>. Tier 1 = cheap/fast (Haiku, opt-in for shallow tasks). Tier 2 = implementation default (Sonnet) - engineer, investigator, qa-engineer. Tier 3 = review default (Opus) - skeptic and security-auditor default here via frontmatter. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; pass an explicit param only to override.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
