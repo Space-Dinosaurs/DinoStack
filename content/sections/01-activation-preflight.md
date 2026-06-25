@@ -31,7 +31,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
    *(Steps 5-6 are deferred to `content/references/activation-detail.md` - a deliberate forcing-read exception; the breadcrumb above makes the read mandatory on every active session.)*
 
-7. **When no-opping, print one line and stop:**
+7. (Steps 5-6 deferred to activation-detail.md - see the breadcrumb above) **When no-opping, print one line and stop:**
    `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
    Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
 

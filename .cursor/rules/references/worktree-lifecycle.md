@@ -11,8 +11,8 @@ Public API: Read-only reference document. Cross-referenced from:
             Details entry).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
-               that section first for the two-class summary, isolation mandate,
-               and session-start prune rule).
+               that section first for the isolation mandate and session-start
+               prune rule).
 
 Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
@@ -30,7 +30,7 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
 Performance: Standard.
 -->
 
-> Parent section: METHODOLOGY.md §Worktree Lifecycle. Read that section first for the two-class summary, isolation mandate, and session-start prune rule.
+> Parent section: METHODOLOGY.md §Worktree Lifecycle. Read that section first for the isolation mandate and session-start prune rule.
 
 # Worktree and Branch Lifecycle - Full Reference
 
