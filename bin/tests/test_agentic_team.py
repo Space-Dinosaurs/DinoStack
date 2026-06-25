@@ -1053,6 +1053,181 @@ def test_run_id_contains_urandom_suffix():
 
 
 # ===========================================================================
+# Unit 3+4 - M2b model routing + M2a sibling-gated .active unlink
+# ===========================================================================
+
+_is_live_readonly = _mod._is_live_readonly
+_MODEL_FLAG_HARNESSES = _mod._MODEL_FLAG_HARNESSES
+
+
+# --- M2b argv: model appended at END, brief positional NOT displaced ---------
+
+def test_model_appended_codex_argv_end():
+    """(a) codex argv ends with ['-m', 'X']; (d) brief stays at original index."""
+    base = _build_worker_argv("codex", "BRIEF")
+    argv = _build_worker_argv("codex", "BRIEF", model="X")
+    assert argv[-2:] == ["-m", "X"], f"codex must end with -m X, got {argv!r}"
+    # brief positional index unchanged vs the no-model build
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base, "no-model prefix must be byte-identical"
+
+
+def test_model_appended_gemini_argv_end():
+    """(b) gemini argv ends with ['-m', 'X']; (d) brief not displaced."""
+    base = _build_worker_argv("gemini", "BRIEF")
+    argv = _build_worker_argv("gemini", "BRIEF", model="X")
+    assert argv[-2:] == ["-m", "X"], f"gemini must end with -m X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
+def test_model_appended_claude_argv_end():
+    """(c) claude argv ends with ['--model', 'X']; (d) brief not displaced."""
+    base = _build_worker_argv("claude", "BRIEF")
+    argv = _build_worker_argv("claude", "BRIEF", model="X")
+    assert argv[-2:] == ["--model", "X"], f"claude must end with --model X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
+def test_no_model_argv_unchanged():
+    """(f) no model -> argv identical to pre-change behavior (no model flag)."""
+    for harness in ("codex", "gemini", "claude", "cursor-agent", "kimi", "pi", "omp"):
+        argv = _build_worker_argv(harness, "BRIEF")
+        assert "-m" not in argv, f"{harness}: no -m when model is None"
+        assert "--model" not in argv, f"{harness}: no --model when model is None"
+    # explicit model=None is the same as omitting it
+    assert _build_worker_argv("codex", "BRIEF") == _build_worker_argv("codex", "BRIEF", model=None)
+    # falsy empty string must not append either
+    assert _build_worker_argv("codex", "BRIEF", model="") == _build_worker_argv("codex", "BRIEF")
+
+
+# --- M2b fail-fast: reject --model for non-confirmed harness, no side effect --
+
+def test_dispatch_model_rejected_for_kimi_no_side_effect(tmp_path, monkeypatch, capsys):
+    """(e) dispatch --model X --harness kimi -> exit 2, reject message, no run
+    dir created, no subprocess spawned."""
+    import argparse as _argparse
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    brief_file = _make_brief_file(tmp_path)
+    teamrun = workdir / ".agentic" / "teamrun"
+
+    # Prove no subprocess is spawned: any Popen call is a hard failure.
+    def _no_popen(*a, **k):
+        raise AssertionError("subprocess.Popen must NOT be called on a rejected dispatch")
+
+    monkeypatch.setattr(_mod.subprocess, "Popen", _no_popen)
+
+    args = _argparse.Namespace(
+        harness="kimi", role="engineer",
+        brief=str(brief_file), workdir=str(workdir), model="some-model",
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 2, f"rejected dispatch must return 2, got {rc}"
+    err = capsys.readouterr().err
+    assert "--model is not supported for harness 'kimi'" in err
+    assert "codex" in err and "gemini" in err and "claude" in err
+    # No filesystem side effect: teamrun dir never created (fail-fast precedes mkdir).
+    assert not teamrun.exists(), "no run dir / teamrun tree may be created on reject"
+    assert _MODEL_FLAG_HARNESSES == frozenset({"codex", "gemini", "claude"})
+
+
+# --- M2a: sibling-gated .active unlink ---------------------------------------
+
+def _make_terminal_run(teamrun: Path, run_id: str, exit_code: str = "0") -> Path:
+    """Create a terminal (exit-file present) sibling run dir."""
+    rd = teamrun / run_id
+    rd.mkdir(parents=True, exist_ok=True)
+    (rd / "exit").write_text(exit_code + "\n", encoding="utf-8")
+    (rd / "harness").write_text("codex\n", encoding="utf-8")
+    (rd / "stdout").write_text("done\n", encoding="utf-8")
+    return rd
+
+
+def _make_live_run(teamrun: Path, run_id: str) -> Path:
+    """Create a 'live' sibling: pid file pointing at THIS process, no exit file."""
+    rd = teamrun / run_id
+    rd.mkdir(parents=True, exist_ok=True)
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    (rd / "harness").write_text("codex\n", encoding="utf-8")
+    (rd / "stdout").write_text("running\n", encoding="utf-8")
+    return rd
+
+
+def test_collect_unlinks_active_when_all_siblings_terminal(tmp_path):
+    """(g) two terminal sibling runs -> collect on one unlinks .active."""
+    import argparse as _argparse
+    workdir = tmp_path / "wd"
+    teamrun = workdir / ".agentic" / "teamrun"
+    teamrun.mkdir(parents=True)
+    (teamrun / ".active").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+
+    _make_terminal_run(teamrun, "engineer-0001-x")
+    target = _make_terminal_run(teamrun, "engineer-0002-y")
+
+    args = _argparse.Namespace(run_id="engineer-0002-y", workdir=str(workdir))
+    rc = _mod._cmd_collect(args)
+    assert rc == 0
+    assert not (teamrun / ".active").exists(), ".active must be unlinked when no sibling is live"
+
+
+def test_collect_leaves_active_when_sibling_live(tmp_path):
+    """(h) one live sibling (pid alive, no exit) -> collect LEAVES .active."""
+    import argparse as _argparse
+    workdir = tmp_path / "wd"
+    teamrun = workdir / ".agentic" / "teamrun"
+    teamrun.mkdir(parents=True)
+    (teamrun / ".active").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+
+    _make_live_run(teamrun, "engineer-live-1")  # pid = us, alive, no exit file
+    _make_terminal_run(teamrun, "engineer-0002-y")
+
+    args = _argparse.Namespace(run_id="engineer-0002-y", workdir=str(workdir))
+    rc = _mod._cmd_collect(args)
+    assert rc == 0
+    assert (teamrun / ".active").exists(), ".active must remain while a sibling is live"
+
+
+def test_collect_sibling_scan_writes_no_exit_files(tmp_path):
+    """(i) the sibling liveness scan creates no 'exit' files in sibling dirs."""
+    import argparse as _argparse
+    workdir = tmp_path / "wd"
+    teamrun = workdir / ".agentic" / "teamrun"
+    teamrun.mkdir(parents=True)
+    (teamrun / ".active").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+
+    # Sibling with a DEAD pid and NO exit file: _run_status would write exit=1,
+    # but the read-only _is_live_readonly path must NOT.
+    dead = teamrun / "engineer-dead-1"
+    dead.mkdir(parents=True)
+    (dead / "pid").write_text("999999\n", encoding="utf-8")  # almost-certainly-dead pid
+    (dead / "harness").write_text("codex\n", encoding="utf-8")
+    assert not (dead / "exit").exists()
+
+    target = _make_terminal_run(teamrun, "engineer-0002-y")
+    args = _argparse.Namespace(run_id="engineer-0002-y", workdir=str(workdir))
+    rc = _mod._cmd_collect(args)
+    assert rc == 0
+    assert not (dead / "exit").exists(), "sibling scan must NOT write exit files (read-only)"
+    # dead sibling not live -> .active unlinked
+    assert not (teamrun / ".active").exists()
+
+
+def test_is_live_readonly_pure():
+    """_is_live_readonly: live pid -> True; exit file present -> False; never writes."""
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as d:
+        rd = Path(d)
+        (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+        assert _is_live_readonly(rd) is True
+        # exit file present -> terminal -> not live, regardless of pid
+        (rd / "exit").write_text("0\n", encoding="utf-8")
+        assert _is_live_readonly(rd) is False
+
+
+# ===========================================================================
 # Unit 1 configure subcommand tests (migrated from test_agentic_configure.py)
 # Monkeypatching seam: _discover_harnesses (replaces the old _run_discover).
 # ===========================================================================
