@@ -1193,9 +1193,9 @@
           <ul>
             <li><strong>Conductors declare Tier 1/2/3 at spawn time</strong> - routes lightweight tasks to faster models and critical reviews to max-capability models</li>
             <li><strong>Tier 1</strong> - cheap/fast (Haiku). Declare explicitly for shallow reads, existence checks, format-only tasks, and mechanical transformations</li>
-            <li><strong>Tier 2</strong> - default (session model, Sonnet-equivalent). No declaration needed. Most spawns land here</li>
-            <li><strong>Tier 3</strong> - max capability (Opus). Declare explicitly for security adversarial review, novel architecture design, full blast-radius analysis across an unknown codebase</li>
-            <li><strong>Declaration is documentation; the model param is enforcement</strong> - writing <code>Tier: 3</code> in the status block does not self-execute. The conductor must also pass <code>model: "opus"</code> in the <code>Agent</code> tool call. Declaration without the param produces Tier 2 behavior</li>
+            <li><strong>Tier 2</strong> - implementation default (Sonnet). Most spawns land here: engineer, investigator, qa-engineer, and other implementation roles</li>
+            <li><strong>Tier 3</strong> - review default (Opus). Skeptic and security-auditor default to Tier 3 via frontmatter; upgrade architect/engineer to Tier 3 for novel architecture or high-blast-radius units</li>
+            <li><strong>Tier is a required field</strong> - every Elevated spawn carries a <code>Tier:</code> line below <code>Risk:</code>. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; the param overrides for upgrades or budget-mode downgrades (never for mandated-Tier-3 Skeptics). Declaration without the tool-call param produces frontmatter-default behavior, not Tier 2</li>
             <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
           </ul>
         </div>
