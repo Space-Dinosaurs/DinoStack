@@ -10,14 +10,14 @@ This is not a new mechanism. The engineer DONE summary and Skeptic sign-off form
 
 A loop-running spawn returns a structured digest. Required fields:
 
-- **Terminal status** - one of DONE, DONE_WITH_CONCERNS, BLOCKED, or FAIL. No intermediate states.
+- **Terminal status** - one of DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED. No intermediate states.
 - **Branch / PR** - the branch name and PR URL (or "no PR" if none was opened).
-- **Skeptic sign-off** - verbatim sign-off line including the reviewed SHA range. See `content/references/skeptic-protocol.md` for the sign-off format.
+- **Skeptic sign-off** - verbatim sign-off line including the reviewed scope: a SHA range (base..head) for PR reviews, or the files/components examined for inline reviews. See `content/references/skeptic-protocol.md` for the sign-off format.
 - **Falsifiable claims + evidence** - for any claim gated by the conductor's verification rules (Skeptic absence-or-critical findings, investigator external-data claims), include the exact command run and a literal output excerpt. A synthesized summary without raw output is insufficient.
 - **Residual risk** - any known open issue, assumption, or concern that did not block the terminal status but could matter downstream.
 - **Not-done list** - explicit list of scope items not completed, or "none" if all scope was addressed.
 
-The engineer DONE summary and the Skeptic sign-off together supply these fields. The execution contract in `content/sections/02-delegation.md` §Worker preamble specifies the DONE summary schema; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
+The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
 
 ## Conductor consumption
 
