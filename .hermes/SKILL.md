@@ -14140,9 +14140,26 @@ done
 
 On non-zero exit from any adapter: stop immediately, report which adapter failed and its exit code. Do not run remaining adapters. Surface error messages verbatim.
 
-## Step 5 - Persist config and report
+## Step 5 - Install health check
 
-**5a - Merged config write:**
+After adapters are installed, run a read-only health check to surface any configuration or wiring issues:
+
+```bash
+agentic-doctor
+```
+
+`agentic-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `agentic-doctor` not found on PATH; open a new shell and run `agentic-doctor` manually."
+
+Parse the exit code and output:
+
+- **Exit 0 (no findings):** print `Health: OK`
+- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run agentic-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
+
+Print the full `agentic-doctor` output below the summary line so the user can see what was found.
+
+## Step 6 - Persist config and report
+
+**6a - Merged config write:**
 
 Read the existing config, update only the keys this command owns (`repo_dir` for fresh install, `adapters`, `updatedAt`), and write back atomically (tmp + rename). Preserve ALL other keys including any the user or other tools may have written.
 
@@ -14184,7 +14201,7 @@ os.replace(tmp_path, cfg_path)
 
 If the config write fails, warn the user (non-fatal) and continue.
 
-**5b - Summary report:**
+**6b - Summary report:**
 
 ```
 Done.
@@ -14194,6 +14211,7 @@ Done.
   Commits pulled: N  (or "already up to date" / "fresh install")
   Adapters installed: Claude, Codex
   Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)
+  Health: OK  (or "N issue(s) - run agentic-doctor --fix to converge")
 
 Next steps:
   - Run /agentic-status to verify the install is active in this project.
@@ -14802,6 +14820,8 @@ fi
 ```
 
 Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
+
+**Canonical resolver:** the inline block above is the reference implementation. The same logic is extracted into `scripts/lib/repo-dir.sh` (`resolve_repo_dir` function), which is what hooks and the installer use at runtime. If you need to understand or audit the resolution behavior, `scripts/lib/repo-dir.sh` is the single source to read - the command spec above and the shell lib must stay in sync.
 
 **Compare the session repo against `AE_REPO_DIR` by canonical path:**
 

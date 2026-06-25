@@ -57,6 +57,8 @@ fi
 
 Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
 
+**Canonical resolver:** the inline block above is the reference implementation. The same logic is extracted into `scripts/lib/repo-dir.sh` (`resolve_repo_dir` function), which is what hooks and the installer use at runtime. If you need to understand or audit the resolution behavior, `scripts/lib/repo-dir.sh` is the single source to read - the command spec above and the shell lib must stay in sync.
+
 **Compare the session repo against `AE_REPO_DIR` by canonical path:**
 
 ```bash
