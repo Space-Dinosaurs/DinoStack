@@ -48,8 +48,8 @@ Every PR must declare which adapters it affects. The PR template includes a chec
 ## Editing content
 
 **Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:
-- `content/rules/` - the 3 rule files (agent-methodology, code-standards, conventions)
-- `content/references/` - the 7 reference docs (agent-team, design-goals, doc-sync-obligation, multi-developer-coordination, regression-test-obligation, skeptic-protocol, subagent-protocol)
+- `content/rules/` - the 3 rule files (module-manifest, code-standards, conventions)
+- `content/references/` - the 20 reference docs (agent-team, capability-preflight, capture-classification, conductor-operating-rules, design-goals, digest-return-pattern, doc-sync-obligation, events-log, frontend-discipline, multi-developer-coordination, planning-artifacts, qa-gate, qa-regression-obligation, regression-test-obligation, skeptic-protocol, spawn-presets, subagent-protocol, trigger-catalog, worktree-lifecycle, wrap-context-format)
 - `content/commands/` - the 19 command files (agentic-cost, agentic-disable, agentic-help, agentic-identity, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap)
 - `content/agents/` - the 17 agent definitions (adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket)
 

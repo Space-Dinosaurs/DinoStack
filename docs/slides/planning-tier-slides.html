@@ -700,9 +700,8 @@ hr {
 <li>Operator has exploratory framing (&quot;I want to build...&quot;)</li>
 <li>Conductor auto-triggers or operator invokes <code>/brief [topic]</code></li>
 <li>Multi-turn dialogue: intent, gray areas, Q&amp;A, draft, iterate</li>
-<li>Brief committed to feature worktree BEFORE architect spawns</li>
+<li>Brief committed to the conductor's current branch BEFORE architect spawns (<code>/brief</code> creates no worktree)</li>
 <li><code>brief_source: operator</code> - Skeptic does completeness-only review (framing is already confirmed)</li>
-<li>Worktree persists through architect + engineer flow</li>
 </ul>
 </div>
 </div>
@@ -1273,11 +1272,17 @@ hr {
                         <span class="hljs-attr">and</span> <span class="hljs-attr">regression</span> <span class="hljs-attr">tests</span> <span class="hljs-attr">required</span> <span class="hljs-attr">by</span> <span class="hljs-attr">.agentic</span>/<span class="hljs-attr">findings.md</span> <span class="hljs-attr">that</span> <span class="hljs-attr">prove</span> <span class="hljs-attr">this</span> <span class="hljs-attr">is</span> <span class="hljs-attr">done.</span>
                         &quot;<span class="hljs-attr">Cannot</span> <span class="hljs-attr">specify</span>&quot; <span class="hljs-attr">is</span> <span class="hljs-attr">itself</span> <span class="hljs-attr">a</span> <span class="hljs-attr">planning</span> <span class="hljs-attr">gap</span> <span class="hljs-attr">and</span> <span class="hljs-attr">blocks</span> <span class="hljs-attr">Skeptic</span> <span class="hljs-attr">sign-off.</span>&gt;</span></span>
 
+<span class="hljs-strong">**Outcome rubric:**</span>    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Operator-confirmed</span> <span class="hljs-attr">pass</span>/<span class="hljs-attr">fail</span> <span class="hljs-attr">lines</span> (<span class="hljs-attr">max</span> <span class="hljs-attr">6</span>), <span class="hljs-attr">each</span> <span class="hljs-attr">tagged</span>
+                        <span class="hljs-attr">verification_type:</span> <span class="hljs-attr">deterministic</span> | <span class="hljs-attr">judgment.</span> <span class="hljs-attr">Required</span> <span class="hljs-attr">for</span> <span class="hljs-attr">Elevated</span>;
+                        <span class="hljs-attr">absence</span> <span class="hljs-attr">on</span> <span class="hljs-attr">an</span> <span class="hljs-attr">Elevated</span> <span class="hljs-attr">ticket</span> <span class="hljs-attr">is</span> <span class="hljs-attr">a</span> <span class="hljs-attr">Critical</span> <span class="hljs-attr">Skeptic</span> <span class="hljs-attr">finding.</span>&gt;</span></span>
+<span class="hljs-bullet">-</span> [ ] <span class="language-xml">&lt;criterion, e.g. all existing tests pass with zero regressions&gt;</span> [deterministic]
+<span class="hljs-bullet">-</span> [ ] <span class="language-xml">&lt;criterion, e.g. the new flow is coherent from an operator perspective&gt;</span> [judgment]
+
 <span class="hljs-strong">**QA criteria:**</span>       <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Required</span> <span class="hljs-attr">for</span> <span class="hljs-attr">Elevated.</span> <span class="hljs-attr">YAML</span> <span class="hljs-attr">block:</span> <span class="hljs-attr">qa_skip</span> (<span class="hljs-attr">one</span> <span class="hljs-attr">of</span> <span class="hljs-attr">5</span> <span class="hljs-attr">valid</span> <span class="hljs-attr">enums</span> <span class="hljs-attr">or</span> <span class="hljs-attr">null</span>),
-                        <span class="hljs-attr">qa_skip_rationale</span> (<span class="hljs-attr">required</span> <span class="hljs-attr">if</span> <span class="hljs-attr">qa_skip</span> != <span class="hljs-string">null),</span> <span class="hljs-attr">scenarios</span>[] (<span class="hljs-attr">required</span> <span class="hljs-attr">if</span>
-                        <span class="hljs-attr">qa_skip</span> <span class="hljs-attr">null</span>; <span class="hljs-attr">method</span> <span class="hljs-attr">in</span> {<span class="hljs-attr">browser</span>, <span class="hljs-attr">api</span>, <span class="hljs-attr">runtime-required</span>, <span class="hljs-attr">visual_conformance</span>,
-                        <span class="hljs-attr">accessibility</span>, <span class="hljs-attr">perceptual_diff</span>}), <span class="hljs-attr">manual_smoke.</span> <span class="hljs-attr">Absence</span> <span class="hljs-attr">on</span> <span class="hljs-attr">Elevated</span> <span class="hljs-attr">is</span> <span class="hljs-attr">a</span>
-                        <span class="hljs-attr">Critical</span> <span class="hljs-attr">Skeptic</span> <span class="hljs-attr">finding.</span>&gt;</span></span>
+                        <span class="hljs-attr">qa_skip_rationale</span> (<span class="hljs-attr">required</span> <span class="hljs-attr">if</span> <span class="hljs-attr">qa_skip</span> != <span class="hljs-string">null),</span> <span class="hljs-attr">viewport</span> (<span class="hljs-attr">root</span> <span class="hljs-attr">default</span>
+                        [<span class="hljs-attr">desktop</span>]), <span class="hljs-attr">scenarios</span>[] (<span class="hljs-attr">required</span> <span class="hljs-attr">if</span> <span class="hljs-attr">qa_skip</span> <span class="hljs-attr">null</span>; <span class="hljs-attr">method</span> <span class="hljs-attr">in</span> {<span class="hljs-attr">browser</span>, <span class="hljs-attr">api</span>,
+                        <span class="hljs-attr">runtime-required</span>, <span class="hljs-attr">visual_conformance</span>, <span class="hljs-attr">accessibility</span>, <span class="hljs-attr">perceptual_diff</span>, <span class="hljs-attr">motion</span>}),
+                        <span class="hljs-attr">manual_smoke.</span> <span class="hljs-attr">Absence</span> <span class="hljs-attr">on</span> <span class="hljs-attr">Elevated</span> <span class="hljs-attr">is</span> <span class="hljs-attr">a</span> <span class="hljs-attr">Critical</span> <span class="hljs-attr">Skeptic</span> <span class="hljs-attr">finding.</span>&gt;</span></span>
 
 <span class="hljs-strong">**Linked artifacts:**</span>  architect-plan: <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">path</span>&gt;</span></span>; orchestration: <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">path</span> <span class="hljs-attr">or</span> <span class="hljs-attr">inline</span> <span class="hljs-attr">JSONL</span> <span class="hljs-attr">block</span>&gt;</span></span>
 </code></pre>
@@ -1451,6 +1456,7 @@ hr {
 <li><strong>Non-goals</strong> - written to defeat the most likely scope-creep direction.</li>
 <li><strong>Constraints</strong> - list only what would change the architect's design if violated.</li>
 <li><strong>Verification</strong> - non-skippable. Name the concrete tests, gates, qa.md trigger patterns, and regression tests required by the findings flywheel. If verification cannot be specified at planning time, that is a planning gap - the Brief is not Skeptic-eligible until verification is named.</li>
+<li><strong>Outcome rubric</strong> - distinct from Verification. Verification names gate commands; the Outcome rubric is the operator's semantic definition of done. Deterministic lines name a gate; judgment lines are graded adversarially by the Skeptic.</li>
 <li><strong>QA criteria</strong> - required for Elevated. YAML block with <code>qa_skip</code> enum (or null) and <code>scenarios[]</code>. Absence on an Elevated Brief is a Critical Skeptic finding.</li>
 <li><strong>Linked artifacts</strong> - makes the Brief auditable against its own inputs.</li>
 </ul>

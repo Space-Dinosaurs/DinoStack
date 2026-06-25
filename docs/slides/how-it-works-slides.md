@@ -250,7 +250,8 @@ Learnings, conventions, and decisions persist across sessions instead of dying w
 | Command | When you'd reach for it |
 |---|---|
 | `/init-project` | One-time setup when bringing the protocol into a repo |
-| `/implement-ticket` | Explicitly hand a task to a Worker |
+| `/brief` | Open a planning dialogue before architect/engineer spawn |
+| `/implement-ticket` | Run a ticket end-to-end: architect -> engineer -> skeptic -> PR |
 | `/skeptic` | Force a review pass on recent changes |
 | `/wrap` | On-demand session summarization and memory capture for non-ticket sessions |
 | `/memory-update` | Persist a learning you want to keep |
@@ -271,16 +272,16 @@ Most sessions don't invoke any of these. Commands are accents, not the interface
   .callout { font-size: 0.85em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-The main session agent decides for each task: handle it directly, or delegate to a specialist in the background.
+The main session agent classifies each task as <strong>Trivial</strong>, <strong>Low</strong>, or <strong>Elevated</strong>, then routes it.
 
 <div class="columns">
 <div>
 
-**Direct action**
+**Trivial / Low**
 - Reads, answering from memory
 - Screenshots, diagnostic logging
 - Small, reversible edits
-- Handled in the main thread
+- Trivial work goes to an isolated engineer; Low is direct action
 
 </div>
 <div>
@@ -299,7 +300,7 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 </div>
 
 <div class="callout">
-<strong>Tier declaration:</strong> Tier is a required field of every Elevated spawn - each carries a <code>Tier:</code> line below <code>Risk:</code>. Tier 1 = cheap/fast (Haiku, opt-in for shallow tasks). Tier 2 = implementation default (Sonnet) - engineer, investigator, qa-engineer. Tier 3 = review default (Opus) - skeptic and security-auditor default here via frontmatter. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; pass an explicit param only to override.
+<strong>Tier declaration:</strong> every Elevated spawn carries a required <code>Tier:</code> line. Tier 1 = Haiku (opt-in, shallow tasks), Tier 2 = Sonnet (implementation default), Tier 3 = Opus (review default: skeptic, security-auditor). Each agent's frontmatter <code>model:</code> is the default; pass a param only to override.
 </div>
 
 ---
@@ -307,8 +308,8 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 ## Under the hood - the agent team
 
 <style scoped>
-  .columns-3 { gap: 0.5em; margin-bottom: 0; }
-  .columns-3 .card { padding: 0.45em 0.7em; font-size: 0.66em; border-radius: 8px; line-height: 1.25; }
+  .columns-3 { gap: 0.4em; margin-bottom: 0; }
+  .columns-3 .card { padding: 0.35em 0.6em; font-size: 0.6em; border-radius: 8px; line-height: 1.2; }
   .columns-3 .card strong { font-size: 1.1em; }
   .columns-3 .card:nth-child(1) { border-left-color: #4ea3ff; }
   .columns-3 .card:nth-child(2) { border-left-color: #ff5d73; }
@@ -323,7 +324,11 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
   .columns-3 .card:nth-child(11) { border-left-color: #c79a86; }
   .columns-3 .card:nth-child(12) { border-left-color: #8aa0b5; }
   .columns-3 .card:nth-child(13) { border-left-color: #ff9d4d; }
-  h2 { margin-bottom: 0.35em; }
+  .columns-3 .card:nth-child(14) { border-left-color: #3ad99a; }
+  .columns-3 .card:nth-child(15) { border-left-color: #b06bff; }
+  .columns-3 .card:nth-child(16) { border-left-color: #4ea3ff; }
+  .columns-3 .card:nth-child(17) { border-left-color: #ff5d73; }
+  h2 { margin-bottom: 0.3em; }
 </style>
 
 <div class="columns-3">
@@ -340,6 +345,10 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <div class="card"><strong>perf-analyst</strong><br/>Performance profiling</div>
 <div class="card"><strong>release-orchestrator</strong><br/>End-to-end release sequencing</div>
 <div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review</div>
+<div class="card"><strong>product-discovery</strong><br/>Shapes intent before planning</div>
+<div class="card"><strong>learning-extractor</strong><br/>Mines resolved loops for learnings</div>
+<div class="card"><strong>learnings-agent</strong><br/>Captures learnings ad-hoc</div>
+<div class="card"><strong>wrap-ticket</strong><br/>Closes out a ticket end-to-end</div>
 </div>
 
 ---

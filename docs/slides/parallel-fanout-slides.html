@@ -543,8 +543,8 @@ code {
          ▼
 1. Conductor writes N pending entries to .agentic/tasks.jsonl
 2. Conductor creates N worktrees from BASE_BRANCH
-   git worktree add .worktrees/feature-unit1 -b feature-unit1 origin/main
-   git worktree add .worktrees/feature-unit2 -b feature-unit2 origin/main
+   git worktree add .agentic/worktrees/feature-unit1 -b feature-unit1 origin/$BASE_BRANCH
+   git worktree add .agentic/worktrees/feature-unit2 -b feature-unit2 origin/$BASE_BRANCH
 
 3. Conductor updates entries to in_progress, then spawns N engineers
    in a SINGLE MESSAGE (parallel)
@@ -1700,8 +1700,8 @@ code {
 <h2 id="task-state-coordination">Task-state coordination</h2>
 
 <p><code>.agentic/tasks.jsonl</code> is the durable fan-out coordination surface:</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-jsonl">{&quot;task_id&quot;:&quot;sess1-auth-middleware&quot;,&quot;unit_slug&quot;:&quot;auth-middleware&quot;,&quot;status&quot;:&quot;pending&quot;,&quot;branch_name&quot;:&quot;feature-auth-unit1&quot;,&quot;worktree_path&quot;:&quot;.worktrees/feature-auth-unit1&quot;,&quot;inputs&quot;:{...}}
-{&quot;task_id&quot;:&quot;sess1-user-profile-api&quot;,&quot;unit_slug&quot;:&quot;user-profile-api&quot;,&quot;status&quot;:&quot;in_progress&quot;,&quot;branch_name&quot;:&quot;feature-auth-unit2&quot;,&quot;worktree_path&quot;:&quot;.worktrees/feature-auth-unit2&quot;,&quot;inputs&quot;:{...}}
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-jsonl">{&quot;task_id&quot;:&quot;sess1-auth-middleware&quot;,&quot;unit_slug&quot;:&quot;auth-middleware&quot;,&quot;status&quot;:&quot;pending&quot;,&quot;branch_name&quot;:&quot;feature-auth-unit1&quot;,&quot;worktree_path&quot;:&quot;.agentic/worktrees/feature-auth-unit1&quot;,&quot;inputs&quot;:{...}}
+{&quot;task_id&quot;:&quot;sess1-user-profile-api&quot;,&quot;unit_slug&quot;:&quot;user-profile-api&quot;,&quot;status&quot;:&quot;in_progress&quot;,&quot;branch_name&quot;:&quot;feature-auth-unit2&quot;,&quot;worktree_path&quot;:&quot;.agentic/worktrees/feature-auth-unit2&quot;,&quot;inputs&quot;:{...}}
 </code></pre>
 <p><strong>Entry lifecycle (conductor writes all):</strong></p>
 <table>
