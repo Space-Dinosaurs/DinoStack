@@ -89,6 +89,14 @@ The trigger-pointer pattern in `~/.claude/CLAUDE.md` operationalizes this goal. 
 
 Runtime context management complements structural delegation: the conductor defines context budgets, exchange log compression, and memory retrieval to manage its own context window. See `content/references/subagent-protocol.md` Section 13.
 
+### The three-question partition test
+
+The partition test (apply to every candidate chunk). A chunk may be DEFERRED to a reference file iff Q1=no AND Q2=yes AND Q3=yes:
+- Q1 - Every-task or before-a-read? Does any task need this chunk before the agent has decided to read anything else, OR on essentially every task/turn regardless of task type? If yes, it stays inline (kernel); deferring is a defect.
+- Q2 - Trigger named in kernel? Is the trigger that pulls this chunk in named by a line that remains in the kernel? If no, defect (the chunk would never load).
+- Q3 - Trigger unambiguous from kernel-only state? Is the trigger a concrete, nameable event the agent can recognize WITHOUT first reading the deferred file? If no, defect (anti-chicken-and-egg guard).
+This operationalizes the evaluator question above; it does not weaken it. Section content is kernel-only; detail belongs in `content/references/**` behind a `content/sections/12-protocol-details.md` pointer.
+
 ---
 
 ## Non-Goals
