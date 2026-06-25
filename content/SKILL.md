@@ -74,6 +74,11 @@ Run `/agentic-help` for the full command inventory.
   change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
   the affected docs in the same change; read when a change touches a documented surface.
 
+- **references/digest-return-pattern.md** - digest-return discipline: when a background
+  loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns, the conductor
+  reads the structured digest and acts - it does not re-read the internal transcript; read
+  when running a multi-unit plan with parallel background loops.
+
 ## Rules (read on trigger)
 
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;

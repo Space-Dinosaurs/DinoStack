@@ -300,7 +300,7 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 </div>
 
 <div class="callout">
-<strong>Tier declaration:</strong> conductors declare <code>Tier: 1/2/3</code> at spawn (Tier 2 default); the <code>model</code> param in the Agent call is the enforcement, the declaration is documentation.
+<strong>Tier declaration:</strong> every Elevated spawn carries a required <code>Tier:</code> line. Tier 1 = Haiku (opt-in, shallow tasks), Tier 2 = Sonnet (implementation default), Tier 3 = Opus (review default: skeptic, security-auditor). Each agent's frontmatter <code>model:</code> is the default; pass a param only to override.
 </div>
 
 ---

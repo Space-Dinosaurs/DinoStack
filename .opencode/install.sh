@@ -24,6 +24,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -43,6 +44,9 @@ for arg in "$@"; do
       ;;
     --no-identity)
       AE_NO_IDENTITY=true
+      ;;
+    --dry-run)
+      AE_DRY_RUN=true
       ;;
   esac
 done
@@ -193,6 +197,25 @@ fi
 # Helpers
 # ---------------------------------------------------------------------------
 
+# _ae_is_ours DST
+#   Returns 0 (true) iff DST is "ours to own" - i.e. safe to re-point.
+#   A destination is ours iff:
+#     - it IS a symlink (never touch real files), AND
+#     - its current target is broken OR resolves under a methodology checkout
+#       (path contains a component equal to "DinoStack" or ending with "-DinoStack").
+_ae_is_ours() {
+  local dst="$1"
+  [[ -L "$dst" ]] || return 1
+  local current_target
+  current_target="$(readlink "$dst")"
+  if [[ ! -e "$dst" ]]; then
+    [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+    return 1
+  fi
+  [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+  return 1
+}
+
 symlink_files() {
   local src_dir="$1"
   local dst_dir="$2"
@@ -218,17 +241,38 @@ symlink_files() {
       if [[ "$current_target" == "$src_file" ]]; then
         echo "  = $name (already linked)"
         continue
+      elif _ae_is_ours "$dst_file"; then
+        # Stale symlink pointing to another methodology checkout - re-point it.
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  ~ $name (would re-point to repo_dir)"
+        else
+          ln -sfn "$src_file" "$dst_file"
+          echo "  ~ $name (re-pointed to repo_dir)"
+        fi
+        continue
       else
-        echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  ! $name (would skip: symlink points outside methodology checkout: $current_target)"
+        else
+          echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        fi
         continue
       fi
     elif [[ -e "$dst_file" ]]; then
-      echo "  ! $name (real file exists at destination - skipping)"
+      if [[ "$AE_DRY_RUN" == "true" ]]; then
+        echo "  ! $name (would skip: real file exists at destination)"
+      else
+        echo "  ! $name (real file exists at destination - skipping)"
+      fi
       continue
     fi
 
-    ln -s "$src_file" "$dst_file"
-    echo "  + $name"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ $name (would create)"
+    else
+      ln -s "$src_file" "$dst_file"
+      echo "  + $name"
+    fi
   done
 }
 
@@ -247,14 +291,30 @@ if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
     echo "  = agentic-engineering (already linked)"
+  elif _ae_is_ours "$SKILLS_DST"; then
+    # Stale symlink pointing to another methodology checkout - re-point it.
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ agentic-engineering (would re-point to repo_dir)"
+    else
+      ln -sfn "$SKILLS_SRC" "$SKILLS_DST"
+      echo "  ~ agentic-engineering (re-pointed to repo_dir)"
+    fi
   else
-    echo "  ! agentic-engineering (symlink points elsewhere: $current_target - skipping)"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ! agentic-engineering (would skip: symlink points outside methodology checkout: $current_target)"
+    else
+      echo "  ! agentic-engineering (symlink points elsewhere: $current_target - skipping)"
+    fi
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
   echo "  ! agentic-engineering (real file/directory exists at destination - skipping)"
 else
-  ln -s "$SKILLS_SRC" "$SKILLS_DST"
-  echo "  + agentic-engineering"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + agentic-engineering (would create)"
+  else
+    ln -s "$SKILLS_SRC" "$SKILLS_DST"
+    echo "  + agentic-engineering"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -406,14 +466,30 @@ if [[ -L "$HOOK_DST" ]]; then
   current_target="$(readlink "$HOOK_DST")"
   if [[ "$current_target" == "$HOOK_SRC" ]]; then
     echo "  = pre-commit hook already linked"
+  elif _ae_is_ours "$HOOK_DST"; then
+    # Stale symlink pointing to another methodology checkout - re-point it.
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ pre-commit hook (would re-point to repo_dir)"
+    else
+      ln -sfn "$HOOK_SRC" "$HOOK_DST"
+      echo "  ~ pre-commit hook (re-pointed to repo_dir)"
+    fi
   else
-    echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ! pre-commit hook (would skip: symlink points outside methodology checkout: $current_target)"
+    else
+      echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    fi
   fi
 elif [[ -e "$HOOK_DST" ]]; then
   echo "  ! pre-commit hook is a real file (not a symlink) - skipping to preserve existing hook"
 else
-  ln -s "$HOOK_SRC" "$HOOK_DST"
-  echo "  + pre-commit hook installed"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + pre-commit hook (would create)"
+  else
+    ln -s "$HOOK_SRC" "$HOOK_DST"
+    echo "  + pre-commit hook installed"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

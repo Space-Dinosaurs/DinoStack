@@ -3,6 +3,23 @@
 
 # Changelog
 
+## 2026-06-24
+
+### Features
+
+- **#304** [add agentic-doctor install-health check with --fix](https://github.com/Space-Dinosaurs/DinoStack/pull/304) - tyson-solara6
+- **#303** [add repo-dir.sh canonical resolver lib](https://github.com/Space-Dinosaurs/DinoStack/pull/303) - tyson-solara6
+- **#299** [revision-discipline, grounding, and verification-footer rules](https://github.com/Space-Dinosaurs/DinoStack/pull/299) - tyson-solara6
+- **#296** [in-session capture-gap nudge via PostToolUse(Task)](https://github.com/Space-Dinosaurs/DinoStack/pull/296) - tyson-solara6
+- **#228** [daemon-driven deferred /wrap — opt-in, Claude-only](https://github.com/Space-Dinosaurs/DinoStack/pull/228) - tristanlee85
+
+### Fixes
+
+- **#302** [saveConfig read-merge-write to preserve repo_dir](https://github.com/Space-Dinosaurs/DinoStack/pull/302) - tyson-solara6
+- **#301** [restore three enforcement hooks killed by the Task→Agent tool rename](https://github.com/Space-Dinosaurs/DinoStack/pull/301) - tyson-solara6
+- **#298** [emit agent frontmatter matching gemini-cli 0.47 schema](https://github.com/Space-Dinosaurs/DinoStack/pull/298) - tyson-solara6
+- **#297** [self-heal stale hook paths on re-run](https://github.com/Space-Dinosaurs/DinoStack/pull/297) - tyson-solara6
+
 ## 2026-06-23
 
 ### Fixes

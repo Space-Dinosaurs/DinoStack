@@ -1,5 +1,6 @@
 ---
 name: wrap-ticket
+model: sonnet
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Glob, Grep, Edit, Write
 ---

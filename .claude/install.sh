@@ -1,4 +1,34 @@
 #!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Purpose: One-shot installer for agentic-engineering. Symlinks agents,
+#          commands, and the skill directory into ~/.claude/; wires hooks into
+#          ~/.claude/settings.json; writes activation mode + risk profile;
+#          optionally configures permissions, MCPs, and developer identity;
+#          writes repo_dir to ~/.agentic/agentic-engineering-config.json with
+#          a clobber-guard (never overwrites a valid different repo_dir).
+#
+# Public API:
+#   bash .claude/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
+#                           [--identity=<handle>] [--no-identity] [--dry-run]
+#   --dry-run: print symlink actions and repo_dir write intent without executing
+#              them. Hook wiring, build, and permission phases still execute.
+#
+# Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
+#
+# Downstream consumers: bootstrap.sh (calls this), /update-agentic-engineering,
+#   developers running directly.
+#
+# Failure modes:
+#   - Stale symlinks pointing to another methodology checkout are RE-POINTED
+#     (converging / self-healing). Real files at dst are skipped (never touched).
+#   - Symlinks to non-methodology paths are skipped; a warning is printed.
+#   - repo_dir clobber-guard: if ~/.agentic/agentic-engineering-config.json
+#     already holds a valid DIFFERENT repo_dir, a warning is printed and the
+#     existing value is preserved. Only absent/invalid/same values are written.
+#   - All interactive prompts fall back to a default when stdin is not a TTY.
+#
+# Performance: ~5-10 s (one build pass, node/python3 calls for hooks/settings).
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,6 +57,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -46,6 +77,9 @@ for arg in "$@"; do
       ;;
     --no-identity)
       AE_NO_IDENTITY=true
+      ;;
+    --dry-run)
+      AE_DRY_RUN=true
       ;;
   esac
 done
@@ -205,6 +239,39 @@ SETTINGS="$HOME/.claude/settings.json"
 # Helpers
 # ---------------------------------------------------------------------------
 
+# _ae_is_ours DST
+#   Returns 0 (true) iff DST is "ours to own" - i.e. safe to re-point.
+#   A destination is ours iff:
+#     - it IS a symlink (never touch real files), AND
+#     - its current target is broken OR resolves under a methodology checkout
+#       (path contains a component equal to "DinoStack" or ending with "-DinoStack").
+#   Intentionally more conservative than agentic-doctor on broken symlinks:
+#   agentic-doctor reclaims ALL broken symlinks in managed dirs regardless of
+#   origin, while this predicate only reclaims broken symlinks whose target
+#   string contains a /DinoStack/ or -DinoStack/ component (i.e., was clearly
+#   a methodology path). Non-methodology broken symlinks are left untouched.
+#   Must NOT match "MyDinoStackFork" or similar; only exact-component matches count.
+_ae_is_ours() {
+  local dst="$1"
+  # Not a symlink -> not ours (real file: never touch)
+  [[ -L "$dst" ]] || return 1
+  # Broken symlink pointing to a non-methodology path is still "ours" when
+  # the original target was under a DinoStack checkout. If it's broken and
+  # clearly not a DinoStack path we should not re-point it.
+  local current_target
+  current_target="$(readlink "$dst")"
+  # Broken symlink: if target was under a methodology checkout, ours.
+  # The target string itself encodes the path even when the file is gone.
+  if [[ ! -e "$dst" ]]; then
+    # Broken - check if original target is a methodology path
+    [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+    return 1
+  fi
+  # Live symlink: check if it resolves under a methodology checkout.
+  [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+  return 1
+}
+
 symlink_files() {
   local src_dir="$1"
   local dst_dir="$2"
@@ -229,17 +296,38 @@ symlink_files() {
       if [[ "$current_target" == "$src_file" ]]; then
         echo "  = $name (already linked)"
         continue
+      elif _ae_is_ours "$dst_file"; then
+        # Stale symlink pointing to another methodology checkout - re-point it.
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  ~ $name (would re-point to repo_dir)"
+        else
+          ln -sfn "$src_file" "$dst_file"
+          echo "  ~ $name (re-pointed to repo_dir)"
+        fi
+        continue
       else
-        echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  ! $name (would skip: symlink points outside methodology checkout: $current_target)"
+        else
+          echo "  ! $name (symlink points elsewhere: $current_target - skipping)"
+        fi
         continue
       fi
     elif [[ -e "$dst_file" ]]; then
-      echo "  ! $name (real file exists at destination - skipping)"
+      if [[ "$AE_DRY_RUN" == "true" ]]; then
+        echo "  ! $name (would skip: real file exists at destination)"
+      else
+        echo "  ! $name (real file exists at destination - skipping)"
+      fi
       continue
     fi
 
-    ln -s "$src_file" "$dst_file"
-    echo "  + $name"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  + $name (would create)"
+    else
+      ln -s "$src_file" "$dst_file"
+      echo "  + $name"
+    fi
   done
 }
 
@@ -269,14 +357,34 @@ if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
     echo "  = engineering (already linked)"
+  elif _ae_is_ours "$SKILLS_DST"; then
+    # Stale symlink pointing to another methodology checkout - re-point it.
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ engineering (would re-point to repo_dir)"
+    else
+      ln -sfn "$SKILLS_SRC" "$SKILLS_DST"
+      echo "  ~ engineering (re-pointed to repo_dir)"
+    fi
   else
-    echo "  ! engineering (symlink points elsewhere: $current_target - skipping)"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ! engineering (would skip: symlink points outside methodology checkout: $current_target)"
+    else
+      echo "  ! engineering (symlink points elsewhere: $current_target - skipping)"
+    fi
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
-  echo "  ! engineering (real file/directory exists at destination - skipping)"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  ! engineering (would skip: real file/directory exists at destination)"
+  else
+    echo "  ! engineering (real file/directory exists at destination - skipping)"
+  fi
 else
-  ln -s "$SKILLS_SRC" "$SKILLS_DST"
-  echo "  + agentic-engineering"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + agentic-engineering (would create)"
+  else
+    ln -s "$SKILLS_SRC" "$SKILLS_DST"
+    echo "  + agentic-engineering"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -299,6 +407,30 @@ else:
     settings = {}
 
 hooks = settings.setdefault("hooks", {})
+
+def upsert_hook(hook_list, script_basename, expected_entry, label):
+    """Upsert a hook entry using equality-based idempotency.
+
+    Identifies an existing entry by script_basename appearing in its command
+    (stable identity that survives repo moves). Then:
+    - command already equals expected -> leave it, print '= already present'
+    - command differs (stale/moved path) -> replace command in-place,
+      print '~ updated stale hook'
+    - no match -> append new entry, print '+ added'
+    """
+    expected_cmd = expected_entry["command"]
+    for entry in hook_list:
+        if script_basename in entry.get("command", ""):
+            if entry["command"] == expected_cmd:
+                print(f"  = {label} already present")
+            else:
+                entry["command"] = expected_cmd
+                if "name" in expected_entry:
+                    entry["name"] = expected_entry["name"]
+                print(f"  ~ {label} updated stale hook -> {expected_cmd}")
+            return
+    hook_list.append(expected_entry)
+    print(f"  + Added {label}: {expected_cmd}")
 
 # ---- UserPromptSubmit hook --------------------------------------------------
 RISK_CMD = (
@@ -324,6 +456,7 @@ if ups_star is None:
 
 ups_star.setdefault("hooks", [])
 
+# Risk-classification hook uses full command equality (no path component to go stale)
 already_has_risk = any(
     entry.get("command") == RISK_CMD
     for entry in ups_star["hooks"]
@@ -341,20 +474,12 @@ else:
 
 SKILL_AUTO_CMD = f"bash {repo_dir}/hooks/skill-auto-load-check.sh"
 
-already_has_skill_auto = any(
-    "skill-auto-load-check.sh" in entry.get("command", "")
-    for entry in ups_star["hooks"]
+upsert_hook(
+    ups_star["hooks"],
+    "skill-auto-load-check.sh",
+    {"type": "command", "command": SKILL_AUTO_CMD, "timeout": 5},
+    "UserPromptSubmit skill-auto-load-check hook",
 )
-
-if already_has_skill_auto:
-    print("  = UserPromptSubmit skill-auto-load-check hook already present")
-else:
-    ups_star["hooks"].append({
-        "type": "command",
-        "command": SKILL_AUTO_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added UserPromptSubmit skill-auto-load-check hook")
 
 # ---- Stop hook --------------------------------------------------------------
 STOP_CMD = f"node {repo_dir}/hooks/stop-context.js"
@@ -374,30 +499,27 @@ if stop_star is None:
 
 stop_star.setdefault("hooks", [])
 
-# Look for any existing stop-context.js entry
-replaced = False
-already_correct = False
-for entry in stop_star["hooks"]:
-    cmd = entry.get("command", "")
-    if "stop-context.js" in cmd:
-        if cmd == STOP_CMD:
-            already_correct = True
-        else:
-            entry["command"] = STOP_CMD
-            replaced = True
-        break
+upsert_hook(
+    stop_star["hooks"],
+    "stop-context.js",
+    {"type": "command", "command": STOP_CMD, "timeout": 5},
+    "Stop hook stop-context.js",
+)
 
-if already_correct:
-    print("  = Stop hook already points to correct stop-context.js")
-elif replaced:
-    print(f"  ~ Replaced Stop hook stop-context.js with: {STOP_CMD}")
-else:
-    stop_star["hooks"].append({
-        "type": "command",
-        "command": STOP_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added Stop hook: {STOP_CMD}")
+# Abdication guard: blocks the stop and injects a "proceed" directive when the
+# conductor ends a turn by asking permission for a non-destructive next step.
+# Registered AFTER stop-context.js so the context writer runs first.
+# Scoped to the main session Stop event only (NOT SubagentStop).
+# Default off (abdication_guard_enabled must be true in .agentic/config.json).
+# Disable via: AE_ABDICATION_GUARD_DISABLE=1 in the environment.
+ENFORCE_ABDICATION_CMD = f"python3 {repo_dir}/hooks/enforce-no-abdication.py"
+
+upsert_hook(
+    stop_star["hooks"],
+    "enforce-no-abdication.py",
+    {"type": "command", "command": ENFORCE_ABDICATION_CMD, "timeout": 10},
+    "Stop hook enforce-no-abdication.py",
+)
 
 # ---- SessionEnd hook (deferred-wrap finalize) -------------------------------
 # Finalizes a cleanly-ended session's pending marker to `ready` so the daemon
@@ -418,20 +540,12 @@ if session_end_star is None:
 
 session_end_star.setdefault("hooks", [])
 
-already_has_session_end = any(
-    "session-end-wrap.js" in entry.get("command", "")
-    for entry in session_end_star["hooks"]
+upsert_hook(
+    session_end_star["hooks"],
+    "session-end-wrap.js",
+    {"type": "command", "command": SESSION_END_CMD, "timeout": 5},
+    "SessionEnd deferred-wrap hook",
 )
-
-if already_has_session_end:
-    print("  = SessionEnd deferred-wrap hook already present")
-else:
-    session_end_star["hooks"].append({
-        "type": "command",
-        "command": SESSION_END_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added SessionEnd hook: {SESSION_END_CMD}")
 
 # ---- SessionStart hook (version notice + deferred-wrap self-heal/launch) -----
 # First SessionStart registration: the wrapper composes the version-check
@@ -453,112 +567,85 @@ if session_start_star is None:
 
 session_start_star.setdefault("hooks", [])
 
-already_has_session_start = any(
-    "session-start-wrap.sh" in entry.get("command", "")
-    for entry in session_start_star["hooks"]
+upsert_hook(
+    session_start_star["hooks"],
+    "session-start-wrap.sh",
+    {"type": "command", "command": SESSION_START_CMD, "timeout": 5},
+    "SessionStart deferred-wrap hook",
 )
 
-if already_has_session_start:
-    print("  = SessionStart deferred-wrap hook already present")
-else:
-    session_start_star["hooks"].append({
-        "type": "command",
-        "command": SESSION_START_CMD,
-        "timeout": 5
-    })
-    print(f"  + Added SessionStart hook: {SESSION_START_CMD}")
-
-# ---- PreToolUse background-spawn enforcement hook ---------------------------
+# ---- PreToolUse background-spawn + orchestrator-singularity hooks -----------
+# NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool from
+# "Task" to "Agent". We wire BOTH matcher names so the hooks fire under either
+# CC version. The hooks themselves also guard on both names internally for
+# belt-and-suspenders coverage. Two PreToolUse blocks are created: one for
+# "Task" (legacy) and one for "Agent" (current), each containing both hooks.
 ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
+ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
-# Find or create a matcher "Task" block
-ptu_task = None
-for block in ptu_list:
-    if block.get("matcher") == "Task":
-        ptu_task = block
-        break
+for spawn_matcher in ("Task", "Agent"):
+    # Find or create a matcher block for this tool name.
+    ptu_block = None
+    for block in ptu_list:
+        if block.get("matcher") == spawn_matcher:
+            ptu_block = block
+            break
 
-if ptu_task is None:
-    ptu_task = {"matcher": "Task", "hooks": []}
-    ptu_list.append(ptu_task)
+    if ptu_block is None:
+        ptu_block = {"matcher": spawn_matcher, "hooks": []}
+        ptu_list.append(ptu_block)
 
-ptu_task.setdefault("hooks", [])
+    ptu_block.setdefault("hooks", [])
 
-already_has_enforce_bg = any(
-    "enforce-background-spawn" in entry.get("command", "")
-    for entry in ptu_task["hooks"]
-)
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-background-spawn.py",
+        {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) background-spawn enforcement hook",
+    )
 
-if already_has_enforce_bg:
-    print("  = PreToolUse background-spawn enforcement hook already present")
-else:
-    ptu_task["hooks"].append({
-        "type": "command",
-        "command": ENFORCE_BG_CMD,
-        "timeout": 5
-    })
-    print("  + Added PreToolUse background-spawn enforcement hook")
-
-# ---- PreToolUse orchestrator-singularity enforcement hook -------------------
-# Denies Task spawns issued from inside a subagent context (detected via the
-# top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1
-# in the environment that launches Claude Code, then restart.
-ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
-
-already_has_enforce_singularity = any(
-    "enforce-orchestrator-singularity" in entry.get("command", "")
-    for entry in ptu_task["hooks"]
-)
-
-if already_has_enforce_singularity:
-    print("  = PreToolUse orchestrator-singularity enforcement hook already present")
-else:
-    ptu_task["hooks"].append({
-        "type": "command",
-        "command": ENFORCE_SINGULARITY_CMD,
-        "timeout": 5
-    })
-    print("  + Added PreToolUse orchestrator-singularity enforcement hook")
-    print("    (To disable: set AE_SINGULARITY_GUARD_DISABLE=1 and restart Claude Code)")
+    # Denies spawns issued from inside a subagent context (detected via the
+    # top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1
+    # in the environment that launches Claude Code, then restart.
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-orchestrator-singularity.py",
+        {"type": "command", "command": ENFORCE_SINGULARITY_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) orchestrator-singularity enforcement hook",
+    )
 
 # ---- PostToolUse capture-nudge hook -----------------------------------------
-# Surfaces an in-session capture-gap nudge when a Task spawn launches and the
-# session has a learning-worthy event with no learning captured yet. Matcher
-# "Task"; find-or-create idempotent, identical pattern to the PreToolUse Task
-# blocks above. Claude-Code-only (consistent with the deferred-wrap hooks).
+# Surfaces an in-session capture-gap nudge when a subagent spawn launches and the
+# session has a learning-worthy event with no learning captured yet. Claude Code
+# renamed the spawn tool from "Task" to "Agent", so we wire BOTH matcher names
+# (same dual Task/Agent block pattern as the PreToolUse hooks above), each
+# find-or-create idempotent. Claude-Code-only (consistent with deferred-wrap hooks).
 CAPTURE_NUDGE_CMD = f"node {repo_dir}/hooks/post-tool-use-capture-nudge.js"
 
 ptu_post_list = hooks.setdefault("PostToolUse", [])
 
-# Find or create a matcher "Task" block.
-ptu_post_task = None
-for block in ptu_post_list:
-    if block.get("matcher") == "Task":
-        ptu_post_task = block
-        break
+for spawn_matcher in ("Task", "Agent"):
+    # Find or create a matcher block for this tool name.
+    ptu_post_block = None
+    for block in ptu_post_list:
+        if block.get("matcher") == spawn_matcher:
+            ptu_post_block = block
+            break
 
-if ptu_post_task is None:
-    ptu_post_task = {"matcher": "Task", "hooks": []}
-    ptu_post_list.append(ptu_post_task)
+    if ptu_post_block is None:
+        ptu_post_block = {"matcher": spawn_matcher, "hooks": []}
+        ptu_post_list.append(ptu_post_block)
 
-ptu_post_task.setdefault("hooks", [])
+    ptu_post_block.setdefault("hooks", [])
 
-already_has_capture_nudge = any(
-    "post-tool-use-capture-nudge" in entry.get("command", "")
-    for entry in ptu_post_task["hooks"]
-)
-
-if already_has_capture_nudge:
-    print("  = PostToolUse capture-nudge hook already present")
-else:
-    ptu_post_task["hooks"].append({
-        "type": "command",
-        "command": CAPTURE_NUDGE_CMD,
-        "timeout": 5
-    })
-    print("  + Added PostToolUse capture-nudge hook")
+    upsert_hook(
+        ptu_post_block["hooks"],
+        "post-tool-use-capture-nudge.js",
+        {"type": "command", "command": CAPTURE_NUDGE_CMD, "timeout": 5},
+        f"PostToolUse({spawn_matcher}) capture-nudge hook",
+    )
 
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
@@ -576,20 +663,12 @@ if ptu_auq is None:
 
 ptu_auq.setdefault("hooks", [])
 
-already_has_enforce_auq = any(
-    "enforce-askuserquestion-default" in entry.get("command", "")
-    for entry in ptu_auq["hooks"]
+upsert_hook(
+    ptu_auq["hooks"],
+    "enforce-askuserquestion-default.py",
+    {"type": "command", "command": ENFORCE_AUQ_CMD, "timeout": 5},
+    "PreToolUse AskUserQuestion default-enforcement hook",
 )
-
-if already_has_enforce_auq:
-    print("  = PreToolUse AskUserQuestion default-enforcement hook already present")
-else:
-    ptu_auq["hooks"].append({
-        "type": "command",
-        "command": ENFORCE_AUQ_CMD,
-        "timeout": 5
-    })
-    print("  + Added PreToolUse AskUserQuestion default-enforcement hook")
 
 # ---- Write back -------------------------------------------------------------
 with open(settings_path, "w") as f:
@@ -679,6 +758,122 @@ else:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Write repo_dir to ~/.agentic/agentic-engineering-config.json (guarded)
+#
+# Persists the canonical checkout path so hooks and /update-agentic-engineering
+# can find it in future sessions (bootstrap.sh does this unconditionally, but
+# standalone `bash .claude/install.sh` runs skip bootstrap, leaving repo_dir
+# unset until now).
+#
+# Clobber-guard: ONLY writes when the config is absent, has no repo_dir key,
+# has an invalid (non-git-repo) repo_dir, or already equals REPO_DIR.
+# A valid DIFFERENT repo_dir is NEVER overwritten - a warning is printed
+# instead. Use agentic-doctor or set repo_dir manually if the intent is to
+# switch canonical checkouts.
+# ---------------------------------------------------------------------------
+
+# Source the lib so we can call validate_repo_dir.
+# Gracefully skip if the lib is not available (e.g. older checkout).
+if [[ -f "$REPO_DIR/scripts/lib/repo-dir.sh" ]]; then
+  # shellcheck source=scripts/lib/repo-dir.sh
+  . "$REPO_DIR/scripts/lib/repo-dir.sh"
+
+  _ae_write_repo_dir() {
+    local target_repo_dir="$1"
+    python3 - "$HOME/.agentic/agentic-engineering-config.json" "$target_repo_dir" <<'PYEOF'
+import json, sys, os
+cfg, repo_dir = sys.argv[1], sys.argv[2]
+os.makedirs(os.path.dirname(cfg), exist_ok=True)
+data = {}
+if os.path.exists(cfg):
+    try:
+        with open(cfg) as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+data["repo_dir"] = repo_dir
+# Atomic: write to tmp then rename
+import tempfile
+tmp = cfg + ".tmp." + str(os.getpid())
+with open(tmp, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+os.replace(tmp, cfg)
+PYEOF
+  }
+
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    # Under --dry-run: determine which branch WOULD run and print intent only.
+    _ae_config="$HOME/.agentic/agentic-engineering-config.json"
+    _existing_repo_dir=""
+    if [[ -f "$_ae_config" ]]; then
+      _existing_repo_dir="$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('repo_dir', ''))
+except Exception:
+    print('')
+" "$_ae_config" 2>/dev/null)" || _existing_repo_dir=""
+    fi
+    if [[ -z "$_existing_repo_dir" ]]; then
+      echo "  [dry-run] would write repo_dir=$REPO_DIR to $_ae_config"
+    elif ! validate_repo_dir "$_existing_repo_dir"; then
+      echo "  [dry-run] would update repo_dir=$REPO_DIR (previous '$_existing_repo_dir' was not a valid git repo)"
+    else
+      _existing_real="$(cd "$_existing_repo_dir" 2>/dev/null && pwd -P || echo "$_existing_repo_dir")"
+      _this_real="$(cd "$REPO_DIR" 2>/dev/null && pwd -P || echo "$REPO_DIR")"
+      if [[ "$_existing_real" == "$_this_real" ]]; then
+        echo "  [dry-run] would skip repo_dir (already set to this checkout)"
+      else
+        echo "  [dry-run] would warn: existing repo_dir '$_existing_repo_dir' differs from '$REPO_DIR'; not overwriting"
+      fi
+    fi
+  else
+    _ae_config="$HOME/.agentic/agentic-engineering-config.json"
+    _existing_repo_dir=""
+    if [[ -f "$_ae_config" ]]; then
+      _existing_repo_dir="$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('repo_dir', ''))
+except Exception:
+    print('')
+" "$_ae_config" 2>/dev/null)" || _existing_repo_dir=""
+    fi
+
+    if [[ -z "$_existing_repo_dir" ]]; then
+      # No existing repo_dir - write unconditionally.
+      if _ae_write_repo_dir "$REPO_DIR" 2>/dev/null; then
+        echo "  + wrote repo_dir=$REPO_DIR to $_ae_config"
+      else
+        echo "  ! warning: failed to write repo_dir to $_ae_config (non-fatal)" >&2
+      fi
+    elif ! validate_repo_dir "$_existing_repo_dir"; then
+      # Existing value is not a valid git repo - overwrite with current checkout.
+      if _ae_write_repo_dir "$REPO_DIR" 2>/dev/null; then
+        echo "  ~ updated repo_dir=$REPO_DIR (previous '$_existing_repo_dir' was not a valid git repo)"
+      else
+        echo "  ! warning: failed to update repo_dir in $_ae_config (non-fatal)" >&2
+      fi
+    else
+      # Resolve both paths to canonical forms before comparing.
+      _existing_real="$(cd "$_existing_repo_dir" 2>/dev/null && pwd -P || echo "$_existing_repo_dir")"
+      _this_real="$(cd "$REPO_DIR" 2>/dev/null && pwd -P || echo "$REPO_DIR")"
+      if [[ "$_existing_real" == "$_this_real" ]]; then
+        echo "  = repo_dir already set to this checkout (keeping)"
+      else
+        # Valid DIFFERENT repo_dir - do NOT overwrite.
+        echo "  warning: existing canonical repo_dir '$_existing_repo_dir' differs from this checkout '$REPO_DIR'; not overwriting. Run agentic-doctor or set repo_dir manually if this is intended." >&2
+      fi
+    fi
+  fi
+else
+  echo "  [skip] scripts/lib/repo-dir.sh not found - repo_dir write skipped"
+fi
+
+# ---------------------------------------------------------------------------
 # Run initial build
 # ---------------------------------------------------------------------------
 
@@ -699,14 +894,30 @@ if [[ -L "$HOOK_DST" ]]; then
   current_target="$(readlink "$HOOK_DST")"
   if [[ "$current_target" == "$HOOK_SRC" ]]; then
     echo "  = pre-commit hook already linked"
+  elif _ae_is_ours "$HOOK_DST"; then
+    # Stale symlink pointing to another methodology checkout - re-point it.
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ pre-commit hook (would re-point to repo_dir)"
+    else
+      ln -sfn "$HOOK_SRC" "$HOOK_DST"
+      echo "  ~ pre-commit hook (re-pointed to repo_dir)"
+    fi
   else
-    echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ! pre-commit hook (would skip: symlink points outside methodology checkout: $current_target)"
+    else
+      echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    fi
   fi
 elif [[ -e "$HOOK_DST" ]]; then
   echo "  ! pre-commit hook is a real file (not a symlink) - skipping to preserve existing hook"
 else
-  ln -s "$HOOK_SRC" "$HOOK_DST"
-  echo "  + pre-commit hook installed"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + pre-commit hook (would create)"
+  else
+    ln -s "$HOOK_SRC" "$HOOK_DST"
+    echo "  + pre-commit hook installed"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
