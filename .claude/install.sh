@@ -506,6 +506,21 @@ upsert_hook(
     "Stop hook stop-context.js",
 )
 
+# Abdication guard: blocks the stop and injects a "proceed" directive when the
+# conductor ends a turn by asking permission for a non-destructive next step.
+# Registered AFTER stop-context.js so the context writer runs first.
+# Scoped to the main session Stop event only (NOT SubagentStop).
+# Default off (abdication_guard_enabled must be true in .agentic/config.json).
+# Disable via: AE_ABDICATION_GUARD_DISABLE=1 in the environment.
+ENFORCE_ABDICATION_CMD = f"python3 {repo_dir}/hooks/enforce-no-abdication.py"
+
+upsert_hook(
+    stop_star["hooks"],
+    "enforce-no-abdication.py",
+    {"type": "command", "command": ENFORCE_ABDICATION_CMD, "timeout": 10},
+    "Stop hook enforce-no-abdication.py",
+)
+
 # ---- SessionEnd hook (deferred-wrap finalize) -------------------------------
 # Finalizes a cleanly-ended session's pending marker to `ready` so the daemon
 # can drain it. Find-or-create; re-running install must NOT duplicate it.
