@@ -2151,7 +2151,7 @@ dispatch:
 | `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
 | `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
 | `roles[*].harness` | string | yes (if mapping) | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
-| `roles[*].model` | string | no | Passed to the harness's `--model` flag. Omit to let the harness use its session default (no hardcoded IDs). |
+| `roles[*].model` | string | no | For codex/gemini/claude, forwarded to the harness `--model`/`-m` flag at dispatch. For all other harnesses, supplying `model` is rejected at dispatch with a non-zero exit (no silent drop). Omit to let the harness use its session default (no hardcoded IDs). |
 | `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
 | `dispatch.output_format` | string | no | `json` (default) or `text`. Governs the `collect` demux path. |
 
@@ -2260,8 +2260,7 @@ the conductor to dispatch via `agentic-team` instead.
 
 Stale-sentinel guard: the hook treats `.active` as expired when its recorded
 PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
-not permanently suppress native Task. `agentic-team status --reap` clears
-expired sentinels explicitly.
+not permanently suppress native Task. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
 
 Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
 conductor PID); removed by `agentic-team collect` when the last run in the
