@@ -439,7 +439,6 @@ rules_files = [
     repo_dir + "/.opencode/skills/agentic-engineering/METHODOLOGY.md",
     repo_dir + "/content/rules/code-standards.md",
     repo_dir + "/content/rules/conventions.md",
-    repo_dir + "/content/rules/module-manifest.md",
 ]
 for rf in rules_files:
     if rf not in instructions:
