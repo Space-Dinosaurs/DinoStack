@@ -300,6 +300,8 @@ The `verification` field is **mandatory**. Its purpose is to force the conductor
 
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
 
+**Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, and not-done list - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. See `content/references/digest-return-pattern.md` for the required digest fields and conductor consumption rules.
+
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
          sits between orchestration-planner output and the first engineer
@@ -2138,6 +2140,45 @@ The system deliberately does not attempt to:
 - **Eliminate the need for human judgment.** Escalation paths exist precisely because some decisions are genuinely ambiguous. When the same finding is contested for 2 or more re-routes without resolution, the protocol escalates to the human rather than forcing a resolution. The system is designed to reduce the burden on human reviewers, not replace them.
 
 - **Manage infrastructure or secrets.** The install script creates symlinks and registers a hook. It does not provision cloud resources, manage environment variables, handle credentials, or configure external services.
+
+---
+
+### digest-return-pattern
+
+# Digest-Return Pattern
+
+## Principle
+
+The conductor stays context-lean by spawning context-heavy work in the background and consuming a structured digest on return - not by absorbing the internal loop transcript. Multi-iteration Skeptic/QA loops, long investigations, and parallel fan-out units each run inside a worker's context. Only the digest crosses back.
+
+This is not a new mechanism. The engineer DONE summary and Skeptic sign-off format already produce it. This doc names the discipline so conductors apply it consistently rather than treating each background return as a trigger to re-read or re-derive.
+
+## Digest contract
+
+A loop-running spawn returns a structured digest. Required fields:
+
+- **Terminal status** - one of DONE, DONE_WITH_CONCERNS, BLOCKED, or FAIL. No intermediate states.
+- **Branch / PR** - the branch name and PR URL (or "no PR" if none was opened).
+- **Skeptic sign-off** - verbatim sign-off line including the reviewed SHA range. See `content/references/skeptic-protocol.md` for the sign-off format.
+- **Falsifiable claims + evidence** - for any claim gated by the conductor's verification rules (Skeptic absence-or-critical findings, investigator external-data claims), include the exact command run and a literal output excerpt. A synthesized summary without raw output is insufficient.
+- **Residual risk** - any known open issue, assumption, or concern that did not block the terminal status but could matter downstream.
+- **Not-done list** - explicit list of scope items not completed, or "none" if all scope was addressed.
+
+The engineer DONE summary and the Skeptic sign-off together supply these fields. The execution contract in `content/sections/02-delegation.md` §Worker preamble specifies the DONE summary schema; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
+
+## Conductor consumption
+
+When a background loop returns:
+
+1. Read the digest fields above.
+2. Spot-check falsifiable claims against live state before acting on them. This is the same obligation described in `content/sections/02-delegation.md` under §Skeptic absence-or-critical findings and §Investigator external-data claims.
+3. Act on the terminal outcome. Do not re-read the worker's internal transcript, re-derive findings, or re-run the Skeptic loop. The digest is the output; the transcript is a detail.
+
+This discipline is what keeps the conductor's context flat across many parallel loops. Each parallel unit deposits a digest; the conductor synthesizes digests, not transcripts.
+
+## Why this over a nested-orchestration tier
+
+A nested sub-conductor tier (a "unit-lead" that runs its own Skeptic/QA loop and reports up) would deliver the same context-separation benefit but at real cost: it requires reproducing the conductor's in-session state machinery one level down, rewriting the sole-orchestrator/Skeptic-independence foundation (subagents cannot spawn subagents), and introducing a new trust boundary where digest integrity needs verification. Background-spawn + structured digest return captures most of the benefit without those costs. A formal nested tier remains a future option if conductor context becomes a measured bottleneck on very large parallel fan-out tasks.
 
 ---
 
