@@ -179,12 +179,12 @@ except Exception:
 fi
 
 RULES_SRC="$REPO_DIR/.cursor/rules"
-REFS_SRC="$REPO_DIR/.cursor/rules/references"
+REFS_SRC="$REPO_DIR/.cursor/references"
 COMMANDS_SRC="$REPO_DIR/.cursor/commands"
 HOOKS_SRC="$REPO_DIR/.cursor/hooks.json"
 
 RULES_DST="$HOME/.cursor/rules"
-REFS_DST="$HOME/.cursor/rules/references"
+REFS_DST="$HOME/.cursor/references"
 COMMANDS_DST="$HOME/.cursor/commands"
 HOOKS_DST="$HOME/.cursor/hooks.json"
 
@@ -303,7 +303,38 @@ for f in "${skipped_rules[@]+"${skipped_rules[@]}"}"; do echo "  = $f"; done
 for f in "${warned_rules[@]+"${warned_rules[@]}"}"; do echo "  ! $f"; done
 
 # ---------------------------------------------------------------------------
-# Symlink reference docs (.md files in rules/references/)
+# Legacy cleanup: remove stale $HOME/.cursor/rules/references/ symlinks
+# created by versions prior to the references relocation (refs moved from
+# .cursor/rules/references/ to .cursor/references/). Idempotent; no-op when
+# the legacy path is absent.
+# ---------------------------------------------------------------------------
+
+_legacy_refs_dir="$HOME/.cursor/rules/references"
+if [[ -d "$_legacy_refs_dir" ]]; then
+  _removed_legacy=0
+  for _f in "$_legacy_refs_dir"/*.md; do
+    [[ -e "$_f" || -L "$_f" ]] || continue
+    if [[ -L "$_f" ]]; then
+      _cur_target="$(readlink "$_f")"
+      if [[ "$_cur_target" == "$REPO_DIR/"* ]]; then
+        rm "$_f"
+        _removed_legacy=$(( _removed_legacy + 1 ))
+      fi
+    fi
+  done
+  if [[ "$_removed_legacy" -gt 0 ]]; then
+    echo "  ~ legacy $HOME/.cursor/rules/references/: removed $_removed_legacy stale symlink(s)"
+  fi
+  # Remove the directory if now empty
+  if [[ -d "$_legacy_refs_dir" ]] && [[ -z "$(ls -A "$_legacy_refs_dir" 2>/dev/null)" ]]; then
+    rmdir "$_legacy_refs_dir"
+    echo "  ~ legacy $HOME/.cursor/rules/references/ directory removed (was empty)"
+  fi
+fi
+unset _legacy_refs_dir _removed_legacy _f _cur_target
+
+# ---------------------------------------------------------------------------
+# Symlink reference docs (.md files in references/)
 # ---------------------------------------------------------------------------
 
 echo "Linking reference docs..."

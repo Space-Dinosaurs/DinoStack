@@ -7,7 +7,8 @@
 #
 # Upstream deps: content/rules/*.md, content/sections/[0-9][0-9]-*.md,
 #                scripts/build-methodology.sh,
-#                .cursor/rules/frontmatter/*.yaml
+#                .cursor/rules/frontmatter/*.yaml,
+#                .cursor/cursor-compat-preamble.md
 #
 # Downstream consumers: Cursor IDE (reads .cursor/rules/*.mdc at startup)
 #
@@ -19,7 +20,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
 RULES_DST="$REPO_DIR/.cursor/rules"
-REFS_DST="$REPO_DIR/.cursor/rules/references"
+REFS_DST="$REPO_DIR/.cursor/references"
 COMMANDS_DST="$REPO_DIR/.cursor/commands"
 FRONTMATTER_DIR="$REPO_DIR/.cursor/rules/frontmatter"
 
@@ -37,7 +38,8 @@ get_inode() {
 # covers only the remaining 3 rules files.
 methodology_sidecar="$FRONTMATTER_DIR/agent-methodology.yaml"
 methodology_dst="$RULES_DST/agent-methodology.mdc"
-{ echo "---"; cat "$methodology_sidecar"; echo "---"; echo; bash "$REPO_DIR/scripts/build-methodology.sh"; } > "$methodology_dst"
+PREAMBLE_SRC="$REPO_DIR/.cursor/cursor-compat-preamble.md"
+{ echo "---"; cat "$methodology_sidecar"; echo "---"; echo; cat "$PREAMBLE_SRC"; echo; echo; bash "$REPO_DIR/scripts/build-methodology.sh"; } > "$methodology_dst"
 
 # Rules: prepend YAML frontmatter from sidecar files to produce .mdc.
 # Covers code-standards, conventions, module-manifest (not agent-methodology).

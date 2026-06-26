@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 RULES_DST="$HOME/.cursor/rules"
-REFS_DST="$HOME/.cursor/rules/references"
+REFS_DST="$HOME/.cursor/references"
 COMMANDS_DST="$HOME/.cursor/commands"
 HOOKS_DST="$HOME/.cursor/hooks.json"
 
@@ -68,7 +68,7 @@ for f in "${removed_rules[@]+"${removed_rules[@]}"}"; do echo "  - $f"; done
 for f in "${skipped_rules[@]+"${skipped_rules[@]}"}"; do echo "  = $f"; done
 
 # ---------------------------------------------------------------------------
-# Remove reference doc symlinks (.md files in rules/references/)
+# Remove reference doc symlinks (.md files in references/)
 # ---------------------------------------------------------------------------
 
 echo "Removing reference doc symlinks..."
@@ -76,6 +76,30 @@ remove_symlinks "$REFS_DST" "references" "*.md" refs
 
 for f in "${removed_refs[@]+"${removed_refs[@]}"}"; do echo "  - $f"; done
 for f in "${skipped_refs[@]+"${skipped_refs[@]}"}"; do echo "  = $f"; done
+
+# Also clean up the legacy path ($HOME/.cursor/rules/references/) if present
+_legacy_refs_dir="$HOME/.cursor/rules/references"
+if [[ -d "$_legacy_refs_dir" ]]; then
+  _removed_legacy=0
+  for _f in "$_legacy_refs_dir"/*.md; do
+    [[ -e "$_f" || -L "$_f" ]] || continue
+    if [[ -L "$_f" ]]; then
+      _cur_target="$(readlink "$_f")"
+      if [[ "$_cur_target" == "$REPO_DIR/"* ]]; then
+        rm "$_f"
+        _removed_legacy=$(( _removed_legacy + 1 ))
+      fi
+    fi
+  done
+  if [[ "$_removed_legacy" -gt 0 ]]; then
+    echo "  - legacy $HOME/.cursor/rules/references/: removed $_removed_legacy symlink(s)"
+  fi
+  if [[ -d "$_legacy_refs_dir" ]] && [[ -z "$(ls -A "$_legacy_refs_dir" 2>/dev/null)" ]]; then
+    rmdir "$_legacy_refs_dir"
+    echo "  - legacy $HOME/.cursor/rules/references/ directory removed"
+  fi
+fi
+unset _legacy_refs_dir _removed_legacy _f _cur_target
 
 # ---------------------------------------------------------------------------
 # Remove command symlinks (.md files)

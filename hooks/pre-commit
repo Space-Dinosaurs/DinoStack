@@ -34,7 +34,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.codex/references/"*.md \
     "$REPO_DIR/.codex/commands/"*.md \
     "$REPO_DIR/.cursor/rules/"*.mdc \
-    "$REPO_DIR/.cursor/rules/references/"*.md \
+    "$REPO_DIR/.cursor/references/"*.md \
     "$REPO_DIR/.cursor/commands/"*.md \
     "$REPO_DIR/.gemini/GEMINI.md" \
     "$REPO_DIR/.gemini/references/"*.md \
