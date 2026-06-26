@@ -75,6 +75,40 @@ echo "Removing command symlinks..."
 remove_symlinks "$HOME/.config/opencode/commands" "commands"
 
 # ---------------------------------------------------------------------------
+# Remove ~/.local/bin/agentic-* symlinks
+# ---------------------------------------------------------------------------
+
+echo "Removing bin symlinks from ~/.local/bin..."
+
+BIN_DST="$HOME/.local/bin"
+
+if [[ ! -d "$BIN_DST" ]]; then
+  echo "  [skip] ~/.local/bin not found"
+else
+  _found_any=false
+  for dst_file in "$BIN_DST"/agentic-*; do
+    [[ -e "$dst_file" || -L "$dst_file" ]] || continue
+    _found_any=true
+    name="$(basename "$dst_file")"
+
+    if [[ -L "$dst_file" ]]; then
+      current_target="$(readlink "$dst_file")"
+      if [[ "$current_target" == "$REPO_DIR"* ]]; then
+        rm "$dst_file"
+        echo "  - $name removed"
+      else
+        echo "  = $name (points to $current_target - not ours, skipping)"
+      fi
+    else
+      echo "  = $name (real file - not removing)"
+    fi
+  done
+  if [[ "$_found_any" == false ]]; then
+    echo "  = no agentic-* entries found in ~/.local/bin"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Remove pre-commit hook symlink
 # ---------------------------------------------------------------------------
 
