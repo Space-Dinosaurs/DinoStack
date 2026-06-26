@@ -179,8 +179,8 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 ## The team (1/2)
 
 <style scoped>
-  .columns-3 { gap: 0.6em; }
-  .columns-3 .card { padding: 0.55em 0.75em; font-size: 0.68em; border-radius: 8px; line-height: 1.3; }
+  .columns-3 { gap: 0.45em; margin-bottom: 0; }
+  .columns-3 .card { padding: 0.45em 0.65em; font-size: 0.67em; border-radius: 8px; line-height: 1.25; }
   .columns-3 .card strong { font-size: 1.1em; }
   .columns-3 .card:nth-child(1) { border-left-color: #4ea3ff; }
   .columns-3 .card:nth-child(2) { border-left-color: #ff5d73; }
@@ -190,8 +190,8 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(6) { border-left-color: #ff9d4d; }
   .columns-3 .card:nth-child(7) { border-left-color: #2fd4c4; }
   .columns-3 .card:nth-child(8) { border-left-color: #c79a86; }
-  h2 { margin-bottom: 0.4em; }
-  .tier { font-size: 0.85em; color: #6a7c97; margin-top: 0.3em; }
+  h2 { margin-bottom: 0.25em; }
+  .tier { font-size: 0.85em; color: #6a7c97; margin-top: 0.2em; }
 </style>
 
 <div class="columns-3">
@@ -212,8 +212,8 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 ## The team (2/2)
 
 <style scoped>
-  .columns-3 { gap: 0.6em; }
-  .columns-3 .card { padding: 0.55em 0.75em; font-size: 0.68em; border-radius: 8px; line-height: 1.3; }
+  .columns-3 { gap: 0.45em; margin-bottom: 0; }
+  .columns-3 .card { padding: 0.45em 0.65em; font-size: 0.67em; border-radius: 8px; line-height: 1.25; }
   .columns-3 .card strong { font-size: 1.1em; }
   .columns-3 .card:nth-child(1) { border-left-color: #ff5d73; }
   .columns-3 .card:nth-child(2) { border-left-color: #7c8cff; }
@@ -224,8 +224,8 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(7) { border-left-color: #b06bff; }
   .columns-3 .card:nth-child(8) { border-left-color: #2fd4c4; }
   .columns-3 .card:nth-child(9) { border-left-color: #ff7a5d; }
-  h2 { margin-bottom: 0.4em; }
-  .tier { font-size: 0.85em; color: #6a7c97; margin-top: 0.3em; }
+  h2 { margin-bottom: 0.25em; }
+  .tier { font-size: 0.85em; color: #6a7c97; margin-top: 0.2em; }
 </style>
 
 <div class="columns-3">

@@ -247,13 +247,20 @@ Learnings, conventions, and decisions persist across sessions instead of dying w
 
 ## A small command surface
 
+<style scoped>
+  table { font-size: 0.76em; }
+  th, td { padding: 0.28em 0.55em; }
+  h2 { margin-bottom: 0.3em; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
 | Command | When you'd reach for it |
 |---|---|
 | `/init-project` | One-time setup when bringing the protocol into a repo |
 | `/brief` | Open a planning dialogue before architect/engineer spawn |
 | `/implement-ticket` | Run a ticket end-to-end: architect -> engineer -> skeptic -> PR |
 | `/skeptic` | Force a review pass on recent changes |
-| `/wrap` | On-demand session summarization and memory capture for non-ticket sessions |
+| `/wrap` | On-demand session summarization and memory capture |
 | `/memory-update` | Persist a learning you want to keep |
 
 <div class="callout">
@@ -356,10 +363,10 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 ## The persistence loop - Engineer -> Skeptic -> QA
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
-  ul { font-size: 0.82em; }
-  ul li { margin: 0.15em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  pre { font-size: 0.61em; padding: 0.28em 0.55em; line-height: 1.22; margin: 0.15em 0 0.28em 0; }
+  ul { font-size: 0.76em; }
+  ul li { margin: 0.08em 0; }
+  .callout { font-size: 0.74em; padding: 0.28em 0.85em; margin-top: 0.22em; }
 </style>
 
 ```
@@ -391,11 +398,11 @@ The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration 
 ## When the loop stalls
 
 <style scoped>
-  .columns { gap: 1em; margin-bottom: 0.5em; }
-  .columns .card { font-size: 0.78em; line-height: 1.4; padding: 0.8em 1em; }
+  .columns { gap: 0.7em; margin-bottom: 0.3em; }
+  .columns .card { font-size: 0.74em; line-height: 1.35; padding: 0.65em 0.85em; }
   .columns .card strong { font-size: 1.05em; }
-  p { font-size: 0.85em; margin: 0.2em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  p { font-size: 0.8em; margin: 0.15em 0; }
+  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.3em; }
 </style>
 
 <div class="columns">
@@ -424,10 +431,10 @@ The loop terminates cleanly or escalates. It never runs forever.
 ## Parallel fan-out - N engineers in one message
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
-  ul { font-size: 0.82em; }
-  ul li { margin: 0.15em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  pre { font-size: 0.62em; padding: 0.3em 0.55em; line-height: 1.22; margin: 0.2em 0 0.3em 0; }
+  ul { font-size: 0.78em; }
+  ul li { margin: 0.1em 0; }
+  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.3em; }
 </style>
 
 When `orchestration-planner` returns 2+ independent units, `/implement-ticket` Phase 5 fans out:

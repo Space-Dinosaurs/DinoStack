@@ -277,10 +277,10 @@ Each tier inherits from the one above. An agent working in <code>api/</code> see
 ## What goes where
 
 <style scoped>
-  table { font-size: 0.78em; margin: 0.3em 0 0.8em 0; }
+  table { font-size: 0.78em; margin: 0.3em 0 0.6em 0; }
   th { background: rgba(255,255,255,0.05); }
-  td, th { padding: 0.4em 0.6em; }
-  .callout { font-size: 0.85em; padding: 0.4em 1em; }
+  td, th { padding: 0.35em 0.6em; }
+  p { font-size: 0.85em; margin: 0.3em 0; }
 </style>
 
 | Level | Contains | Example |
@@ -289,21 +289,32 @@ Each tier inherits from the one above. An agent working in <code>api/</code> see
 | **Project root** | Project name, decisions (brief), repo map, tools, tracker config | "Base branch: main" |
 | **Subdirectory** | Stack, key conventions, commands, schemas, gotchas | "All API routes use Zod validation" |
 
-And what does **not** go in AGENTS.md - the rest of the **intent layer**:
+The intent layer extends beyond `AGENTS.md` - each file has a distinct role (see next slide).
+
+---
+
+## The intent layer
+
+<style scoped>
+  table { font-size: 0.76em; margin: 0.25em 0 0.5em 0; }
+  th { background: rgba(255,255,255,0.05); }
+  td, th { padding: 0.3em 0.55em; }
+  .callout { font-size: 0.80em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
 
 | File | Purpose |
 |---|---|
 | `docs/overview/vision.md` + `requirements.md` | Operator-owned product intent - agents read, never write |
-| `decisions.md` | Architecture decisions with full rationale (auto-loaded from rules) |
+| `decisions.md` | Architecture decisions with full rationale |
 | `.agentic/context.md` | Ephemeral session state - auto-written by the Stop hook |
 | `MEMORY.md` | Stable facts learned across sessions |
-| `.agentic/learnings.md` | Structured fix-pattern learnings from resolved Skeptic cycles |
+| `.agentic/learnings.md` | Fix-pattern learnings from resolved Skeptic cycles |
 | `.agentic/findings.md` | Curated recurring Skeptic-finding patterns |
-| `glossary.md` | Ubiquitous Language - the project's domain terms; agents prefer these over inventing synonyms |
+| `glossary.md` | Ubiquitous Language - agents prefer these terms |
 | `qa.md` | QA triggers and accumulated runtime knowledge |
 
 <div class="callout">
-AGENTS.md, MEMORY.md, decisions.md, qa.md, module manifests, and glossary.md together form the project's <strong>intent layer</strong> - the artifacts that capture what the project means to be. Drift between code and these files is intent debt, distinct from technical debt in the code.
+Drift between code and these files is <strong>intent debt</strong> - distinct from technical debt in the code (module manifests embed the same file-level intent in the source). A stale entry is worse than a missing one because readers trust it.
 </div>
 
 ---
