@@ -363,10 +363,10 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 ## The persistence loop - Engineer -> Skeptic -> QA
 
 <style scoped>
-  pre { font-size: 0.63em; padding: 0.35em 0.6em; line-height: 1.25; margin: 0.2em 0 0.35em 0; }
-  ul { font-size: 0.78em; }
-  ul li { margin: 0.1em 0; }
-  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.3em; }
+  pre { font-size: 0.61em; padding: 0.28em 0.55em; line-height: 1.22; margin: 0.15em 0 0.28em 0; }
+  ul { font-size: 0.76em; }
+  ul li { margin: 0.08em 0; }
+  .callout { font-size: 0.74em; padding: 0.28em 0.85em; margin-top: 0.22em; }
 </style>
 
 ```

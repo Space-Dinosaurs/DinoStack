@@ -291,9 +291,9 @@ The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either
 ## The resolved issues preflight + findings_log
 
 <style scoped>
-  p { font-size: 0.8em; margin: 0.2em 0; }
-  pre { font-size: 0.69em; padding: 0.35em 0.7em; line-height: 1.25; margin: 0.2em 0 0.4em 0; }
-  .callout { font-size: 0.78em; padding: 0.35em 1em; margin-top: 0.3em; }
+  p { font-size: 0.77em; margin: 0.12em 0; }
+  pre { font-size: 0.65em; padding: 0.28em 0.6em; line-height: 1.22; margin: 0.12em 0 0.28em 0; }
+  .callout { font-size: 0.74em; padding: 0.28em 0.9em; margin-top: 0.2em; }
 </style>
 
 On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise already-fixed issues:
