@@ -91,24 +91,29 @@ def main() -> None:
 
         # Deny: a subagent attempted to spawn a nested subagent.
         tool_name = data.get("tool_name", "Task/Agent")
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    tool_name + " spawn blocked: a subagent (agent_id="
-                    + repr(agent_id)
-                    + ") attempted to spawn a nested subagent. "
-                    "The AE invariant is that the main conductor is the sole "
-                    "orchestrator (METHODOLOGY.md §Delegation: 'No subagent can "
-                    "spawn subagents - the main agent is the sole orchestrator.'). "
-                    "Return BLOCKED from the current worker so the conductor can "
-                    "re-route the spawn. "
-                    "To disable this guard: set AE_SINGULARITY_GUARD_DISABLE=1 "
-                    "and restart Claude Code."
-                )
-            }
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            tool_name
+                            + " spawn blocked: a subagent (agent_id="
+                            + repr(agent_id)
+                            + ") attempted to spawn a nested subagent. "
+                            "The AE invariant is that the main conductor is the sole "
+                            "orchestrator (METHODOLOGY.md §Delegation: 'No subagent can "
+                            "spawn subagents - the main agent is the sole orchestrator.'). "
+                            "Return BLOCKED from the current worker so the conductor can "
+                            "re-route the spawn. "
+                            "To disable this guard: set AE_SINGULARITY_GUARD_DISABLE=1 "
+                            "and restart Claude Code."
+                        ),
+                    }
+                }
+            )
+        )
         sys.exit(0)
 
     except Exception:
