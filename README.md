@@ -160,6 +160,26 @@ The per-project marker only has effect in combination with the global activation
 - **Global `opt-out` (default):** every project is active unless it contains `agentic-engineering: opt-out`. Adding `opt-in` to a project has no effect - the project is already active.
 - **Global `opt-in`:** every project is dormant unless it contains `agentic-engineering: opt-in`. Adding `opt-out` to a project has no effect - the project is already dormant.
 
+## Project config
+
+`.agentic/config.json` is seeded by `/init-project` and holds thirteen operator-tunable methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+
+- `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
+- `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
+- `model_profile` - enum (`default` | `budget`). `budget` routes eligible spawns to Tier 1 to reduce cost; never applies to security-auditor or mandated-Tier-3 Skeptics.
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes.
+- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls whether a missing required agent dependency warns-and-proceeds or halts the spawn.
+- `perceptual_diff_enabled` - boolean, default `false`. Opt-in Playwright screenshot diff against committed baselines; raises auto-Major on drift.
+- `theme_aware` - boolean, default `false`. Opt-in per-theme QA tuples; qa-engineer runs scenarios in both light and dark themes.
+- `storybook_enabled` - boolean, default `false`. Opt-in targeting of the Storybook iframe for `visual_conformance` and `accessibility` scenarios.
+- `motion_aware` - boolean, default `false`. Opt-in CDP reduced-motion checks per scenario; absent motion scenarios on UI-visible Elevated units become a Major finding.
+- `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/init-project`.
+- `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
+- `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/wrap` jobs; tuned by the `deferred_wrap_*` related keys.
+- `abdication_guard_enabled` - boolean, default `false`. Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
+
+Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see `content/rules/conventions.md` §Project Config.
+
 ## Adapters
 
 The same methodology is packaged for multiple tools. Each adapter lives in its own directory with tool-specific formats:
