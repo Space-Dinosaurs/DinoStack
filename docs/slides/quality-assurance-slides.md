@@ -160,17 +160,38 @@ Runtime verification that gets smarter every run
 
 ---
 
-## The qa-engineer in one slide
+## The qa-engineer: what it does
 
-- For UI-visible changes with `qa_criteria` defined: spawned **in parallel with the Skeptic** (both background, single message) - sign-off requires both to pass
-- For non-UI or unknown-diff cases: spawned **after Skeptic sign-off** as a sequential fallback
+<style scoped>
+  ul { font-size: 0.9em; }
+  ul li { margin: 0.25em 0; }
+  .callout { font-size: 0.88em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
 - Verifies the change in a **real browser** - navigates, clicks, screenshots, captures console errors
-- Falls back to source-reading only when browser access is blocked (labels those criteria `[source-verified]`)
+- Falls back to source-reading when browser access is blocked (labels those criteria `[source-verified]`)
 - Returns a structured **PASS / FAIL / PARTIAL / BLOCKED / INCONCLUSIVE** report with evidence
 - Does **not** fix anything - reporting is the whole job
 
 <div class="callout">
-Static review (Skeptic) plus runtime review (qa-engineer) is the protocol's two-pass safety net. For UI-visible changes, both run concurrently - no sequential delay.
+Static review (Skeptic) + runtime review (qa-engineer) = the protocol's two-pass safety net.
+</div>
+
+---
+
+## The qa-engineer: when it runs
+
+<style scoped>
+  ul { font-size: 0.9em; }
+  ul li { margin: 0.25em 0; }
+  .callout { font-size: 0.88em; padding: 0.5em 1em; margin-top: 0.5em; }
+</style>
+
+- For UI-visible changes with `qa_criteria` defined: spawned **in parallel with the Skeptic** (both background, single message) - sign-off requires both to pass
+- For non-UI or unknown-diff cases: spawned **after Skeptic sign-off** as a sequential fallback
+
+<div class="callout">
+For UI-visible changes, Skeptic and qa-engineer run concurrently - no sequential delay. Both must pass before the unit is complete.
 </div>
 
 ---
@@ -278,8 +299,8 @@ First run in a new project is slow - qa-engineer is discovering quirks. Every ru
 ## Example - one week in the life of qa.md
 
 <style scoped>
-  pre { font-size: 0.72em; padding: 0.5em 0.8em; margin: 0.3em 0 0.8em 0; line-height: 1.3; }
-  p { margin: 0.3em 0; font-size: 0.9em; }
+  pre { font-size: 0.68em; padding: 0.4em 0.7em; margin: 0.2em 0 0.5em 0; line-height: 1.25; }
+  p { margin: 0.2em 0; font-size: 0.85em; }
 </style>
 
 ```markdown
@@ -355,10 +376,10 @@ INCONCLUSIVE is not a pass. The operator must explicitly accept the unverified s
 ## Phase 6b QA loop - a bounded parallel to Phase 6
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
-  ul { font-size: 0.8em; }
-  ul li { margin: 0.15em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  pre { font-size: 0.63em; padding: 0.35em 0.6em; line-height: 1.25; margin: 0.2em 0 0.35em 0; }
+  ul { font-size: 0.75em; }
+  ul li { margin: 0.1em 0; }
+  .callout { font-size: 0.75em; padding: 0.35em 0.9em; margin-top: 0.3em; }
 </style>
 
 ```
