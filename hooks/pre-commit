@@ -3,11 +3,75 @@ set -euo pipefail
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
 
-# Detect worktree context - skip gracefully
+# ---------------------------------------------------------------------------
+# Static analysis gates (warn-and-skip when tool absent, matching hook style)
+# Runs in BOTH worktree and primary-checkout commits so engineer worktree
+# commits are covered. The adapter-build section below is skipped in worktrees.
+# ---------------------------------------------------------------------------
+
+# Only run when bin/ or hooks/ Python/JS files are staged.
+STAGED_PY=$(git diff --cached --name-only | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-' | grep -v '/tests/' | grep -v '/lib/' || true)
+STAGED_JS=$(git diff --cached --name-only | grep -E '^hooks/.*\.js$' | grep -v '/tests/' | grep -v '\.test\.js$' || true)
+
+# ruff lint (Python CLIs + hooks)
+if [ -n "$STAGED_PY" ]; then
+  if command -v ruff >/dev/null 2>&1; then
+    echo "[pre-commit] Running ruff check on bin/ hooks/..."
+    if ! ruff check bin/ hooks/ 2>&1; then
+      echo "[pre-commit] ruff check failed - commit blocked."
+      exit 1
+    fi
+    echo "[pre-commit] ruff check passed."
+  else
+    echo "[pre-commit] WARNING: ruff not found - skipping Python lint (install: pip install ruff)."
+  fi
+fi
+
+# mypy type-check (Python CLIs + hooks)
+if [ -n "$STAGED_PY" ]; then
+  if command -v mypy >/dev/null 2>&1; then
+    echo "[pre-commit] Running mypy on bin/ hooks/..."
+    MYPY_PY_ARGS=(
+      bin/agentic-calibrate bin/agentic-cost bin/agentic-disable bin/agentic-doctor
+      bin/agentic-help bin/agentic-identity bin/agentic-memory bin/agentic-migrate
+      bin/agentic-parse-subagent-usage bin/agentic-status bin/agentic-update
+      hooks/enforce-askuserquestion-default.py hooks/enforce-background-spawn.py
+      hooks/enforce-no-abdication.py hooks/enforce-orchestrator-singularity.py
+    )
+    if ! mypy "${MYPY_PY_ARGS[@]}" --config-file pyproject.toml --scripts-are-modules 2>&1; then
+      echo "[pre-commit] mypy check failed - commit blocked."
+      exit 1
+    fi
+    echo "[pre-commit] mypy passed."
+  else
+    echo "[pre-commit] WARNING: mypy not found - skipping type-check (install: pip install mypy)."
+  fi
+fi
+
+# ESLint (JS hooks)
+if [ -n "$STAGED_JS" ]; then
+  if command -v npx >/dev/null 2>&1 && [ -f "$REPO_DIR/node_modules/.bin/eslint" ]; then
+    echo "[pre-commit] Running eslint on hooks/*.js..."
+    if ! npx eslint hooks/*.js 2>&1; then
+      echo "[pre-commit] eslint failed - commit blocked."
+      exit 1
+    fi
+    echo "[pre-commit] eslint passed."
+  else
+    echo "[pre-commit] WARNING: eslint not found - skipping JS lint (install: npm install --save-dev eslint@8)."
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Adapter builds and staging (skipped in worktrees - build scripts assume
+# primary checkout; worktree engineers commit bin/hooks changes only)
+# ---------------------------------------------------------------------------
+
+# Detect worktree context - skip builds gracefully
 GIT_COMMON=$(git rev-parse --git-common-dir)
 GIT_DIR=$(git rev-parse --git-dir)
 if [[ "$GIT_COMMON" != "$GIT_DIR" ]]; then
-  echo "[pre-commit] Worktree detected - skipping builds."
+  echo "[pre-commit] Worktree detected - skipping adapter builds."
   exit 0
 fi
 
@@ -79,59 +143,3 @@ if git diff --cached --name-only | grep -q "^content/"; then
   fi
 fi
 
-# ---------------------------------------------------------------------------
-# Static analysis gates (warn-and-skip when tool absent, matching hook style)
-# ---------------------------------------------------------------------------
-
-# Only run when bin/ or hooks/ Python/JS files are staged.
-STAGED_PY=$(git diff --cached --name-only | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-' | grep -v '/tests/' | grep -v '/lib/' || true)
-STAGED_JS=$(git diff --cached --name-only | grep -E '^hooks/.*\.js$' | grep -v '/tests/' | grep -v '\.test\.js$' || true)
-
-# ruff lint (Python CLIs + hooks)
-if [ -n "$STAGED_PY" ]; then
-  if command -v ruff >/dev/null 2>&1; then
-    echo "[pre-commit] Running ruff check on bin/ hooks/..."
-    if ! ruff check bin/ hooks/ 2>&1; then
-      echo "[pre-commit] ruff check failed - commit blocked."
-      exit 1
-    fi
-    echo "[pre-commit] ruff check passed."
-  else
-    echo "[pre-commit] WARNING: ruff not found - skipping Python lint (install: pip install ruff)."
-  fi
-fi
-
-# mypy type-check (Python CLIs + hooks)
-if [ -n "$STAGED_PY" ]; then
-  if command -v mypy >/dev/null 2>&1; then
-    echo "[pre-commit] Running mypy on bin/ hooks/..."
-    MYPY_PY_ARGS=(
-      bin/agentic-calibrate bin/agentic-cost bin/agentic-disable bin/agentic-doctor
-      bin/agentic-help bin/agentic-identity bin/agentic-memory bin/agentic-migrate
-      bin/agentic-parse-subagent-usage bin/agentic-status bin/agentic-update
-      hooks/enforce-askuserquestion-default.py hooks/enforce-background-spawn.py
-      hooks/enforce-no-abdication.py hooks/enforce-orchestrator-singularity.py
-    )
-    if ! mypy "${MYPY_PY_ARGS[@]}" --config-file pyproject.toml --scripts-are-modules 2>&1; then
-      echo "[pre-commit] mypy check failed - commit blocked."
-      exit 1
-    fi
-    echo "[pre-commit] mypy passed."
-  else
-    echo "[pre-commit] WARNING: mypy not found - skipping type-check (install: pip install mypy)."
-  fi
-fi
-
-# ESLint (JS hooks)
-if [ -n "$STAGED_JS" ]; then
-  if command -v npx >/dev/null 2>&1 && [ -f "$REPO_DIR/node_modules/.bin/eslint" ]; then
-    echo "[pre-commit] Running eslint on hooks/*.js..."
-    if ! npx eslint hooks/*.js 2>&1; then
-      echo "[pre-commit] eslint failed - commit blocked."
-      exit 1
-    fi
-    echo "[pre-commit] eslint passed."
-  else
-    echo "[pre-commit] WARNING: eslint not found - skipping JS lint (install: npm install --save-dev eslint@8)."
-  fi
-fi
