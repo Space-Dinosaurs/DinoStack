@@ -271,9 +271,9 @@ strict removes the Low-override carve-outs that other profiles rely on. More Ske
 ## How to set your profile
 
 <style scoped>
-  pre { font-size: 0.82em; background: #04070F; border-radius: 8px; padding: 0.8em 1.2em; margin: 0.4em 0; }
-  p { font-size: 0.85em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  pre { font-size: 0.78em; background: #04070F; border-radius: 8px; padding: 0.5em 0.9em; margin: 0.25em 0; }
+  p { font-size: 0.84em; margin: 0.2em 0; }
+  strong { font-size: 0.9em; }
 </style>
 
 **1. At install time**
@@ -285,22 +285,38 @@ bash .claude/install.sh --profile=strict
 ```json
 { "mode": "opt-out", "profile": "strict" }
 ```
-Or use the `preset` field (`lean` | `standard` | `strict`) - overrides `profile` when set:
-```json
-{ "mode": "opt-out", "preset": "strict" }
-```
 
 **3. Per-project override in root `AGENTS.md`**
 ```
 agentic-engineering-profile: strict
 ```
-Or use `preset` (wins over `agentic-engineering-profile:` on collision):
+
+---
+
+## How to set your profile (cont.)
+
+<style scoped>
+  pre { font-size: 0.78em; background: #04070F; border-radius: 8px; padding: 0.5em 0.9em; margin: 0.25em 0; }
+  p { font-size: 0.84em; margin: 0.2em 0; }
+  strong { font-size: 0.9em; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.6em; }
+</style>
+
+Use the `preset` field instead of `profile` - presets override direct profile settings:
+
+```json
+{ "mode": "opt-out", "preset": "strict" }
+```
+
+Or per-project in `AGENTS.md` (preset wins over profile on collision):
 ```
 agentic-engineering-preset: strict
 ```
 
+Preset resolution: `lean` -> relaxed, `standard` -> default, `strict` -> strict.
+
 <div class="callout">
-Per-project preset wins over per-project profile. Preset resolves: lean->relaxed, standard->default, strict->strict. Set a global default that fits most of your work, then override in the projects that need tighter or looser gates.
+Set a global default in <code>agentic-engineering.json</code> that fits most of your work, then override per-project in <code>AGENTS.md</code> for projects that need tighter or looser gates.
 </div>
 
 ---
