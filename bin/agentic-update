@@ -1,0 +1,566 @@
+#!/usr/bin/env python3
+"""
+Purpose: From-anywhere, non-interactive updater for agentic-engineering
+         (DinoStack). Fetches origin, detects whether adapter sources changed
+         via the same REBUILD_TRIGGERS logic as scripts/update.js, runs the
+         appropriate install.sh scripts, resets the version-check cache, and
+         optionally runs agentic-doctor --fix. Designed for CI, cron jobs,
+         shell aliases, and any non-TTY context where scripts/update.js cannot
+         run (because that script requires a TTY for its TUI).
+
+Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
+             --check        Report how far behind origin/main the local main
+                            branch is, then exit 0. Does NOT pull. Works from
+                            any branch.
+             --no-doctor    Skip the agentic-doctor --fix step after update.
+             --adapters=X   Comma-separated list of adapter dirs to refresh
+                            (e.g. --adapters=.claude,.cursor). .claude is
+                            always prepended (LOCKED_ADAPTERS invariant).
+            Environment:
+             AGENTIC_CONFIG_PATH  Override path to agentic-engineering-config.json
+                                  (useful for tests; default ~/.agentic/...).
+            Exits:
+             0  success (up-to-date or updated)
+             1  fatal error (not on main / dirty tree / pull failure / adapter
+                failure / git not found / repo not found)
+             2  agentic-doctor --fix exited 2 (unfixable health issues)
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
+               subprocess, sys, tempfile, time). Reads
+               ~/.agentic/agentic-engineering-config.json (repo_dir, adapters).
+               Invokes: git (fetch, pull, rev-parse, diff, status, etc.),
+               bash <adapter>/install.sh, agentic-doctor.
+
+Downstream consumers: end users running from any cwd; CI pipelines; shell
+                      aliases; any non-TTY automation that cannot launch the
+                      interactive scripts/update.js TUI.
+
+Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
+               or adapter install failure. exit 2 when agentic-doctor --fix
+               exits 2 (unfixable issues). Cache write (version-check-cache)
+               is non-fatal: failures emit a warning and execution continues.
+               Missing agentic-doctor binary: warning, exit 0.
+
+Performance: network-bound (git fetch); rebuild decision and adapter installs
+             add seconds only when adapter sources changed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Adapters always included regardless of config selection.
+# Mirrors LOCKED_ADAPTERS in scripts/update.js.
+LOCKED_ADAPTERS: tuple[str, ...] = (".claude",)
+
+# Dot-dirs under repo root excluded from adapter discovery.
+SKIP_DIRS: frozenset[str] = frozenset([
+    ".", "..", ".git", ".github", ".vscode", ".idea",
+    ".cache", ".venv", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+])
+
+# ---------------------------------------------------------------------------
+# Config resolution
+# ---------------------------------------------------------------------------
+
+
+def _home() -> Path:
+    """Current HOME directory. Re-evaluated each call so tests can override HOME."""
+    return Path(os.path.expanduser("~"))
+
+
+def _config_path() -> Path:
+    override = os.environ.get("AGENTIC_CONFIG_PATH")
+    if override:
+        return Path(override)
+    return _home() / ".agentic" / "agentic-engineering-config.json"
+
+
+def _load_config() -> dict:
+    """Return parsed config dict, or {} on any error."""
+    try:
+        cfg = _config_path()
+        if cfg.is_file():
+            return json.loads(cfg.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _load_repo_dir() -> Path:
+    """Resolve repo_dir from config, falling back to ~/DinoStack."""
+    fallback = Path(os.path.realpath(str(_home() / "DinoStack")))
+    try:
+        data = _load_config()
+        if data.get("repo_dir"):
+            raw = Path(str(data["repo_dir"])).expanduser()
+            return Path(os.path.realpath(str(raw)))
+    except Exception:
+        pass
+    return fallback
+
+
+# ---------------------------------------------------------------------------
+# Git helpers
+# ---------------------------------------------------------------------------
+
+
+def _git(repo_dir: Path, *args: str, capture: bool = True) -> tuple[int, str, str]:
+    """Run git -C repo_dir *args. Return (returncode, stdout.strip, stderr.strip)."""
+    cmd = ["git", "-C", str(repo_dir)] + list(args)
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE if capture else None,
+            text=True,
+        )
+        stdout = (result.stdout or "").strip() if capture else ""
+        stderr = (result.stderr or "").strip() if capture else ""
+        return result.returncode, stdout, stderr
+    except FileNotFoundError:
+        return 127, "", "git: command not found"
+    except Exception as exc:
+        return 1, "", str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Adapter discovery
+# ---------------------------------------------------------------------------
+
+
+def _discover_adapters(repo_dir: Path) -> list[str]:
+    """Return sorted list of dot-dirs in repo_dir containing install.sh."""
+    adapters: list[str] = []
+    try:
+        for entry in sorted(repo_dir.iterdir()):
+            name = entry.name
+            if not name.startswith("."):
+                continue
+            if name in SKIP_DIRS:
+                continue
+            if not entry.is_dir():
+                continue
+            if (entry / "install.sh").is_file():
+                adapters.append(name)
+    except Exception:
+        pass
+    adapters.sort(key=lambda s: s.lower())
+    return adapters
+
+
+# ---------------------------------------------------------------------------
+# Rebuild decision
+# ---------------------------------------------------------------------------
+
+# Ported from scripts/update.js:252-281 (needsRebuild). Keep in sync -
+# REBUILD_TRIGGERS and the */build.sh catch-all are the source of truth there.
+REBUILD_TRIGGERS: tuple[str, ...] = (
+    "content/",
+    "scripts/build-all.sh",
+    "scripts/build-methodology.sh",
+    "scripts/build-slides.sh",
+    "hooks/",
+    ".claude/install.sh",
+    "bin/",
+)
+
+
+def _needs_rebuild(old_head: str, new_head: str, changed_paths: list[str]) -> bool:
+    """Return True if adapter install scripts should run after a pull.
+
+    Ported from scripts/update.js:252-281 (needsRebuild). Keep in sync -
+    REBUILD_TRIGGERS and the */build.sh catch-all are the source of truth there.
+
+    Decision table:
+      old_head empty/falsy -> True  (first install, never skip)
+      old_head == new_head -> False (already up to date)
+      any changed path matches a REBUILD_TRIGGER -> True
+      otherwise -> False (doc-only or unrelated changes)
+    """
+    # Safety case: no prior HEAD means first install - always rebuild.
+    if not old_head:
+        return True
+
+    # No commits pulled - nothing to rebuild.
+    if old_head == new_head:
+        return False
+
+    for p in changed_paths:
+        # Normalise separators (Windows safety) and strip ONE leading slash,
+        # mirroring update.js `replace(/^\//, '')` which removes exactly one
+        # leading slash (not all consecutive, as lstrip would).
+        normalised = re.sub(r'^/', '', p.replace("\\", "/"))
+        for trigger in REBUILD_TRIGGERS:
+            if trigger.endswith("/"):
+                # Directory prefix: match any file under this directory.
+                if normalised.startswith(trigger):
+                    return True
+            elif "/" in trigger:
+                # Exact file path (e.g. 'scripts/build-all.sh').
+                if normalised == trigger:
+                    return True
+            else:
+                # Bare name: any path ending in this filename.
+                # Currently unused but kept for forward compatibility.
+                if normalised == trigger or normalised.endswith("/" + trigger):
+                    return True
+        # Any adapter-local build.sh (e.g. '.cursor/build.sh', '.claude/build.sh').
+        if normalised.endswith("/build.sh") or normalised == "build.sh":
+            return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Version-check cache
+# ---------------------------------------------------------------------------
+
+
+def _reset_version_check_cache() -> None:
+    """Write behind_count: 0 to the version-check cache (atomic tmp+rename).
+
+    Mirrors resetVersionCheckCache() in scripts/update.js.
+    Non-fatal: any error is warned, never raised.
+    """
+    try:
+        cache_dir = _home() / ".agentic"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = cache_dir / "version-check-cache.json"
+        payload = json.dumps({"behind_count": 0, "last_fetch_epoch": int(time.time())}) + "\n"
+        fd, tmp_path = tempfile.mkstemp(dir=str(cache_dir), prefix=".version-cache-tmp-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            os.replace(tmp_path, str(cache_path))
+        except Exception as exc:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            print(f"warning: failed to reset version-check cache: {exc}", file=sys.stderr)
+    except Exception as exc:
+        print(f"warning: failed to reset version-check cache: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="agentic-update",
+        description=(
+            "Non-interactive updater for agentic-engineering (DinoStack). "
+            "Fetches origin, detects adapter-source changes, runs install scripts, "
+            "resets the version-check cache, and optionally runs agentic-doctor --fix. "
+            "Safe for CI and non-TTY contexts."
+        ),
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Report how many commits the local main branch is behind origin/main, "
+            "then exit 0. Does NOT pull. Works from any branch."
+        ),
+    )
+    parser.add_argument(
+        "--no-doctor",
+        action="store_true",
+        dest="no_doctor",
+        help="Skip agentic-doctor --fix after updating.",
+    )
+    parser.add_argument(
+        "--adapters",
+        default="",
+        help=(
+            "Comma-separated list of adapter dirs to refresh "
+            "(e.g. --adapters=.claude,.cursor). "
+            ".claude is always included (LOCKED_ADAPTERS invariant)."
+        ),
+    )
+    args = parser.parse_args()
+
+    # ------------------------------------------------------------------
+    # Step 2: resolve repo_dir
+    # ------------------------------------------------------------------
+    repo_dir = _load_repo_dir()
+
+    if not repo_dir.exists():
+        cfg = _config_path()
+        print(
+            f"error: repo_dir '{repo_dir}' does not exist. "
+            f"Re-run bootstrap or set repo_dir in {cfg}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    rc, _, _ = _git(repo_dir, "rev-parse", "--git-dir")
+    if rc != 0:
+        cfg = _config_path()
+        print(
+            f"error: '{repo_dir}' is not a git repository. "
+            f"Re-run bootstrap or set repo_dir in {cfg}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 3: fetch origin (quiet)
+    # ------------------------------------------------------------------
+    rc, _, stderr = _git(repo_dir, "fetch", "--quiet", "origin")
+    if rc != 0:
+        print(f"error: 'git fetch origin' failed.\n{stderr}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 4: --check mode (branch-independent, no pull)
+    # ------------------------------------------------------------------
+    if args.check:
+        rc, behind_str, _ = _git(
+            repo_dir, "rev-list", "--count", "refs/heads/main..origin/main"
+        )
+        if rc != 0:
+            # refs/heads/main may not exist yet (no local main branch); graceful fallback
+            print("unable to determine behind count (refs/heads/main not found).")
+            return 0
+        try:
+            behind = int(behind_str)
+        except ValueError:
+            behind = 0
+        if behind == 0:
+            print("Up to date.")
+        else:
+            print(f"{behind} commit(s) behind main.")
+        return 0
+
+    # ------------------------------------------------------------------
+    # Step 5: branch check
+    # ------------------------------------------------------------------
+    rc, current_branch, _ = _git(repo_dir, "branch", "--show-current")
+    if current_branch != "main":
+        print(
+            f"error: must be on 'main' to update (currently on '{current_branch}'). "
+            f"Run: git -C {repo_dir} checkout main",
+            file=sys.stderr,
+        )
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 6: dirty-tree check
+    # ------------------------------------------------------------------
+    rc, porcelain_out, _ = _git(repo_dir, "status", "--porcelain")
+    if porcelain_out:
+        dirty_files = []
+        for line in porcelain_out.splitlines():
+            if not line.strip():
+                continue
+            status = line[:2]
+            file_part = line[3:]
+            # Porcelain v1 renames/copies show "old -> new"; extract just the
+            # new path. Mirrors getDirtyFiles() in scripts/update.js.
+            # Guard len>=2 before indexing status[1]: real porcelain output is
+            # always "XY path" (>=4 chars), but malformed/short lines must not
+            # crash with IndexError.
+            if len(status) >= 2 and (status[0] in ('R', 'C') or status[1] in ('R', 'C')):
+                m = re.match(r'^(.+?) -> (.+)$', file_part)
+                if m:
+                    file_part = m.group(2)
+            dirty_files.append(file_part)
+        print(
+            "error: working tree has uncommitted changes; commit or stash first:",
+            file=sys.stderr,
+        )
+        for f in dirty_files:
+            print(f"  {f}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 7: capture old HEAD
+    # ------------------------------------------------------------------
+    rc, old_head, _ = _git(repo_dir, "rev-parse", "HEAD")
+    if rc != 0:
+        old_head = ""
+
+    # ------------------------------------------------------------------
+    # Step 8: pull
+    # ------------------------------------------------------------------
+    rc, _, pull_stderr = _git(repo_dir, "pull", "--ff-only", "origin", "main")
+    if rc != 0:
+        print(f"error: 'git pull --ff-only origin main' failed.\n{pull_stderr}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 9: capture new HEAD; check if anything changed
+    # ------------------------------------------------------------------
+    rc, new_head, _ = _git(repo_dir, "rev-parse", "HEAD")
+    if rc != 0:
+        new_head = ""
+
+    old_short = old_head[:8] if old_head else "unknown"
+
+    if old_head and new_head and old_head == new_head:
+        print(f"Already up to date ({old_short}).")
+        _reset_version_check_cache()
+        # Skip to doctor
+        if not args.no_doctor:
+            return _run_doctor()
+        return 0
+
+    # ------------------------------------------------------------------
+    # Step 10: compute changed paths
+    # ------------------------------------------------------------------
+    changed_paths: list[str] = []
+    if old_head and new_head and old_head != new_head:
+        rc, diff_out, _ = _git(repo_dir, "diff", "--name-only", old_head, new_head)
+        if rc == 0 and diff_out:
+            changed_paths = [p for p in diff_out.splitlines() if p.strip()]
+
+    # Count commits pulled
+    commits_pulled = 0
+    if old_head and new_head and old_head != new_head:
+        rc, count_str, _ = _git(
+            repo_dir, "rev-list", "--count", f"{old_head}..{new_head}"
+        )
+        if rc == 0:
+            try:
+                commits_pulled = int(count_str)
+            except ValueError:
+                commits_pulled = 0
+
+    new_short = new_head[:8] if new_head else "unknown"
+
+    # ------------------------------------------------------------------
+    # Step 11: needsRebuild check + adapter selection
+    # ------------------------------------------------------------------
+    rebuild = _needs_rebuild(old_head, new_head, changed_paths)
+
+    if not rebuild:
+        print("No rebuild needed (no adapter source changed).")
+        _reset_version_check_cache()
+        if not args.no_doctor:
+            doctor_rc = _run_doctor()
+            if doctor_rc != 0:
+                return doctor_rc
+        print("Done.")
+        return 0
+
+    # Determine which adapter paths triggered the rebuild
+    triggering_paths = [
+        p for p in changed_paths
+        if _needs_rebuild(old_head, new_head, [p])
+    ]
+    print(
+        f"Updated {old_short}..{new_short} ({commits_pulled} commit(s)). "
+        f"Rebuild triggered by: {', '.join(triggering_paths) or '(unknown)'}."
+    )
+
+    # ------------------------------------------------------------------
+    # Step 12: adapter selection + install
+    # ------------------------------------------------------------------
+    config = _load_config()
+
+    if args.adapters.strip():
+        # Explicit --adapters flag
+        user_adapters = [a.strip() for a in args.adapters.split(",") if a.strip()]
+        adapters_to_run = list(LOCKED_ADAPTERS) + [
+            a for a in user_adapters if a not in LOCKED_ADAPTERS
+        ]
+    elif config.get("adapters"):
+        # Config has saved adapter selection
+        saved = config["adapters"]
+        enabled = [a for a, v in saved.items() if v]
+        adapters_to_run = list(LOCKED_ADAPTERS) + [
+            a for a in enabled if a not in LOCKED_ADAPTERS
+        ]
+    else:
+        # No saved selection: default to all discovered adapters
+        discovered = _discover_adapters(repo_dir)
+        print(
+            "note: no saved adapter selection; refreshing all discovered adapters. "
+            "Run ./update.sh to choose a subset."
+        )
+        adapters_to_run = list(LOCKED_ADAPTERS) + [
+            a for a in discovered if a not in LOCKED_ADAPTERS
+        ]
+
+    failures: list[str] = []
+    for adapter in adapters_to_run:
+        install_sh = repo_dir / adapter / "install.sh"
+        if not install_sh.is_file():
+            print(f"warning: {install_sh} not found, skipping.", file=sys.stderr)
+            continue
+        print(f">>> bash {install_sh}")
+        rc = subprocess.call(["bash", str(install_sh)], cwd=str(repo_dir))
+        if rc != 0:
+            failures.append(f"{adapter}/install.sh (exit {rc})")
+
+    if failures:
+        print("error: the following adapters failed to install:", file=sys.stderr)
+        for f in failures:
+            print(f"  {f}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 13: write version-check cache
+    # ------------------------------------------------------------------
+    _reset_version_check_cache()
+
+    # ------------------------------------------------------------------
+    # Step 14: doctor
+    # ------------------------------------------------------------------
+    if not args.no_doctor:
+        doctor_rc = _run_doctor()
+        if doctor_rc != 0:
+            return doctor_rc
+
+    print("Done.")
+    return 0
+
+
+def _run_doctor() -> int:
+    """Run agentic-doctor --fix. Return 0 on success, 2 on unfixable, 0 on other errors."""
+    try:
+        result = subprocess.run(
+            ["agentic-doctor", "--fix"],
+            # Inherit stdio so doctor output flows to the terminal
+        )
+        if result.returncode == 2:
+            print(
+                "WARNING: health check found issues that could not be auto-fixed; "
+                "run 'agentic-doctor' for details",
+                file=sys.stderr,
+            )
+            return 2
+        if result.returncode != 0:
+            print(
+                f"warning: agentic-doctor --fix exited {result.returncode}; "
+                "continuing (non-critical).",
+                file=sys.stderr,
+            )
+    except FileNotFoundError:
+        print(
+            "warning: agentic-doctor not found on PATH; skipping health check.",
+            file=sys.stderr,
+        )
+    except Exception as exc:
+        print(f"warning: agentic-doctor failed: {exc}; continuing.", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
