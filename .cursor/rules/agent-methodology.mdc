@@ -1,7 +1,15 @@
 ---
 description: "Agentic engineering delegation model, risk classification, task decomposition, and worktree lifecycle. Core rules for when to act directly vs. spawn Workers and Skeptics."
-alwaysApply: true
+alwaysApply: false
 ---
+
+> **CURSOR ADAPTER - READ FIRST. These Cursor-specific directives OVERRIDE every conflicting delegation, spawn, Skeptic, worktree, and "MUST"-mandate instruction in the rest of this document whenever you are running inside Cursor.** Cursor has no Agent / Task / subagent / background-spawn tool, so the multi-agent model described below cannot execute and must not be simulated.
+>
+> - **You are conductor AND implementer.** Do the work yourself, inline. Never narrate what a "Worker" or "Skeptic" would do, and never spawn or pretend to spawn one.
+> - **Self-review replaces the Skeptic.** After implementing, re-read your own diff for logic errors, edge cases, and side effects before declaring done. That is the entire review step in Cursor.
+> - **Do not pre-load reference files.** Ignore "read on trigger" instructions unless the current task directly needs that file. Reading them all is the main cause of runaway context cost in Cursor.
+> - **Worktree / isolation / background steps are no-ops.** Any instruction involving git worktrees, `isolation: "worktree"`, `run_in_background`, or Agent-tool parameters does not apply in Cursor; skip it.
+> - **Risk classification still applies.** Classify the task (Trivial / Low / Elevated) and, for Elevated, do a deliberate inline self-review of the full diff before finishing.
 
 ## Activation preflight
 

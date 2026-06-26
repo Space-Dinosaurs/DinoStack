@@ -1,2 +1,2 @@
 description: "Agentic engineering delegation model, risk classification, task decomposition, and worktree lifecycle. Core rules for when to act directly vs. spawn Workers and Skeptics."
-alwaysApply: true
+alwaysApply: false
