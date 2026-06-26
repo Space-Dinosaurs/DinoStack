@@ -299,8 +299,8 @@ First run in a new project is slow - qa-engineer is discovering quirks. Every ru
 ## Example - one week in the life of qa.md
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.4em 0.7em; margin: 0.2em 0 0.5em 0; line-height: 1.25; }
-  p { margin: 0.2em 0; font-size: 0.85em; }
+  pre { font-size: 0.63em; padding: 0.3em 0.55em; margin: 0.15em 0 0.35em 0; line-height: 1.2; }
+  p { margin: 0.15em 0; font-size: 0.82em; }
 </style>
 
 ```markdown
