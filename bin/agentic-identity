@@ -227,9 +227,9 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
         # Dedup: read global log ONCE before the per-pending-file loop.
         # Build a set of session_uuid strings seen in the log so each
         # per-file check is O(1) instead of re-reading the whole file.
-        # Precision: split on newlines then substring-scan each line,
-        # which is at least as precise as the prior full-text `in` check
-        # (a uuid that spans a line boundary would be missed by both).
+        # Precision: each line is JSON-parsed and its session_uuid field collected,
+        # stricter than the prior full-text `in` check (no substring-coincidence
+        # false-positive skips). Malformed lines contribute nothing.
         # On OSError the set is empty -> nothing is treated as already-flushed
         # -> all pending files flush (same fallback semantics as before).
         global_log = GLOBAL_SESSION_LOG_DIR / f"{confirmed_dev_id}.jsonl"
