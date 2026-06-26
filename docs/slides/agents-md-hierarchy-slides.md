@@ -314,7 +314,7 @@ The intent layer extends beyond `AGENTS.md` - each file has a distinct role (see
 | `qa.md` | QA triggers and accumulated runtime knowledge |
 
 <div class="callout">
-Drift between code and these files is <strong>intent debt</strong>. A stale entry is worse than a missing one because readers trust it.
+Drift between code and these files is <strong>intent debt</strong> - distinct from technical debt in the code (module manifests embed the same file-level intent in the source). A stale entry is worse than a missing one because readers trust it.
 </div>
 
 ---
