@@ -221,11 +221,11 @@ If any source yields a reasonable default, the conductor proceeds and notes the 
 ## Hard-stop vs surface-and-proceed
 
 <style scoped>
-  .columns { gap: 1.2em; }
-  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
-  .columns .card strong { font-size: 1.05em; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
-  blockquote { font-size: 0.82em; margin: 0.4em 0; }
+  .columns { gap: 1em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.8em; line-height: 1.35; padding: 0.75em 1em; }
+  .columns .card strong { font-size: 1.02em; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.35em; }
+  blockquote { font-size: 0.8em; margin: 0.3em 0; }
 </style>
 
 <div class="columns">
@@ -254,29 +254,30 @@ Mandatory phrasing for surface-and-proceed: <em>"Proceeding with approach A (mat
 ## Carve-outs
 
 <style scoped>
-  .columns-3 .card { padding: 0.7em 0.9em; font-size: 0.78em; line-height: 1.35; }
-  .columns-3 .card strong { font-size: 1.05em; }
-  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+  .columns-3 { gap: 0.7em; margin-bottom: 0.5em; }
+  .columns-3 .card { padding: 0.55em 0.75em; font-size: 0.76em; line-height: 1.3; }
+  .columns-3 .card strong { font-size: 1.02em; }
+  .callout { font-size: 0.8em; padding: 0.35em 1em; margin-top: 0.35em; }
 </style>
 
 <div class="columns-3">
 <div class="card">
 <strong>Open Questions</strong><br/>
-An architect-declared "Open Questions" section is a <strong>protocol-level blocker</strong>. Conductor-derived defaults do NOT close an Open Question. Resolve by re-spawning the architect, asking the user the specific question, or descoping.<br/><br/>
-<strong>Deferred defaults</strong> (reversible, defaultable, non-fork parked choices) are recorded at authoring time with a derived default and do <em>not</em> block. They are NOT Open Questions.
+An architect-declared "Open Questions" section is a <strong>protocol-level blocker</strong>. Conductor-derived defaults do NOT close one. Resolve by re-spawning the architect, asking the user, or descoping.<br/><br/>
+<strong>Deferred defaults</strong> (reversible, non-fork parked choices) are recorded with a derived default and do <em>not</em> block. They are NOT Open Questions.
 </div>
 <div class="card">
 <strong>Explicit command directives</strong><br/>
 Command files under <code>content/commands/</code> that contain their own "stop and ask" directives are controlling for that decision. Example: <code>implement-ticket.md</code>'s BASE_BRANCH stop-and-ask when neither <code>develop</code> nor <code>development</code> exists.
 </div>
 <div class="card">
-<strong>Agent-spec-mandated human decisions</strong><br/>
-When an agent's spec mandates surfacing a decision to the human (e.g. <code>release-orchestrator</code>'s rollback-vs-fix-forward decision), that spec overrides the autonomy contract. The Worker follows its spec and surfaces the decision.
+<strong>Agent-spec-mandated decisions</strong><br/>
+When an agent's spec mandates surfacing a decision to the human (e.g. <code>release-orchestrator</code>'s rollback-vs-fix-forward decision), that spec overrides the autonomy contract. The Worker follows its spec.
 </div>
 </div>
 
 <div class="callout">
-These three carve-outs sit above default-and-proceed. When one fires, the conductor does not try to derive a default - it follows the carve-out.
+These three carve-outs sit above default-and-proceed. When one fires, the conductor follows the carve-out - no default derivation attempted.
 </div>
 
 ---
@@ -302,12 +303,12 @@ Design-taste BLOCKED returns are a contract violation. New-dep / major-upgrade B
 ## Three paths for any decision
 
 <style scoped>
-  .columns-3 { gap: 0.9em; }
-  .columns-3 .card { font-size: 0.74em; line-height: 1.38; padding: 0.7em 0.9em; }
+  .columns-3 { gap: 0.7em; margin-bottom: 0.4em; }
+  .columns-3 .card { font-size: 0.72em; line-height: 1.32; padding: 0.55em 0.75em; }
   .columns-3 .card strong { font-size: 1.0em; }
-  .columns-3 .card ul { margin: 0.3em 0 0 0; padding-left: 1.1em; }
-  .columns-3 .card ul li { margin: 0.18em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  .columns-3 .card ul { margin: 0.25em 0 0 0; padding-left: 1em; }
+  .columns-3 .card ul li { margin: 0.12em 0; }
+  .callout { font-size: 0.78em; padding: 0.35em 1em; margin-top: 0.35em; }
 </style>
 
 <div class="columns-3">
@@ -353,10 +354,10 @@ The middle column is not a stop for the user - it's a stop for the conductor, wh
 ## Stop-frequency is a planning signal
 
 <style scoped>
-  table { font-size: 0.82em; margin: 0.4em 0; }
-  th, td { padding: 0.4em 0.7em; }
-  p { font-size: 0.85em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+  table { font-size: 0.8em; margin: 0.3em 0; }
+  th, td { padding: 0.3em 0.6em; }
+  p { font-size: 0.83em; margin: 0.25em 0; }
+  .callout { font-size: 0.8em; padding: 0.35em 1em; margin-top: 0.35em; }
 </style>
 
 Repeated genuine blockers within a task indicate the **plan is under-specified**, not that the conductor is being appropriately cautious.
