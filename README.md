@@ -178,7 +178,7 @@ The per-project marker only has effect in combination with the global activation
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/wrap` jobs; tuned by the `deferred_wrap_*` related keys.
 - `abdication_guard_enabled` - boolean, default `false`. Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
 
-Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see [docs/components.md](docs/components.md).
+Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see `content/rules/conventions.md` §Project Config.
 
 ## Adapters
 
