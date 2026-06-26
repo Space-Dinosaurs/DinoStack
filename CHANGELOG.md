@@ -3,6 +3,44 @@
 
 # Changelog
 
+## 2026-06-26
+
+### Fixes
+
+- **#318** [--fix exits 2 when repo_dir is invalid (was silently 0)](https://github.com/Space-Dinosaurs/DinoStack/pull/318) - tyson-solara6
+
+### Refactoring
+
+- **#319** [extract Doctor.mark_unfixable helper (dedupe guarded append)](https://github.com/Space-Dinosaurs/DinoStack/pull/319) - tyson-solara6
+
+### Documentation
+
+- **#320** [fix slide overflow across all decks](https://github.com/Space-Dinosaurs/DinoStack/pull/320) - tyson-solara6
+- **#317** [document agentic-doctor health check + install safeguards](https://github.com/Space-Dinosaurs/DinoStack/pull/317) - tyson-solara6
+
+## 2026-06-25
+
+### Features
+
+- **#313** [role-aware model-tier defaults + required Tier declaration field](https://github.com/Space-Dinosaurs/DinoStack/pull/313) - tyson-solara6
+- **#310** [converging symlinks in cursor + opencode install.sh](https://github.com/Space-Dinosaurs/DinoStack/pull/310) - tyson-solara6
+- **#309** [guard against second-clone split-brain](https://github.com/Space-Dinosaurs/DinoStack/pull/309) - tyson-solara6
+- **#308** [skip adapter rebuild when no adapter-source changed (consumer fast-path)](https://github.com/Space-Dinosaurs/DinoStack/pull/308) - tyson-solara6
+- **#306** [converging symlinks + guarded repo_dir write (self-heal drift)](https://github.com/Space-Dinosaurs/DinoStack/pull/306) - tyson-solara6
+- **#305** [abdication-guard Stop hook (mechanizes proactive-autonomy)](https://github.com/Space-Dinosaurs/DinoStack/pull/305) - tyson-solara6
+
+### Refactoring
+
+- **#311** [version-check-core sources shared repo-dir.sh resolver](https://github.com/Space-Dinosaurs/DinoStack/pull/311) - tyson-solara6
+
+### Documentation
+
+- **#316** [replace stale agent-methodology.md references with current rules structure](https://github.com/Space-Dinosaurs/DinoStack/pull/316) - tyson-solara6
+- **#315** [align agent-team roster with full 17-agent set](https://github.com/Space-Dinosaurs/DinoStack/pull/315) - tyson-solara6
+- **#312** [pull-and-install runs agentic-doctor; document repo-dir.sh canonical resolver](https://github.com/Space-Dinosaurs/DinoStack/pull/312) - tyson-solara6
+- **#307** [codify the digest-return pattern (lean alternative to a nested-orchestration tier)](https://github.com/Space-Dinosaurs/DinoStack/pull/307) - tyson-solara6
+- **#300** [align slide decks + docs with current methodology; fix how-it-works slide-7 overflow](https://github.com/Space-Dinosaurs/DinoStack/pull/300) - tyson-solara6
+
 ## 2026-06-24
 
 ### Features
