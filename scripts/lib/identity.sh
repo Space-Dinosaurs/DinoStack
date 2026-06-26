@@ -128,10 +128,16 @@ _ae_setup_identity() {
   # Branch 7: gh absent or unauthenticated - prompt manually
   echo "  Developer identity links telemetry to your handle across sessions."
   local typed_handle=""
+  local raw_handle=""
   read -r -p "  GitHub handle [skip]: " typed_handle </dev/tty || typed_handle=""
+  raw_handle="$typed_handle"
   typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')" || typed_handle=""
   if [[ -z "$typed_handle" ]]; then
-    echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
+    if [[ -n "${raw_handle//[[:space:]]/}" ]]; then
+      echo "  - typed handle could not be parsed, skipping identity setup (run 'agentic-identity init <handle>' later)"
+    else
+      echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
+    fi
     return
   fi
   if ! echo "$typed_handle" | grep -qE '^[a-z0-9._-]{1,64}$'; then
