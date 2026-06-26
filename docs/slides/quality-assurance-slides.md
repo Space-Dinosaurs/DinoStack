@@ -299,8 +299,8 @@ First run in a new project is slow - qa-engineer is discovering quirks. Every ru
 ## Example - one week in the life of qa.md
 
 <style scoped>
-  pre { font-size: 0.63em; padding: 0.3em 0.55em; margin: 0.15em 0 0.35em 0; line-height: 1.2; }
-  p { margin: 0.15em 0; font-size: 0.82em; }
+  pre { font-size: 0.57em; padding: 0.25em 0.5em; margin: 0.12em 0 0.3em 0; line-height: 1.15; }
+  p { margin: 0.1em 0; font-size: 0.78em; }
 </style>
 
 ```markdown
@@ -325,10 +325,10 @@ Each entry was a surprise the first time. After the entry, the qa-engineer handl
 ## When QA is skipped - `qa_skip` enum
 
 <style scoped>
-  table { font-size: 0.82em; }
-  th, td { padding: 0.35em 0.7em; }
-  p { font-size: 0.85em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+  table { font-size: 0.78em; }
+  th, td { padding: 0.28em 0.6em; }
+  p { font-size: 0.8em; margin: 0.2em 0; }
+  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.3em; }
 </style>
 
 QA fires by default for every Elevated unit. It is skipped only when the architect explicitly sets one of these five `qa_skip` values:
@@ -341,7 +341,7 @@ QA fires by default for every Elevated unit. It is skipped only when the archite
 | `dep-bump-no-runtime-change` | Dependency version bump with no API change |
 | `docs-only` | Documentation files only, no code |
 
-A project having no `qa.md` is NOT a reason to skip QA. The absence only removes supplemental context - the gate still fires.
+No `qa.md` is NOT a reason to skip QA - its absence only removes supplemental context; the gate still fires.
 
 <div class="callout">
 If none of these five values fit, QA fires. The <code>qa_skip</code> rationale must be logged in the Brief or architect plan.

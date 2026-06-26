@@ -162,6 +162,11 @@ Install DinoStack and ship your first focused session
 
 ## Install in two steps
 
+<style scoped>
+  pre { font-size: 0.82em; padding: 0.4em 0.8em; margin: 0.2em 0; }
+  p { font-size: 0.9em; margin: 0.25em 0; }
+</style>
+
 **1.** Open a terminal where you keep your repos and start Claude Code:
 
 ```bash
@@ -175,7 +180,7 @@ claude
 Clone git@github.com:Space-Dinosaurs/DinoStack.git and run .claude/install.sh
 ```
 
-The agent clones the repo, runs the installer, and walks you through optional tool setup. Idempotent - safe to re-run anytime.
+The agent clones, installs, and walks you through optional tool setup - idempotent, safe to re-run.
 
 ---
 
