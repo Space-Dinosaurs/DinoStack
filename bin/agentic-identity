@@ -41,12 +41,17 @@ Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
                30s timeout via LOCK_NB+sleep loop (SIGALRM avoided for portability);
                on timeout prints stderr warning and returns without data loss.
                flushPendingBuffer dedup: global log is read ONCE before the
-               per-pending-file loop into a set of seen session_uuid values
-               (O(M+N) total instead of O(M*N)). On OSError the set is empty
-               and all pending files are flushed (same fallback as before).
-               Membership check uses substring scan of the raw log text split
-               by lines, preserving exact dedup precision of the prior
-               `session_uuid in full_text` check (no precision change).
+               per-pending-file loop; each line is JSON-parsed and the
+               session_uuid field is collected into a set (O(M+N) total
+               instead of O(M*N)). Per-pending membership check is O(1).
+               Malformed (non-JSON) lines contribute nothing to the set; at
+               most one self-healing re-flush is possible, and because the
+               re-written line is well-formed JSON it dedups on the next run.
+               This is marginally STRICTER than the prior `session_uuid in
+               full_text` substring check (no false-positive skips on
+               substring coincidences in other fields), never looser.
+               On OSError the set is empty and all pending files are flushed
+               (same fallback as before).
                flushPendingBuffer with repo_root_filter: records whose repo_root
                does not match the filter are skipped (left in the buffer, not
                unlinked); records with no/empty repo_root are also skipped under
@@ -239,9 +244,8 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
                         if _uuid:
                             seen_uuids.add(_uuid)
                     except (json.JSONDecodeError, AttributeError):
-                        # Malformed line: fall back to substring scan so we
-                        # never become LESS strict than the old `in text` check.
-                        # Extract any 36-char UUID-shaped token as a best effort.
+                        # Malformed line: contributes no uuid. Worst case one
+                        # self-healing re-flush (next run's well-formed line dedups it).
                         pass
             except OSError:
                 pass  # Empty set -> flush everything (fallback preserved).

@@ -415,8 +415,8 @@ def test_dedup_flushes_new_uuid_not_in_log():
         print("PASS test_dedup_flushes_new_uuid_not_in_log")
 
 
-def test_dedup_unreadable_global_log_flushes_all():
-    """(H) unreadable/missing global log still flushes all pending files (fallback preserved)."""
+def test_dedup_missing_global_log_flushes_all():
+    """(H) missing global log (is_file() False) still flushes all pending files (fallback preserved)."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
@@ -452,7 +452,7 @@ def test_dedup_unreadable_global_log_flushes_all():
         uuids_in_log = {json.loads(l)["session_uuid"] for l in lines}
         assert uuids_in_log == {"uuid-fallback-1", "uuid-fallback-2"}
 
-        print("PASS test_dedup_unreadable_global_log_flushes_all")
+        print("PASS test_dedup_missing_global_log_flushes_all")
 
 
 def test_dedup_multi_pending_correct_across_several():
@@ -507,6 +507,6 @@ if __name__ == "__main__":
     test_global_scope_flush_unaffected()
     test_dedup_skips_already_flushed_uuid()
     test_dedup_flushes_new_uuid_not_in_log()
-    test_dedup_unreadable_global_log_flushes_all()
+    test_dedup_missing_global_log_flushes_all()
     test_dedup_multi_pending_correct_across_several()
     print("All tests passed.")
