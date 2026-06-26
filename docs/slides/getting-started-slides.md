@@ -162,6 +162,12 @@ Install DinoStack and ship your first focused session
 
 ## Install in two steps
 
+<style scoped>
+  pre { font-size: 0.85em; padding: 0.4em 0.8em; margin: 0.3em 0 0.6em 0; }
+  p { margin: 0.3em 0; font-size: 0.95em; }
+  blockquote { font-size: 0.8em; margin: 0.4em 0; padding: 0.3em 0.8em; }
+</style>
+
 **1.** Open a terminal where you keep your repos and start Claude Code:
 
 ```bash
@@ -177,20 +183,26 @@ Clone git@github.com:Space-Dinosaurs/DinoStack.git and run .claude/install.sh
 
 The agent clones the repo, runs the installer, and walks you through optional tool setup. Idempotent - safe to re-run anytime.
 
-> **Other adapters:** Gemini CLI users run `bash .gemini/install.sh`. Cursor and Codex CLI users run `.cursor/install.sh` and `.codex/install.sh` respectively. Kimi users run `.kimi/install.sh`, OpenCode users run `.opencode/install.sh` - same pattern, each tool's native format.
+> **Other adapters:** Gemini CLI: `bash .gemini/install.sh`. Cursor: `.cursor/install.sh`. Codex CLI: `.codex/install.sh`. Kimi: `.kimi/install.sh`. OpenCode: `.opencode/install.sh`.
 
 ---
 
 ## Pick an activation mode
+
+<style scoped>
+  ul { font-size: 0.9em; }
+  ul li { margin: 0.2em 0; }
+  p { font-size: 0.88em; margin: 0.3em 0; }
+</style>
 
 The installer asks one question: how should the methodology activate across your projects?
 
 - **`opt-out` (default)** - active everywhere. Individual projects disable it by adding `agentic-engineering: opt-out` to their root `AGENTS.md`. Best for most users.
 - **`opt-in`** - dormant until a project's `AGENTS.md` contains `agentic-engineering: opt-in`. Best for trying the protocol in one project before rolling out everywhere.
 
-Press Enter at the prompt to accept the default, or pass `--mode=opt-in` / `--mode=opt-out` to the installer. The choice is saved to `~/.claude/agentic-engineering.json` and shared across all adapters. Change it later by re-running any installer with a `--mode` flag.
+Press Enter to accept the default, or pass `--mode=opt-in` / `--mode=opt-out` to the installer. The choice is saved to `~/.claude/agentic-engineering.json` and shared across all adapters.
 
-On first activation in a project (TTY only) the preflight prints a one-line notice naming the resolved `mode`, `marker`, `profile`, and `preset`, and points you at `/agentic-status` (read-only resolver dump) and `/agentic-disable` (explicit opt-out, refuses on existing `opt-in` without `--force`). The notice is gated on a race-safe per-project sentinel at `.agentic/.activated`; deleting the sentinel re-arms the notice only and does not change activation state. `AGENTIC_QUIET=1` or a non-TTY stdout suppresses both the notice and the sentinel write.
+On first activation (TTY only) the preflight prints a one-line notice naming the resolved `mode`, `marker`, `profile`, and `preset`, and points you at `/agentic-status` (resolver dump) and `/agentic-disable` (explicit opt-out). The notice is gated on a per-project sentinel at `.agentic/.activated`; deleting it re-arms the notice only. `AGENTIC_QUIET=1` suppresses both.
 
 ---
 
@@ -214,9 +226,9 @@ Optional ergonomic tip: add <code>-n myproject</code> to label the session. It s
 ## First move in a real repo - `/init-project`
 
 <style scoped>
-  pre { font-size: 0.8em; padding: 0.5em 0.8em; margin: 0.3em 0 0.8em 0; }
-  p { margin: 0.4em 0; }
-  .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.5em; }
+  pre { font-size: 0.8em; padding: 0.4em 0.7em; margin: 0.2em 0 0.5em 0; }
+  p { margin: 0.3em 0; }
+  .callout { font-size: 0.88em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
 From inside the repo, start Claude Code and run `/init-project`:
