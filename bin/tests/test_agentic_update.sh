@@ -458,9 +458,13 @@ fi
 # ---------------------------------------------------------------------------
 # Test 10 (MINOR m5): --check on a non-main branch exits 0
 #
-# Verifies that --check uses refs/heads/main..origin/main (branch-independent)
-# not HEAD..origin/main (which would error on a non-main branch with no
-# upstream tracking ref).
+# Proves --check is reachable and exits 0 from a non-main branch.
+# `some-feature` is branched from local main with no divergent commit, so
+# HEAD == local main; both HEAD..origin/main and refs/heads/main..origin/main
+# yield the same count. This test cannot distinguish which ref-range the code
+# uses - that is verified by reading the implementation. What it does assert:
+# --check does not hard-error or refuse to run when the current branch is not
+# main (only the non-check update path enforces the branch guard).
 # ---------------------------------------------------------------------------
 setup_git_fixture
 push_ahead_commit   # remote 1 ahead so there is actually something to count

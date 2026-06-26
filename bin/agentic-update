@@ -373,7 +373,10 @@ def main() -> int:
             file_part = line[3:]
             # Porcelain v1 renames/copies show "old -> new"; extract just the
             # new path. Mirrors getDirtyFiles() in scripts/update.js.
-            if status[0] in ('R', 'C') or status[1] in ('R', 'C'):
+            # Guard len>=2 before indexing status[1]: real porcelain output is
+            # always "XY path" (>=4 chars), but malformed/short lines must not
+            # crash with IndexError.
+            if len(status) >= 2 and (status[0] in ('R', 'C') or status[1] in ('R', 'C')):
                 m = re.match(r'^(.+?) -> (.+)$', file_part)
                 if m:
                     file_part = m.group(2)
