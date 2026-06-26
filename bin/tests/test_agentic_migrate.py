@@ -430,5 +430,79 @@ markers: []
         # 4. No crash (result.returncode already checked above)
 
 
+class TestPathTraversalGuard(unittest.TestCase):
+    """Manifest entries with traversal paths must not write outside project_root; exit 3."""
+
+    def _make_fixture(self):
+        """Return (tmp, project, manifest_dir) with a minimal project scaffold."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        project.mkdir()
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"debugger_on_failure": False}) + "\n")
+        (project / ".gitignore").write_text("")
+        manifest_dir = Path(tmp)
+        (manifest_dir / "innocent.json").write_text("{}\n")
+        return tmp, project, manifest_dir
+
+    def test_relative_traversal_blocked(self):
+        """../escape.txt must not be written outside project_root."""
+        tmp, project, manifest_dir = self._make_fixture()
+
+        manifest_text = """
+scaffolding_version: 1
+gitignore: []
+files:
+  - path: "../escape.txt"
+    seed: "innocent.json"
+    purpose: "relative traversal attempt"
+markers: []
+"""
+        manifest_path = manifest_dir / "traversal-manifest.yml"
+        manifest_path.write_text(manifest_text)
+
+        result = run(
+            ["apply", "--manifest", str(manifest_path), "--project-root", str(project)],
+        )
+
+        self.assertEqual(result.returncode, 3, msg=f"Expected exit 3, got {result.returncode}\n{result.stderr}")
+        escaped = project.parent / "escape.txt"
+        self.assertFalse(escaped.exists(), "Traversal target must not be written outside project_root")
+        self.assertIn("escape.txt", result.stderr, "stderr must mention the offending path")
+
+    def test_absolute_path_blocked(self):
+        """An absolute path outside project_root must not be written."""
+        tmp, project, manifest_dir = self._make_fixture()
+
+        # Use a predictable temp path that is clearly outside project
+        import tempfile as _tf
+        target_dir = Path(_tf.mkdtemp())
+        absolute_target = str(target_dir / "agentic-escape-test.txt")
+
+        manifest_text = f"""
+scaffolding_version: 1
+gitignore: []
+files:
+  - path: "{absolute_target}"
+    seed: "innocent.json"
+    purpose: "absolute path attack"
+markers: []
+"""
+        manifest_path = manifest_dir / "absolute-manifest.yml"
+        manifest_path.write_text(manifest_text)
+
+        result = run(
+            ["apply", "--manifest", str(manifest_path), "--project-root", str(project)],
+        )
+
+        self.assertEqual(result.returncode, 3, msg=f"Expected exit 3, got {result.returncode}\n{result.stderr}")
+        self.assertFalse(
+            Path(absolute_target).exists(),
+            "Absolute out-of-root target must not be written",
+        )
+        self.assertIn("agentic-escape-test.txt", result.stderr, "stderr must mention the offending path")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
