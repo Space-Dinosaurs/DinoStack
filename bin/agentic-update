@@ -25,8 +25,8 @@ Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
                 failure / git not found / repo not found)
              2  agentic-doctor --fix exited 2 (unfixable health issues)
 
-Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, subprocess,
-               sys, tempfile, time). Reads
+Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
+               subprocess, sys, tempfile, time). Reads
                ~/.agentic/agentic-engineering-config.json (repo_dir, adapters).
                Invokes: git (fetch, pull, rev-parse, diff, status, etc.),
                bash <adapter>/install.sh, agentic-doctor.
@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -198,8 +199,10 @@ def _needs_rebuild(old_head: str, new_head: str, changed_paths: list[str]) -> bo
         return False
 
     for p in changed_paths:
-        # Normalise separators (Windows safety) and strip leading slashes.
-        normalised = p.replace("\\", "/").lstrip("/")
+        # Normalise separators (Windows safety) and strip ONE leading slash,
+        # mirroring update.js `replace(/^\//, '')` which removes exactly one
+        # leading slash (not all consecutive, as lstrip would).
+        normalised = re.sub(r'^/', '', p.replace("\\", "/"))
         for trigger in REBUILD_TRIGGERS:
             if trigger.endswith("/"):
                 # Directory prefix: match any file under this directory.
@@ -362,7 +365,19 @@ def main() -> int:
     # ------------------------------------------------------------------
     rc, porcelain_out, _ = _git(repo_dir, "status", "--porcelain")
     if porcelain_out:
-        dirty_files = [line[3:] for line in porcelain_out.splitlines() if line.strip()]
+        dirty_files = []
+        for line in porcelain_out.splitlines():
+            if not line.strip():
+                continue
+            status = line[:2]
+            file_part = line[3:]
+            # Porcelain v1 renames/copies show "old -> new"; extract just the
+            # new path. Mirrors getDirtyFiles() in scripts/update.js.
+            if status[0] in ('R', 'C') or status[1] in ('R', 'C'):
+                m = re.match(r'^(.+?) -> (.+)$', file_part)
+                if m:
+                    file_part = m.group(2)
+            dirty_files.append(file_part)
         print(
             "error: working tree has uncommitted changes; commit or stash first:",
             file=sys.stderr,
@@ -435,7 +450,9 @@ def main() -> int:
         print("No rebuild needed (no adapter source changed).")
         _reset_version_check_cache()
         if not args.no_doctor:
-            return _run_doctor()
+            doctor_rc = _run_doctor()
+            if doctor_rc != 0:
+                return doctor_rc
         print("Done.")
         return 0
 
