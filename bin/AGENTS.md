@@ -1,6 +1,6 @@
 # bin/
 
-Thirteen CLI entry points (12 Python, 1 Node) that the agentic-engineering
+Thirteen CLI entry points (11 Python, 1 Bash, 1 Node) that the agentic-engineering
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description

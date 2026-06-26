@@ -1,11 +1,13 @@
 # hooks/
 
 Claude Code lifecycle hooks that enforce methodology rules at the harness
-level and write session telemetry to disk. Ten scripts total: 4 Python
-PreToolUse/Stop enforcers, 4 Node lifecycle handlers, and 2 Bash SessionStart
-helpers. `lib/` holds shared Node utilities consumed by the JS hooks.
-Each script ships with a module-manifest docstring; read the script for full
-detail. This file is the module-group map.
+level and write session telemetry to disk. Eleven scripts in the table below
+(4 Python PreToolUse/Stop enforcers, 4 Node lifecycle handlers, 3 Bash helpers).
+`pre-commit` is also present but is a git hook, not a Claude Code lifecycle
+hook, and is out of scope for this table. `lib/` holds shared utilities
+consumed by the JS hooks and one bin script. Each script ships with a
+module-manifest docstring; read the script for full detail. This file is the
+module-group map.
 
 ## Entry points
 
@@ -28,6 +30,7 @@ detail. This file is the module-group map.
 | File | Role |
 |---|---|
 | `lib/capture-gap.js` | Detect learning-worthy sessions with no captured learning; used by `post-tool-use-capture-nudge.js` and `stop-context.js`. |
+| `lib/version-check-core.sh` | Adapter-neutral core for the "newer version available" SessionStart notice: resolves clone dir, reads behind-count cache, kicks off throttled detached git-fetch refresh; used by `session-start-version-check.sh` and `session-start-wrap.sh`. |
 | `lib/wrap-marker.js` | Single source of truth for all deferred-`/wrap` marker reads, transitions, lock acquire/release, and PID helpers; used by `session-end-wrap.js`, `session-start-wrap.sh`, `stop-context.js`, `wrap-daemon.js`, and `bin/agentic-wrap-release-lock`. |
 
 ## Upstream dependencies
