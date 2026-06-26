@@ -1,5 +1,19 @@
 # Updating
 
+## Quick update (recommended)
+
+Run `agentic-update` from any directory, no arguments.
+
+What it does: pulls the latest `main`, rebuilds adapters only if something changed under `content/`, `hooks/`, `bin/`, or the build scripts, resets the version-check cache, and runs `agentic-doctor --fix` to repair drifted symlinks or hooks. No TTY required.
+
+Flags:
+
+- `--check` - report how many commits behind you are without pulling
+- `--no-doctor` - skip the `agentic-doctor --fix` repair step
+- `--adapters=cursor,codex` - rebuild only the specified adapters
+
+First time? `agentic-update` installs itself to `~/.local/bin/` on your next `./update.sh` or `/pull-and-install` run; after that it works from anywhere.
+
 ## TUI updater (`./update.sh`)
 
 Run `./update.sh` for an interactive update. It pulls the latest `main` branch and refreshes selected adapters. Uses a native Node.js TUI - arrow keys to navigate, space to toggle adapters, enter to confirm. The `.claude` adapter is always-on (locked, non-toggleable); the TUI is for selecting ADDITIONAL adapters to refresh. Your selections are saved to `~/.agentic/agentic-engineering-config.json` for future runs. Warnings are shown (but non-blocking) if you're not on `main` or have a dirty working tree. Failed adapter installs are reported at the end without aborting the others.

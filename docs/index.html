@@ -874,6 +874,7 @@
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
   <a href="#signals"><span class="nav-dot" style="background: var(--gold);"></span> Is It Working?</a>
+  <a href="#updating"><span class="nav-dot" style="background: var(--cyan);"></span> Updating</a>
   <a href="#config"><span class="nav-dot" style="background: var(--cyan);"></span> Configuration</a>
   <a href="#protocols"><span class="nav-dot" style="background: var(--violet);"></span> Protocol Rules</a>
   <a href="#protocol-deep-dive"><span class="nav-dot" style="background: var(--violet);"></span> Protocol Deep Dive</a>
@@ -975,6 +976,49 @@
   <div class="note" style="margin-top: 12px;">
     <strong>Tuning Skeptic overhead:</strong> the default profile works for most projects. Add <code>agentic-engineering-profile: relaxed</code> to a project's <code>AGENTS.md</code> for faster iteration with less review, or <code>strict</code> when correctness is paramount. See <a href="#profiles">Risk Profiles</a> for the full breakdown.
   </div>
+</div>
+
+<!-- ═══ UPDATING: Keep DinoStack current ═══ -->
+<div id="updating" class="section config-layer">
+  <div class="section-title"><h2>Updating</h2><h3>Keep DinoStack current with one command.</h3></div>
+  <p class="desc">Run <code>agentic-update</code> from any directory, no arguments. It pulls the latest <code>main</code>, rebuilds adapters only when something changed under <code>content/</code>, <code>hooks/</code>, <code>bin/</code>, or the build scripts, resets the version-check cache, and runs <code>agentic-doctor --fix</code> to repair drifted symlinks or hooks. No TTY required.</p>
+  <table style="width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 16px 0;">
+    <thead>
+      <tr style="border-bottom: 1px solid var(--border-subtle);">
+        <th style="text-align: left; padding: 10px 12px; color: var(--cyan); width: 22%;">Path</th>
+        <th style="text-align: left; padding: 10px 12px; color: var(--cyan); width: 42%;">Command</th>
+        <th style="text-align: left; padding: 10px 12px; color: var(--text-muted); width: 36%;">When</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">Shell <span style="color: var(--text-muted); font-size: 0.85em;">(recommended)</span></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-update</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Default; from any directory, no TTY</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">In-session</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>/pull-and-install</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Inside Claude Code, any project</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">TUI</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>./update.sh</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Interactive adapter selection</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">CI / scripts</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>git pull &amp;&amp; ./install-all.sh</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Non-interactive</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px 12px; vertical-align: top;">Repair drift</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-doctor --fix</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Fix broken symlinks/hooks (e.g. after moving the repo)</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="desc">Full details: <a href="updating.md">updating.md</a></p>
 </div>
 
 <!-- ═══ LAYER 1: Configuration Files ═══ -->

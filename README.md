@@ -10,6 +10,22 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 **Live docs:** https://docs.dinostack.ai/
 
+## Updating
+
+Run `agentic-update` from anywhere, no arguments.
+
+| Path | Command | When |
+|---|---|---|
+| Shell (recommended) | `agentic-update` | Default; from any directory, no TTY |
+| In-session | `/pull-and-install` | Inside Claude Code, any project |
+| TUI | `./update.sh` | Interactive adapter selection |
+| CI / scripts | `git pull && ./install-all.sh` | Non-interactive |
+| Repair drift | `agentic-doctor --fix` | Fix broken symlinks/hooks (e.g. after moving the repo) |
+
+Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
+
+Full details: [docs/updating.md](docs/updating.md).
+
 ## Getting started
 
 ### One-liner install (quickest)
@@ -140,14 +156,6 @@ agentic-engineering: opt-out
 Matching is case-insensitive. A leading `- ` (markdown list) is allowed. If both markers appear, the one appearing first wins and a warning is printed.
 
 With the global mode set to `opt-out` (the default), a project without any marker still runs the methodology. With `opt-in` mode, a project must have the `opt-in` marker or the methodology stays dormant.
-
-## Updating
-
-Run `./update.sh` for an interactive TUI updater (arrow keys, space to toggle adapters). For non-interactive or CI use, run `git pull` first then `./install-all.sh`.
-
-If symlinks or hooks have drifted (common after moving the repo), run `agentic-doctor` to diagnose and `agentic-doctor --fix` to repair. Bootstrap is guarded against creating a second clone - if an existing install is detected, it aborts and prints the update-in-place command.
-
-Full details - manual update steps, clean-refresh procedure, health check, safeguards, and agent-driven update prompts: see [docs/updating.md](docs/updating.md).
 
 ## Adapters
 
