@@ -8,7 +8,7 @@ jobs:
   check-adapter-sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Rebuild all adapters
         run: |
           bash .claude/build.sh

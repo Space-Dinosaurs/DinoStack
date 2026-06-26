@@ -10,6 +10,22 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 **Live docs:** https://docs.dinostack.ai/
 
+## Updating
+
+Run `agentic-update` from anywhere, no arguments.
+
+| Path | Command | When |
+|---|---|---|
+| Shell (recommended) | `agentic-update` | Default; from any directory, no TTY |
+| In-session | `/pull-and-install` | Inside Claude Code, any project |
+| TUI | `./update.sh` | Interactive adapter selection |
+| CI / scripts | `git pull && ./install-all.sh` | Non-interactive |
+| Repair drift | `agentic-doctor --fix` | Fix broken symlinks/hooks (e.g. after moving the repo) |
+
+Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
+
+Full details: [docs/updating.md](docs/updating.md).
+
 ## Getting started
 
 ### One-liner install (quickest)
@@ -139,13 +155,10 @@ agentic-engineering: opt-out
 
 Matching is case-insensitive. A leading `- ` (markdown list) is allowed. If both markers appear, the one appearing first wins and a warning is printed.
 
-With the global mode set to `opt-out` (the default), a project without any marker still runs the methodology. With `opt-in` mode, a project must have the `opt-in` marker or the methodology stays dormant.
+The per-project marker only has effect in combination with the global activation mode set at install (the `--mode` flag). See [Installation modes](#installation-modes).
 
-## Updating
-
-Run `./update.sh` for an interactive TUI updater (arrow keys, space to toggle adapters). For non-interactive or CI use, run `git pull` first then `./install-all.sh`.
-
-Full details - manual update steps, clean-refresh procedure, and agent-driven update prompts: see [docs/updating.md](docs/updating.md).
+- **Global `opt-out` (default):** every project is active unless it contains `agentic-engineering: opt-out`. Adding `opt-in` to a project has no effect - the project is already active.
+- **Global `opt-in`:** every project is dormant unless it contains `agentic-engineering: opt-in`. Adding `opt-out` to a project has no effect - the project is already dormant.
 
 ## Adapters
 
@@ -276,7 +289,6 @@ DinoStack/
 - `~/DinoStack/docs/slides/agent-team-slides.html` - the agent team and how they compose
 - `~/DinoStack/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.agentic/qa.md` (legacy `.claude/qa.md` fallback) as project QA memory
 - `~/DinoStack/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / `.agentic/loop-state.json`
-- `~/DinoStack/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/DinoStack/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/DinoStack/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/DinoStack/docs/slides/contributing-slides.html` - how to contribute to the repo

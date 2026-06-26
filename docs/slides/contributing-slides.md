@@ -208,7 +208,7 @@ New named agents, new slash commands, or improvements to existing ones.
 </div>
 <div class="card" style="border-left-color: #b06bff;">
 <strong>Adapters</strong><br/>
-New tool support or improvements to existing adapters. 9 ship today: Claude Code, Codex, Cursor, Gemini, Hermes, Kimi, omp, OpenCode, Pi.
+New tool support or improvements to existing adapters. 10 ship today: Claude Code, Codex, Cursor, Gemini, Hermes, Kimi, omp, OpenClaw, OpenCode, Pi.
 </div>
 </div>
 
@@ -228,14 +228,14 @@ The `content/` directory is the single source of truth. Adapter files (`.claude/
 
 ```
 content/
-  rules/        3 rule files (agent-methodology, code-standards, conventions)
-  references/   20 reference docs (agent-team, skeptic-protocol, qa-gate,
+  rules/        3 rule files (module-manifest, code-standards, conventions)
+  references/   23 reference docs (agent-team, skeptic-protocol, qa-gate,
                     capability-preflight, events-log, planning-artifacts, ...)
-  commands/     20 command files (implement-ticket, init-project, wrap, brief, ...)
+  commands/     21 command files (implement-ticket, init-project, wrap, brief, ...)
   agents/       17 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 ```
 
-Build scripts regenerate adapter files from `content/`. The pre-commit hook runs all 9 adapter builds automatically when `content/` files are staged. Slide `.md` sources have a separate `slides-sync` CI gate: after editing, run `bash scripts/build-slides.sh` and commit the regenerated `.html`.
+Build scripts regenerate adapter files from `content/`. The pre-commit hook runs all 10 adapter builds automatically when `content/` files are staged. Slide `.md` sources have a separate `slides-sync` CI gate: after editing, run `bash scripts/build-slides.sh` and commit the regenerated `.html`.
 
 <div class="callout">
 Never edit generated files directly - the pre-commit hook or CI will overwrite them. Always edit the source in <code>content/</code> (adapter files) or <code>docs/slides/</code> (slide sources).
@@ -250,16 +250,16 @@ Never edit generated files directly - the pre-commit hook or CI will overwrite t
   .callout { font-size: 0.82em; padding: 0.4em 1em; }
 </style>
 
-9 adapters ship build scripts: `.claude/`, `.codex/`, `.cursor/`, `.gemini/`, `.hermes/`, `.kimi/`, `.omp/`, `.opencode/`, `.pi/`. Each `build.sh` transforms `content/` into the tool's native format.
+10 adapters ship build scripts: `.claude/`, `.codex/`, `.cursor/`, `.gemini/`, `.hermes/`, `.kimi/`, `.omp/`, `.openclaw/`, `.opencode/`, `.pi/`. Each `build.sh` transforms `content/` into the tool's native format.
 
 - **`.claude/build.sh`** - prepends the `/agentic-engineering` prerequisite to commands; symlinks rules, references, agents directly into `content/`
 - **`.cursor/build.sh`** - combines YAML frontmatter sidecars with rule content to produce `.mdc` files; copies references and commands
 - **Other adapters** - each converts content into their tool's format per that tool's conventions
 
-The pre-commit hook runs ALL 9 builds when `content/` files are staged - a single missed build fails the `adapter-sync` CI gate. Run `bash scripts/build-slides.sh` separately for slide changes (enforced by the `slides-sync` CI gate).
+The pre-commit hook runs ALL 10 builds when `content/` files are staged - a single missed build fails the `adapter-sync` CI gate. Run `bash scripts/build-slides.sh` separately for slide changes (enforced by the `slides-sync` CI gate).
 
 <div class="callout">
-The build is idempotent. Running <code>install.sh</code> re-runs all builds automatically. You must run ALL 9 builds before committing <code>content/</code> changes or CI will fail.
+The build is idempotent. Running <code>install.sh</code> re-runs all builds automatically. You must run ALL 10 builds before committing <code>content/</code> changes or CI will fail.
 </div>
 
 ---
@@ -274,11 +274,13 @@ The build is idempotent. Running <code>install.sh</code> re-runs all builds auto
 
 1. **Pull before you change anything** - `git fetch origin && git pull --rebase origin main`
 2. Create a feature branch from `main`
-3. Edit in `content/` - the pre-commit hook rebuilds all 9 adapter files on commit
+3. Edit in `content/` - the pre-commit hook rebuilds all 10 adapter files on commit
 4. If you edited a slide `.md`, run `bash scripts/build-slides.sh` and commit the `.html` too
 5. Test locally: re-run `install.sh`, open a session, verify the change works
-6. Open a PR - one concern per PR, describe the *why* in the body
-7. PR is merged after the required number of approvals
+6. Sign off every commit - `git commit -s` (DCO, enforced by `.github/workflows/dco.yml`)
+7. Protocol changes go through a protocol-change RFC first - open an issue before the PR
+8. Open a PR - one concern per PR, describe the *why* in the body
+9. PR is merged by the lead maintainer after review
 
 <div class="callout">
 Pull-before-edit is especially important here. This repo sees active refactors - file renames, symlink restructures, directory reshapes. A stale local branch turns clean edits into hand-merges.
@@ -296,8 +298,8 @@ Pull-before-edit is especially important here. This repo sees active refactors -
 
 1. Create `.<toolname>/` matching the tool's config directory convention
 2. Convert the 3 rules into the tool's native rule format (from `content/rules/`)
-3. Copy or symlink the 20 reference docs (from `content/references/`)
-4. Convert the 20 commands into the tool's command format (from `content/commands/`)
+3. Copy or symlink the 23 reference docs (from `content/references/`)
+4. Convert the 21 commands into the tool's command format (from `content/commands/`)
 5. Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)
 6. Write `.<toolname>/README.md` with setup instructions
 7. Update root `README.md` with the new adapter

@@ -259,7 +259,7 @@ class Doctor:
                 os.symlink(str(new), str(dst))
             except Exception as exc:
                 self.fail(kind, f"could not re-point {dst}: {exc}")
-                self.unfixable.append(str(dst))
+                self.mark_unfixable(dst)
 
     def has_unresolved_findings(self) -> bool:
         """Return True if there are FAIL or FIX lines in the output.
@@ -278,6 +278,11 @@ class Doctor:
     def has_unfixable(self) -> bool:
         return bool(self.unfixable)
 
+    def mark_unfixable(self, item) -> None:
+        """Append str(item) to unfixable only when fix mode is active."""
+        if self.fix:
+            self.unfixable.append(str(item))
+
 
 # ---------------------------------------------------------------------------
 # Check (a): repo_dir is a valid git repo
@@ -290,12 +295,14 @@ def check_repo_dir(doc: Doctor) -> None:
             "repo_dir",
             f"{doc.repo_dir} does not exist; re-run bootstrap or set repo_dir in {_config_path()}",
         )
+        doc.mark_unfixable(doc.repo_dir)
         return
     if not _is_git_repo(doc.repo_dir):
         doc.fail(
             "repo_dir",
             f"{doc.repo_dir} exists but is not a git repo; re-run bootstrap or set repo_dir in {_config_path()}",
         )
+        doc.mark_unfixable(doc.repo_dir)
         return
     doc.ok("repo_dir", f"{doc.repo_dir} is a valid git repo")
 
@@ -353,8 +360,7 @@ def _check_one_link(doc: Doctor, dst: Path, kind: str) -> None:
         doc.repoint_symlink(kind, dst, old_display, expected)
     else:
         doc.fail(kind, f"{dst}: target {old_display} is wrong; could not determine repair target")
-        if doc.fix:
-            doc.unfixable.append(str(dst))
+        doc.mark_unfixable(dst)
 
 
 def _expected_target_in_repo(dst: Path, repo_dir: Path) -> Path | None:
@@ -480,10 +486,10 @@ def _atomic_patch_settings(
             except Exception:
                 pass
             doc.fail("hooks", f"could not write {settings_path}: {exc}")
-            doc.unfixable.append(str(settings_path))
+            doc.mark_unfixable(settings_path)
     except Exception as exc:
         doc.fail("hooks", f"patch failed: {exc}")
-        doc.unfixable.append(str(settings_path))
+        doc.mark_unfixable(settings_path)
 
 
 # ---------------------------------------------------------------------------

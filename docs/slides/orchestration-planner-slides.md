@@ -231,7 +231,7 @@ Default step: after an architect or investigator returns a plan and the Skeptic 
 
 **Plan structure**
 - **Task summary** - goal + why this team was chosen
-- **Risk classification** - Low / Elevated / Elevated + Cleanup
+- **Risk classification** - Trivial / Low / Elevated / Elevated + Cleanup
 - **Agent roster** - agents and their specific role
 - **Execution plan** - phased: spawn, give, returns, proceed-when
 
@@ -358,12 +358,12 @@ One integration Skeptic, not stacked Skeptics. The planner identifies unit bound
 When a plan contains 2+ independent units, the planner emits a JSONL block. Each line is one unit:
 
 ```json
-{"unit_slug":"auth-middleware","merge_order":1,"skeptic_strategy":"per-unit","depends_on":[],"description":"Add JWT validation middleware","acceptance_criteria":"...","files_in_scope":["src/middleware/auth.ts"]}
-{"unit_slug":"user-profile-api","merge_order":2,"skeptic_strategy":"per-unit","depends_on":[],"description":"Add /users/:id endpoint","acceptance_criteria":"...","files_in_scope":["src/routes/users.ts"]}
+{"unit_slug":"auth-middleware","merge_order":1,"skeptic_strategy":"per-unit","depends_on":[],"description":"Add JWT validation middleware","acceptance_criteria":["..."],"files_in_scope":["src/middleware/auth.ts"]}
+{"unit_slug":"user-profile-api","merge_order":2,"skeptic_strategy":"per-unit","depends_on":[],"description":"Add /users/:id endpoint","acceptance_criteria":["..."],"files_in_scope":["src/routes/users.ts"]}
 ```
 
 Key fields added for fan-out:
-- **`skeptic_strategy`** - `"per-unit"` (independent units, parallel Skeptics), `"integration"` (interdependent units, one combined Skeptic), or `"multi-dimensional"` (high-stakes units: correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff)
+- **`skeptic_strategy`** - the planner emits `"per-unit"` (independent units, parallel Skeptics) or `"integration"` (interdependent units, one combined Skeptic). The conductor may additionally apply a `multi-dimensional` review strategy on high-stakes units (correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff); that is conductor-side, not part of the planner's classification.
 - **`merge_order`** - integer; conductor merges unit branches in this order for conflict locality
 - **`unit_slug`** - the canonical unit identifier used in `.agentic/tasks.jsonl` task entries
 

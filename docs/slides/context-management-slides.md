@@ -246,6 +246,12 @@ End-of-session ritual. Commits learnings into memory so the next session reads r
 
 ## The load-bearing habit: run from the project directory
 
+<style scoped>
+  p { font-size: 0.9em; margin: 0.3em 0; }
+  pre { font-size: 0.85em; padding: 0.4em 0.8em; margin: 0.3em 0 0.5em 0; }
+  .callout { font-size: 0.88em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
 The **cwd is the project directory**. Every bit of persistence - AGENTS.md, MEMORY.md, session history, `/wrap` outputs - is keyed to the directory `claude` was started in. Nothing else matters for memory continuity.
 
 ```bash
@@ -288,10 +294,10 @@ The whole system is designed around one bet: <strong>context hygiene beats raw m
 ## Two layers of session capture
 
 <style scoped>
-  .columns { font-size: 0.85em; margin-bottom: 0.8em; }
-  .columns .card { padding: 0.7em 1em; font-size: 0.92em; }
-  p { font-size: 0.85em; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
+  .columns { font-size: 0.85em; margin-bottom: 0.5em; }
+  .columns .card { padding: 0.6em 0.9em; font-size: 0.88em; }
+  p { font-size: 0.83em; margin: 0.3em 0; }
+  .callout { font-size: 0.8em; padding: 0.35em 1em; margin-top: 0.3em; }
 </style>
 
 <div class="columns">
