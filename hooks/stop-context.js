@@ -220,8 +220,8 @@ function writeLoopState(cwd) {
     return;
   }
 
+  const loopStatePath = path.join(cwd, '.agentic', 'loop-state.json');
   try {
-    const loopStatePath = path.join(cwd, '.agentic', 'loop-state.json');
     if (fs.existsSync(loopStatePath)) {
       const loopState = JSON.parse(fs.readFileSync(loopStatePath, 'utf-8'));
       if (loopState.status === 'active') {
@@ -235,6 +235,7 @@ function writeLoopState(cwd) {
     }
   } catch (_) {
     // Silent failure - the 10-minute implicit-interrupt heuristic handles missed writes
+    try { fs.unlinkSync(loopStatePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
   }
 }
 
@@ -254,8 +255,8 @@ function writeBatchState(cwd, sessionId) {
     return;
   }
 
+  const batchStatePath = path.join(cwd, '.agentic', 'batch-state.json');
   try {
-    const batchStatePath = path.join(cwd, '.agentic', 'batch-state.json');
     if (!fs.existsSync(batchStatePath)) return;
     const batchState = JSON.parse(fs.readFileSync(batchStatePath, 'utf-8'));
 
@@ -281,6 +282,7 @@ function writeBatchState(cwd, sessionId) {
     fs.renameSync(tmpPath, batchStatePath);
   } catch (_) {
     // Silent failure - best-effort write; resume-time logic tolerates absent mark.
+    try { fs.unlinkSync(batchStatePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
   }
 }
 
@@ -652,6 +654,7 @@ function generateUuid() {
  * @param {string|null} sessionId - Current session uuid (uuid v4 generated if null).
  */
 function writePendingBuffer(cwd, sessionId) {
+  let pendingTmpFile = null;
   try {
     const pendingDir = path.join(os.homedir(), '.agentic', 'session-log', '.pending');
     fs.mkdirSync(pendingDir, { recursive: true });
@@ -720,11 +723,14 @@ function writePendingBuffer(cwd, sessionId) {
 
     // Atomic write: tmp + rename
     const outFile = path.join(pendingDir, `${sessionUuid}.json`);
-    const tmpFile = outFile + '.tmp';
-    fs.writeFileSync(tmpFile, JSON.stringify(record, null, 2), 'utf8');
-    fs.renameSync(tmpFile, outFile);
+    pendingTmpFile = outFile + '.tmp';
+    fs.writeFileSync(pendingTmpFile, JSON.stringify(record, null, 2), 'utf8');
+    fs.renameSync(pendingTmpFile, outFile);
   } catch (_) {
     // Silent failure - consistent with all other write paths
+    if (pendingTmpFile) {
+      try { fs.unlinkSync(pendingTmpFile); } catch (_e) { /* tmp absent or never created */ }
+    }
   }
 }
 
@@ -863,7 +869,10 @@ function appendCaptureGapNoticeToContextMd(cwd, residualOnly) {
       const tmpCursor = cursorPath + '.tmp';
       fs.writeFileSync(tmpCursor, nowIso, 'utf8');
       fs.renameSync(tmpCursor, cursorPath);
-    } catch (_) { /* silent - cursor update failure is non-fatal */ }
+    } catch (_) {
+      /* silent - cursor update failure is non-fatal */
+      try { fs.unlinkSync(cursorPath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
+    }
   } catch (_) {
     // Silent failure - consistent with all other context.md append paths.
   }

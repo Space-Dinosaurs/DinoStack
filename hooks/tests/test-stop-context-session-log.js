@@ -243,6 +243,57 @@ console.log('\n[4] Write failure: session-log dir is an existing file (unwriteab
 }
 
 // ---------------------------------------------------------------------------
+// Sub-test 5: No orphan .tmp files after a normal hook run (#262 regression)
+// ---------------------------------------------------------------------------
+console.log('\n[5] No orphan .tmp files: loop-state atomic write leaves no .tmp on success or failure');
+{
+  // Two scenarios in one sub-test:
+  // (a) normal success path: active loop-state -> atomic write -> rename -> no .tmp
+  // (b) failure path: loop-state.json is corrupt JSON -> catch fires early, no
+  //     .tmp ever written -> catch cleanup is a no-op (unlink of absent file must
+  //     not throw).
+  //
+  // Both scenarios assert that no .tmp files remain after the hook exits, which
+  // is the invariant #262 introduces. If the catch cleanup is removed, a .tmp
+  // planted before scenario (b) would survive and the test would catch it.
+
+  // --- (a) success path ---
+  const { tmpDir, fakeHome, projectDir, agenticDir, identityDir } = makeTmp('ae-stop-t5a-');
+  fs.writeFileSync(path.join(identityDir, 'identity.yml'), STUB_IDENTITY, { mode: 0o600 });
+  // Active loop-state triggers the atomic write path.
+  fs.writeFileSync(
+    path.join(agenticDir, 'loop-state.json'),
+    JSON.stringify({ status: 'active', session_id: 'test-session-uuid' }),
+  );
+  try { runHook(projectDir, fakeHome, 'test-session-uuid'); } catch (_) {}
+  const tmpFilesA = fs.readdirSync(agenticDir).filter((f) => f.endsWith('.tmp'));
+  assert(tmpFilesA.length === 0,
+    `(a) no .tmp in .agentic/ after successful atomic write (found: ${tmpFilesA.join(', ') || 'none'})`);
+  cleanup(tmpDir);
+
+  // --- (b) failure path: pre-plant a .tmp, feed corrupt loop-state -> catch
+  //         fires, catch cleanup must remove the pre-planted .tmp ---
+  // This simulates a stale .tmp left by a previous crashed session being cleaned
+  // up when the next session's catch block runs. We pre-plant the .tmp at exactly
+  // the path the hook would use, feed corrupt JSON (parse fails -> outer catch),
+  // then assert the .tmp is gone.
+  const { tmpDir: tmpDir2, fakeHome: fakeHome2, projectDir: proj2,
+    agenticDir: ag2, identityDir: id2 } = makeTmp('ae-stop-t5b-');
+  fs.writeFileSync(path.join(id2, 'identity.yml'), STUB_IDENTITY, { mode: 0o600 });
+  // Corrupt loop-state.json -> JSON.parse throws -> catch block fires.
+  const loopStatePath2 = path.join(ag2, 'loop-state.json');
+  fs.writeFileSync(loopStatePath2, '{ bad json !!');
+  // Pre-plant a stale .tmp at the exact path writeLoopState would use.
+  const staleTmp = loopStatePath2 + '.tmp';
+  fs.writeFileSync(staleTmp, 'stale content from a previous crashed session');
+  try { runHook(proj2, fakeHome2, 'test-session-uuid'); } catch (_) {}
+  const tmpFilesB = fs.readdirSync(ag2).filter((f) => f.endsWith('.tmp'));
+  assert(tmpFilesB.length === 0,
+    `(b) stale .tmp cleaned up by catch block (found: ${tmpFilesB.join(', ') || 'none'})`);
+  cleanup(tmpDir2);
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed.`);
