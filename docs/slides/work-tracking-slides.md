@@ -234,8 +234,8 @@ Treat it as a runbook the planner will literally execute. Vague instructions pro
 ## Example - a Linear project
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.6em 0.8em; line-height: 1.35; margin: 0.3em 0 0.8em 0; }
-  h2 { margin-bottom: 0.4em; }
+  pre { font-size: 0.62em; padding: 0.45em 0.7em; line-height: 1.3; margin: 0.2em 0 0.5em 0; }
+  h2 { margin-bottom: 0.3em; }
 </style>
 
 ```markdown
@@ -265,8 +265,9 @@ This project uses Linear. Ticket IDs look like ENG-1234.
 ## Example - a project with no external tracker
 
 <style scoped>
-  pre { font-size: 0.78em; padding: 0.55em 0.8em; line-height: 1.35; margin: 0.3em 0 0.8em 0; }
-  h2 { margin-bottom: 0.4em; }
+  pre { font-size: 0.72em; padding: 0.45em 0.7em; line-height: 1.3; margin: 0.2em 0 0.5em 0; }
+  h2 { margin-bottom: 0.3em; }
+  p { font-size: 0.88em; margin: 0.2em 0; }
 </style>
 
 Not every project has Linear or Jira. `tracking.md` can point at anything:
