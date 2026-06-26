@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd .agentic/worktrees/pr256-merge && rtk git diff --name-only --diff-filter=U\",\"description\":\"Full conflict file list\"}",
+  "error": "Exit code 1\n(eval):cd:1: no such file or directory: .agentic/worktrees/pr256-merge",
+  "timestamp": "2026-06-25T19:43:15.048Z",
+  "retry_count": 1
+}

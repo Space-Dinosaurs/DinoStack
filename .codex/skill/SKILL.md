@@ -1,117 +1,90 @@
----
-name: agentic-engineering
-description: Apply when working on any software development task - implementing features, fixing bugs, reviewing code, debugging, testing, deploying, working with agents or subagents, making architecture decisions, setting up projects, managing dependencies, or any task that involves reading, writing, or reasoning about code and systems. Provides risk classification, Worker+Skeptic adversarial review, task decomposition, and named agent definitions.
----
+<!--
+Purpose: Canonical body text for the agentic-engineering skill loaded by AI coding agents.
+         This file is the single source of truth for the skill's instructional content;
+         adapter-specific frontmatter (name, description, trigger conditions) is kept
+         separately in each adapter's build directory and prepended at build time.
 
-# Agentic Engineering
+Public API: consumed as-is by adapter build scripts (e.g. .claude/build.sh) which
+            concatenate <adapter>/SKILL.frontmatter.yaml + this file to produce the
+            final adapter SKILL.md.
 
-This skill provides the full agentic engineering methodology: structured delegation, risk classification, adversarial review loops, code quality gates, git workflow conventions, and named agent definitions.
+Upstream deps: none (leaf content file; no imports or code dependencies).
+
+Downstream consumers: .claude/skills/agentic-engineering/SKILL.md (assembled by
+                      .claude/build.sh). Other adapters (.codex, .cursor, .kimi,
+                      .opencode) maintain their own frontmatter and may derive from
+                      this file if their body content converges.
+
+Failure modes: edits here take effect for .claude after re-running .claude/build.sh.
+               Adapters whose SKILL.md is a static committed file will drift silently
+               until their own build or manual sync is run. No side effects at read time.
+
+Performance: standard (static markdown file).
+-->
+
+> **IMPORTANT - READ THIS FIRST:** If `skill_auto_load: true` is set in `~/.claude/agentic-engineering.json`, this skill is configured to auto-load. Read this entire SKILL.md before taking any action on software development tasks. Do not start implementing until you have read the Rules section below.
+
+The Agentic Engineering system defines how to plan, delegate, review, and ship software using a
+structured multi-agent workflow. It covers risk classification, adversarial review, task
+decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
+files on every session and the reference docs on the triggers described in agent-methodology.md.
 
 **Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in `rules/agent-methodology.md` for the full rule, anti-patterns, and stop-frequency thresholds.
 
-## Core Protocol (always apply)
+## Rules (read these files)
 
-The project `AGENTS.md` (or `.codex/AGENTS.md` at repo root) contains the full methodology rules. Those are loaded automatically. This skill provides additional protocol specs and command templates loaded on demand.
+- **rules/agent-methodology.md** - delegation model, risk classification, task decomposition, and
+  worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
-## Reference Docs (read when needed)
+- **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read/Glob/Grep
+  over Bash for reads), code quality gates, package management conventions, and browser verification
+  with agent-browser.
 
-These live in `references/` alongside this skill:
+- **rules/conventions.md** - writing style, project structure, session context and memory handling,
+  and git workflow including protected branches and worktree-per-feature conventions.
 
-- **skeptic-protocol.md** - Skeptic loop orchestration, findings classification (Critical/Major/Minor), sign-off format, adversarial briefs, and the Elevated + Cleanup path. Read when: declaring Elevated risk, running a Skeptic, or interpreting findings.
+## Commands (invoke by name)
 
-- **subagent-protocol.md** - Parallel spawning rules, worktree isolation, check-in behavior, phase breadcrumbs, and task decomposition rules for multi-Worker plans. Read when: spawning multiple parallel agents, setting up worktrees, or decomposing complex tasks.
+- `/agentic-help` - static, zero-token command reference; lists every slash command with a one-line description.
+- `/agentic-status` - read-only resolver dump; shows the resolved mode, profile, preset, and marker with provenance plus a plain-English explainer of what they do and how to change them.
+- `/brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/brief --from <path>` to extract a Brief from an existing PRD.
+- `/pull-and-install` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
 
-- **agent-team.md** - Named agent roles (engineer, architect, investigator, debugger, security-auditor, qa-engineer, perf-analyst, release-orchestrator, dependency-auditor, orchestration-planner), composed flows, decision rules, and spawn requirements. Read when: deciding which agent to spawn or composing a multi-agent flow.
+Run `/agentic-help` for the full command inventory.
 
-- **design-goals.md** - Design principles and goals of the Agentic Engineering system. Read when: evaluating whether a proposed change aligns with the system's intent.
+## Reference Docs (read on trigger - see Protocol Details in agent-methodology.md)
 
-## Command Templates
+- **references/skeptic-protocol.md** - Skeptic loop orchestration, findings classification
+  (Critical/Major/Minor), sign-off format, adversarial briefs, and the Elevated + Cleanup path.
 
-These are prompt templates for common workflows. In Codex, use them from `.codex/commands/<name>.md`:
+- **references/subagent-protocol.md** - parallel spawning rules, worktree isolation, check-in
+  behavior, phase breadcrumbs, and task decomposition rules for multi-Worker plans.
 
-- `skeptic` - Full Skeptic Protocol orchestration (Worker -> Skeptic -> re-route loop)
-- `implement-ticket` - Ticket-to-PR flow (Architect -> Orchestration Planner -> Engineer -> Skeptic)
-- `wrap` - Session context enrichment and AGENTS.md updates
-- `memory-update` - Capture a project decision to memory
-- `init-project` - Scaffold a new project with AGENTS.md hierarchy
-- `update-agentic-engineering` - Governs edits to methodology documents
+- **references/agent-team.md** - named agent roles (engineer, architect, investigator, debugger,
+  security-auditor, orchestration-planner), composed flows, decision rules, and spawn requirements.
 
-Use these templates manually: read the relevant `.codex/commands/<name>.md` file and paste or paraphrase it into your session. Do not assume a `/prompts:<name>` command exists in Codex.
+- **references/design-goals.md** - design principles and goals of the Agentic Engineering system;
+  read when evaluating whether a proposed change aligns with the system's intent.
 
-**Important:** The `/agentic-engineering` prerequisite line present in Claude Code command files does not apply here. Codex does not use a skill-loading prerequisite system. When using these templates, read and apply the content directly.
+- **references/regression-test-obligation.md** - per-finding regression-test obligation: every
+  Skeptic finding fixed during a task must come with a regression test that would have caught it;
+  read when fixing a Skeptic finding to confirm what counts as a valid regression test.
 
-## Risk Tiers
+- **references/doc-sync-obligation.md** - per-change doc-sync obligation: a reality-asserting
+  change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
+  the affected docs in the same change; read when a change touches a documented surface.
 
-Four risk tiers govern delegation and review. Apply them before starting any task:
+- **references/role-models.md** - Pi / oh-my-pi per-role model routing and antagonist
+  reviewer model diversity; read when resolving `role-models.yml` or spawning reviewers on Pi/omp.
 
-| Tier | Delegation | Review | When to use |
-|---|---|---|---|
-| Trivial | Conductor direct (no subagents running) or solo `engineer` Worker in foreground (subagents running) | None - no Skeptic, no brief file | Single-file cosmetic or copy change, no logic impact, all qualifying signals hold (see below) |
-| Low | Direct action | Brief inline self-check | Reads, research with no artifact, diagnostic logging |
-| Elevated | Worker + Skeptic | Fresh independent Skeptic | Any code edit, multi-file change, new file, security concern, architecture decision |
-| Elevated + Cleanup | Worker + Skeptic + /simplify + narrow Skeptic | Two Skeptic passes | Elevated task with significant new code volume |
+- **references/model-discovery.md** - Pi/oh-my-pi model selection paths (ask-user
+  wizard, harness-native, pin-by-hand) and the per-role ranking heuristics in
+  `bin/agentic-models`; read when seeding `role-models.yml`.
 
-**Trivial qualifying signals (ALL must hold):** touches exactly one file (or one file plus its colocated test/snapshot); no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports; reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved. When in doubt between Trivial and Elevated, choose Elevated.
+- **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema for
+  orchestrating parallel agent teams across multiple AI harnesses; read when using
+  `agentic-team` or configuring cross-harness dispatch with `team.yml`.
 
-**Trivial conductor rule:** If no subagents are currently running, the conductor edits directly (no Worker, no Skeptic). If any subagent is currently running, spawn a single `engineer` Worker in foreground (no Skeptic) - the conductor must stay available to manage in-flight work. A commit message is still required. If a Worker discovers the change is not actually Trivial, it must stop, report, and the conductor re-classifies as Elevated.
-
-## Named Agents
-
-Codex supports named agents loaded from `~/.codex/agents/*.toml` (personal) or `.codex/agents/*.toml` (project-scoped). The agentic-engineering installer symlinks `~/.codex/agents/` to `.codex/agents/`, which contains TOML agent files generated from `content/agents/*.md`.
-
-The following named agents are available after install:
-
-| Agent | Role |
-|---|---|
-| `engineer` | Implementation: features, bug fixes, refactors, scripts |
-| `architect` | Pre-implementation technical design |
-| `debugger` | Root cause analysis |
-| `investigator` | Codebase exploration and blast radius mapping |
-| `qa-engineer` | Runtime browser verification after Skeptic sign-off |
-| `security-auditor` | OWASP-structured security audit |
-| `perf-analyst` | Performance profiling: measures latency, memory, and throughput; produces a fix brief |
-| `release-orchestrator` | End-to-end release sequencing: pre-flight gates, version bump, changelog, tag, deploy, verification |
-| `dependency-auditor` | Supply-chain review: CVE scanning, license compliance, lockfile analysis across all ecosystems |
-| `orchestration-planner` | Decompose a complex goal into a sequenced agent execution plan |
-| `skeptic` | Adversarial review of Worker output |
-| `adr-drift-detector` | Audit codebase compliance against ADRs |
-| `adr-generator` | Create new Architecture Decision Records |
-
-When Codex spawns a named agent by name, it loads that agent's `developer_instructions` and config from the corresponding TOML file automatically.
-
-**Fallback - quick agent preambles (use when TOML agents are not installed):**
-
-If the named agent TOML files are not installed (e.g., in a fresh environment before running `install.sh`), spawn subagents with an explicit role preamble in the prompt:
-
-- **engineer**: "You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."
-- **architect**: "You are an Architect agent. Produce a concrete implementation plan for the task below. Identify parallel vs sequential units, risks, and the appropriate adversarial brief type for Skeptic review."
-- **investigator**: "You are an Investigator agent. Map the codebase area described below: what exists, what would change, and the blast radius of the proposed change."
-- **skeptic**: "You are a Skeptic agent. Review the output below adversarially. Apply the adversarial brief. Classify findings as Critical, Major, or Minor. Return findings and sign-off in the required format."
-- **orchestration-planner**: "You are an Orchestration Planner. Given the architect's plan below, identify which units are independent (can run in parallel) vs dependent (must be sequential), and return a structured execution plan."
-- **debugger**: "You are a Debugger agent. Identify the root cause of the issue described below. Do not fix it - return a diagnosis with evidence."
-- **security-auditor**: "You are a Security Auditor. Review the code or design below for security vulnerabilities. Focus on the attack surfaces described in the adversarial brief."
-- **perf-analyst**: "You are a Performance Analyst. Profile the target described below, establish baseline measurements, identify the hotspot, and return a findings brief with measured evidence. Do not implement fixes."
-- **release-orchestrator**: "You are the Release Orchestrator. Run the full release sequence for the target environment described below: pre-flight gates, version decision, changelog, version bump, tag, deploy, and post-deploy verification. Report immediately if any gate fails."
-- **dependency-auditor**: "You are a Dependency Auditor. Run vulnerability scanners for all detected ecosystems in the project below, audit license compliance, assess maintenance signals, and return a structured findings report. Do not modify any files."
-
-## Lifecycle Hooks
-
-Codex supports lifecycle hooks behind a feature flag (`codex_hooks = true` in `~/.codex/config.toml`). The installer enables this flag automatically. Two hooks are wired:
-
-- **`UserPromptSubmit`** - Injects the risk classification reminder as developer context before every prompt. This mirrors the Claude Code `UserPromptSubmit` hook.
-- **`Stop`** - Writes a minimal session context file to `~/.codex/projects/[hash]/context.md` on session end. This is a thin port of the Claude Code `stop-context.js` (captures last assistant message, session ID, model). For richer context, use the `wrap` template from `.codex/commands/`.
-
-If hooks are not firing, verify `codex_hooks = true` is present in `~/.codex/config.toml` under `[features]`.
-
-## Command Templates
-
-Workflow templates live in `.codex/commands/`. They are not installed as user slash commands. Use them manually when you want the exact `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, or `update-agentic-engineering` flow in a Codex session.
-
-## Remaining Limitations vs Claude Code
-
-- **Background subagent spawning** - Codex's subagent model differs from Claude Code. Adapt multi-agent flows to Codex's available spawning mechanism.
-- **Stop hook richness** - The Codex `Stop` hook context is thinner than the Claude Code version (no tool-use transcript). Use the `wrap` template from `.codex/commands/` for richer session handoff.
-
-Named agents are fully supported via `~/.codex/agents/*.toml` - see the Named Agents section above.
-
-Codex supports a global instructions file at `~/.codex/AGENTS.md` (equivalent to Claude Code's `~/.claude/CLAUDE.md`). The adapter's `install.sh` symlinks `~/.codex/AGENTS.md` to `.codex/AGENTS.md` so the methodology is injected globally in addition to this skill.
+- **rules/module-manifest.md** - required manifest header format for non-trivial source files;
+  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
+  LOC, or implements a side-effecting operation.

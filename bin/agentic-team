@@ -1,0 +1,1299 @@
+#!/usr/bin/env python3
+"""
+Purpose: Cross-harness team configuration loader, discovery, dispatch, and
+         collection tool. Reads team.yml (global ~/.agentic/team.yml then
+         project .agentic/team.yml; project wins on per-top-level-key merge)
+         and validates the schema. discover subcommand probes installed
+         harnesses (installed/version/invocation_family; models always []).
+         dispatch spawns workers detached; status/collect check and retrieve
+         run output. configure subcommand runs the interactive or
+         non-interactive team-config wizard (ranking via static heuristics,
+         no network).
+
+Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
+            discover   - probe installed harnesses (installed/version/family)
+            dispatch   --harness <h> --role <r> --brief <file> --workdir <dir>
+                         [--model <m>]
+                         spawn a worker (background); prints run-id to stdout.
+                         --model forwarded to codex/gemini (-m) or claude
+                         (--model); rejected for any other harness.
+            status     <run-id> [--workdir <dir>]  - running|done|failed
+            collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
+            configure  [--non-interactive] [--assign role=harness:model ...]
+                         [--default-harness H] [--path PATH]
+                         configure cross-harness team assignments in .agentic/team.yml
+            --json     - machine-readable output (discover subcommand)
+
+Upstream deps: bin/_role_spec (normalize_role_spec, KNOWN_HARNESSES, KNOWN_ROLES);
+               Python 3.11 stdlib only (+ pyyaml for YAML parsing).
+
+Downstream consumers: bin/agentic-configure (back-compat shim for team subcommand);
+                      hooks/enforce-background-spawn.py (Unit 5b sentinel check).
+
+Failure modes: Unknown harness name in roles or default_harness -> non-zero
+               exit with a named error line on stderr.
+               Unknown role key -> non-zero exit with a named error line on stderr.
+               Missing or unreadable team.yml -> treated as empty config (no error).
+               Malformed YAML -> non-zero exit.
+               discover: absent harnesses reported as installed=false, exit 0.
+               discover: models always [] (harness-native discovery not available), exit 0.
+               dispatch: unknown harness -> non-zero exit immediately.
+               dispatch: workdir not writable -> non-zero exit.
+               dispatch: --model supplied for a harness with no confirmed
+                 --model flag (anything other than codex/gemini/claude) ->
+                 exit 2 fail-fast BEFORE any filesystem side effect (no run
+                 dir, no .active sentinel, no subprocess).
+               status/collect: unknown run-id -> non-zero exit.
+               collect: on terminal status, unlinks the shared .active
+                 sentinel ONLY when no sibling run is still live (read-only
+                 liveness scan; never mutates siblings).
+               NOTE: _run_status writes exit=1 on a dead-PID dir with no exit
+                 file (status reads are not pure); the .active-cleanup path
+                 deliberately uses _is_live_readonly to avoid this.
+               configure: unknown harness in --assign -> exit 2.
+               configure: --non-interactive without --assign -> exit 2.
+
+Performance: Pure file I/O + subprocess probes in discover. Sub-second
+             for load+validate; discover latency depends on harness version probes.
+             dispatch returns the run-id immediately (background spawn).
+             configure: in-process discover (no subprocess) + static heuristic ranking.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery as _im
+import importlib.util as _ilu
+import json
+import os
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+from pathlib import Path
+
+try:
+    import yaml as _yaml  # type: ignore
+    _HAVE_YAML = True
+except ImportError:
+    _yaml = None  # type: ignore
+    _HAVE_YAML = False
+
+# ---------------------------------------------------------------------------
+# Load _role_spec from the same bin/ directory (no .py extension sibling)
+# ---------------------------------------------------------------------------
+_rs_path = Path(__file__).parent / "_role_spec.py"
+_rs_loader = _im.SourceFileLoader("_role_spec", str(_rs_path))
+_rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
+_rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
+_rs_loader.exec_module(_rs_mod)
+normalize_role_spec = _rs_mod.normalize_role_spec
+KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
+KNOWN_ROLES: frozenset[str] = _rs_mod.KNOWN_ROLES
+
+# ---------------------------------------------------------------------------
+# Harness binary-name map (Unit 2 - the ONLY hardcoded per-harness fact here;
+# these are binary NAMES, not model IDs).
+# Harness label -> CLI binary probed via `command -v <binary>`.
+# ---------------------------------------------------------------------------
+HARNESS_BINARY: dict[str, str] = {
+    "codex":        "codex",
+    "gemini":       "gemini",
+    "cursor-agent": "cursor-agent",
+    "kimi":         "kimi-cli",
+    "pi":           "pi",
+    "omp":          "omp",
+    "claude":       "claude",
+}
+
+# ---------------------------------------------------------------------------
+# Harness invocation-family labels (human-readable; describes how the harness
+# is invoked non-interactively for worker dispatch).
+# ---------------------------------------------------------------------------
+HARNESS_INVOCATION_FAMILY: dict[str, str] = {
+    "codex":        "codex-exec",
+    "gemini":       "gemini-p",
+    "cursor-agent": "cursor-agent-force",
+    "kimi":         "kimi-cli-headless",
+    "pi":           "pi-prompt",
+    "omp":          "omp-prompt",
+    "claude":       "claude-p",
+}
+
+# ---------------------------------------------------------------------------
+# Known native-subagent-disable flags per harness (best-effort v1; feeds AC5).
+# None = no known flag (or not applicable).
+# ---------------------------------------------------------------------------
+HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG: dict[str, str | None] = {
+    "codex":        None,
+    "gemini":       None,
+    "cursor-agent": None,
+    "kimi":         None,
+    "pi":           None,
+    "omp":          None,
+    "claude":       None,
+}
+
+GLOBAL_TEAM_YML = Path(os.path.expanduser("~/.agentic/team.yml"))
+PROJECT_TEAM_YML = Path(".agentic/team.yml")
+
+# ---------------------------------------------------------------------------
+# configure subcommand: ordered role list (CRITICAL: must be a list, not the
+# frozenset KNOWN_ROLES, so YAML role order is deterministic across runs).
+# ---------------------------------------------------------------------------
+ROLES = [
+    "conductor", "investigator", "architect", "orchestration-planner",
+    "engineer", "debugger", "qa-engineer", "skeptic", "security-auditor",
+]
+
+# ---------------------------------------------------------------------------
+# Capability table for cross-harness team ranking.
+# Maps model-family substrings (lowercase) to per-role strength hints.
+# NO hardcoded model IDs - only family name substrings, matching agentic-models
+# "no hardcoded catalog" stance. Positive = stronger for that role.
+# ---------------------------------------------------------------------------
+_TEAM_CAPABILITY_TABLE: dict[str, dict[str, int]] = {
+    # Code execution / correctness
+    "codex":          {"engineer": 4, "debugger": 3, "qa-engineer": 2},
+    "gpt-5.3-codex":  {"engineer": 5, "debugger": 4},
+    "gpt-5":          {"engineer": 3, "architect": 3, "skeptic": 3, "conductor": 2},
+    # Gemini family
+    "gemini-2.5-pro": {"architect": 3, "skeptic": 3, "security-auditor": 3, "conductor": 2},
+    "gemini-2.5-flash": {"qa-engineer": 4, "investigator": 3, "engineer": 2},
+    "gemini-3":       {"architect": 4, "skeptic": 4, "conductor": 3},
+    # Kimi family
+    "kimi-k2.7":      {"engineer": 4, "skeptic": 3, "debugger": 3},
+    "kimi-k2.6":      {"engineer": 3, "investigator": 3},
+    "kimi-k2.5-thinking": {"architect": 4, "skeptic": 4, "security-auditor": 3},
+    # Claude family (as worker)
+    "claude-opus":    {"architect": 5, "skeptic": 5, "security-auditor": 4, "conductor": 4},
+    "claude-sonnet":  {"engineer": 4, "debugger": 4, "qa-engineer": 3},
+    "claude-haiku":   {"investigator": 3, "qa-engineer": 3},
+    # Cursor
+    "cursor":         {"engineer": 3, "debugger": 2},
+}
+
+# Harness-level base scores when no specific model family is matched.
+# Used in ranking when a harness has no models list (models always []).
+_HARNESS_BASE_SCORES: dict[str, dict[str, int]] = {
+    "codex":        {"engineer": 3, "debugger": 2, "qa-engineer": 1},
+    "gemini":       {"architect": 2, "skeptic": 2, "investigator": 2},
+    "cursor-agent": {"engineer": 2, "debugger": 1},
+    "kimi":         {"engineer": 2, "investigator": 2},
+    "pi":           {"conductor": 1},
+    "omp":          {"conductor": 1},
+    "claude":       {"architect": 3, "skeptic": 3, "engineer": 2, "security-auditor": 3},
+}
+
+
+# ---------------------------------------------------------------------------
+# YAML loader - uses pyyaml (yaml.safe_load) when available; fails loud if not.
+# Supports the team.yml schema:
+#   enabled: true|false
+#   default_harness: <str>
+#   roles:
+#     <role>: <str>          # scalar form
+#     <role>:                # mapping form
+#       harness: <str>
+#       model: <str>
+#       effort: <str>        # optional; parsed but NOT used by cross-harness
+#       reasoning: <str>     #   dispatch (Pi role-models.yml path only).
+#   dispatch:
+#     timeout_seconds: <int>
+#     output_format: <str>
+# ---------------------------------------------------------------------------
+
+def _parse_team_yml(text: str, source: str) -> dict:
+    """Parse team.yml text into a dict using yaml.safe_load (pyyaml required).
+
+    Raises ImportError if pyyaml is not installed (fail loud over wrong parse).
+    Raises ValueError on unexpected structure.
+    """
+    if not _HAVE_YAML:
+        raise ImportError(
+            "agentic-team requires pyyaml. Install with: pip install pyyaml"
+        )
+    try:
+        data = _yaml.safe_load(text)
+    except _yaml.YAMLError as exc:
+        raise ValueError(f"{source}: YAML parse error: {exc}") from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{source}: expected a YAML mapping at the top level, got {type(data).__name__}")
+    return data
+
+
+def _load_team_config(
+    global_path: Path = GLOBAL_TEAM_YML,
+    project_path: Path = PROJECT_TEAM_YML,
+) -> dict:
+    """Load and merge global + project team.yml; project wins on per-key basis."""
+    config: dict = {}
+    for path, label in ((global_path, "global"), (project_path, "project")):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        parsed = _parse_team_yml(text, str(path))
+        # Shallow per-top-level-key merge: project wins
+        config.update(parsed)
+    return config
+
+
+def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
+    """Return a list of error strings; empty list means valid."""
+    errors: list[str] = []
+
+    dh = config.get("default_harness")
+    if dh and dh not in KNOWN_HARNESSES:
+        errors.append(
+            f"agentic-team: unknown default_harness {dh!r} in {source} "
+            f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+        )
+
+    for role, spec in config.get("roles", {}).items():
+        if role not in KNOWN_ROLES:
+            errors.append(
+                f"agentic-team: unknown role {role!r} in {source} "
+                f"(known: {', '.join(sorted(KNOWN_ROLES))})"
+            )
+        # Normalize to extract harness
+        if isinstance(spec, dict):
+            harness = spec.get("harness")
+        else:
+            # scalar string treated as harness name when no model key
+            harness = str(spec) if spec else None
+        if harness and harness not in KNOWN_HARNESSES:
+            errors.append(
+                f"agentic-team: unknown harness {harness!r} for role {role!r} in {source} "
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+            )
+
+    return errors
+
+
+def _role_entry(spec: object) -> dict:
+    """Convert a raw role spec from team.yml into a canonical entry dict.
+
+    team.yml role entries have both harness and model sub-keys. We extract
+    harness separately and pass the model portion to normalize_role_spec.
+    """
+    if not spec:
+        return {}
+    if isinstance(spec, str):
+        # scalar treated as harness name (no model sub-key)
+        return {"harness": spec}
+    if isinstance(spec, dict):
+        harness = spec.get("harness")
+        model_part = {k: v for k, v in spec.items() if k != "harness"}
+        entry: dict = {}
+        if harness:
+            entry["harness"] = harness
+        norm = normalize_role_spec(model_part)
+        entry.update(norm)
+        return entry
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# configure subcommand helpers (moved from agentic-configure)
+# ---------------------------------------------------------------------------
+
+def _score_model_for_role(
+    model_id: str,
+    role: str,
+    capability_table: dict[str, dict[str, int]] | None = None,
+) -> int:
+    """Score a (model_id, role) pair using the capability table.
+
+    Iterates over capability-table keys as substring patterns (case-insensitive).
+    Accumulates deltas for all matching patterns.
+    Pass capability_table explicitly to override; defaults to the module-level
+    _TEAM_CAPABILITY_TABLE.
+    """
+    table = capability_table if capability_table is not None else _TEAM_CAPABILITY_TABLE
+    score = 0
+    m = model_id.lower()
+    for pattern, role_scores in table.items():
+        if pattern.lower() in m:
+            score += role_scores.get(role, 0)
+    return score
+
+
+def _rank_assignments(
+    discovery: dict,
+    capability_table: dict[str, dict[str, int]] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Return best role -> (harness, model) assignments from discovery payload.
+
+    For each role in ROLES, iterate over installed harnesses and their models,
+    score each (harness, model) pair, and pick the highest-scoring one.
+    Falls back to harness-level base scores when a harness has no models list.
+    Returns a dict mapping role -> (harness, model_or_empty_string).
+    Pass capability_table explicitly to override; defaults to the module-level
+    _TEAM_CAPABILITY_TABLE.
+    """
+    best: dict[str, tuple[str, str, int]] = {}  # role -> (harness, model, score)
+
+    for harness, info in discovery.items():
+        if not info.get("installed"):
+            continue
+        harness_base = _HARNESS_BASE_SCORES.get(harness, {})
+        models: list[str] = info.get("models") or []
+
+        if models:
+            for model in models:
+                for role in ROLES:
+                    s = _score_model_for_role(model, role, capability_table)
+                    # add harness-level base score for tiebreaking
+                    s += harness_base.get(role, 0)
+                    prev = best.get(role)
+                    if prev is None or s > prev[2]:
+                        best[role] = (harness, model, s)
+        else:
+            # No model list - use harness base scores only; model = ""
+            for role in ROLES:
+                s = harness_base.get(role, 0)
+                prev = best.get(role)
+                if prev is None or s > prev[2]:
+                    best[role] = (harness, "", s)
+
+    return {role: (h, m) for role, (h, m, _) in best.items()}
+
+
+def _emit_team_yaml(
+    assignments: dict[str, tuple[str, str]],
+    default_harness: str | None,
+) -> str:
+    """Render role assignments into a team.yml YAML block."""
+    lines = [
+        "# Generated by agentic-configure team.",
+        "# Edit .agentic/team.yml freely.",
+        "enabled: true",
+    ]
+    if default_harness:
+        lines.append(f"default_harness: {default_harness}")
+    lines.append("roles:")
+    for role in ROLES:
+        pair = assignments.get(role)
+        if not pair:
+            continue
+        harness, model = pair
+        if model:
+            lines.append(f"  {role}:")
+            lines.append(f"    harness: {harness}")
+            lines.append(f"    model: {model}")
+        else:
+            lines.append(f"  {role}: {harness}")
+    lines.append("dispatch:")
+    lines.append("  timeout_seconds: 1800")
+    lines.append("  output_format: json")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _parse_assign_pairs(
+    assign_args: list[str],
+) -> tuple[dict[str, tuple[str, str]], list[str]]:
+    """Parse --assign role=harness:model pairs.
+
+    Returns (assignments dict, list of error strings).
+    assignments maps role -> (harness, model_or_empty).
+    """
+    assignments: dict[str, tuple[str, str]] = {}
+    errors: list[str] = []
+    for pair in assign_args:
+        if "=" not in pair:
+            errors.append(f"invalid --assign format {pair!r}: expected role=harness:model")
+            continue
+        role_part, _, hm = pair.partition("=")
+        role = role_part.strip()
+        if ":" in hm:
+            harness, _, model = hm.partition(":")
+        else:
+            harness, model = hm.strip(), ""
+        harness = harness.strip()
+        model = model.strip()
+        if harness not in KNOWN_HARNESSES:
+            errors.append(
+                f"--assign {pair!r}: unknown harness {harness!r} "
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+            )
+            continue
+        assignments[role] = (harness, model)
+    return assignments, errors
+
+
+def _cmd_configure(argv: list[str]) -> int:
+    """Handle the `agentic-team configure` subcommand."""
+    ap = argparse.ArgumentParser(
+        prog="agentic-team configure",
+        description="Configure cross-harness team assignments in .agentic/team.yml.",
+    )
+    ap.add_argument(
+        "--non-interactive", action="store_true",
+        help="write team.yml deterministically from --assign pairs; no prompts",
+    )
+    ap.add_argument(
+        "--assign", action="append", default=[],
+        metavar="role=harness:model",
+        help="assign a role to a harness:model pair (repeatable); requires --non-interactive",
+    )
+    ap.add_argument(
+        "--default-harness", default="",
+        help="set default_harness in team.yml",
+    )
+    ap.add_argument(
+        "--path", default=".agentic/team.yml",
+        help="output path for team.yml (default: .agentic/team.yml)",
+    )
+    args = ap.parse_args(argv)
+
+    target = Path(args.path)
+
+    if args.non_interactive:
+        # Deterministic path: parse --assign pairs, validate, write.
+        if not args.assign:
+            print(
+                "agentic-team configure: --non-interactive requires at least one --assign pair",
+                file=sys.stderr,
+            )
+            return 2
+        assignments, errors = _parse_assign_pairs(args.assign)
+        if errors:
+            for err in errors:
+                print(err, file=sys.stderr)
+            return 2
+        default_harness = args.default_harness.strip() or None
+        if default_harness and default_harness not in KNOWN_HARNESSES:
+            print(
+                f"agentic-team configure: unknown --default-harness {default_harness!r} "
+                f"(known: {', '.join(sorted(KNOWN_HARNESSES))})",
+                file=sys.stderr,
+            )
+            return 2
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_emit_team_yaml(assignments, default_harness), encoding="utf-8")
+        return 0
+
+    # Interactive path: discover -> rank -> optionally web-enrich -> present -> write.
+    print("agentic-team configure: discovering installed harnesses...")
+    discovery = _discover_harnesses()
+    if not discovery:
+        print(
+            "agentic-team configure: harness discovery returned no results; "
+            "ensure agentic-team is installed",
+            file=sys.stderr,
+        )
+        # Still proceed with empty discovery - rankings will be empty.
+
+    assignments = _rank_assignments(discovery)
+
+    if not sys.stdin.isatty():
+        # Non-TTY without --non-interactive: write best-guess and exit.
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            _emit_team_yaml(assignments, args.default_harness.strip() or None),
+            encoding="utf-8",
+        )
+        return 0
+
+    # Interactive: present suggestions, let user accept/override per role.
+    print("\nSuggested role assignments (press Enter to accept, type to override):")
+    print("Format: harness[:model]  |  'skip' to leave unset\n")
+
+    final_assignments: dict[str, tuple[str, str]] = {}
+    for role in ROLES:
+        pair = assignments.get(role)
+        if pair:
+            harness, model = pair
+            default_str = f"{harness}:{model}" if model else harness
+        else:
+            default_str = ""
+        try:
+            raw = input(f"  [{role}] [{default_str}]: ").strip()
+        except EOFError:
+            raw = ""
+        val = raw if raw else default_str
+        if not val or val.lower() == "skip":
+            continue
+        if ":" in val:
+            h, _, m = val.partition(":")
+        else:
+            h, m = val, ""
+        h = h.strip()
+        if h not in KNOWN_HARNESSES:
+            print(f"    unknown harness {h!r}; skipping {role}")
+            continue
+        final_assignments[role] = (h, m.strip())
+
+    default_harness_str = args.default_harness.strip() or None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        _emit_team_yaml(final_assignments, default_harness_str), encoding="utf-8",
+    )
+    print(f"\nWrote {target}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Subcommand handlers
+# ---------------------------------------------------------------------------
+
+def _probe_binary_installed(binary: str) -> bool:
+    """Return True when `binary` is on PATH (uses shutil.which; no subprocess)."""
+    return shutil.which(binary) is not None
+
+
+def _probe_harness_version(binary: str) -> str | None:
+    """Attempt to retrieve a version string from `binary --version`.
+
+    Returns the first non-empty stdout line on success, None on any failure.
+    Best-effort: callers must treat None as "version unknown".
+    """
+    try:
+        result = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        line = (result.stdout or "").strip().splitlines()
+        return line[0] if line else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _discover_harnesses(
+    binary_map: dict[str, str] | None = None,
+) -> dict[str, dict]:
+    """Probe each known harness and return a discovery payload dict.
+
+    Parameters
+    ----------
+    binary_map:
+        Override the global HARNESS_BINARY table (used in tests via monkeypatch).
+
+    Returns
+    -------
+    dict keyed by harness label:
+        installed:                   bool
+        version:                     str | None
+        models:                      list[str]  ([] when unknown/unreachable)
+        invocation_family:           str
+        native_subagent_disable_flag: str | None
+    """
+    if binary_map is None:
+        binary_map = HARNESS_BINARY
+
+    result: dict[str, dict] = {}
+    for harness in sorted(KNOWN_HARNESSES):
+        binary = binary_map.get(harness, harness)
+        installed = _probe_binary_installed(binary)
+        version: str | None = None
+        if installed:
+            version = _probe_harness_version(binary)
+        result[harness] = {
+            "installed": installed,
+            "version": version,
+            "models": [],
+            "invocation_family": HARNESS_INVOCATION_FAMILY.get(harness, harness),
+            "native_subagent_disable_flag": HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(
+                harness
+            ),
+        }
+    return result
+
+
+def _cmd_discover(args: argparse.Namespace) -> int:
+    """Probe each known harness for installation, version, and reachable models."""
+    payload = _discover_harnesses()
+
+    if args.json:
+        json.dump(payload, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
+
+    # Human-readable output
+    for harness in sorted(payload):
+        info = payload[harness]
+        status = "installed" if info["installed"] else "absent"
+        version_str = f"  version={info['version']}" if info["version"] else ""
+        models_str = (
+            f"  models={info['models']}" if info["models"] else "  models=[]"
+        )
+        flag_str = (
+            f"  disable_flag={info['native_subagent_disable_flag']}"
+            if info["native_subagent_disable_flag"]
+            else ""
+        )
+        print(
+            f"{harness:<16} {status:<10}"
+            f"  family={info['invocation_family']}"
+            f"{version_str}{models_str}{flag_str}"
+        )
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Dispatch helpers (Unit 3)
+# ---------------------------------------------------------------------------
+
+# Leaf-worker preamble prepended to every worker brief (AC5 defense-in-depth).
+_LEAF_WORKER_CLAUSE = (
+    "You are a leaf worker: do not spawn sub-agents, do not run git, "
+    "do not invoke oh-my-claudecode.\n\n"
+)
+
+# Sibling CLIs that each worker shim must block (guards against accidental
+# bare-name re-entry by a cooperative worker; absolute-path calls bypass this -
+# this is a guardrail, NOT a security sandbox).
+_SHIM_TARGETS: tuple[str, ...] = (
+    "git", "omc", "codex", "gemini", "cursor-agent", "kimi", "kimi-cli",
+    "pi", "omp", "claude",
+)
+
+# Harnesses with a CONFIRMED non-interactive --model/-m flag. dispatch --model
+# is forwarded only for these; supplying --model for any other harness is
+# rejected fail-fast (no silent drop). cursor-agent/kimi/pi/omp are NOT here.
+_MODEL_FLAG_HARNESSES: frozenset[str] = frozenset({"codex", "gemini", "claude"})
+
+# Harnesses that need stdin from /dev/null to avoid hangs (AC8 / plan table).
+_STDIN_DEVNULL_HARNESSES: frozenset[str] = frozenset({"cursor-agent"})
+
+# cursor-agent default timeout in seconds (documented hang workaround).
+_CURSOR_TIMEOUT_SECONDS: int = 300
+
+
+def _make_run_id(role: str) -> str:
+    """Return a collision-free run-id: <role>-<counter>-<pid>-<rand>.
+
+    Uses a process-wide monotonic counter plus a 2-byte urandom hex suffix so
+    run-ids are unique across concurrent processes (pid) and survive pid reuse
+    across runs (rand suffix).  Counter increments are deterministic within a
+    process, making test output predictable.
+    """
+    with _run_id_lock:
+        n = _run_id_counter[0]
+        _run_id_counter[0] += 1
+    safe_role = role.replace("/", "-").replace(" ", "-")
+    rand = os.urandom(2).hex()
+    return f"{safe_role}-{n:04d}-{os.getpid()}-{rand}"
+
+
+_run_id_lock = threading.Lock()
+_run_id_counter = [0]  # mutable int wrapped in list for closure mutation
+
+
+def _build_worker_argv(
+    harness: str,
+    brief_text: str,
+    discovery: dict | None = None,
+    model: str | None = None,
+) -> list[str]:
+    """Build the non-interactive argv for the given harness.
+
+    Parameters
+    ----------
+    harness:
+        One of the KNOWN_HARNESSES values.
+    brief_text:
+        The (already preamble-prepended) brief to pass inline.
+    discovery:
+        Optional discovery payload for this harness (for future flag probing);
+        currently only used to read native_subagent_disable_flag.
+    model:
+        Optional model id. When truthy, appended at argv END (after the
+        positional brief and all existing flags) for the confirmed model-flag
+        harnesses only (codex/gemini -> "-m", claude -> "--model"). NEVER
+        inserted before the positional brief, which would make the brief be
+        misparsed as the model value. Harnesses without a confirmed --model
+        flag never reach here with a truthy model (rejected fail-fast in
+        _cmd_dispatch).
+
+    Returns
+    -------
+    list[str] suitable for subprocess.Popen args.
+    """
+    binary = HARNESS_BINARY.get(harness, harness)
+
+    if harness == "codex":
+        # codex exec "<brief>" --json --sandbox read-only
+        # --skip-git-repo-check suppresses the git-repo warning in detached dirs.
+        argv = [binary, "exec", brief_text, "--json",
+                "--sandbox", "read-only", "--skip-git-repo-check"]
+        if model:
+            argv += ["-m", model]
+        return argv
+
+    if harness == "gemini":
+        # gemini -p "<brief>" --output-format json
+        argv = [binary, "-p", brief_text, "--output-format", "json"]
+        if model:
+            argv += ["-m", model]
+        return argv
+
+    if harness == "cursor-agent":
+        # cursor-agent -p --force "<brief>" --output-format json
+        # stdin is redirected from /dev/null by the caller (hang workaround).
+        return [binary, "-p", "--force", brief_text, "--output-format", "json"]
+
+    if harness == "claude":
+        # claude -p "<brief>" --output-format json
+        argv = [binary, "-p", brief_text, "--output-format", "json"]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    # kimi / pi / omp: invocation family from discovery; flags are best-effort.
+    # We do NOT hardcode model IDs per plan principle 1 / AC2.
+    if harness == "kimi":
+        return [binary, "-p", brief_text]
+
+    if harness == "pi":
+        return [binary, "-p", brief_text]
+
+    if harness == "omp":
+        return [binary, "-p", brief_text]
+
+    # Fallback: generic -p pattern.
+    return [binary, "-p", brief_text]
+
+
+def _write_shim(shim_dir: Path, binary_name: str, run_dir: Path) -> None:
+    """Write a blocking shim script for *binary_name* into *shim_dir*.
+
+    The shim exits 1 and appends to violations.log.
+    NOTE: this is a PATH guardrail catching accidental bare-name re-entry by a
+    cooperative worker.  Absolute-path calls (/usr/bin/git) bypass this entirely
+    - this is NOT a security sandbox.
+    """
+    violations_log = run_dir / "violations.log"
+    script = (
+        "#!/bin/sh\n"
+        f"# PATH guardrail shim for {binary_name} (NOT a security sandbox).\n"
+        "# Catches accidental bare-name re-entry by a cooperative worker only.\n"
+        "# Absolute-path calls bypass this shim entirely.\n"
+        f'echo "guardrail: blocked call to {binary_name} $*" '
+        f'>> "{violations_log}"\n'
+        "exit 1\n"
+    )
+    shim_path = shim_dir / binary_name
+    shim_path.write_text(script, encoding="utf-8")
+    shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _build_shim_dir(run_dir: Path, exempt_binary: str) -> Path:
+    """Create a shim directory with blocking stubs for every sibling CLI except
+    the worker's own binary (so a codex worker can still invoke codex itself).
+
+    Returns the shim directory path to prepend to PATH.
+    """
+    shim_dir = run_dir / "shims"
+    shim_dir.mkdir(parents=True, exist_ok=True)
+    for target in _SHIM_TARGETS:
+        if target == exempt_binary:
+            continue
+        _write_shim(shim_dir, target, run_dir)
+    return shim_dir
+
+
+def _cursor_watchdog(
+    proc: subprocess.Popen,
+    timeout: int,
+    run_dir: Path,
+    timed_out_flag: list[bool],
+) -> None:
+    """Background thread: kill the cursor-agent process group after *timeout* seconds.
+
+    Uses os.killpg so the entire process tree (not just the top-level pid) is
+    killed - dispatch uses start_new_session=True which creates a new process
+    group, so killpg is the correct kill primitive.
+
+    Sets timed_out_flag[0] = True before writing exit=124 so the reaper thread
+    can detect the race and not overwrite 124 with the real (likely -9) code.
+
+    Appends a note to the stderr file and writes exit code 124 (timeout convention).
+    """
+    def _watch() -> None:
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out_flag[0] = True
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stderr_file = run_dir / "stderr"
+            try:
+                with stderr_file.open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        f"\n[agentic-team watchdog] cursor-agent killed after "
+                        f"{timeout}s timeout\n"
+                    )
+            except OSError:
+                pass
+            exit_file = run_dir / "exit"
+            try:
+                exit_file.write_text("124\n", encoding="utf-8")
+            except OSError:
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    t = threading.Thread(target=_watch, daemon=True)
+    t.start()
+
+
+def _cmd_dispatch(args: argparse.Namespace) -> int:
+    """Spawn a worker for *harness* / *role* using *brief* file content.
+
+    Builds the per-harness argv, prepends the leaf-worker clause to the brief,
+    creates a run directory under <workdir>/.agentic/teamrun/<run-id>/, installs
+    PATH guardrail shims, then spawns the process detached in the background.
+    Prints the run-id to stdout and returns 0.
+
+    AC3 (dispatch contract) + AC5 worker-side fences + AC8 all-harness coverage.
+    """
+    harness = args.harness
+    role = args.role
+    brief_file = Path(args.brief)
+    workdir = Path(args.workdir)
+
+    if harness not in KNOWN_HARNESSES:
+        print(
+            f"agentic-team dispatch: unknown harness {harness!r} "
+            f"(known: {', '.join(sorted(KNOWN_HARNESSES))})",
+            file=sys.stderr,
+        )
+        return 2
+
+    if not brief_file.is_file():
+        print(f"agentic-team dispatch: brief file not found: {brief_file}", file=sys.stderr)
+        return 2
+
+    brief_text = brief_file.read_text(encoding="utf-8")
+
+    # AC5 defense-in-depth: embed leaf-worker clause into the brief.
+    augmented_brief = _LEAF_WORKER_CLAUSE + brief_text
+
+    # M2b fail-fast: reject --model for harnesses with no confirmed --model
+    # flag BEFORE any filesystem side effect (no run dir, no sentinel, no
+    # subprocess). Forwarding model to an unconfirmed harness would silently
+    # drop it; reject loudly instead.
+    if getattr(args, "model", None) and harness not in _MODEL_FLAG_HARNESSES:
+        print(
+            f"agentic-team dispatch: --model is not supported for harness {harness!r}. "
+            f"Confirmed model-flag harnesses: {', '.join(sorted(_MODEL_FLAG_HARNESSES))}. "
+            f"Remove --model or assign this role to a confirmed harness.",
+            file=sys.stderr,
+        )
+        return 2
+
+    run_id = _make_run_id(role)
+
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    try:
+        run_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(
+            f"agentic-team dispatch: run directory already exists (run-id collision): {run_dir}",
+            file=sys.stderr,
+        )
+        return 2
+    except OSError as exc:
+        print(
+            f"agentic-team dispatch: cannot create run directory {run_dir}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Workdir fence (PRIMARY): worker cwd = its own workdir (caller supplies
+    # a throwaway copy/worktree; we honor it and never let the worker default
+    # to the repo root).
+    worker_cwd = workdir
+
+    # PATH guardrail shims (NOT a sandbox - catches accidental bare-name
+    # re-entry only; absolute-path calls bypass this entirely).
+    exempt_binary = HARNESS_BINARY.get(harness, harness)
+    shim_dir = _build_shim_dir(run_dir, exempt_binary)
+    worker_env = dict(os.environ)
+    worker_env["PATH"] = str(shim_dir) + os.pathsep + worker_env.get("PATH", "")
+
+    # Set harness native-subagent-disable flag when discovery recorded one.
+    # In v1 all entries are null, so this is effectively a no-op now.
+    # Wire it so Unit 5 / future discovery can activate it without code changes.
+    disable_flag = HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(harness)
+    if disable_flag:
+        worker_env[disable_flag] = "1"
+
+    argv = _build_worker_argv(harness, augmented_brief, model=getattr(args, "model", None))
+
+    stdout_file = run_dir / "stdout"
+    stderr_file = run_dir / "stderr"
+    pid_file = run_dir / "pid"
+
+    stdin_src = subprocess.DEVNULL if harness in _STDIN_DEVNULL_HARNESSES else None
+
+    with stdout_file.open("wb") as fout, stderr_file.open("wb") as ferr:
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(worker_cwd),
+            env=worker_env,
+            stdout=fout,
+            stderr=ferr,
+            stdin=stdin_src,
+            # start_new_session detaches the worker from the conductor's
+            # process group so a ctrl-c on the conductor does not kill it.
+            start_new_session=True,
+        )
+
+    pid_file.write_text(str(proc.pid) + "\n", encoding="utf-8")
+    # Record harness so collect can demux the output shape.
+    (run_dir / "harness").write_text(harness + "\n", encoding="utf-8")
+
+    # Shared flag: watchdog sets True before writing exit=124 so the reaper
+    # does not overwrite the timeout sentinel with the real (killed) code.
+    timed_out_flag: list[bool] = [False]
+
+    # cursor-agent: start timeout-kill watchdog (documented hang workaround).
+    if harness == "cursor-agent":
+        _cursor_watchdog(proc, _CURSOR_TIMEOUT_SECONDS, run_dir, timed_out_flag)
+
+    # Exit reaper: wait for the process and write the real exit code.
+    # Without this, no exit file is ever written on normal completion and
+    # _run_status fabricates exit=1 -> every successful worker reports failed.
+    def _reap() -> None:
+        try:
+            returncode = proc.wait()
+        except Exception:  # noqa: BLE001
+            return
+        # If the watchdog already wrote exit=124, don't clobber it.
+        if timed_out_flag[0]:
+            return
+        exit_file = run_dir / "exit"
+        try:
+            exit_file.write_text(str(returncode) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    # daemon=False: keeps the dispatch process alive until the worker finishes
+    # so the exit file is written before the process exits.  The run-id has
+    # already been printed to stdout above, so the conductor can proceed; the
+    # dispatch process just lingers until the reaper completes.
+    _reap_thread = threading.Thread(target=_reap, daemon=False)
+    _reap_thread.start()
+
+    # Write .active sentinel so Unit 5b hook can suppress native Task/OMC
+    # while at least one run is live.  The sentinel carries the conductor PID.
+    active_sentinel = workdir / ".agentic" / "teamrun" / ".active"
+    try:
+        active_sentinel.write_text(str(os.getpid()) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+    print(run_id)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Status + collect helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_run_dir(run_id: str, workdir: Path) -> Path | None:
+    """Return the run directory for *run_id* under *workdir*, or None."""
+    candidate = workdir / ".agentic" / "teamrun" / run_id
+    if candidate.is_dir():
+        return candidate
+    return None
+
+
+def _read_pid(run_dir: Path) -> int | None:
+    """Read the PID from the run dir; return None on any failure."""
+    try:
+        return int((run_dir / "pid").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _pid_alive(pid: int) -> bool:
+    """Return True when process *pid* is still running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _is_live_readonly(rd: Path) -> bool:
+    """Read-only liveness check for a sibling run dir.
+
+    Returns True only when the run has no exit file AND its recorded PID is
+    still alive. Unlike _run_status, this NEVER writes an exit file as a side
+    effect on dead-PID dirs, so it is safe to call across sibling runs during
+    sentinel cleanup.
+    """
+    if (rd / "exit").exists():
+        return False
+    pid = _read_pid(rd)
+    return pid is not None and _pid_alive(pid)
+
+
+def _run_status(run_dir: Path) -> str:
+    """Return 'running', 'done', or 'failed' for a run directory."""
+    exit_file = run_dir / "exit"
+    if exit_file.exists():
+        try:
+            code = int(exit_file.read_text(encoding="utf-8").strip())
+            return "done" if code == 0 else "failed"
+        except (OSError, ValueError):
+            return "failed"
+    # No exit file yet: check whether the process is still alive.
+    pid = _read_pid(run_dir)
+    if pid is not None and _pid_alive(pid):
+        return "running"
+    # PID file absent or process dead but no exit file: write exit=1 and
+    # report failed (covers crashes where the exit file was never written).
+    try:
+        (run_dir / "exit").write_text("1\n", encoding="utf-8")
+    except OSError:
+        pass
+    return "failed"
+
+
+def _wait_for_exit(run_dir: Path, timeout: float = 0.0) -> None:
+    """Best-effort: poll until the exit file appears or *timeout* elapses."""
+    import time
+    deadline = time.monotonic() + timeout
+    while not (run_dir / "exit").exists():
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+
+
+def _collect_output(run_dir: Path, harness: str) -> str:
+    """Demux per-harness output shape and return the final message text.
+
+    - gemini  --output-format json: parse .response field
+    - codex   --json             : last JSONL event's message field
+    - cursor-agent --output-format json: parse .response or .message
+    - claude  --output-format json: parse .result or .message
+    - kimi/pi/omp: raw stdout
+    """
+    stdout_file = run_dir / "stdout"
+    try:
+        raw = stdout_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+    if harness == "gemini":
+        try:
+            data = json.loads(raw)
+            return str(data.get("response", raw))
+        except (json.JSONDecodeError, AttributeError):
+            return raw
+
+    if harness == "codex":
+        # codex --json emits JSONL; the final assistant message is the last
+        # event with a non-empty "message" field.
+        message = ""
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                candidate = (
+                    event.get("message") or
+                    event.get("content") or
+                    event.get("text") or ""
+                )
+                if candidate:
+                    message = str(candidate)
+            except (json.JSONDecodeError, AttributeError):
+                continue
+        return message or raw
+
+    if harness in ("cursor-agent", "claude"):
+        try:
+            data = json.loads(raw)
+            return str(
+                data.get("response") or
+                data.get("message") or
+                data.get("result") or
+                raw
+            )
+        except (json.JSONDecodeError, AttributeError):
+            return raw
+
+    # kimi / pi / omp: raw stdout
+    return raw
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    """Print 'running', 'done', or 'failed' for the given run-id.
+
+    Looks for the run directory under the workdir encoded in the run-id path;
+    falls back to CWD/.agentic/teamrun/<run-id>/ when no --workdir is given.
+    """
+    run_id = args.run_id
+    workdir = Path(getattr(args, "workdir", "."))
+    run_dir = _resolve_run_dir(run_id, workdir)
+    if run_dir is None:
+        print(f"agentic-team status: unknown run-id {run_id!r}", file=sys.stderr)
+        return 2
+    print(_run_status(run_dir))
+    return 0
+
+
+def _cmd_collect(args: argparse.Namespace) -> int:
+    """Print the final output message for a completed run.
+
+    Demuxes per-harness output shape (AC8).  The harness is read from the
+    run directory's 'harness' file written by dispatch.
+    """
+    run_id = args.run_id
+    workdir = Path(getattr(args, "workdir", "."))
+    run_dir = _resolve_run_dir(run_id, workdir)
+    if run_dir is None:
+        print(f"agentic-team collect: unknown run-id {run_id!r}", file=sys.stderr)
+        return 2
+
+    status = _run_status(run_dir)
+    if status == "running":
+        print(f"agentic-team collect: run {run_id!r} is still running", file=sys.stderr)
+        return 2
+
+    harness_file = run_dir / "harness"
+    harness = "unknown"
+    if harness_file.exists():
+        harness = harness_file.read_text(encoding="utf-8").strip()
+
+    output = _collect_output(run_dir, harness)
+    sys.stdout.write(output)
+    if output and not output.endswith("\n"):
+        sys.stdout.write("\n")
+
+    # Sibling-gated .active sentinel cleanup. The sentinel is a SINGLE shared
+    # file; unlink it ONLY when no other run is still live (read-only check, so
+    # scanning siblings never mutates them). On scan failure, fail toward
+    # unlink to avoid a permanently stuck sentinel.
+    teamrun_dir = workdir / ".agentic" / "teamrun"
+    any_live = False
+    try:
+        for child in teamrun_dir.iterdir():
+            if not child.is_dir() or child.name == run_id:
+                continue
+            if _is_live_readonly(child):
+                any_live = True
+                break
+    except OSError:
+        any_live = False
+    if not any_live:
+        try:
+            (teamrun_dir / ".active").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return 0 if status == "done" else 1
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str]) -> int:
+    # Dispatch-on-argv shim: if the first positional argument (ignoring any
+    # leading --global-config / --project-config flags) is "configure", route
+    # to _cmd_configure WITHOUT touching the existing argparse subparsers.
+    # This mirrors how agentic-configure handles the "team" subcommand and
+    # avoids argparse eating configure's own --non-interactive / --assign flags.
+    #
+    # Strip any leading --global-config / --project-config pairs so that
+    # `agentic-team --global-config x configure ...` also routes correctly.
+    _stripped = list(argv)
+    for _opt in ("--global-config", "--project-config"):
+        while _opt in _stripped:
+            i = _stripped.index(_opt)
+            del _stripped[i:i + 2]  # remove flag + its value
+    if _stripped and _stripped[0] == "configure":
+        return _cmd_configure(_stripped[1:])
+
+    ap = argparse.ArgumentParser(
+        prog="agentic-team",
+        description="Cross-harness agent team config loader and dispatch tool.",
+    )
+    ap.add_argument(
+        "--global-config",
+        default=str(GLOBAL_TEAM_YML),
+        help="path to global team.yml (default: ~/.agentic/team.yml)",
+    )
+    ap.add_argument(
+        "--project-config",
+        default=str(PROJECT_TEAM_YML),
+        help="path to project team.yml (default: .agentic/team.yml)",
+    )
+
+    sub = ap.add_subparsers(dest="subcommand", metavar="<subcommand>")
+    sub.required = True
+
+    p_discover = sub.add_parser("discover", help="probe installed harnesses")
+    p_discover.add_argument("--json", action="store_true", help="machine-readable output")
+
+    p_dispatch = sub.add_parser("dispatch", help="spawn a worker on a harness for a role")
+    p_dispatch.add_argument("--harness", required=True)
+    p_dispatch.add_argument("--role", required=True)
+    p_dispatch.add_argument("--brief", required=True)
+    p_dispatch.add_argument("--workdir", required=True)
+    p_dispatch.add_argument(
+        "--model", default=None,
+        help="model id; forwarded to codex/gemini (-m) or claude (--model). "
+             "Rejected for harnesses without a confirmed --model flag.",
+    )
+
+    p_status = sub.add_parser("status", help="check run status (running|done|failed)")
+    p_status.add_argument("run_id")
+    p_status.add_argument("--workdir", default=".", help="workdir used during dispatch")
+
+    p_collect = sub.add_parser("collect", help="retrieve run output")
+    p_collect.add_argument("run_id")
+    p_collect.add_argument("--workdir", default=".", help="workdir used during dispatch")
+
+    args = ap.parse_args(argv)
+
+    # Load and validate config for all subcommands
+    global_path = Path(args.global_config)
+    project_path = Path(args.project_config)
+    try:
+        config = _load_team_config(global_path, project_path)
+    except ValueError as exc:
+        print(f"agentic-team: config parse error: {exc}", file=sys.stderr)
+        return 2
+
+    errors = _validate_config(config)
+    if errors:
+        for err in errors:
+            print(err, file=sys.stderr)
+        return 2
+
+    if args.subcommand == "discover":
+        return _cmd_discover(args)
+    if args.subcommand == "dispatch":
+        return _cmd_dispatch(args)
+    if args.subcommand == "status":
+        return _cmd_status(args)
+    if args.subcommand == "collect":
+        return _cmd_collect(args)
+
+    print(f"agentic-team: unknown subcommand {args.subcommand!r}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

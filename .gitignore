@@ -25,7 +25,9 @@ node_modules/
 # carve-outs that consumer projects use to track this state deliberately do not
 # apply to this repo. Root-anchored (leading slash) so it matches only the repo's
 # own .agentic/ and never nested template .agentic/ dirs shipped to consumers.
-/.agentic/
+/.agentic/*
+# team.yml is committed project intent (cross-harness team topology)
+!/.agentic/team.yml
 
 # Generated Kimi per-command skills (built by .kimi/build.sh from content/commands/)
 .kimi/skills/*/

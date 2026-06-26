@@ -92,10 +92,6 @@ Run this check once at the top of the first skill invocation in a session (and a
    d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/migrate-project --include-destructive`.
 
 7. **When no-opping, print one line and stop:**
-   `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
-   Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
-
-**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none, profile=default, preset=null" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -299,6 +295,8 @@ When `brief_path` or `plan_path` is populated, the engineer reads it before star
 The `verification` field is **mandatory**. Its purpose is to force the conductor to specify *how the change will be verified before implementation begins*, not as a Skeptic afterthought. As coding gets cheaper, verification is the expensive thing, and the protocol reorganizes around verification rather than around shipping code. If the verification path is not knowable up front (truly novel surface, no existing tests, no feasible new test), state that explicitly as `"self-evident review"` and accept that the Skeptic and any QA gate are the only line of defense - do not leave the field blank.
 
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
+
+**Cross-harness teams (opt-in).** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. Collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, config schema, self-containment guard, and per-harness dispatch table.
 
 **Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, and not-done list - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. See `content/references/digest-return-pattern.md` for the required digest fields and conductor consumption rules.
 
@@ -636,13 +634,17 @@ Tier 1 (haiku) has no default-role owner; it is opt-in per spawn for shallow mec
 - Budget mode: `model_profile: budget` acts ONLY through the spawn-call param, never by rewriting frontmatter. To get a Tier-1 (haiku) review on a NON-mandated skeptic spawn under budget mode, the conductor passes an explicit downgrade param; omitting the param yields the Opus frontmatter default. Budget mode never downgrades a mandated-Tier-3 Skeptic (see the escalation rule above).
 - Org allowlist caveat: if `availableModels` excludes opus, frontmatter `model: opus` is silently dropped and the agent inherits the session model. On a mandated-Tier-3 unit in such an org, the conductor must surface that Opus is unavailable rather than proceed on an inherited model.
 
-**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
+**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism. On Pi/omp with `role-models.yml` present and a reviewer strategy that depends on author identity (`distinct-from-author`), the conductor records, in-context, the model string it used for each engineer/architect spawn, and passes that author-model into the subsequent skeptic/security-auditor spawn so the reviewer-diversity strategy can resolve. This is in-context state only - no new state file.
 
 **When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
 
 **When to declare Tier 3:** task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Reserve Tier 3 for these cases and include a justification parenthetical.
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
+
+**Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. To seed the file, run `bin/agentic-configure`: the wizard asks you per role and ranks the model names you supply using the hint dictionaries in `bin/agentic-models`. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the per-role ranking heuristics and selection paths.
+
+**Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
 
 ### Spawn presets (per-spawn capability bundles)
 
@@ -767,6 +769,16 @@ Long-running `/implement-ticket` loops can survive rate limits and session exits
 ## Task-state file
 
 When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+
+**Field: `author_model`** (string, nullable). The model id the implementing
+engineer ran under for this task, or `null` when unknown (single-unit plans,
+pre-P249 historical entries, or conductor-directed spawns where the model was
+not recorded). Consumed by reviewer spawns (Skeptic, security-auditor) to pick
+a different model when role-model routing is active -- reviewer-diversity
+prose lives in `content/agents/skeptic.md` and `content/agents/security-auditor.md`.
+The conductor records `author_model` at engineer spawn time (Phase 5) and
+reviewer spawns read it before selecting their own model; the conductor remains
+the sole writer of `.agentic/tasks.jsonl`.
 
 ## Events log
 
@@ -2075,6 +2087,289 @@ and proceeds (soft-fail).
 
 ---
 
+### cross-harness-teams
+
+<!--
+Purpose: Documents the cross-harness agent-team layer that lets the conductor
+         dispatch leaf workers to entirely different CLIs (codex, gemini,
+         cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning
+         them as native subagents within the conductor's own harness.
+
+Public API: Read-only reference. Load when configuring team.yml, deciding
+            whether to use cross-harness dispatch vs native delegation,
+            authoring or reviewing the self-containment guard, or understanding
+            how collected worker output re-enters the Skeptic/QA gates.
+
+Upstream deps: content/sections/02-delegation.md (delegation decision table);
+               content/sections/04-risk-classification.md (Tier/role layer);
+               bin/agentic-team (discover|dispatch|status|collect);
+               bin/_role_spec.py (shared role-spec normalizer).
+
+Downstream consumers: content/sections/02-delegation.md (pointer);
+                      content/sections/04-risk-classification.md (pointer);
+                      bin/agentic-team (schema section);
+                      bin/agentic-configure (team subcommand).
+
+Failure modes: Prose reference; not auto-executed. The most common error path
+               is a stale team.yml referencing a harness binary that was
+               uninstalled - agentic-team discover catches this and marks the
+               harness absent. A PATH guardrail shim that erroneously blocks the
+               worker's own binary is caught by the dispatch test suite; workers
+               that hang (cursor-agent known bug) are bounded by the per-run
+               timeout + kill watchdog.
+
+Performance: Standard. Dispatch is background shell-out per worker; no blocking
+             network call on the conductor's critical path. Web enrichment in
+             agentic-configure is opt-in and cached.
+-->
+
+# Cross-harness agent teams
+
+This layer lets the conductor dispatch leaf workers to entirely different CLI
+harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, or claude-as-worker --
+rather than spawning native subagents within its own harness. It is **OMC-
+independent**: it does not trigger oh-my-claudecode, nor does it use the
+conductor harness's own built-in subagent mechanism.
+
+## When to use cross-harness dispatch vs native delegation
+
+**Use the standard delegation table first** (see `content/sections/02-
+delegation.md`). Cross-harness dispatch is a *specialization* of the Worker
+spawn path, not a replacement for it. Apply it when all of the following hold:
+
+1. The task warrants a Worker spawn by the standard risk table (Elevated or
+   Trivial-delegate).
+2. `team.yml` is present and `enabled: true` for this project or globally.
+3. The role being dispatched has a `roles[<role>]` entry in `team.yml` with a
+   `harness` value other than the conductor's own harness.
+4. `agentic-team discover` confirms that harness is installed and reachable.
+
+When `team.yml` is absent or `enabled: false`, or when the harness is not
+installed, the conductor falls back to native delegation unchanged -- no error,
+no prompt, no degraded mode. Cross-harness is additive and fully opt-in.
+
+**The conductor does NOT use cross-harness dispatch for:**
+
+- The `conductor` role itself (conductor re-rooting is not supported in v1;
+  the `conductor` entry in `team.yml` is advisory only).
+- Orchestration-planner, investigator, or architect roles -- these run in the
+  conductor's own context because they produce plans the conductor reasons over
+  directly.
+- Any spawn that the conductor would classify as direct-action (Low or
+  diagnostic-only) -- those stay conductor-direct.
+- Spawns where `agentic-team discover` marks the target harness absent.
+  (Authentication errors are not a discover state -- they surface at dispatch
+  time from the harness's own stderr/exit code.)
+
+## Config: `team.yml`
+
+Cross-harness team topology is stored in a **dedicated committed file** -- NOT
+a block inside `role-models.yml`. `role-models.yml` is Pi/omp-only and
+gitignored (it may name user-private model handles); team topology is shareable
+project intent and belongs in version control.
+
+**File locations (project wins on key collision, merged shallowly per top-level
+key):**
+
+- Global: `~/.agentic/team.yml`
+- Project: `.agentic/team.yml` (committed; `.gitignore` carries `!.agentic/team.yml`)
+
+### Schema
+
+```yaml
+# ~/.agentic/team.yml  or  .agentic/team.yml
+enabled: true
+default_harness: codex          # where a role goes if no per-role harness is set;
+                                # validated same as roles[*].harness -- unknown value
+                                # produces a non-zero exit from agentic-team
+roles:
+  engineer:        { harness: codex,         model: gpt-5.3-codex }
+  qa-engineer:     { harness: gemini,        model: gemini-2.5-flash }
+  skeptic:         { harness: cursor-agent,  model: cursor-fast }
+  security-auditor:{ harness: codex,         model: gpt-5.3-codex }
+dispatch:
+  timeout_seconds: 1800
+  output_format: json
+```
+
+**Field notes:**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `enabled` | bool | yes | Set `false` to disable cross-harness dispatch without removing the file. |
+| `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
+| `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
+| `roles[*].harness` | string | yes (if mapping) | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
+| `roles[*].model` | string | no | For codex/gemini/claude, forwarded to the harness `--model`/`-m` flag at dispatch. For all other harnesses, supplying `model` is rejected at dispatch with a non-zero exit (no silent drop). Omit to let the harness use its session default (no hardcoded IDs). |
+| `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
+| `dispatch.output_format` | string | no | `json` (default) or `text`. Governs the `collect` demux path. |
+
+The scalar-or-mapping normalize logic for role-spec entries is shared with
+`bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
+normalizer; there is no inline copy.
+
+Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
+`conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`,
+`debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Unrecognized role
+keys are passed through and the dispatch tool validates the harness field
+regardless.
+
+## Per-harness dispatch table
+
+`bin/agentic-team dispatch` builds the worker invocation from this table. Exact
+flags for kimi, pi, and omp are **probed at discovery time** (`agentic-team
+discover`), not hardcoded -- consistent with the "no hardcoded model IDs" stance
+anchored in `bin/_role_spec.py` (single source of harness/role labels) and the
+binary-name map in `bin/agentic-team` (the one allowed per-harness hardcoded
+fact).
+
+| Harness | Non-interactive incantation | Output flag | Notes / gotchas |
+|---|---|---|---|
+| **codex** | `codex exec "<brief>"` or `codex exec -` (stdin) | `--json` (JSONL events) | `--sandbox read-only` applied by default; `--skip-git-repo-check` added when workdir is not a git repo; reads saved auth or `CODEX_API_KEY`; final message extracted from the last JSONL event. |
+| **gemini** | `gemini -p "<brief>"` | `--output-format json` | Headless on non-TTY or `-p`; slash/custom commands are broken headless -- pass the full brief inline; `head -c 50000` guard applied to large stdin. Response text extracted via `jq '.response'`. |
+| **cursor-agent** | `cursor-agent -p --force "<brief>" < /dev/null` | `--output-format json` | `--force` required for file writes; **known hang bug** -- stdin is always redirected from `/dev/null` AND a timeout + kill watchdog is applied; marked `experimental` in discovery output until upstream fixes the hang. |
+| **kimi** | `kimi-cli` headless run (exact flag confirmed by `discover`) | per kimi-cli | Binary name is `kimi-cli` (not `kimi`); exact non-interactive flag probed at discovery. No custom slash commands; methodology loaded via inline skill content in the brief. |
+| **pi** | `pi` run with prompt (pi-coding-agent; `.pi/` project resources) | per pi | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Exact headless flag probed at discovery. |
+| **omp** | oh-my-pi headless run | per omp | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. Exact flag probed at discovery. |
+| **claude (worker)** | `claude -p "<brief>"` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
+
+**Binary-name map (discovery uses this, not the harness label):**
+
+| Harness label | Binary name |
+|---|---|
+| codex | `codex` |
+| gemini | `gemini` |
+| cursor-agent | `cursor-agent` |
+| kimi | `kimi-cli` |
+| pi | `pi` |
+| omp | `omp` |
+| claude | `claude` |
+
+The binary-name map is the only per-harness hardcoded fact in the repo. It maps
+*names*, not model IDs or flag strings.
+
+## Self-containment guard
+
+When a DinoStack team is triggered, the worker must NOT trigger external
+orchestration (oh-my-claudecode) NOR the conductor harness's own native
+subagents. The guard is layered; the layers are listed from strongest to
+weakest:
+
+### 1. Workdir fence (PRIMARY containment)
+
+Each worker runs in its own **throwaway `--workdir`** -- either a git worktree
+or a directory copy of the relevant files. The worker has no access to the real
+repository tree regardless of what it runs. The conductor is the sole git
+owner; workers never run git on the live repo. This is the real containment
+boundary.
+
+### 2. Harness-native sandbox (strongest per-worker fence, where available)
+
+Where the harness exposes a sandbox flag, it is applied at dispatch time. For
+codex this is `--sandbox read-only`. The `agentic-team discover` output records
+`native_subagent_disable_flag` per harness; dispatch sets it when non-null.
+This is stronger than the PATH guardrail because it is enforced by the harness
+process itself, not by a wrapper script.
+
+### 3. PATH guardrail (accidental re-entry -- NOT a security sandbox)
+
+Each worker launch prepends a wrapper directory to `PATH`. Shims in that
+directory for `git`, `omc`, and all sibling CLI names (`codex`, `gemini`,
+`cursor-agent`, `kimi-cli`, `pi`, `omp`, `claude`) exit 1 and append a line to
+`<workdir>/.agentic/teamrun/<run-id>/violations.log`. The worker's own binary
+is exempt (a codex worker can still run `codex`; its shim is not placed).
+
+**This guardrail catches accidental bare-name re-entry by a cooperative worker.
+It does NOT stop an absolute-path call (`/usr/bin/git`, a pre-resolved path, or
+a worker that deliberately bypasses `PATH`).** It is a guardrail, not a
+guarantee. Do not claim it provides enforcement beyond its design surface.
+
+### 4. Leaf-worker clause (defense-in-depth)
+
+Every worker brief includes the clause:
+
+> "You are a leaf worker: no sub-agents, no git, no oh-my-claudecode. Write
+> your output to the workdir and exit. Do not spawn any additional processes
+> beyond your own execution."
+
+This relies on worker cooperation. It is defense-in-depth, not a hard fence.
+
+### 5. Conductor-side suppression
+
+While the sentinel file `<workdir>/.agentic/teamrun/.active` exists, the
+conductor suppresses native `Task` spawns and OMC skill calls.
+
+**On Claude Code:** hook-enforced. The existing
+`hooks/enforce-background-spawn.py` hook (wired by `.claude/install.sh`, already
+intercepting `Task`) is extended with a branch: when `.active` exists and is
+live (conductor PID present + not dead, mtime < 2 h), the hook denies any
+`Task` call outright (not just non-background) and denies any Skill call whose
+`skill` argument starts with `oh-my-claudecode:`. The denial message instructs
+the conductor to dispatch via `agentic-team` instead.
+
+Stale-sentinel guard: the hook treats `.active` as expired when its recorded
+PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
+not permanently suppress native Task. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
+
+Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
+conductor PID); removed by `agentic-team collect` when the last run in the
+batch completes.
+
+**On all other harnesses:** Agents running on non-Claude harnesses MUST treat
+`<workdir>/.agentic/teamrun/.active` as a hard suppression signal and MUST NOT
+spawn the conductor harness's native subagents while it is live. This is a
+binding prose contract, not a mechanically enforced hook. Per-harness status:
+
+| Harness | Enforcement status | Hook location (if it existed) |
+|---|---|---|
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` + OMC skill calls while `.active` is live) | Already deployed |
+| **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
+| **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
+| **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |
+| **Cursor** | Prose-contract only - Cursor extension hooks exist but do not cover CLI headless mode | Would require a cursor-agent wrapper or sidecar |
+| **OpenCode** | Prose-contract only - no hook infrastructure | Would live in `.opencode/` hooks if the runtime adds them |
+| **OpenClaw** | Prose-contract only - no hook infrastructure | Would live in `.openclaw/` hooks if the runtime adds them |
+| **Pi** | Prose-contract only - no hook infrastructure | Would live in `.pi/` config hooks if the runtime adds them |
+| **omp** | Prose-contract only - no hook infrastructure | Would live in `.omp/` config hooks if the runtime adds them |
+| **Hermes** | Prose-contract only - no hook infrastructure | Would live in a Hermes hook slot if the runtime adds them |
+
+The leaf-worker clause (layer 4) and workdir fence (layer 1) provide
+defense-in-depth for harnesses without hook enforcement. Agents on prose-only
+harnesses must apply the suppression as a discipline; callers cannot rely on
+mechanical enforcement as a guarantee.
+
+## How collected worker output re-enters the Skeptic/QA gates
+
+Cross-harness workers are leaf processes. They write their output to
+`<workdir>/.agentic/teamrun/<run-id>/stdout` (and `stderr`, `exit`).
+`agentic-team collect <run-id>` demuxes the per-harness output shape and
+returns the final message text:
+
+| Harness | Output shape | collect extraction |
+|---|---|---|
+| codex | JSONL events | last event matching `type: message` |
+| gemini | JSON `{response: ...}` | `jq '.response'` |
+| cursor-agent | JSON | `jq '.result'` |
+| kimi | per kimi-cli (probed) | shape confirmed at AC2 discovery |
+| pi / omp | per harness (probed) | shape confirmed at AC2 discovery |
+| claude (worker) | JSON `{result: ...}` | `jq '.result'` |
+
+Once `collect` returns the final message, **that text is treated identically to
+a Worker return summary from a native subagent.** The conductor passes it to the
+standard Skeptic and QA gates unchanged:
+
+- The Skeptic receives the collected output as the diff/plan under review; the
+  adversarial brief and findings classification are unchanged.
+- The QA gate fires on the same `qa_criteria` trigger logic as any other Worker
+  unit (see `content/sections/05-qa-gate.md`).
+- Re-route limits (max 3 fix passes), convergence-failure escalation, and
+  per-ticket QA flow are all applied identically.
+
+No new gate, no bypass, no special case for cross-harness origin. The harness
+boundary is transparent to the Skeptic/QA layer.
+
+---
+
 ### design-goals
 
 # Design Goals — claude-protocols
@@ -2632,6 +2927,97 @@ are otherwise responsive.
 
 ---
 
+### model-discovery
+
+<!--
+Purpose: Documents how the Pi / oh-my-pi role-model routing layer selects
+         models. Discovery is ask-user (the configure wizard prompts you per
+         role) or harness-native (your login/subscription exposes models).
+         Model names are pinned by hand in role-models.yml.
+
+Public API: Read-only reference. Load when seeding role-models.yml, when
+            adding new roles, or when adding effort / reasoning fields.
+
+Upstream deps: content/references/role-models.md (parent schema);
+               content/sections/04-risk-classification.md (Role-model
+               routing tier); bin/agentic-models (ranking implementation).
+
+Downstream consumers: bin/agentic-configure (TUI; ranking input);
+                      content/commands/init-project.md (Step 6g seed path);
+                      content/sections/04-risk-classification.md.
+
+Failure modes: If no role-models.yml exists, the conductor omits model/effort/
+               reasoning for every spawn and Pi uses its session default.
+               This is not an error - it is the documented no-op path.
+               There are NO hardcoded model catalogs in the repo; suggestions
+               come from the hint dictionaries applied to names you supply.
+
+Performance: Standard. Ranking is O(M * R) where M is the model count you
+             provide and R is the role count, both small.
+-->
+
+# Model selection - Pi / oh-my-pi reference
+
+The role-model routing layer in `content/references/role-models.md` lets the user pin a specific model per role. The **selection layer** described here explains how to decide _which model names to use_ so you are not guessing strings from memory.
+
+This is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. On Claude/Codex/Gemini the user picks models from the harness's built-in catalog; there is nothing to discover here.
+
+## How model selection works
+
+There are three paths - use whichever matches your setup:
+
+**1. Ask-user (the configure wizard).** Run `bin/agentic-configure` interactively. The wizard prompts you role by role and ranks a list you provide against the hint dictionaries. You supply the model names your harness exposes; the wizard scores them and writes a starter `role-models.yml` you can then edit directly.
+
+**2. Harness-native.** Your Pi or oh-my-pi login already grants access to a set of models. Open the harness's own model picker or settings panel, find the models your subscription includes, and copy those names into the wizard prompt or directly into `role-models.yml`. There is no separate network call needed - the harness already knows what you have.
+
+**3. Pin by hand.** Skip the wizard. Open `~/.agentic/role-models.yml` and write model names directly. The format is simple: see the schema in `content/references/role-models.md`. Use the harness's exact model handle (the string you would pass to a spawn call). The conductor forwards it verbatim.
+
+There are NO hardcoded model catalogs in this repo. Suggestions from the wizard come from the hint dictionaries in `bin/agentic-models` applied to the names you supply - not from any built-in list.
+
+## The binary: `bin/agentic-models`
+
+```
+agentic-models [--json] [--suggest <role>] [--all-suggestions] \
+               [model-name ...] [--models-from FILE]
+```
+
+Default mode prints a human-readable summary. `--json` emits the structured payload consumed by the TUI. `--suggest <role>` prints only one role's primary recommendation (used by hooks that want a quick default without parsing JSON).
+
+Model names are supplied as positional arguments, via `--models-from FILE` (one name per line), or piped from stdin. Empty input returns empty suggestions with exit 0.
+
+**Heuristics.** Per role, the binary scores every model you supply with a small hint dictionary. Substring match is case-insensitive; higher score wins. The hint tables are tuned so Opus-class models surface for the architect / security-auditor tier, Sonnet-class for engineer / debugger, Haiku-class for investigator / qa-engineer, and cross-family candidates (Kimi, GLM, GPT-5.x) for the reviewer pool so the antagonist is plausibly as good as the author without being the same model.
+
+**No hardcoded model IDs.** The hint tables in `bin/agentic-models` use family names (`opus`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
+
+## Schema extension: effort and reasoning
+
+`role-models.yml` accepts a per-role mapping in addition to the scalar form. The mapping carries three keys:
+
+| Key         | Type   | Default | Notes                                                                                                             |
+| ----------- | ------ | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `model`     | string | unset   | The model id the harness recognises. Required for the spawn to have any effect.                                   |
+| `effort`    | string | unset   | Pass-through; the harness interprets (e.g. `low` / `medium` / `high` / `xhigh`). Conductor does not validate.     |
+| `reasoning` | string | unset   | Pass-through; the harness interprets (e.g. `enabled` or a token budget like `8192`). Conductor does not validate. |
+
+**Resolution rules** (full algorithm in `role-models.md`):
+
+1. If the role value is a string, treat it as `{model: <string>}` and `effort`/`reasoning` stay unset.
+2. If the role value is a mapping, copy present keys. Absent keys are not passed on the spawn call; the harness uses its own default.
+3. Unknown keys in the mapping are passed through unchanged.
+
+The conductor forwards `model`, `effort`, and `reasoning` to the spawn call as separate parameters (or whatever the harness API takes). The setup wizard surfaces only the keys the live harness accepts -- it does not ask for `reasoning` on a model the harness does not support.
+
+**Backward compatibility.** Files written against the scalar-only schema (PR #249) continue to work: every scalar `engineer: sonnet` becomes `{model: sonnet}` at load time. No migration is required.
+
+## Failure modes
+
+- **No model names provided to wizard.** The wizard still runs and writes a `role-models.yml` with scalar defaults drawn from the hint tables' top family names (`opus`, `sonnet`, `haiku`). Edit the file with the exact handles your harness exposes.
+- **Model name not recognised by harness.** The conductor forwards whatever string is in `role-models.yml` verbatim. If the harness rejects it, the spawn fails with the harness's own error. Fix the string in `role-models.yml` and retry.
+- **Harness does not support `effort` or `reasoning`.** The conductor forwards only the keys the user's spawn target supports. There is no error; the harness silently ignores unknown parameters.
+- **No role-models.yml present.** The conductor omits `model`/`effort`/`reasoning` for every spawn and Pi uses its session defaults. This is the documented no-op path, not an error.
+
+---
+
 ### multi-developer-coordination
 
 <!--
@@ -3057,6 +3443,136 @@ The bar is correctness coverage of the failure mode, not test framework formalit
 
 A test that passes even without the fix does not count. The Worker should confirm (in its summary) that it verified the test fails on the unfixed code.
 
+
+---
+
+### role-models
+
+<!--
+Purpose: Defines the Pi / oh-my-pi role-model routing layer for mapping
+         agentic-engineering roles and adversarial reviewers to concrete
+         model strings.
+
+Public API: Read-only reference. Load when authoring `role-models.yml` or
+            resolving a Pi/omp role spawn, skeptic spawn, or
+            security-auditor spawn.
+
+Upstream deps: content/sections/04-risk-classification.md (Tier declaration);
+               content/references/role-models-example.yml (example library).
+
+Downstream consumers: content/sections/04-risk-classification.md (inline pointer);
+                      content/agents/skeptic.md;
+                      content/agents/security-auditor.md;
+                      content/commands/init-project.md;
+                      bin/agentic-status.
+
+Failure modes: Prose + YAML schema; not auto-executed. Mis-set author-model
+               tracking is the common error path: reviewer diversity depends
+               on the conductor recording the model used for the author spawn
+               and carrying it into the reviewer spawn.
+
+Performance: Standard.
+-->
+
+# Role-model routing - Pi / oh-my-pi reference
+
+This layer is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. On Claude/Codex/Gemini the conductor ignores `role-models.yml` entirely and uses the existing Tier mechanism. The conductor determines the harness from its own runtime identity; if unsure, treat the session as not-Pi and skip this layer.
+
+## File locations + resolution
+
+**Role-model library location:**
+- Global: `~/.agentic/role-models.yml`
+- Project override: `.agentic/role-models.yml` (wins on key collision; merged shallowly per top-level key)
+
+If neither file exists when a Pi/omp spawn happens, the conductor omits the `model` field and Pi uses its session default. There are NO hardcoded model IDs anywhere in the repo or adapters.
+
+The file is **gitignored** under the `.agentic/` umbrella because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
+
+## Schema
+
+```yaml
+roles:
+  conductor: opus              # advisory; scalar form
+  engineer:                    # mapping form
+    model: sonnet
+    effort: medium
+    reasoning: 4096
+  architect: opus
+  orchestration-planner: opus
+  investigator: glm-4.6
+  debugger: sonnet
+  qa-engineer: glm-4.6
+  skeptic: gpt-5
+  security-auditor: gpt-5
+
+reviewers:
+  strategy: distinct-from-author   # distinct-from-author | round-robin | by-task
+  pool:
+    - gpt-5
+    - model: glm-4.6
+      effort: high
+  by_task:
+    security: gpt-5
+    architecture: opus
+    correctness: glm-4.6
+    default: sonnet
+  fallback: gpt-5
+```
+
+`roles:` maps `<role>: <role-spec>`. Each entry is either:
+
+- A **scalar string** treated as the model name (the simple form). Example: `engineer: sonnet`.
+- A **mapping** with the keys `model: <string>`, `effort: <string>`, and `reasoning: <string|int>`. All keys are optional; the conductor substitutes harness-specific defaults for any omitted key. The mapping form lets the user pin model and tuning per role without growing a separate config file.
+
+Supported role keys are exactly: `conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Any role absent from the map means the conductor omits `model` for that spawn and Pi uses its session default. `conductor` is advisory: it applies only if the harness supports re-rooting the main agent; otherwise it is ignored because the main session model is already running.
+
+`effort` and `reasoning` are pass-through fields the harness interprets (e.g. `effort: high`, `reasoning: 8192` for token-budget reasoning, or `reasoning: enabled` for boolean toggles). The conductor does not interpret these values -- it forwards them on the spawn call alongside `model`. On harnesses that do not support one of the fields, the conductor silently drops it. The setup wizard (`bin/agentic-configure`) asks you per role and only offers values the harness accepts -- it ranks the list of model names you provide rather than fetching them from a remote endpoint.
+
+`reviewers:` controls adversarial-reviewer model diversity for `skeptic` and `security-auditor` spawns. Reviewer entries accept the same scalar-or-mapping form as `roles:`. When a reviewer entry is a mapping, the `model:` key is the candidate the strategy picks from; `effort:` and `reasoning:` are carried through to the chosen reviewer verbatim.
+
+- `strategy:` enum, exactly one of `distinct-from-author`, `round-robin`, or `by-task`. Default when `reviewers:` exists but `strategy:` is absent: `distinct-from-author`.
+- `pool:` ordered list of role-specs (scalar or mapping) the reviewer may use. Required when `strategy` is `distinct-from-author` or `round-robin`. The author-model check compares only the resolved `model` string from each pool entry.
+- `by_task:` map of `<task-kind>: <role-spec>`, required only when `strategy: by-task`. Task kinds are `security`, `architecture`, `correctness`, and `default`. `default` is the fallback when no specific kind matches.
+- `fallback:` single role-spec used when the strategy cannot pick, such as `distinct-from-author` with the only pool model equal to the author model. Optional; if absent and the strategy cannot pick, the conductor omits `model` and notes the fallback inline.
+
+## Resolution algorithm
+
+1. Conductor reads `.agentic/role-models.yml` if it exists; merges it shallowly over `~/.agentic/role-models.yml`. Project keys win on collision.
+2. **Normalize a role-spec** to a mapping `{model, effort, reasoning}`. If the YAML value is a string, treat it as `{model: <string>}`. If the YAML value is a mapping, copy the present keys; the absent keys stay unset. Unknown keys are passed through and the harness decides what to do.
+3. For a non-reviewer role spawn, resolve `spec = roles[<role>]` if present. If absent, omit `model`/`effort`/`reasoning` for that spawn. If `spec.model` is set, pass it as the spawn's `model` field; if `spec.effort` is set, pass it; if `spec.reasoning` is set, pass it. Absent keys are simply not passed -- the harness falls back to its own default.
+4. For a reviewer spawn (`skeptic` or `security-auditor`), determine the **author model**: the model the conductor used for the engineer or architect spawn that produced the diff or plan under review. The conductor tracks this in-context. If untracked or unknown, treat author model as the session default string and proceed.
+5. Apply `reviewers.strategy`:
+   - `distinct-from-author`: pick the first `pool` entry whose normalized `model` is not equal to the author model. If all pool entries equal the author model, use `fallback` if set, else omit `model`. `effort` and `reasoning` from the chosen entry pass through.
+   - `round-robin`: pick `pool[i mod len(pool)]` where `i` is the count of reviewer spawns so far this session. The conductor maintains the counter in-context, starting at 0. Round-robin ignores author identity by design; it does not guarantee distinctness from the author. Users who need guaranteed distinctness should use `distinct-from-author`.
+   - `by-task`: pick `by_task[<kind>]` where kind is derived from the adversarial brief. `security-auditor` or a security brief maps to `security`; architect-plan review maps to `architecture`; otherwise use `correctness`; final fallback is `default`. If the resolved kind is absent from `by_task`, use `by_task.default`; if `default` is absent, omit `model`.
+6. Pass the resolved reviewer's `{model, effort, reasoning}` to the reviewer subagent spawn. Missing keys are not passed.
+
+## Interaction with Tier and presets
+
+`role-models.yml` resolves the concrete `model`/`effort`/`reasoning` strings. The `Tier:` declaration and `Preset:` line remain the conductor's capability-intent signal and still appear in the spawn declaration. On Pi/omp, when both a Tier and a `roles[<role>]` entry exist, the explicit `roles[<role>]` model string wins for the model param because it is the more specific, user-authored intent, and the conductor notes the override inline. The Tier line is still printed for review evidence. `effort` and `reasoning` are independent of Tier: there is no Tier-implied default for them, and an explicit `roles[<role>]` mapping sets them directly on the spawn call.
+
+## Worked example
+
+```yaml
+roles:
+  architect: opus
+  engineer: sonnet
+  skeptic: gpt-5
+  security-auditor: gpt-5
+
+reviewers:
+  strategy: distinct-from-author
+  pool:
+    - gpt-5
+    - glm-4.6
+  fallback: gpt-5
+```
+
+Resolution traces:
+- `role=engineer` -> `roles.engineer=sonnet` -> spawn `model=sonnet`.
+- `author=opus`, `strategy=distinct-from-author`, `pool=[gpt-5, glm-4.6]` -> reviewer `model=gpt-5`.
+- `author=opus`, `strategy=distinct-from-author`, `pool=[opus]`, `fallback=gpt-5` -> reviewer `model=gpt-5`.
+- `author=opus`, `strategy=distinct-from-author`, `pool=[opus]`, no `fallback` -> omit `model` and note session-default fallback.
 
 ---
 
@@ -8599,6 +9115,7 @@ Use this exact structure. Do not paraphrase the section headers.
 - Do not re-raise findings that are demonstrably addressed by a prior mitigation - unless the mitigation is insufficient, in which case explain specifically why.
 - Do not soften or hedge findings to be diplomatic. An unraised Critical finding that reaches production costs more than a false positive caught here. Do not inflate severity: a finding must meet every element of the Critical definition before you assign it.
 - If no files are readable or no code is provided, state that clearly and do not fabricate findings.
+- On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: perform the security review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.
 
 ---
 
@@ -8717,6 +9234,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Minor findings do not block sign-off but must be listed.
 - Always be a fresh read - do not carry assumptions from prior rounds. Each invocation sees only what the spawn prompt provides.
 - Do not soften findings to be polite. A missed Critical finding that reaches production costs more than a false positive caught here.
+- On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.
 
 ---
 
@@ -10228,6 +10746,64 @@ Report a summary:
 
 ---
 
+### /configure-team
+
+# /configure-team - Cross-Harness Team Setup
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+Set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments.
+
+This is a standalone any-harness capability - it is independent of the Pi/oh-my-pi role-model routing layer and does not require it. Any conductor can configure and run a team.
+
+## Step 1 - Configure the team
+
+Run `bin/agentic-team configure` to launch an interactive wizard that walks through role-to-harness assignments and writes `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
+
+```bash
+bin/agentic-team configure
+```
+
+For non-interactive use - useful in scripts or automated onboarding - pass assignments directly:
+
+```bash
+bin/agentic-team configure \
+  --non-interactive \
+  --assign architect=claude:claude-opus-4-5 \
+  --assign engineer=codex:gpt-5 \
+  --assign skeptic=gemini:gemini-2.5-pro \
+  [--default-harness claude] \
+  [--path .agentic/team.yml]
+```
+
+`--assign` accepts `role=harness:model`. Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`).
+
+Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-harness`, or `--non-interactive` used without `--assign`.
+
+## Step 2 - Verify discovery
+
+Confirm which harnesses are installed and which models they can reach:
+
+```bash
+bin/agentic-team discover
+```
+
+For machine-readable output:
+
+```bash
+bin/agentic-team discover --json
+```
+
+Each discovered harness reports its binary path, reachable models, and any auth errors. A harness listed as `--assign` target but absent from discovery output means it is not installed or not authenticated - resolve that before dispatching.
+
+## Step 3 - Dispatch a team
+
+See `content/references/cross-harness-teams.md` for the full dispatch, status-check, and collect flow.
+
+**Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/team-active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/team-active` as a hard suppression signal regardless of harness.
+
+---
+
 ### /implement-ticket
 
 # Implement Ticket
@@ -11008,7 +11584,7 @@ Also add `.agentic/` to the project's `.gitignore` if not already present.
 - `session_id`: `<ISO-date>-<4hex>`, e.g. `20260415-a3f2`
 - `task_id` per task: `<ticket_id>-<unit_slug>` (e.g. `ENG-42-auth-middleware`), or `<session_id>-<unit_slug>` for null-ticket projects
 
-**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
+**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
 
@@ -11145,7 +11721,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
-Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), and `branch_name` (the branch the worker will operate on).
+Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
 
 After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Write an update entry to `.agentic/tasks.jsonl` with these output fields. Status remains `in_progress` until Skeptic sign-off or final determination.
 
@@ -12526,11 +13102,12 @@ Capture the answer as INIT_PROFILE. Empty (Enter) = "keep current default": INIT
 = null, write NOTHING. Typing 'default' is also a no-op write (do not pin default
 explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE to that value.
 
-**0a-config. Three project settings that change how work gets done (additive; Enter keeps each default).**
+**0a-config. Four project settings that change how work gets done (additive; Enter keeps each default).**
 
-These map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
+Q1-Q3 map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
 captured into a variable substituted into that single seed write - there is no separate
-config write. Empty input keeps the documented default exactly.
+config write. Empty input keeps the documented default exactly. Q4 does not write to
+`config.json`; it gates Step 6g only.
 
 Q1 - Auto-merge on green CI?
 
@@ -12565,6 +13142,18 @@ Q3 - Diagnose failures with a debugger pass?
   > Press Enter to keep the default (No). Or type y to enable debugger-on-failure.
 
   Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
+
+Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
+
+  > On Pi, the workflow can run each role (architect, engineer, reviewer, ...) on a
+  > model you choose, and run the adversarial reviewer on a DIFFERENT model than the one
+  > that wrote the code - a true antagonist (e.g. an Opus author reviewed by GPT or GLM).
+  > Enabling this seeds an editable `~/.agentic/role-models.yml` you fill in with the
+  > models you have in Pi. Ignored on Claude/Codex/Gemini.
+  >
+  > Press Enter to skip (no routing file; Pi uses session defaults). Or type y to seed it.
+
+  Capture as INIT_ROLEMODELS. Enter / n / no -> skip. y / yes -> seed in Step 6g.
 
 Note: the other config keys (capability preflight, the QA-method toggles, Storybook,
 theme) are left at their safe defaults and detected automatically where relevant. They
@@ -13303,6 +13892,11 @@ Seed with these documented defaults exactly:
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
 - `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
 - `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
+
+
+### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
+
+Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `agentic-engineering` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 

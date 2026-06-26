@@ -869,7 +869,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 22, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 23, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -1128,6 +1128,8 @@
       <div class="node node-protocol">regression-test-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">qa-regression-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">doc-sync-obligation.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol"><a href="cross-harness-teams.md" target="_blank" rel="noopener">cross-harness-teams.md</a> <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol"><a href="role-model-routing.md" target="_blank" rel="noopener">role-model-routing.md</a> <span class="load-badge on-demand">on demand</span></div>
     </div>
     <p class="desc">Not auto-loaded. Read on-demand when protocols are triggered (e.g., Elevated risk declared, Skeptic review needed).</p>
   </div>
@@ -1241,6 +1243,7 @@
             <li><strong>Tier 3</strong> - review default (Opus). Skeptic and security-auditor default to Tier 3 via frontmatter; upgrade architect/engineer to Tier 3 for novel architecture or high-blast-radius units</li>
             <li><strong>Tier is a required field</strong> - every Elevated spawn carries a <code>Tier:</code> line below <code>Risk:</code>. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; the param overrides for upgrades or budget-mode downgrades (never for mandated-Tier-3 Skeptics). Declaration without the tool-call param produces frontmatter-default behavior, not Tier 2</li>
             <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
+            <li><strong>Pi/oh-my-pi can resolve roles from <code>~/.agentic/role-models.yml</code></strong> - opt-in per-role model strings plus antagonist reviewer diversity for <code>skeptic</code> and <code>security-auditor</code>; if absent, Pi uses session defaults</li>
           </ul>
         </div>
       </div>
@@ -2461,7 +2464,7 @@
         <tr><td><strong>Hooks</strong></td><td><code>~/.kimi/config.toml</code> <code>[[hooks]]</code> blocks - fully manual; the installer does not write this</td></tr>
         <tr><td><strong>Stop hook / context save</strong></td><td>Manual - script path must be set by the user in the hooks config</td></tr>
         <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
-        <tr><td><strong>Tier resolution</strong></td><td>Inherits the built-in sub-agent type - no tier-map lookup</td></tr>
+        <tr><td><strong>Tier resolution</strong></td><td>Inherits the built-in sub-agent type; optional <code>~/.agentic/role-models.yml</code> can map roles and antagonist reviewers to concrete model strings</td></tr>
       </tbody>
     </table>
     <div class="note" style="margin-top: 12px; border-left-color: var(--gold);">

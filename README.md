@@ -179,6 +179,107 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
+## What's included
+
+**Rules** (3 files) - the core methodology:
+- Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
+- Code standards - tool discipline, quality gates, package management, browser verification
+- Conventions - writing style, project structure, session context, git workflow
+
+**Reference docs** (20 files) - detailed protocol specs loaded on trigger:
+- Skeptic protocol - adversarial review loop, findings classification, sign-off format
+- Subagent protocol - parallel spawning, worktree isolation, task decomposition
+- Agent team - roles, composed flows, decision rules, spawn requirements
+- Design goals - system design principles and intent
+- Role-model routing - Pi/oh-my-pi per-role model selection and antagonist reviewer diversity
+- Model discovery - Pi/oh-my-pi harness probe and per-role ranking heuristics
+- Multi-developer coordination - parallel sessions, branch and worktree hygiene
+- Regression test obligation - when a fix requires a regression test and what counts
+- Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
+- Cross-harness agent teams - `agentic-team` CLI, team.yml schema, cross-harness dispatch and collection
+
+**Agents** (17) - named specialist roles:
+adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
+
+**Commands** (19) - workflow shortcuts:
+agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
+
+**Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
+
+**Project config / overview layer** - the committed `.agentic/config.json` holds four operator-tunable methodology toggles: `debugger_on_failure` (bool, default `false`; interposes a Debugger diagnosis step before each Phase 7 engineer fix pass), `qa_default_skip` (reserved; no-op, does not alter QA-gate behavior), `model_profile` (`default` | `budget`; `budget` routes eligible spawns to Tier 1), and `auto_merge_on_ci_green` (bool, default `false`; when `true`, `/implement-ticket` Phase 12 squash-merges the PR after CI passes and the PR is ready with no requested changes). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
+
+## Identity and Telemetry
+
+`agentic-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
+
+### Registering a handle (global)
+
+The quickest path derives your handle from your GitHub login:
+
+```bash
+agentic-identity auto      # derives handle from `gh api user`, writes it provisional
+agentic-identity confirm   # strips the provisional flag and flushes buffered sessions
+```
+
+Or set a handle manually:
+
+```bash
+agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
+```
+
+Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes the buffer and starts writing attributed logs.
+
+Run `agentic-identity show` at any time to see your current identity.
+
+### Per-project override
+
+If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
+
+```bash
+agentic-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
+agentic-identity confirm --scope project          # confirm a provisional project identity
+```
+
+The project file is covered by the existing `.agentic/*` gitignore umbrella - it is per-developer and never committed. The global identity is unchanged.
+
+### Precedence
+
+When both files exist, the most-confirmed identity wins:
+
+**project-confirmed > global-confirmed > project-provisional > global-provisional > none**
+
+A provisional project file never suppresses a working confirmed-global handle. To see which handle is active in the current repo:
+
+```bash
+agentic-identity show --scope effective
+```
+
+### agentic-cost attribution
+
+`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
+
+## Repo structure
+
+```
+DinoStack/
+  .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
+  .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
+  .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
+  .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
+  .kimi/                Kimi Code CLI adapter (AGENTS.md, skill, commands, install/uninstall)
+  .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
+  .pi/                  Pi coding agent adapter (skill, prompts, install/uninstall)
+  .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
+  .hermes/               Hermes Agent adapter (skill, METHODOLOGY.md, install/uninstall)
+  .openclaw/            OpenClaw adapter (skill tree, METHODOLOGY.md, install/uninstall)
+  hooks/                Shared hook scripts
+  docs/                 Documentation and reference HTML
+  ADAPTERS.md           Guide for creating new tool adapters
+  CONTRIBUTING.md       How to contribute via pull requests
+  README.md             This file
+```
+
+
 ## Documentation
 
 - `~/DinoStack/docs/index.html` - visual reference document describing the full system architecture
