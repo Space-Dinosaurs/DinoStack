@@ -289,7 +289,18 @@ Each tier inherits from the one above. An agent working in <code>api/</code> see
 | **Project root** | Project name, decisions (brief), repo map, tools, tracker config | "Base branch: main" |
 | **Subdirectory** | Stack, key conventions, commands, schemas, gotchas | "All API routes use Zod validation" |
 
-What does **not** go in AGENTS.md - these live in the rest of the **intent layer**:
+The intent layer extends beyond `AGENTS.md` - each file has a distinct role (see next slide).
+
+---
+
+## The intent layer
+
+<style scoped>
+  table { font-size: 0.76em; margin: 0.25em 0 0.5em 0; }
+  th { background: rgba(255,255,255,0.05); }
+  td, th { padding: 0.3em 0.55em; }
+  .callout { font-size: 0.80em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
 
 | File | Purpose |
 |---|---|
@@ -302,19 +313,8 @@ What does **not** go in AGENTS.md - these live in the rest of the **intent layer
 | `glossary.md` | Ubiquitous Language - agents prefer these terms |
 | `qa.md` | QA triggers and accumulated runtime knowledge |
 
----
-
-## The intent layer
-
-<style scoped>
-  .callout { font-size: 0.88em; padding: 0.6em 1.2em; margin-top: 0.5em; }
-  p { font-size: 0.88em; margin: 0.4em 0; }
-</style>
-
-AGENTS.md, MEMORY.md, decisions.md, qa.md, module manifests, and glossary.md together form the project's **intent layer** - the artifacts that capture what the project means to be.
-
 <div class="callout">
-Drift between code and these files is <strong>intent debt</strong> - distinct from technical debt in the code. A stale entry is worse than a missing one because readers trust it.
+Drift between code and these files is <strong>intent debt</strong>. A stale entry is worse than a missing one because readers trust it.
 </div>
 
 ---
