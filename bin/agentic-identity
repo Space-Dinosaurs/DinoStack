@@ -40,6 +40,18 @@ Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
                flushPendingBuffer: serialized via fcntl.flock on .flush.lock;
                30s timeout via LOCK_NB+sleep loop (SIGALRM avoided for portability);
                on timeout prints stderr warning and returns without data loss.
+               flushPendingBuffer dedup: global log is read ONCE before the
+               per-pending-file loop; each line is JSON-parsed and the
+               session_uuid field is collected into a set (O(M+N) total
+               instead of O(M*N)). Per-pending membership check is O(1).
+               Malformed (non-JSON) lines contribute nothing to the set; at
+               most one self-healing re-flush is possible, and because the
+               re-written line is well-formed JSON it dedups on the next run.
+               This is marginally STRICTER than the prior `session_uuid in
+               full_text` substring check (no false-positive skips on
+               substring coincidences in other fields), never looser.
+               On OSError the set is empty and all pending files are flushed
+               (same fallback as before).
                flushPendingBuffer with repo_root_filter: records whose repo_root
                does not match the filter are skipped (left in the buffer, not
                unlinked); records with no/empty repo_root are also skipped under
@@ -212,6 +224,32 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
         pending_files = sorted(glob.glob(pending_pattern))
         flushed = 0
 
+        # Dedup: read global log ONCE before the per-pending-file loop.
+        # Build a set of session_uuid strings seen in the log so each
+        # per-file check is O(1) instead of re-reading the whole file.
+        # Precision: each line is JSON-parsed and its session_uuid field collected,
+        # stricter than the prior full-text `in` check (no substring-coincidence
+        # false-positive skips). Malformed lines contribute nothing.
+        # On OSError the set is empty -> nothing is treated as already-flushed
+        # -> all pending files flush (same fallback semantics as before).
+        global_log = GLOBAL_SESSION_LOG_DIR / f"{confirmed_dev_id}.jsonl"
+        seen_uuids: set[str] = set()
+        if global_log.is_file():
+            try:
+                log_text = global_log.read_text(encoding="utf-8")
+                for _line in log_text.splitlines():
+                    try:
+                        _row = json.loads(_line)
+                        _uuid = _row.get("session_uuid", "")
+                        if _uuid:
+                            seen_uuids.add(_uuid)
+                    except (json.JSONDecodeError, AttributeError):
+                        # Malformed line: contributes no uuid. Worst case one
+                        # self-healing re-flush (next run's well-formed line dedups it).
+                        pass
+            except OSError:
+                pass  # Empty set -> flush everything (fallback preserved).
+
         for pending_path in pending_files:
             # Parse pending record.
             try:
@@ -229,15 +267,8 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
 
             session_uuid = record.get("session_uuid", "")
 
-            # Dedup: scan global log for this session_uuid.
-            global_log = GLOBAL_SESSION_LOG_DIR / f"{confirmed_dev_id}.jsonl"
-            already_flushed = False
-            if session_uuid and global_log.is_file():
-                try:
-                    if session_uuid in global_log.read_text(encoding="utf-8"):
-                        already_flushed = True
-                except OSError:
-                    pass
+            # O(1) dedup check against the pre-built set.
+            already_flushed = bool(session_uuid and session_uuid in seen_uuids)
 
             if already_flushed:
                 try:
