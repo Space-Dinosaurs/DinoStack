@@ -25,7 +25,7 @@ remove_symlinks() {
     if [[ -L "$dst_file" ]]; then
       local current_target
       current_target="$(readlink "$dst_file")"
-      if [[ "$current_target" == "$REPO_DIR"* ]]; then
+      if [[ "$current_target" == "$REPO_DIR/"* ]]; then
         rm "$dst_file"
         echo "  - $name"
       else
@@ -93,7 +93,7 @@ else
 
     if [[ -L "$dst_file" ]]; then
       current_target="$(readlink "$dst_file")"
-      if [[ "$current_target" == "$REPO_DIR"* ]]; then
+      if [[ "$current_target" == "$REPO_DIR/bin/"* ]]; then
         rm "$dst_file"
         echo "  - $name removed"
       else
