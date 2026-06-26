@@ -233,11 +233,11 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 ## Two paths to a Brief
 
 <style scoped>
-  .columns { gap: 1em; margin-bottom: 0.5em; }
-  .card { font-size: 0.8em; line-height: 1.4; padding: 0.9em 1em; }
-  ul li { margin: 0.2em 0; }
+  .columns { gap: 0.8em; margin-bottom: 0.4em; }
+  .card { font-size: 0.76em; line-height: 1.35; padding: 0.7em 0.85em; }
+  ul li { margin: 0.15em 0; }
   h4 { margin-top: 0; }
-  .callout { font-size: 0.78em; padding: 0.4em 0.9em; margin-top: 0.4em; }
+  .callout { font-size: 0.74em; padding: 0.3em 0.8em; margin-top: 0.3em; }
 </style>
 
 <div class="columns">
@@ -250,7 +250,7 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 - Operator has exploratory framing ("I want to build...")
 - Conductor auto-triggers or operator invokes `/brief [topic]`
 - Multi-turn dialogue: intent, gray areas, Q&A, draft, iterate
-- Brief committed to conductor's branch BEFORE architect spawns (no worktree created)
+- Brief committed to conductor's branch BEFORE architect spawns (no worktree)
 - `brief_source: operator` - Skeptic does completeness-only review
 
 </div>
@@ -272,7 +272,7 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 </div>
 
 <div class="callout">
-Interactive path is preferred for features still being framed. Mechanical path is the backstop for well-specified tickets. Both converge on the same artifact: a committed Brief at <code>docs/planning/&lt;slug&gt;.md</code>.
+Interactive path is preferred for features still being framed. Mechanical path is the backstop for well-specified tickets. Both converge on the same artifact: <code>docs/planning/&lt;slug&gt;.md</code>.
 </div>
 
 ---
@@ -331,26 +331,21 @@ Mechanical and conductor-direct - no agent spawn needed. Complements the adversa
 ## Brief template (fields 1-5)
 
 <style scoped>
-  pre { font-size: 0.72em; background: #04070F; border-radius: 8px; padding: 0.6em 1em; margin: 0.25em 0; line-height: 1.35; }
-  p { font-size: 0.84em; margin: 0.2em 0; }
+  pre { font-size: 0.67em; background: #04070F; border-radius: 8px; padding: 0.5em 0.9em; margin: 0.2em 0; line-height: 1.28; }
+  p { font-size: 0.82em; margin: 0.15em 0; }
 </style>
 
 Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines).
 
 ```markdown
 # Brief: <feature name>
-
 **Problem:**           <1-2 sentences. Behavior gap in user/system terms, not implementation.>
-
 **Success criteria:**  <Bulleted, observable from outside. Max 4 bullets.>
 - <criterion 1>
 - <criterion 2>
-
 **Non-goals:**         <What this explicitly does NOT do. Max 3 bullets.>
 - <non-goal 1>
-
 **Constraints:**       <Hard constraints only - contracts, perf budgets, compat targets, deadlines.>
-
 **Verification:**      <Non-skippable. Tests, gates, qa.md trigger patterns, and regression
                         tests from .agentic/findings.md. "Cannot specify" blocks sign-off.>
 ```
@@ -386,9 +381,9 @@ Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines)
 ## Brief field guidance
 
 <style scoped>
-  .card { font-size: 0.78em; line-height: 1.4; padding: 0.8em 1em; }
-  ul li { margin: 0.15em 0; }
-  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.4em; }
+  .card { font-size: 0.75em; line-height: 1.35; padding: 0.65em 0.85em; }
+  ul li { margin: 0.1em 0; }
+  .callout { font-size: 0.72em; padding: 0.28em 0.8em; margin-top: 0.3em; }
 </style>
 
 <div class="card">
@@ -443,9 +438,9 @@ If any of the three authored files exceeds 10 lines, the Plan is too large. Spli
 ## Verification gate
 
 <style scoped>
-  pre { font-size: 0.72em; background: #04070F; border-radius: 8px; padding: 0.6em 1em; margin: 0.2em 0; line-height: 1.3; }
-  p { font-size: 0.84em; margin: 0.2em 0; }
-  .callout { font-size: 0.78em; padding: 0.35em 0.9em; margin-top: 0.4em; }
+  pre { font-size: 0.66em; background: #04070F; border-radius: 8px; padding: 0.45em 0.85em; margin: 0.15em 0; line-height: 1.25; }
+  p { font-size: 0.82em; margin: 0.15em 0; }
+  .callout { font-size: 0.74em; padding: 0.28em 0.85em; margin-top: 0.3em; }
 </style>
 
 `verification-gate.md` template:
@@ -516,9 +511,11 @@ If any of the three authored files exceeds 10 lines, the Plan is too large. Spli
 ## Worker contract additions
 
 <style scoped>
-  pre { font-size: 0.8em; background: #04070F; border-radius: 8px; padding: 0.8em 1.2em; margin: 0.3em 0; }
-  p { font-size: 0.88em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  pre { font-size: 0.72em; background: #04070F; border-radius: 8px; padding: 0.5em 0.9em; margin: 0.2em 0; line-height: 1.3; }
+  p { font-size: 0.84em; margin: 0.2em 0; }
+  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.35em; }
+  ol { font-size: 0.84em; margin: 0.2em 0; }
+  ol li { margin: 0.15em 0; }
 </style>
 
 Two new optional fields in the execution contract:
@@ -574,10 +571,10 @@ When escalation fires (e.g., a 3-unit Brief-tier task is re-planned into 8 units
 ## 3rd-resume auto-promotion
 
 <style scoped>
-  p { font-size: 0.9em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
-  ul { font-size: 0.88em; }
-  ul li { margin: 0.3em 0; }
+  p { font-size: 0.86em; margin: 0.2em 0; }
+  .callout { font-size: 0.78em; padding: 0.35em 0.9em; margin-top: 0.35em; }
+  ul { font-size: 0.84em; }
+  ul li { margin: 0.15em 0; }
 </style>
 
 Trigger: `.agentic/loop-state.json` records a third resume of a Brief-tier task.
