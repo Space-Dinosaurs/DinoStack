@@ -142,7 +142,7 @@ mkdir -p "$HOME/.agentic" >/dev/null 2>&1 || true
 maybe_refresh
 
 if [[ "$behind_count" =~ ^[0-9]+$ ]] && [[ "$behind_count" -gt 0 ]]; then
-  echo "⚠️ agentic-engineering: newer version available. Update with /update-agentic-engineering (in session) or ${ae_repo_dir}/update.sh (shell)."
+  echo "⚠️ agentic-engineering: newer version available. Run: agentic-update (shell) or /pull-and-install (in session). No PATH? ${ae_repo_dir}/update.sh"
 fi
 
 exit 0
