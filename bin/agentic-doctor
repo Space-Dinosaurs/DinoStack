@@ -290,12 +290,16 @@ def check_repo_dir(doc: Doctor) -> None:
             "repo_dir",
             f"{doc.repo_dir} does not exist; re-run bootstrap or set repo_dir in {_config_path()}",
         )
+        if doc.fix:
+            doc.unfixable.append(str(doc.repo_dir))
         return
     if not _is_git_repo(doc.repo_dir):
         doc.fail(
             "repo_dir",
             f"{doc.repo_dir} exists but is not a git repo; re-run bootstrap or set repo_dir in {_config_path()}",
         )
+        if doc.fix:
+            doc.unfixable.append(str(doc.repo_dir))
         return
     doc.ok("repo_dir", f"{doc.repo_dir} is a valid git repo")
 

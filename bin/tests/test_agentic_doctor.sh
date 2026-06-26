@@ -343,6 +343,39 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 6: --fix exits 2 (not 0) when repo_dir is invalid/missing
+# Regression test for: --fix silently returning 0 when repo_dir FAIL is
+# not appended to doc.unfixable, which caused has_unfixable() to return
+# False and the exit path to return 0 instead of 2.
+# ---------------------------------------------------------------------------
+setup_fixture
+
+# Point repo_dir at a path that does not exist (not auto-fixable by doctor)
+cat > "$TEMP_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "/nonexistent/path"
+}
+EOF
+
+invoke_doctor --fix
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "2" ]]; then
+  _pass "T6 --fix with invalid repo_dir: exits 2 (unfixable)"
+else
+  _fail "T6 --fix with invalid repo_dir: expected exit 2, got $RC (regression: unfixable not recorded)\n$OUT"
+fi
+
+if echo "$OUT" | grep -q "^FAIL repo_dir:"; then
+  _pass "T6 --fix with invalid repo_dir: FAIL repo_dir: line present"
+else
+  _fail "T6 --fix with invalid repo_dir: missing FAIL repo_dir: line\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo
