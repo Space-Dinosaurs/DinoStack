@@ -145,7 +145,9 @@ With the global mode set to `opt-out` (the default), a project without any marke
 
 Run `./update.sh` for an interactive TUI updater (arrow keys, space to toggle adapters). For non-interactive or CI use, run `git pull` first then `./install-all.sh`.
 
-Full details - manual update steps, clean-refresh procedure, and agent-driven update prompts: see [docs/updating.md](docs/updating.md).
+If symlinks or hooks have drifted (common after moving the repo), run `agentic-doctor` to diagnose and `agentic-doctor --fix` to repair. Bootstrap is guarded against creating a second clone - if an existing install is detected, it aborts and prints the update-in-place command.
+
+Full details - manual update steps, clean-refresh procedure, health check, safeguards, and agent-driven update prompts: see [docs/updating.md](docs/updating.md).
 
 ## Adapters
 
