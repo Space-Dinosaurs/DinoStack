@@ -28,18 +28,21 @@ Data model:
   Internal keys _scope ("project"/"global") and _confirmed (bool) are tagged
     on resolved-identity dicts; never written to any file or log.
 
-Upstream deps: Python 3 stdlib only (argparse, fcntl, glob, json, os, re, signal,
+Upstream deps: Python 3 stdlib only (argparse, glob, json, os, re, signal,
                subprocess, sys, datetime, pathlib, time).
+               Shared helpers: bin/_lib (acquire_exclusive_lock, atomic_write).
 
 Downstream consumers: hooks/stop-context.js (reads identity files);
                       bin/agentic-cost team (reads .agentic/session-log/ written
                       after identity is set).
 
 Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
-               Never writes partial files (write to temp, rename).
-               flushPendingBuffer: serialized via fcntl.flock on .flush.lock;
-               30s timeout via LOCK_NB+sleep loop (SIGALRM avoided for portability);
-               on timeout prints stderr warning and returns without data loss.
+               Never writes partial files (atomic_write from _lib: write to temp,
+               chmod, rename; tmp cleaned up on failure).
+               flushPendingBuffer: serialized via fcntl.flock on .flush.lock via
+               acquire_exclusive_lock from _lib; 30s timeout via LOCK_NB+sleep
+               loop (SIGALRM avoided for portability); on timeout prints stderr
+               warning and returns without data loss.
                flushPendingBuffer dedup: global log is read ONCE before the
                per-pending-file loop; each line is JSON-parsed and the
                session_uuid field is collected into a set (O(M+N) total
@@ -63,16 +66,28 @@ Performance: Standard. File I/O only; subprocess for gh CLI in auto subcommand.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import glob
 import json
 import os
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
+import sys as _sys
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+
+_LIB_PATH = Path(__file__).parent / "_lib.py"
+_loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+_spec = _ilu.spec_from_loader("_lib", _loader)
+_lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+_loader.exec_module(_lib_mod)
+acquire_exclusive_lock = _lib_mod.acquire_exclusive_lock
+atomic_write = _lib_mod.atomic_write
+del _sys, _ilu, _ilm, _loader, _spec, _lib_mod
 
 IDENTITY_PATH = Path(os.path.expanduser("~/.agentic/identity.yml"))
 PENDING_DIR = Path(os.path.expanduser("~/.agentic/session-log/.pending"))
@@ -159,18 +174,15 @@ def _write_identity(lines: list[str], target_path: Path | None = None) -> int:
 
     When target_path is None, writes to global IDENTITY_PATH (default, unchanged
     for all existing callers). When provided, writes to that path (mkdir -p parent).
+    Uses atomic_write from _lib (write to .tmp, chmod 0o600, rename; .tmp cleaned on failure).
     """
     dest = target_path if target_path is not None else IDENTITY_PATH
     content = "\n".join(lines) + "\n"
     dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".yml.tmp")
     try:
-        tmp.write_text(content, encoding="utf-8")
-        os.chmod(tmp, 0o600)
-        tmp.rename(dest)
+        atomic_write(dest, content, mode=0o600)
     except Exception as exc:
         print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
-        tmp.unlink(missing_ok=True)
         return 1
     return 0
 
@@ -195,164 +207,150 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
     FLUSH_LOCK_PATH.touch(exist_ok=True)
 
     try:
-        fd = open(FLUSH_LOCK_PATH, 'r')
+        ctx = acquire_exclusive_lock(FLUSH_LOCK_PATH, timeout=30.0)
     except OSError as exc:
         print(f"agentic-identity confirm: cannot open lock file: {exc}", file=sys.stderr)
         return 0
 
-    # LOCK_NB + sleep loop, 30s total.
-    deadline = time.monotonic() + 30.0
-    acquired = False
-    while time.monotonic() < deadline:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            acquired = True
-            break
-        except BlockingIOError:
-            time.sleep(0.1)
+    flushed = 0
+    try:
+        with ctx:
+            pending_pattern = str(PENDING_DIR / "*.json")
+            pending_files = sorted(glob.glob(pending_pattern))
 
-    if not acquired:
-        fd.close()
+            # Dedup: read global log ONCE before the per-pending-file loop.
+            # Build a set of session_uuid strings seen in the log so each
+            # per-file check is O(1) instead of re-reading the whole file.
+            # Precision: each line is JSON-parsed and its session_uuid field collected,
+            # stricter than the prior full-text `in` check (no substring-coincidence
+            # false-positive skips). Malformed lines contribute nothing.
+            # On OSError the set is empty -> nothing is treated as already-flushed
+            # -> all pending files flush (same fallback semantics as before).
+            global_log = GLOBAL_SESSION_LOG_DIR / f"{confirmed_dev_id}.jsonl"
+            seen_uuids: set[str] = set()
+            if global_log.is_file():
+                try:
+                    log_text = global_log.read_text(encoding="utf-8")
+                    for _line in log_text.splitlines():
+                        try:
+                            _row = json.loads(_line)
+                            _uuid = _row.get("session_uuid", "")
+                            if _uuid:
+                                seen_uuids.add(_uuid)
+                        except (json.JSONDecodeError, AttributeError):
+                            # Malformed line: contributes no uuid. Worst case one
+                            # self-healing re-flush (next run's well-formed line dedups it).
+                            pass
+                except OSError:
+                    pass  # Empty set -> flush everything (fallback preserved).
+
+            for pending_path in pending_files:
+                # Parse pending record.
+                try:
+                    with open(pending_path, encoding="utf-8") as f:
+                        record = json.load(f)
+                except (OSError, json.JSONDecodeError):
+                    # Skip malformed records silently.
+                    continue
+
+                # repo_root_filter: skip records that don't match (leave in buffer).
+                if repo_root_filter is not None:
+                    record_repo_root = record.get("repo_root", "")
+                    if not record_repo_root or record_repo_root != repo_root_filter:
+                        continue
+
+                session_uuid = record.get("session_uuid", "")
+
+                # O(1) dedup check against the pre-built set.
+                already_flushed = bool(session_uuid and session_uuid in seen_uuids)
+
+                if already_flushed:
+                    try:
+                        os.unlink(pending_path)
+                    except OSError:
+                        pass
+                    continue
+
+                # Build attributed line in canonical session-total shape to match
+                # writeSessionLog / writeSessionLogGlobal in hooks/stop-context.js.
+                # Fields NOT in canonical shape (schema_version, repo_root) are used
+                # only for routing/bookkeeping above and must NOT appear in the line.
+                attributed = {
+                    "ts": record.get("ts"),
+                    "phase": "session_end",
+                    "event": "session_total",
+                    "agent": None,
+                    "task_id": None,
+                    "developer_id": confirmed_dev_id,
+                    "session_uuid": record.get("session_uuid"),
+                    "project_slug": record.get("project_slug"),
+                    "branch": record.get("branch", ""),
+                    "data": record.get("data", {}),
+                }
+                attributed_line = json.dumps(attributed, separators=(",", ":"))
+
+                # Repo root validation.
+                repo_root = record.get("repo_root", "")
+                project_slug = record.get("project_slug", "")
+                if repo_root and project_slug:
+                    try:
+                        result = subprocess.check_output(
+                            ["git", "-C", repo_root, "rev-parse", "--show-toplevel"],
+                            timeout=3,
+                            stderr=subprocess.DEVNULL,
+                        )
+                        toplevel = result.decode().strip()
+                        if os.path.basename(toplevel) == project_slug:
+                            per_project_log_dir = Path(toplevel) / ".agentic" / "session-log"
+                            per_project_log_dir.mkdir(parents=True, exist_ok=True)
+                            per_project_log = per_project_log_dir / f"{confirmed_dev_id}.jsonl"
+                            with open(per_project_log, "a", encoding="utf-8") as pf:
+                                pf.write(attributed_line + "\n")
+                        else:
+                            print(
+                                f"agentic-identity: repo_root '{repo_root}' basename "
+                                f"'{os.path.basename(toplevel)}' != project_slug "
+                                f"'{project_slug}'; skipping per-project write.",
+                                file=sys.stderr,
+                            )
+                    except (subprocess.TimeoutExpired, subprocess.CalledProcessError,
+                            OSError, FileNotFoundError):
+                        print(
+                            f"agentic-identity: repo_root '{repo_root}' unreachable; "
+                            "skipping per-project write.",
+                            file=sys.stderr,
+                        )
+
+                # Always append to global log.
+                global_append_ok = False
+                try:
+                    GLOBAL_SESSION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+                    with open(global_log, "a", encoding="utf-8") as gf:
+                        gf.write(attributed_line + "\n")
+                    global_append_ok = True
+                except OSError as exc:
+                    print(
+                        f"agentic-identity: global log write failed: {exc}; "
+                        "leaving pending file for retry.",
+                        file=sys.stderr,
+                    )
+
+                # Unlink pending file only after all attempted appends succeeded.
+                # Per-project write failure is non-blocking; global failure leaves file.
+                if global_append_ok:
+                    try:
+                        os.unlink(pending_path)
+                    except OSError:
+                        pass
+                    flushed += 1
+
+    except RuntimeError:
+        # acquire_exclusive_lock raises RuntimeError on timeout.
         print(
             "agentic-identity confirm: lock timeout after 30s; retry.",
             file=sys.stderr,
         )
         return 0
-
-    try:
-        pending_pattern = str(PENDING_DIR / "*.json")
-        pending_files = sorted(glob.glob(pending_pattern))
-        flushed = 0
-
-        # Dedup: read global log ONCE before the per-pending-file loop.
-        # Build a set of session_uuid strings seen in the log so each
-        # per-file check is O(1) instead of re-reading the whole file.
-        # Precision: each line is JSON-parsed and its session_uuid field collected,
-        # stricter than the prior full-text `in` check (no substring-coincidence
-        # false-positive skips). Malformed lines contribute nothing.
-        # On OSError the set is empty -> nothing is treated as already-flushed
-        # -> all pending files flush (same fallback semantics as before).
-        global_log = GLOBAL_SESSION_LOG_DIR / f"{confirmed_dev_id}.jsonl"
-        seen_uuids: set[str] = set()
-        if global_log.is_file():
-            try:
-                log_text = global_log.read_text(encoding="utf-8")
-                for _line in log_text.splitlines():
-                    try:
-                        _row = json.loads(_line)
-                        _uuid = _row.get("session_uuid", "")
-                        if _uuid:
-                            seen_uuids.add(_uuid)
-                    except (json.JSONDecodeError, AttributeError):
-                        # Malformed line: contributes no uuid. Worst case one
-                        # self-healing re-flush (next run's well-formed line dedups it).
-                        pass
-            except OSError:
-                pass  # Empty set -> flush everything (fallback preserved).
-
-        for pending_path in pending_files:
-            # Parse pending record.
-            try:
-                with open(pending_path, encoding="utf-8") as f:
-                    record = json.load(f)
-            except (OSError, json.JSONDecodeError):
-                # Skip malformed records silently.
-                continue
-
-            # repo_root_filter: skip records that don't match (leave in buffer).
-            if repo_root_filter is not None:
-                record_repo_root = record.get("repo_root", "")
-                if not record_repo_root or record_repo_root != repo_root_filter:
-                    continue
-
-            session_uuid = record.get("session_uuid", "")
-
-            # O(1) dedup check against the pre-built set.
-            already_flushed = bool(session_uuid and session_uuid in seen_uuids)
-
-            if already_flushed:
-                try:
-                    os.unlink(pending_path)
-                except OSError:
-                    pass
-                continue
-
-            # Build attributed line in canonical session-total shape to match
-            # writeSessionLog / writeSessionLogGlobal in hooks/stop-context.js.
-            # Fields NOT in canonical shape (schema_version, repo_root) are used
-            # only for routing/bookkeeping above and must NOT appear in the line.
-            attributed = {
-                "ts": record.get("ts"),
-                "phase": "session_end",
-                "event": "session_total",
-                "agent": None,
-                "task_id": None,
-                "developer_id": confirmed_dev_id,
-                "session_uuid": record.get("session_uuid"),
-                "project_slug": record.get("project_slug"),
-                "branch": record.get("branch", ""),
-                "data": record.get("data", {}),
-            }
-            attributed_line = json.dumps(attributed, separators=(",", ":"))
-
-            # Repo root validation.
-            repo_root = record.get("repo_root", "")
-            project_slug = record.get("project_slug", "")
-            if repo_root and project_slug:
-                try:
-                    result = subprocess.check_output(
-                        ["git", "-C", repo_root, "rev-parse", "--show-toplevel"],
-                        timeout=3,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    toplevel = result.decode().strip()
-                    if os.path.basename(toplevel) == project_slug:
-                        per_project_log_dir = Path(toplevel) / ".agentic" / "session-log"
-                        per_project_log_dir.mkdir(parents=True, exist_ok=True)
-                        per_project_log = per_project_log_dir / f"{confirmed_dev_id}.jsonl"
-                        with open(per_project_log, "a", encoding="utf-8") as pf:
-                            pf.write(attributed_line + "\n")
-                    else:
-                        print(
-                            f"agentic-identity: repo_root '{repo_root}' basename "
-                            f"'{os.path.basename(toplevel)}' != project_slug "
-                            f"'{project_slug}'; skipping per-project write.",
-                            file=sys.stderr,
-                        )
-                except (subprocess.TimeoutExpired, subprocess.CalledProcessError,
-                        OSError, FileNotFoundError):
-                    print(
-                        f"agentic-identity: repo_root '{repo_root}' unreachable; "
-                        "skipping per-project write.",
-                        file=sys.stderr,
-                    )
-
-            # Always append to global log.
-            global_append_ok = False
-            try:
-                GLOBAL_SESSION_LOG_DIR.mkdir(parents=True, exist_ok=True)
-                with open(global_log, "a", encoding="utf-8") as gf:
-                    gf.write(attributed_line + "\n")
-                global_append_ok = True
-            except OSError as exc:
-                print(
-                    f"agentic-identity: global log write failed: {exc}; "
-                    "leaving pending file for retry.",
-                    file=sys.stderr,
-                )
-
-            # Unlink pending file only after all attempted appends succeeded.
-            # Per-project write failure is non-blocking; global failure leaves file.
-            if global_append_ok:
-                try:
-                    os.unlink(pending_path)
-                except OSError:
-                    pass
-                flushed += 1
-
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        fd.close()
 
     if flushed > 0:
         print(f"Flushed {flushed} pending session(s).")

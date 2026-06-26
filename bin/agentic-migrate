@@ -7,7 +7,8 @@
 #   agentic-migrate check  [--manifest PATH]
 #   agentic-migrate apply  [--manifest PATH] [--project-root PATH] [--dry-run]
 #   agentic-migrate diff   [--manifest PATH] [--project-root PATH]
-# Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy
+# Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy.
+#           Shared helpers: bin/_lib (atomic_write).
 # Downstream: invoked by Activation preflight Step 6 and /migrate-project command
 # Failure modes: silent-fail discipline; never throws to caller; exit codes signal status
 #   0 = success / no-op
@@ -15,11 +16,16 @@
 #   2 = manifest not found / parse error
 #   3 = partial apply (some rules errored; also raised when a manifest entry's
 #       path resolves outside project_root - path-traversal guard)
+# Note: _acquire_lock/_release_lock use a one-shot fcntl.LOCK_NB pattern with
+#       stale-lock detection and raw os.open fd - structurally distinct from the
+#       sleep-retry acquire_exclusive_lock context manager in _lib; not extracted.
 
 from __future__ import annotations
 
 import argparse
 import fcntl
+import importlib.machinery as _ilm
+import importlib.util as _ilu
 import json
 import os
 import shutil
@@ -27,6 +33,15 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
+_LIB_PATH = Path(__file__).parent / "_lib.py"
+_loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+_spec = _ilu.spec_from_loader("_lib", _loader)
+_lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+_loader.exec_module(_lib_mod)
+atomic_write = _lib_mod.atomic_write
+del _ilm, _ilu, _loader, _spec, _lib_mod
 
 # ---------------------------------------------------------------------------
 # Manifest resolution
@@ -241,16 +256,18 @@ def _read_project_version(project_root: Path) -> int:
 
 
 def _stamp_project_version(project_root: Path, version: int) -> None:
-    """Write scaffolding_version into .agentic/config.json atomically."""
+    """Write scaffolding_version into .agentic/config.json atomically.
+
+    Uses atomic_write from _lib with mode=None to preserve existing file
+    permissions (config.json is not chmod'd to 0o600 - only identity files are).
+    """
     config_path = project_root / ".agentic" / "config.json"
     if not config_path.exists():
         return
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
         data["scaffolding_version"] = version
-        tmp = config_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        tmp.rename(config_path)
+        atomic_write(config_path, json.dumps(data, indent=2) + "\n", mode=None)
     except Exception:
         pass
 
