@@ -162,12 +162,6 @@ Install DinoStack and ship your first focused session
 
 ## Install in two steps
 
-<style scoped>
-  pre { font-size: 0.85em; padding: 0.4em 0.8em; margin: 0.3em 0 0.6em 0; }
-  p { margin: 0.3em 0; font-size: 0.95em; }
-  blockquote { font-size: 0.8em; margin: 0.4em 0; padding: 0.3em 0.8em; }
-</style>
-
 **1.** Open a terminal where you keep your repos and start Claude Code:
 
 ```bash
@@ -183,7 +177,27 @@ Clone git@github.com:Space-Dinosaurs/DinoStack.git and run .claude/install.sh
 
 The agent clones the repo, runs the installer, and walks you through optional tool setup. Idempotent - safe to re-run anytime.
 
-> **Other adapters:** Gemini CLI: `bash .gemini/install.sh`. Cursor: `.cursor/install.sh`. Codex CLI: `.codex/install.sh`. Kimi: `.kimi/install.sh`. OpenCode: `.opencode/install.sh`.
+---
+
+## Install in two steps (cont.)
+
+<style scoped>
+  p { font-size: 0.9em; margin: 0.3em 0; }
+  blockquote { font-size: 0.88em; margin: 0.5em 0; padding: 0.4em 0.9em; }
+  .callout { font-size: 0.88em; padding: 0.5em 1.1em; margin-top: 0.6em; }
+</style>
+
+<div class="callout">
+Claude Code is the primary adapter. The installer at <code>.claude/install.sh</code> is idempotent and safe to re-run.
+</div>
+
+**Other adapters** use the same pattern - each tool's native format:
+
+> Gemini CLI: `bash .gemini/install.sh`
+> Cursor: `.cursor/install.sh`
+> Codex CLI: `.codex/install.sh`
+> Kimi: `.kimi/install.sh`
+> OpenCode: `.opencode/install.sh`
 
 ---
 
