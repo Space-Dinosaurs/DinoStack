@@ -38,10 +38,6 @@ HEADER
   echo "---"
   echo ""
   cat "$CONTENT/rules/conventions.md"
-  echo ""
-  echo "---"
-  echo ""
-  cat "$CONTENT/rules/module-manifest.md"
 
   cat <<'FOOTER'
 

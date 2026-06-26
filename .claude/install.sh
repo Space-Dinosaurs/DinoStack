@@ -724,7 +724,6 @@ If any signal matches, invoke the skill before proceeding. When in doubt, invoke
 @skills/agentic-engineering/METHODOLOGY.md
 @skills/agentic-engineering/rules/code-standards.md
 @skills/agentic-engineering/rules/conventions.md
-@skills/agentic-engineering/rules/module-manifest.md
 <!-- END managed-by-agentic-engineering -->"""
 
 if os.path.exists(target):
