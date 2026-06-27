@@ -45,16 +45,21 @@ const hookPath = path.resolve(__dirname, '..', 'post-tool-use-capture-nudge.js')
 // ---------------------------------------------------------------------------
 const hookSource = fs.readFileSync(hookPath, 'utf8');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
+const libSkillDetectorAbs = path.resolve(__dirname, '..', 'lib', 'skill-candidate-detector.js');
 const shimmedSource = hookSource
   // Suppress the trailing bare run() call so requiring the shim does not read stdin.
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
-  // Re-anchor the relative lib require to an absolute path to the real lib.
+  // Re-anchor relative lib requires to absolute paths so the /tmp shim can resolve them.
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
     `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/skill-candidate-detector\.js['"]\)/,
+    `require(${JSON.stringify(libSkillDetectorAbs)})`
   );
 
-// Fail loud if the re-anchor did not fire (require text changed form).
+// Fail loud if any relative ./lib/ require survived the re-anchor (require text changed form).
 if (/require\(['"]\.\/lib\//.test(shimmedSource)) {
   console.error(
     '  FATAL: a relative ./lib/ require survived the shim re-anchor - update the '
