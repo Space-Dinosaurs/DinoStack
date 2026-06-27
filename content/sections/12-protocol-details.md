@@ -52,7 +52,7 @@ See `content/sections/06-capability-preflight.md` for when preflight runs, advis
 See `content/sections/05-qa-gate.md` for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
 
 **Events log schema** - full V1 telemetry event-type field shapes and operational notes:
-Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `content/sections/09-events-log.md`.
+Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.)
 
 **Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
 Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in `content/sections/11-worktree-lifecycle.md`.

@@ -63,13 +63,22 @@ work does not stall.
 
 ## Hooks
 
-DinoStack ships PreToolUse hooks in [`hooks/`](../hooks/), wired into
-`~/.claude/settings.json` by the installer:
+DinoStack ships hooks in [`hooks/`](../hooks/). PreToolUse and Stop hooks are
+wired into `~/.claude/settings.json` by the installer; `pre-commit` is a git
+hook installed separately:
 
-- [`enforce-background-spawn.py`](../hooks/enforce-background-spawn.py) - denies
-  a subagent spawn that lacks `run_in_background: true`.
+- [`enforce-background-spawn.py`](../hooks/enforce-background-spawn.py) - PreToolUse;
+  denies a subagent spawn that lacks `run_in_background: true`.
 - [`enforce-askuserquestion-default.py`](../hooks/enforce-askuserquestion-default.py)
-  - denies a co-equal multiple-choice prompt with no recommended default.
+  - PreToolUse; denies a co-equal multiple-choice prompt with no recommended default.
+- [`enforce-orchestrator-singularity.py`](../hooks/enforce-orchestrator-singularity.py)
+  - PreToolUse; denies any `Task` spawn issued from a subagent context; disable via
+  `AE_SINGULARITY_GUARD_DISABLE=1`.
+- [`enforce-no-abdication.py`](../hooks/enforce-no-abdication.py) - Stop hook;
+  detects a permission-seeking interrogative in the final assistant message and blocks
+  the stop, injecting a "proceed" directive; opt in per-project via
+  `abdication_guard_enabled: true` in `.agentic/config.json`; disable via
+  `AE_ABDICATION_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 

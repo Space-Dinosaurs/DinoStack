@@ -47,6 +47,11 @@ Failure modes:
     - Any exception: fail-open via outer try/except (exit 0).
     - stop_hook_active=true: exit 0 immediately (primary re-entrancy guard).
     - Counter >= CAP: exit 0 without block (backstop for CC bug #54360).
+    - Counter write fails (unwritable .agentic/, full disk, corrupt tmp, etc.):
+      exit 0 and ALLOW the stop on that invocation. Rationale: a block whose
+      count cannot be recorded loses its loop bound; the safe degradation is
+      "don't block" (status quo, never an infinite loop). Only blocks after the
+      incremented count has been successfully persisted.
     - Invalid/garbage stdout: guarded via atomic print-then-exit pattern;
       any exception before the print results in no stdout = allow.
 
@@ -208,8 +213,14 @@ def _read_counter(cwd: str) -> dict:
         return {"count": 0, "last_user_msg_count": 0}
 
 
-def _write_counter(cwd: str, count: int, last_user_msg_count: int) -> None:
-    """Write counter state. Fail silently."""
+def _write_counter(cwd: str, count: int, last_user_msg_count: int) -> bool:
+    """Write counter state. Returns True on success, False on any failure.
+
+    The caller MUST check the return value when deciding whether to block:
+    a block emitted without a successful counter write loses its loop bound
+    and can cause an infinite block loop when stop_hook_active also fails
+    (CC bug #54360). Fail toward allow-stop on any write failure.
+    """
     try:
         agentic_dir = os.path.join(cwd, ".agentic")
         os.makedirs(agentic_dir, exist_ok=True)
@@ -218,13 +229,14 @@ def _write_counter(cwd: str, count: int, last_user_msg_count: int) -> None:
         with open(tmp, "w") as f:
             json.dump({"count": count, "last_user_msg_count": last_user_msg_count}, f)
         os.replace(tmp, path)
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _reset_counter(cwd: str, current_user_msg_count: int) -> None:
-    """Reset consecutive block count (new user turn detected)."""
-    _write_counter(cwd, 0, current_user_msg_count)
+    """Reset consecutive block count (new user turn detected). Best-effort."""
+    _write_counter(cwd, 0, current_user_msg_count)  # return value intentionally ignored
 
 
 # ---------------------------------------------------------------------------
@@ -437,9 +449,13 @@ def main() -> None:
             _reset_counter(cwd, current_user_msg_count)
             sys.exit(0)
 
-        # Abdication detected. Increment counter and block.
+        # Abdication detected. Only block if we can persist the incremented count.
+        # If persistence fails (unwritable .agentic/, full disk, etc.) the loop
+        # bound is lost; the safe degradation is allow-stop to avoid an infinite
+        # block loop when stop_hook_active also fails (CC bug #54360).
         new_count = state["count"] + 1
-        _write_counter(cwd, new_count, current_user_msg_count)
+        if not _write_counter(cwd, new_count, current_user_msg_count):
+            sys.exit(0)
 
         reason = (
             "ABDICATION GUARD: You ended your turn by asking the user permission "

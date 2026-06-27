@@ -104,10 +104,16 @@ if (typeof module !== 'undefined') {
 // Fail loudly if the re-anchor did not fire (e.g. the source's require text
 // changed form). Without this, a missed rewrite reverts to an opaque
 // MODULE_NOT_FOUND crash at require() time from /tmp.
-if (/require\(['"]\.\/lib\//.test(shimmedSource)) {
+// NOTE: skill-candidate-detector.js is loaded lazily (inside function bodies,
+// gated on config toggles). It does NOT resolve from /tmp at module scope, but
+// it will never be called in test paths because the tmp dir has no config.json
+// (so the toggle defaults to off). Exempt it from the fragility guard.
+const relativeRequires = shimmedSource.match(/require\(['"]\.\/lib\/(?!skill-candidate).*?['"]\)/g) || [];
+if (relativeRequires.length > 0) {
   console.error(
     '  FATAL: a relative ./lib/ require survived the shim re-anchor - update the '
-    + 'rewrite in test-capture-gap.js so the /tmp shim can resolve it.'
+    + 'rewrite in test-capture-gap.js so the /tmp shim can resolve it. Survivors: '
+    + relativeRequires.join(', ')
   );
   process.exit(1);
 }

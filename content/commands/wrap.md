@@ -182,6 +182,7 @@ Zero-substance procedure:
 - Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
 - Skip Steps 1-3 entirely (no Worker, no Skeptic)
 - Skip Step 4 Parts A, B, C entirely
+- Skip Part D (no session activity to extract skill-candidate signals from)
 - Skip Part E (nothing changed, nothing to compress)
 - Still run Step 5 (worktree cleanup) - that is always useful
 - Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
@@ -196,9 +197,10 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
 3. Proceed to Step 4 Part A with the inline draft.
 4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None).
-5. Skip Part E entirely (nothing changed, nothing to compress).
-6. Run Step 5 (worktree cleanup) as normal.
-7. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
+5. Run Part D (skill-candidate wrap-time signal) - the light path still ran a session worth extracting from.
+6. Skip Part E entirely (nothing changed, nothing to compress).
+7. Run Step 5 (worktree cleanup) as normal.
+8. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
 
 **Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
 
@@ -421,6 +423,42 @@ For each file with non-deferred updates:
 6. Write the updated file to disk.
 
 Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
+
+**Part D — Skill-candidate wrap-time signal**
+
+Skip Part D on the **zero-substance path** (already skipped Steps 1-3; no session activity to extract from). Run Part D on the **light path** and the **standard path**. This step runs INSIDE the `wrap/lock` window already held from pre-flight. Soft-fail: any error in this step is silently swallowed; Part D failure NEVER breaks or delays the wrap.
+
+**Gate:** Read `.agentic/config.json`. If `skill_candidate_detection` is explicitly `false`, skip Part D entirely. Default (key absent or config missing) is `true` - proceed.
+
+**Extraction (inline LLM reasoning over the session already reflected on in Step 0):**
+
+Emit a JSON array of 0-5 entries identifying DISTINCT domains where you or the user repeatedly did manual work, or worked around the same friction, this session - the kind of recurring manual workflow that might warrant a reusable skill/command/preset/lint-rule. Exclude one-off actions. Output `[]` if nothing qualifies.
+
+Each entry shape:
+- `domain` (required): short lowercase-hyphenated slug naming the recurring workflow (e.g. `adapter-rebuild`, `skeptic-context-block`). Reuse an obvious existing slug if the same workflow has appeared before; exact-match merging is the helper's job, not yours.
+- `exampleNote` (required): one sentence describing the concrete instance observed this session.
+- `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
+
+Do NOT include `count`, `firstSeen`, `lastSeen`, or any tally fields - those are helper-assigned.
+
+**Write and invoke (Bash):**
+
+Write the extracted array to a temp file and call the deep-cluster helper. Use `$CLAUDE_CODE_SESSION_ID` as the session id; if it is unset or empty, skip the invocation entirely (soft no-op).
+
+```bash
+CLUSTER_TMP=$(mktemp /tmp/wrap-clusters-XXXXXX.json)
+cat > "$CLUSTER_TMP" << 'EOF'
+[...the extracted array...]
+EOF
+
+# Skip if no session id
+if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
+  node hooks/lib/skill-candidate-deep-cluster.js "$REPO_CWD" "$CLAUDE_CODE_SESSION_ID" "$CLUSTER_TMP" 2>/dev/null || true
+fi
+rm -f "$CLUSTER_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the absolute cwd of the project (the same value identified in Step 0). Any failure (non-zero exit, missing node, missing helper) is silently swallowed via `|| true`; the wrap continues normally.
 
 **Part E — Compress always-loaded memory files**
 

@@ -1104,7 +1104,7 @@ agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_k
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
 ```
-See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time.
+See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
 
 ```
 ## Prior iteration findings
@@ -2097,6 +2097,26 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
 Lock release: the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every Phase 11b exit path before advancing to Phase 12.
+
+**Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
+
+After releasing the lock and after wrap-ticket has returned (or been skipped), the conductor performs this step if ALL of the following hold:
+- wrap-ticket returned a valid JSON shape (not a timeout, not a non-JSON return).
+- `cluster_results` in the return is a non-empty array.
+- `skill_candidate_detection` is not `false` in `.agentic/config.json` (default true when absent or config missing).
+- `$CLAUDE_CODE_SESSION_ID` is set and non-empty.
+
+If any condition is not met, skip silently. This step is soft-fail and MUST NOT block or delay Phase 12 in any way.
+
+```bash
+# Conductor-side skill-candidate deep-cluster merge (post-return, soft-fail)
+CLUSTER_TMP=$(mktemp /tmp/wrap-ticket-clusters-XXXXXX.json 2>/dev/null) && \
+printf '%s' '<cluster_results JSON from wrap-ticket return>' > "$CLUSTER_TMP" && \
+node hooks/lib/skill-candidate-deep-cluster.js "$REPO_CWD" "$CLAUDE_CODE_SESSION_ID" "$CLUSTER_TMP" 2>/dev/null || true
+rm -f "$CLUSTER_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 

@@ -19,15 +19,21 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             pr_url, conversation_summary, learnings_extracted. Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
-            skipped_reason, size_advisory.
+            skipped_reason, size_advisory,
+            cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
+            present; empty array when nothing qualifies or skill_candidate_detection
+            is off).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
               No external libraries; only Read/Glob/Grep/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
-                      return, prints operator_summary to the user, never blocks
-                      Phase 12 cleanup on wrap-ticket failure).
+                      return, prints operator_summary to the user, reads
+                      cluster_results and calls
+                      hooks/lib/skill-candidate-deep-cluster.js for any qualifying
+                      clusters, never blocks Phase 12 cleanup on wrap-ticket
+                      failure).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -127,6 +133,21 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 - If `brief_path` is a real path, Read it.
 - If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `\[(LRN|KNW)-\d{8}-\d{3}\]`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
 
+### 2.5. Extract skill-candidate clusters (reasoning only - no Bash, no shell-out)
+
+**Gate:** This step runs unless `skill_candidate_detection` is explicitly `false` in `.agentic/config.json` (read in Step 2 if the file exists; default true when absent). If gated off, set `cluster_results: []` and skip to Step 3.
+
+From the inputs read in Step 2 - the merged diff, findings_log, architect plan, brief, and conversation_summary - identify DISTINCT domains where the ticket implementation or the Skeptic/QA loop required repeated manual work or worked around recurring friction that might warrant a reusable skill/command/preset/lint-rule. Exclude one-off implementation details specific to this ticket.
+
+Emit 0-5 entries. If nothing qualifies, emit an empty array. Keep this a single bounded reasoning step - do NOT shell out, do NOT use Bash, do NOT call node.
+
+Each entry shape:
+- `domain` (required): short lowercase-hyphenated slug (e.g. `adapter-rebuild`, `skeptic-context-block`).
+- `exampleNote` (required): one sentence describing the concrete instance observed in this ticket.
+- `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
+
+Store the result as `cluster_results` for inclusion in the Step 8 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
+
 ### 3. Extract candidate facts
 
 Walk the inputs and extract candidate facts. **Priority order:**
@@ -218,9 +239,12 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "operator_summary": "<one-line human-readable summary of what was captured>",
   "writer_actions": ["<file path>: appended <N> entries", ...],
   "skipped_reason": null,
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}]
 }
 ```
+
+`cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
 If nothing was captured because the ticket produced no stable facts, return:
 
@@ -232,7 +256,8 @@ If nothing was captured because the ticket produced no stable facts, return:
   "operator_summary": "No durable learnings captured from this ticket.",
   "writer_actions": [],
   "skipped_reason": "zero-substance",
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": []
 }
 ```
 

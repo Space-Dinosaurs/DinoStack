@@ -184,6 +184,18 @@ function detectCaptureGap(cwd, sessionId) {
             if (data.signed_off) worthy = true;
           }
         }
+        // NOTE: skeptic-with-findings trigger stays degraded for hook-emitted
+        // spawn_start events because hook payloads carry no findings_count or
+        // signed_off data (harness ceiling). Only spawn_complete-based skeptic
+        // events can satisfy the findings/sign-off criteria above.
+      } else if (ev === 'spawn_start' && data.source === 'hook') {
+        // Hook-emitted spawn_start revives the debugger/investigator capture-gap
+        // trigger in ad-hoc sessions where no conductor spawn_complete is emitted.
+        // Skeptic findings trigger remains degraded (no findings_count/signed_off
+        // available from hook payloads).
+        if (LEARNING_AGENTS.has(agentName)) {
+          worthy = true;
+        }
       }
 
       if (worthy) {
