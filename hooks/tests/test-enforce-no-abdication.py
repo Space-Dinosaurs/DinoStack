@@ -549,6 +549,68 @@ def test_counter_reset_on_new_user_turn(tmp_dir: str) -> int:
     return failed
 
 
+def test_unwritable_counter_allows_stop(tmp_dir: str) -> int:
+    """REGRESSION: unwritable .agentic/ + stop_hook_active never set -> no infinite block.
+
+    Simulates the conjunction identified in the Skeptic Minor finding:
+      - .agentic/ directory is read-only, so _write_counter always fails.
+      - stop_hook_active never flips to True (CC bug #54360).
+
+    Pre-fix behavior: _write_counter fails silently, the count never increments,
+    the loop bound is lost, and the hook blocks on every invocation indefinitely.
+
+    Post-fix behavior: the hook only emits a block AFTER the incremented count
+    has been successfully persisted. On write failure it exits 0 (allow-stop)
+    so the session is never stuck in an infinite block loop.
+    """
+    print("\n  [Unwritable counter + #54360 conjunction regression]")
+    failed = 0
+    unwrite_dir = os.path.join(tmp_dir, "unwritable_cwd")
+    os.makedirs(unwrite_dir, exist_ok=True)
+    agentic_dir = os.path.join(unwrite_dir, ".agentic")
+    os.makedirs(agentic_dir, exist_ok=True)
+
+    # Write config while the directory is still writable.
+    config_path = os.path.join(agentic_dir, "config.json")
+    with open(config_path, "w") as f:
+        json.dump({"abdication_guard_enabled": True}, f)
+
+    # Make .agentic/ read-only so counter writes fail (file creation denied).
+    os.chmod(agentic_dir, 0o555)
+    try:
+        # Simulate CAP+2 re-entries with stop_hook_active=False (bug never fixed).
+        # Each call finds count=0 (read fails, defaults to 0), tries to write new
+        # count, fails, and - under the fix - must ALLOW rather than block.
+        blocked_rounds = []
+        for i in range(CONSECUTIVE_BLOCK_CAP + 2):
+            payload = json.dumps({
+                "hook_event_name": "Stop",
+                "session_id": "unwritable-regression",
+                "cwd": unwrite_dir,
+                "stop_hook_active": False,   # bug: never propagates
+                "permission_mode": "default",
+                "last_assistant_message": ABDICATING_MSG,
+            })
+            rc, stdout, _ = run_hook(payload)
+            blocked_rounds.append(is_block(rc, stdout))
+
+        # Every invocation must ALLOW (no block without a persisted loop bound).
+        all_allowed = not any(blocked_rounds)
+        print(
+            f"    [{'PASS' if all_allowed else 'FAIL'}] "
+            f"Unwritable .agentic/ + stop_hook_active=False on {CONSECUTIVE_BLOCK_CAP + 2} "
+            f"invocations -> all ALLOW (no infinite block loop)"
+        )
+        if not all_allowed:
+            failed += 1
+            print(f"         blocked_rounds={blocked_rounds} (expected all False)")
+    finally:
+        # Restore write permission so temp dir cleanup succeeds.
+        os.chmod(agentic_dir, 0o755)
+
+    return failed
+
+
 def test_corrupt_counter_file(tmp_dir: str) -> int:
     """Test that a corrupt counter file is treated as 0."""
     print("\n  [Corrupt counter file tests]")
@@ -706,6 +768,7 @@ def main() -> None:
         total_failed += test_54360_loop_terminates(tmp_dir)
         total_failed += test_counter_reset_on_new_user_turn(tmp_dir)
         total_failed += test_corrupt_counter_file(tmp_dir)
+        total_failed += test_unwritable_counter_allows_stop(tmp_dir)
 
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)
@@ -720,6 +783,7 @@ def main() -> None:
         + 1   # #54360 loop-termination regression
         + 1   # counter reset
         + 1   # corrupt counter
+        + 1   # unwritable counter + #54360 conjunction regression
         + 2   # transcript fallback
         + 3   # smoke checks
     )
