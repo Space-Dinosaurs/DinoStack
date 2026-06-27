@@ -68,6 +68,7 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | Part A context.md merge | KEPT (cites `wrap-context-format.md`) |
 | Part B Open-PR deferral / memory-pending.md | omitted; direct append-dedup to memory.md |
 | Part C Open-PR deferral / agents-md-pending.md | omitted; direct write to AGENTS.md |
+| Part D skill-candidate wrap-time signal | omitted; `--disallowedTools "Bash"` removes the Bash tool from the daemon child's context, so no `node` shell-out is possible. Daemon-completed sessions do not contribute the wrap-time skill-candidate signal. |
 | Part E compression | omitted |
 | `gh pr` open-PR enumeration | omitted |
 | Step 5 `/cleanup-worktrees` | omitted |
