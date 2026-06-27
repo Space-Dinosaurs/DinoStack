@@ -10,7 +10,10 @@
  *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/);
  *          no identity also appends a one-time nudge to context.md. Runs a
  *          capture-gap backstop that detects learning-worthy sessions with no
- *          captured learnings and appends a nudge to context.md.
+ *          captured learnings and appends a nudge to context.md. ALWAYS creates
+ *          [cwd]/.agentic/events.jsonl on every session exit (zero-aggregate
+ *          fallback) so the telemetry substrate is present even in ad-hoc sessions
+ *          that produce no conductor spawn_complete events.
  *
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
@@ -81,10 +84,13 @@
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
- *                of path (1). (3) events.jsonl write is best-effort; any fs error
- *                is swallowed independently of paths (1) and (2). The append
- *                failure model is identical to context.md - the next session
- *                can re-derive totals from per-spawn events if needed.
+ *                of path (1). (3) events.jsonl write is best-effort; writeSessionTotal
+ *                now ALWAYS creates events.jsonl (zero-aggregate fallback when no
+ *                qualifying events exist) after ensuring .agentic/ dir exists via
+ *                mkdirSync({recursive:true}). Any fs error is swallowed independently
+ *                of paths (1) and (2). The append failure model is identical to
+ *                context.md - the next session can re-derive totals from per-spawn
+ *                events if needed.
  *                (4) writeBatchState writes interrupted-status to
  *                .agentic/batch-state.json on session exit; aborts silently on
  *                session_id mismatch with the file's owner, on missing file, or
@@ -333,6 +339,19 @@ function writeBatchState(cwd, sessionId) {
  * Scan events.jsonl and return aggregate totals for the current session.
  * Returns null if the file is absent, empty, or unreadable.
  *
+ * Counting rules:
+ *   - spawn_complete events contribute wall_seconds + tokens + spawn count.
+ *   - conductor_direct events are NO LONGER counted (deprecated; hook-emitted
+ *     spawn_start events replace them for ad-hoc session tracking).
+ *   - spawn_start events with data.source === 'hook' contribute spawn count
+ *     (wall_seconds 0, no tokens) ONLY when the session has zero spawn_complete
+ *     events (ad-hoc session double-count guard). In /implement-ticket sessions
+ *     that carry conductor spawn_complete events the hook spawn_starts are
+ *     skipped to avoid inflating counts with unverified duplicates. The resulting
+ *     mild undercount of advisory spawn counts in mixed sessions is accepted
+ *     (per plan deferred default: per-spawn reconciliation is impossible without
+ *     a harness-provided correlation id).
+ *
  * The returned by_agent map uses the rich token structure (4 bands) needed by
  * writeSessionTotal. writeSessionLog re-shapes it to its own output format.
  *
@@ -352,14 +371,39 @@ function scanSessionAggregate(eventsPath, sessionId) {
   const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
   const byAgent = {};
 
+  // First pass: count spawn_complete events to determine session type.
+  // If any spawn_complete exists this is a ticketed/mixed session; hook
+  // spawn_starts will be skipped in the second pass (double-count guard).
+  let hasSpawnComplete = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+    if (obj && obj.event === 'spawn_complete') {
+      const data = (obj && obj.data) || {};
+      if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
+      hasSpawnComplete = true;
+      break;
+    }
+  }
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     let obj;
     try { obj = JSON.parse(trimmed); } catch (_) { continue; }
     const ev = obj && obj.event;
-    if (ev !== 'spawn_complete' && ev !== 'conductor_direct') continue;
     const data = (obj && obj.data) || {};
+
+    // Determine whether this line is a hook-emitted spawn_start.
+    const isHookSpawn = ev === 'spawn_start' && data.source === 'hook';
+
+    // Count: spawn_complete always; hook spawn_start only in ad-hoc sessions
+    // (no spawn_complete in this session). conductor_direct is no longer counted.
+    if (ev !== 'spawn_complete' && !isHookSpawn) continue;
+    if (isHookSpawn && hasSpawnComplete) continue; // double-count guard
+
     // Filter to current session when session_uuid is present on the
     // event payload. Events without session_uuid are included
     // unconditionally (tolerant of pre-instrumentation events).
@@ -372,21 +416,23 @@ function scanSessionAggregate(eventsPath, sessionId) {
     for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
       totalTokens[k] += Number(tokens[k]) || 0;
     }
+    // Count the spawn (both spawn_complete and hook spawn_start count as spawns).
+    spawnCount += 1;
+    const agentName = obj.agent || 'unknown';
+    if (!byAgent[agentName]) {
+      byAgent[agentName] = {
+        spawns: 0, wall_seconds: 0,
+        tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+      };
+    }
+    byAgent[agentName].spawns += 1;
+    byAgent[agentName].wall_seconds += wall;
     if (ev === 'spawn_complete') {
-      spawnCount += 1;
-      const agentName = obj.agent || 'unknown';
-      if (!byAgent[agentName]) {
-        byAgent[agentName] = {
-          spawns: 0, wall_seconds: 0,
-          tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-        };
-      }
-      byAgent[agentName].spawns += 1;
-      byAgent[agentName].wall_seconds += wall;
       for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
         byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
       }
     }
+    // Hook spawn_starts carry no token data (harness ceiling) - tokens stay 0.
   }
 
   return {
@@ -407,9 +453,19 @@ function scanSessionAggregate(eventsPath, sessionId) {
  */
 function writeSessionTotal(cwd, sessionId) {
   try {
-    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
-    const agg = scanSessionAggregate(eventsPath, sessionId);
-    if (!agg) return;
+    const agenticDir = path.join(cwd, '.agentic');
+    const eventsPath = path.join(agenticDir, 'events.jsonl');
+    // Ensure .agentic/ exists so the append below always works, even in
+    // ad-hoc sessions where no other hook has created the directory yet.
+    fs.mkdirSync(agenticDir, { recursive: true });
+    // Bootstrap: when no qualifying events exist, write a zero-aggregate
+    // session_total so events.jsonl is ALWAYS created on every session exit.
+    const agg = scanSessionAggregate(eventsPath, sessionId) || {
+      wall_seconds: 0,
+      tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+      spawn_count: 0,
+      by_agent: {},
+    };
 
     const totalLine = JSON.stringify({
       ts: new Date().toISOString(),
