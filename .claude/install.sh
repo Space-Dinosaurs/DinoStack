@@ -393,7 +393,7 @@ fi
 
 echo "Updating ~/.claude/settings.json..."
 
-python3 - <<PYEOF
+python3 - <<'PYEOF'
 import json, os, sys
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
