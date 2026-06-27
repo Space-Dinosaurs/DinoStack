@@ -63,8 +63,9 @@ work does not stall.
 
 ## Hooks
 
-DinoStack ships PreToolUse hooks in [`hooks/`](../hooks/), wired into
-`~/.claude/settings.json` by the installer:
+DinoStack ships hooks in [`hooks/`](../hooks/). PreToolUse and Stop hooks are
+wired into `~/.claude/settings.json` by the installer; `pre-commit` is a git
+hook installed separately:
 
 - [`enforce-background-spawn.py`](../hooks/enforce-background-spawn.py) - PreToolUse;
   denies a subagent spawn that lacks `run_in_background: true`.
