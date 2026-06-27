@@ -450,7 +450,7 @@ The audit-note mechanism is the **primary** defense against the rubber-stamp / c
 
 **Minor** — Optional. Never blocks sign-off. When Minor findings are present at sign-off, the primary agent spawns a general-purpose agent (background) to apply them - no follow-up Skeptic review is required, regardless of file type. Minor-fix Workers are an intentional exception to the "modifies protocol or infrastructure files" Elevated signal. Examples: style improvements, non-critical logging gaps, minor documentation issues, low-impact optimizations.
 
-- **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa or performs a Trivial-path direct edit and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` or `conductor_direct` events for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate.
+- **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` events (or, for ad-hoc sessions, the hook-emitted `spawn_start` with `data.source:"hook"`) for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate. (`conductor_direct` is deprecated and no longer emitted; its absence is not a finding.)
 
 The Skeptic must classify every finding. Unclassified findings are treated as Major by default.
 

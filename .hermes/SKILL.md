@@ -800,11 +800,11 @@ Additionally, the Stop hook writes a one-line per-session rollup to `.agentic/se
 
 **Pending-buffer (pre-attribution staging).** When no confirmed identity exists at session exit - i.e., `agentic-identity init` has not yet been run - the Stop hook writes the session telemetry record to `~/.agentic/session-log/.pending/<session_uuid>.json` instead of a named per-developer log. This file is a staging area only: it is not an `events.jsonl` event type, it is not read by `agentic-cost`, and it carries no `developer_id` field. When the user later runs `agentic-identity confirm` or `agentic-identity init <handle>`, the identity layer flushes all pending records, stamps each with the confirmed handle, and appends them to the appropriate per-project and global session-log files as if they had been written at session time.
 
-**`session_uuid` on conductor-emitted events.** The conductor stamps `data.session_uuid` on every `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, and `tool_failure_workaround` emit. The value is the Claude Code harness session uuid obtained from `$CLAUDE_CODE_SESSION_ID`, which MUST equal the Stop hook's `payload.session_id`. This allows the Stop hook and session-scoped readers to filter precisely to one session. Absent on legacy lines; general readers treat absence as include for back-compat.
+**`session_uuid` on conductor-emitted events.** The conductor stamps `data.session_uuid` on every `spawn_start`, `spawn_complete`, `meta_review_complete`, and `tool_failure_workaround` emit. The value is the Claude Code harness session uuid obtained from `$CLAUDE_CODE_SESSION_ID`, which MUST equal the Stop hook's `payload.session_id`. This allows the Stop hook and session-scoped readers to filter precisely to one session. Absent on legacy lines; general readers treat absence as include for back-compat. (`conductor_direct` is deprecated and no longer emitted.)
 
-**`tool_failure_workaround` event type.** Emitted by the conductor when it resolves a tool or command failure via retry or workaround. Schema: `{ event: "tool_failure_workaround", agent: null, data: { session_uuid, tool, domain_tag, note } }`. PII boundary identical to `conductor_direct` (no args, no output, no secrets; `note` is one sentence). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
+**`tool_failure_workaround` event type.** Emitted by the conductor when it resolves a tool or command failure via retry or workaround. Schema: `{ event: "tool_failure_workaround", agent: null, data: { session_uuid, tool, domain_tag, note } }`. PII boundary: no args, no output, no secrets; `note` is one sentence. The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
 
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`.
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated; its schema is preserved there for historical reference only.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
@@ -878,7 +878,7 @@ See METHODOLOGY.md §Capability Preflight for when preflight runs, advisory vs b
 See METHODOLOGY.md §QA Gate for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
 
 **Events log schema** - full V1 telemetry event-type field shapes and operational notes:
-Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in METHODOLOGY.md §Events log.
+Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in METHODOLOGY.md §Events log. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.)
 
 **Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
 Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in METHODOLOGY.md §Worktree Lifecycle.
@@ -2613,11 +2613,12 @@ Analogous to the regression-test-obligation "what counts" bar: the update must m
 <!--
 Purpose: Full reference for the events log V1 telemetry event-type schemas and
          operational notes extracted from METHODOLOGY.md §Events log. Contains
-         field-level data shapes for all 6 event types (spawn_start, spawn_complete,
-         conductor_direct, meta_review_complete, session_total, tool_failure_workaround),
-         plus append discipline, atomicity, retention, and consumer notes. Also
-         documents the per-developer session log (.agentic/session-log/) written
-         by the Stop hook.
+         field-level data shapes for all active event types (spawn_start,
+         spawn_complete, meta_review_complete, session_total,
+         tool_failure_workaround) plus the deprecated conductor_direct block kept
+         for historical reference, append discipline, atomicity, retention, and
+         consumer notes. Also documents the per-developer session log
+         (.agentic/session-log/) written by the Stop hook.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/09-events-log.md (pointer after Schema block),
@@ -2632,7 +2633,7 @@ Upstream deps: content/sections/09-events-log.md (parent section; read that
                content/references/skeptic-protocol.md Section 14
                (calibration mechanism specification for Skeptic-specific fields).
 
-Downstream consumers: conductor (constructs spawn_start/spawn_complete/conductor_direct/
+Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       tool_failure_workaround payloads at orchestration boundaries);
                       Stop hook (constructs session_total payload at session exit AND
                       writes per-developer session log to .agentic/session-log/);
@@ -2658,12 +2659,12 @@ Performance: Standard.
 - `spawn_start`: emitted by the conductor immediately before a Task tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, `agent_id: null` (Claude Code assigns the agent id after the Task returns), and `session_uuid` (see below).
 - `spawn_complete`: emitted by the conductor immediately after a Task tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), `status`, and `session_uuid` (see below).
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
-- `conductor_direct`: emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carries `wall_seconds`, a `note`, and `session_uuid` (see below); tokens are zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
+- `conductor_direct`: **[DEPRECATED - no longer emitted; hook-emitted `spawn_start` (data.source:"hook") now provides ad-hoc spawn telemetry]** _(Historical reference only.)_ Was emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carried `wall_seconds`, a `note`, and `session_uuid`; tokens were zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
 - `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
-- `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; same PII boundary as `conductor_direct` - no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
+- `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
 
-**`session_uuid` field (conductor-emitted events).** The four conductor-emitted event types above (`spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` at session exit. **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
+**`session_uuid` field (conductor-emitted events).** The four active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` at session exit. **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
 
 ## Append discipline
 
@@ -4045,7 +4046,7 @@ The audit-note mechanism is the **primary** defense against the rubber-stamp / c
 
 **Minor** — Optional. Never blocks sign-off. When Minor findings are present at sign-off, the primary agent spawns a general-purpose agent (background) to apply them - no follow-up Skeptic review is required, regardless of file type. Minor-fix Workers are an intentional exception to the "modifies protocol or infrastructure files" Elevated signal. Examples: style improvements, non-critical logging gaps, minor documentation issues, low-impact optimizations.
 
-- **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa or performs a Trivial-path direct edit and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` or `conductor_direct` events for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate.
+- **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` events (or, for ad-hoc sessions, the hook-emitted `spawn_start` with `data.source:"hook"`) for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate. (`conductor_direct` is deprecated and no longer emitted; its absence is not a finding.)
 
 The Skeptic must classify every finding. Unclassified findings are treated as Major by default.
 
@@ -11952,7 +11953,7 @@ agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_k
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
 ```
-See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time.
+See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
 
 ```
 ## Prior iteration findings
