@@ -309,6 +309,21 @@ function _parseLearningsDomains(cwd) {
  * Append a new candidate entry to .agentic/skill-candidates.md.
  * Creates the file if absent; appends otherwise.
  *
+ * Canonical entry format (must match seed stub and what the command/sweep read):
+ *
+ *   ## <domain>
+ *   **Count:** <n>
+ *   **Suggested artifact:** <command|named-agent|preset|lint-rule>
+ *   **First seen:** <ISO date>
+ *   **Last seen:** <ISO date>
+ *   **Status:** open
+ *   **Example:** "<exampleNote>"
+ *
+ * The `## <domain>` heading is the unique key. Status is set to `open` once by
+ * the detector; a human edits it to `dismissed` to suppress. The detector MUST
+ * NOT overwrite an existing entry (the surfacedAt guard in the caller ensures
+ * this function is called exactly once per domain).
+ *
  * @param {string} cwd
  * @param {string} domain
  * @param {object} entry - tally candidate entry
@@ -317,18 +332,20 @@ function _appendCandidate(cwd, domain, entry) {
   const filePath = path.join(cwd, '.agentic', 'skill-candidates.md');
   const dateStr = new Date().toISOString().slice(0, 10);
 
+  const firstSeen = entry.firstSeen ? entry.firstSeen.slice(0, 10) : dateStr;
+  const lastSeen = entry.lastSeen ? entry.lastSeen.slice(0, 10) : dateStr;
+
   const block = [
     ``,
     `## ${domain}`,
+    `**Count:** ${entry.count}`,
+    `**Suggested artifact:** ${entry.suggestedArtifact}`,
+    `**First seen:** ${firstSeen}`,
+    `**Last seen:** ${lastSeen}`,
+    `**Status:** open`,
+    entry.exampleNote ? `**Example:** "${entry.exampleNote}"` : `**Example:** ""`,
     ``,
-    `- **Suggested artifact:** ${entry.suggestedArtifact}`,
-    `- **Lifetime count:** ${entry.count}`,
-    `- **First seen:** ${entry.firstSeen || dateStr}`,
-    `- **Last seen:** ${entry.lastSeen || dateStr}`,
-    `- **Surfaced:** ${entry.surfacedAt}`,
-    entry.exampleNote ? `- **Example:** ${entry.exampleNote}` : null,
-    ``,
-  ].filter((l) => l !== null).join('\n');
+  ].join('\n');
 
   // Create file with header if absent.
   if (!fs.existsSync(filePath)) {

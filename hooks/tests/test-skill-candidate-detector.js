@@ -174,8 +174,17 @@ console.log('\nTest 2: at-threshold-candidate-written (3 events -> candidate ent
   await runSkillCandidateScan(cwd, SESSION);
 
   const candidates = readCandidates(cwd);
-  assert(candidates.includes('git-push'), 'skill-candidates.md contains the git-push entry');
-  assert(candidates.includes('**Lifetime count:** 3'), 'candidate entry shows count 3');
+  assert(candidates.includes('## git-push'), 'skill-candidates.md contains the ## git-push heading');
+  assert(candidates.includes('**Count:** 3'), 'candidate entry shows count 3');
+  assert(candidates.includes('**Suggested artifact:**'), 'candidate entry has Suggested artifact field');
+  assert(candidates.includes('**First seen:**'), 'candidate entry has First seen field');
+  assert(candidates.includes('**Last seen:**'), 'candidate entry has Last seen field');
+  assert(candidates.includes('**Status:** open'), 'candidate entry has Status: open');
+  assert(candidates.includes('**Example:**'), 'candidate entry has Example field');
+  // Confirm old format fields are NOT present (revert-hazard check).
+  assert(!candidates.includes('**Lifetime count:**'), 'old Lifetime count label not present');
+  assert(!candidates.includes('**Surfaced:**'), 'old Surfaced line not present');
+  assert(!candidates.includes('[SC-'), 'no [SC-...] id present');
 
   const tally = _readTally(cwd);
   assert(tally.candidates['git-push'].surfacedAt, 'surfacedAt is set after crossing threshold');

@@ -1041,6 +1041,17 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 
 **Pagination (vicious loop defense):** The sweep MUST NOT read the full `.agentic/events.jsonl` on every boot. It reads only events with `ts` strictly greater than the timestamp stored in `.agentic/.meta-divergence-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), the scan is capped to the most recent 100 lines of the events file. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to the tracker file (atomic: tmp + `mv`). This prevents the vicious loop where growing telemetry consumes ever more context on every session start. See `content/references/skeptic-protocol.md` Section 14 "Session-start sweep pagination" for the full procedure.
 
+**Skill-candidate sweep at session start.** After the meta-divergence sweep, the conductor checks `.agentic/skill-candidates.md` for entries. Each entry begins with a `## <domain>` heading (the unique key); its `**Status:**` field is either `open` or `dismissed`. For each entry whose `**Status:**` is `open` AND whose domain is NOT present in `.agentic/.skill-candidates-surfaced`, emit at the next user-facing turn boundary:
+
+```
+SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - consider creating a skill (suggested artifact: <suggestedArtifact>). Run /skill-candidates for the full backlog.
+[phase: skill-candidate]
+```
+
+Then append the domain (the `## <domain>` heading value, without the `## ` prefix) to `.agentic/.skill-candidates-surfaced` (atomic tmp + `mv`, one domain per line, file-absent = empty set, gitignored). File-absent for `.agentic/skill-candidates.md` = no-op. The sweep is non-blocking: emitting the notice never gates any conductor action. Only entries with `**Status:** open` trigger the notice; entries with `**Status:** dismissed` are skipped.
+
+**Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
+
 **Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
@@ -15247,6 +15258,127 @@ Pick the single best match. If multiple apply, use the first match in this list.
 - The main agent never touches the Worker's implementation. Review only the returned result.
 - Keep the preflight list honest: only mark issues as resolved when they genuinely are.
 - Pass the adversarial brief to the Skeptic verbatim - never soften or summarize it.
+
+---
+
+### /skill-candidates
+
+# /skill-candidates
+
+Read-only view of the skill-candidate backlog. Displays open and dismissed
+candidates detected from recurring workflow friction - each with its domain,
+count, suggested artifact type, and example note. Points at the `skill-creator`
+skill for open items.
+
+No writes, no agent spawns, no network calls. Always exits 0.
+
+## Usage
+
+```
+/skill-candidates
+```
+
+No subcommands, no flags. Reads `.agentic/skill-candidates.md` from the
+current working directory. If the file is absent: "No skill candidates
+detected yet."
+
+## Entry format (canonical)
+
+Each entry in `.agentic/skill-candidates.md` has the following structure.
+The `## <domain>` heading is the unique key. `Status` is `open` (written by
+the detector on first promotion) or `dismissed` (set by a human to suppress).
+
+```markdown
+## <domain>
+**Count:** <lifetime occurrence count>
+**Suggested artifact:** command | named-agent | preset | lint-rule
+**First seen:** YYYY-MM-DD
+**Last seen:** YYYY-MM-DD
+**Status:** open
+**Example:** "<data.note from the triggering event>"
+```
+
+## What this shows
+
+The backlog is written by the Stop hook's `runSkillCandidateScan` whenever a
+domain tag accumulates >= 3 occurrences across sessions (from
+`tool_failure_workaround` events and `.agentic/learnings.md` entries). Each
+entry carries:
+
+- **Domain** - the `## <domain>` heading (unique key)
+- **Count** - lifetime occurrence count across sessions
+- **Suggested artifact** - `command`, `named-agent`, `preset`, or `lint-rule`
+  (routing taxonomy from the detection signal)
+- **Status** - `open` (not yet dismissed) or `dismissed` (operator suppressed)
+- **First seen / Last seen** - ISO date range of the friction signal
+- **Example** - the `data.note` from the triggering event (illustrative only)
+
+## Grouping by status
+
+The command groups entries by `**Status:**` value:
+
+- **OPEN** - entries with `**Status:** open` whose domain is NOT present in
+  `.agentic/.skill-candidates-surfaced`. These are the primary action items.
+- **OPEN (already surfaced)** - entries with `**Status:** open` whose domain IS
+  in `.agentic/.skill-candidates-surfaced`. Conductor has already nudged once.
+- **DISMISSED** - entries with `**Status:** dismissed`.
+
+The command reads `.agentic/.skill-candidates-surfaced` (one domain per line)
+to determine which open entries have already been surfaced at session start.
+It never writes to this file.
+
+## Output example
+
+```
+Skill candidates  (.agentic/skill-candidates.md)
+
+OPEN
+  adapter-interface   count: 5   suggested: command
+    first seen: 2026-05-01   last seen: 2026-05-12
+    example: "adapter build.sh signatures diverged; had to reconcile manually"
+
+  deploy-verification  count: 3   suggested: named-agent
+    first seen: 2026-05-10   last seen: 2026-05-12
+    example: "ran manual Vercel rollout check; no automated verify step"
+
+OPEN (already surfaced)
+  worktree-cleanup    count: 4   suggested: command
+    first seen: 2026-05-05   last seen: 2026-05-11
+    example: "forgot to remove worktree after merge"
+
+DISMISSED
+  (none)
+
+To create a skill for an open item: run /skill-creator <domain>
+To dismiss a candidate: edit .agentic/skill-candidates.md and change
+  **Status:** open  to  **Status:** dismissed
+```
+
+When `.agentic/skill-candidates.md` is absent:
+
+```
+No skill candidates detected yet.
+
+The detector runs at session end (Stop hook) and writes candidates here
+when a domain tag accumulates >= 3 occurrences. Check back after a few
+more sessions, or verify that skill_candidate_detection is true in
+.agentic/config.json.
+```
+
+## Gating
+
+This command is a no-op (displays the absent-file message) when
+`skill_candidate_detection: false` in `.agentic/config.json`. The file is
+the single source of truth; the command never calls the detector itself.
+
+## Intent layer note
+
+`.agentic/skill-candidates.md` is **committed** in consumer projects (via a
+`!.agentic/skill-candidates.md` carve-out in `project-scaffolding.yml`) so
+the backlog travels with the repo and is visible to all team members. It is
+NOT committed in the DinoStack methodology source repo itself (the blanket
+`.agentic/*` ignore governs there - intended; DinoStack is the source, not
+a consumer).
 
 ---
 
