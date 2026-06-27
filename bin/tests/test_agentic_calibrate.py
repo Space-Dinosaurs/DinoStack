@@ -120,15 +120,24 @@ def test_density_missing_events_exits_one():
 
 
 def test_density_empty_events_warming_up():
-    """density with no qualifying spawn_complete events -> warming-up message."""
+    """density with no qualifying spawn_complete events -> warming-up message.
+
+    NOTE: this fixture was previously a conductor_direct event. conductor_direct
+    is no longer emitted by the conductor (deprecated in scanSessionAggregate per
+    Unit A of events-emission-fix). The assertion is unchanged: any non-skeptic-
+    spawn_complete event must produce the warming-up message. We use session_total
+    (which is what Stop hook now writes in every session) as the non-qualifying
+    event so the fixture reflects realistic events.jsonl content.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         agentic = Path(tmp) / ".agentic"
         agentic.mkdir()
         events_path = agentic / "events.jsonl"
-        # Write an event that is NOT a skeptic spawn_complete
+        # Write a session_total event - not a skeptic spawn_complete; warming-up expected.
         events_path.write_text(
-            json.dumps({"ts": "2026-05-01T10:00:00Z", "event": "conductor_direct",
-                        "agent": None, "task_id": None, "data": {}}) + "\n"
+            json.dumps({"ts": "2026-05-01T10:00:00Z", "event": "session_total",
+                        "agent": None, "task_id": None,
+                        "data": {"spawn_count": 0, "by_agent": {}}}) + "\n"
         )
         args = types.SimpleNamespace(since=None, task=None)
         rc, out, _ = _capture_cmd(_mod.cmd_density, args, events_path)

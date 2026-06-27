@@ -31,6 +31,26 @@ loader.exec_module(_mod)
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _make_hook_spawn_start(
+    agent: str,
+    session_uuid: str | None,
+    ts: str,
+) -> str:
+    """Hook-emitted spawn_start event (no tokens, no wall_seconds)."""
+    return json.dumps({
+        "ts": ts,
+        "phase": "hook",
+        "event": "spawn_start",
+        "agent": agent,
+        "task_id": None,
+        "data": {
+            "source": "hook",
+            "session_uuid": session_uuid,
+            "tokens_note": "unavailable (harness)",
+        },
+    })
+
+
 def _make_spawn_complete(
     agent: str,
     task_id: str | None,
@@ -456,6 +476,156 @@ def test_filter_records_since():
     print("PASS test_filter_records_since")
 
 
+def test_session_hook_spawn_tokens_render_na():
+    """session with hook spawn_start only (zero tokens) -> n/a in token columns."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        # Hook-emitted spawn_start: no tokens, no wall_seconds.
+        # After the aggregator fix, spawn_start events ARE counted: this input
+        # yields 1 investigator spawn with zero tokens. The zero-token row
+        # renders n/a in the token columns (both agent row and TOTAL row).
+        events_path.write_text(
+            _make_hook_spawn_start("investigator", "sess-na-001", "2026-06-01T10:00:00Z") + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        assert "TOTAL" in out, f"Expected TOTAL row: {out!r}"
+        assert "n/a" in out, f"Expected n/a in token columns for zero-token row: {out!r}"
+    print("PASS test_session_hook_spawn_tokens_render_na")
+
+
+def test_render_table_na_for_zero_tokens():
+    """_render_table renders n/a in token columns when agent has all-zero tokens."""
+    agg = {
+        "investigator": {
+            "spawns": 1,
+            "tokens": {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0},
+            "wall_seconds": 0.0,
+            "models": [],
+        },
+    }
+    out = _mod._render_table(agg, None, None, None, 0)
+    assert "n/a" in out, f"Expected n/a for zero-token agent row: {out!r}"
+    # TOTAL row should also be n/a since all tokens are zero.
+    lines = out.splitlines()
+    total_line = next((l for l in lines if l.startswith("TOTAL")), None)
+    assert total_line is not None, "TOTAL row missing"
+    assert "n/a" in total_line, f"Expected n/a in TOTAL row: {total_line!r}"
+    print("PASS test_render_table_na_for_zero_tokens")
+
+
+def test_render_table_no_na_when_tokens_present():
+    """_render_table uses numeric columns when tokens > 0 (no spurious n/a)."""
+    agg = {
+        "engineer": {
+            "spawns": 1,
+            "tokens": {"input": 500, "output": 250, "cache_creation": 0, "cache_read": 0},
+            "wall_seconds": 12.5,
+            "models": [],
+        },
+    }
+    out = _mod._render_table(agg, None, None, None, 0)
+    # Token columns should show real numbers.
+    assert "500" in out, f"Expected 500 tokens: {out!r}"
+    assert "250" in out, f"Expected 250 tokens: {out!r}"
+    # Should NOT have n/a when tokens are present.
+    lines = [l for l in out.splitlines() if l.startswith("engineer")]
+    assert lines, "engineer row missing"
+    assert "n/a" not in lines[0], f"Unexpected n/a in non-zero token row: {lines[0]!r}"
+    print("PASS test_render_table_no_na_when_tokens_present")
+
+
+# ---------------------------------------------------------------------------
+# Hook spawn counting + double-count guard tests  (a, b, c)
+# ---------------------------------------------------------------------------
+
+def test_hook_spawn_counted_in_ad_hoc_session():
+    """(a) Ad-hoc session (only hook spawn_start) -> per-agent spawn count > 0."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        # Pure ad-hoc session: two hook spawn_start events, no spawn_complete.
+        events_path.write_text(
+            _make_hook_spawn_start("investigator", "adhoc-uuid-1", "2026-06-01T10:00:00Z") + "\n"
+            + _make_hook_spawn_start("architect", "adhoc-uuid-1", "2026-06-01T10:01:00Z") + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        # Both agents must appear with spawn count 1.
+        assert "investigator" in out, f"Expected investigator row: {out!r}"
+        assert "architect" in out, f"Expected architect row: {out!r}"
+        # Spawn count must not be 0 (the bug this fixes).
+        lines = out.splitlines()
+        inv_line = next((l for l in lines if l.startswith("investigator")), None)
+        assert inv_line is not None, "investigator row missing"
+        # Field 2 (0-indexed after strip) is the spawns column.
+        fields = inv_line.split()
+        assert fields[1] == "1", f"Expected spawns=1 for investigator, got: {inv_line!r}"
+        arch_line = next((l for l in lines if l.startswith("architect")), None)
+        assert arch_line is not None, "architect row missing"
+        arch_fields = arch_line.split()
+        assert arch_fields[1] == "1", f"Expected spawns=1 for architect, got: {arch_line!r}"
+    print("PASS test_hook_spawn_counted_in_ad_hoc_session")
+
+
+def test_double_count_guard_ticketed_session():
+    """(b) Ticketed session (has spawn_complete) with co-present hook spawn_start
+    -> count NOT inflated by hook events."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        # Same session uuid: one spawn_complete + one hook spawn_start.
+        # The hook spawn_start must be ignored because spawn_complete is present.
+        events_path.write_text(
+            _make_spawn_complete("engineer", "T-1", "ticket-uuid-1",
+                                  "2026-06-01T10:00:00Z", input_tokens=200) + "\n"
+            + _make_hook_spawn_start("engineer", "ticket-uuid-1",
+                                      "2026-06-01T09:59:00Z") + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        assert eng_line is not None, "engineer row missing"
+        fields = eng_line.split()
+        # Must be exactly 1 spawn (the spawn_complete), not 2.
+        assert fields[1] == "1", (
+            f"Expected spawns=1 (no double-count), got: {eng_line!r}"
+        )
+        # Tokens must be present (200 input from spawn_complete).
+        assert "200" in out, f"Expected 200 tokens from spawn_complete: {out!r}"
+    print("PASS test_double_count_guard_ticketed_session")
+
+
+def test_hook_spawn_wall_and_tokens_render_na():
+    """(c) Hook-only rows render n/a for both token and wall_seconds columns."""
+    agg = {
+        "investigator": {
+            "spawns": 2,
+            "tokens": {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0},
+            "wall_seconds": 0.0,
+            "models": {},
+        },
+    }
+    out = _mod._render_table(agg, None, None, None, 0)
+    lines = out.splitlines()
+    inv_line = next((l for l in lines if l.startswith("investigator")), None)
+    assert inv_line is not None, "investigator row missing"
+    # Both token and wall columns must be n/a.
+    assert "n/a" in inv_line, f"Expected n/a in hook-only agent row: {inv_line!r}"
+    # Count n/a occurrences: expect at least 5 (4 token cols + 1 wall col).
+    na_count = inv_line.count("n/a")
+    assert na_count >= 5, (
+        f"Expected >=5 n/a fields (tokens + wall), got {na_count}: {inv_line!r}"
+    )
+    # TOTAL row must also be all n/a.
+    total_line = next((l for l in lines if l.startswith("TOTAL")), None)
+    assert total_line is not None, "TOTAL row missing"
+    assert "n/a" in total_line, f"Expected n/a in TOTAL row: {total_line!r}"
+    print("PASS test_hook_spawn_wall_and_tokens_render_na")
+
+
 if __name__ == "__main__":
     # session
     test_session_no_events_empty_table()
@@ -481,4 +651,12 @@ if __name__ == "__main__":
     test_aggregate_operator_groups_by_dev_and_project()
     test_aggregate_operator_skips_missing_developer_id()
     test_filter_records_since()
+    # n/a rendering (hook spawn tokens unavailable)
+    test_session_hook_spawn_tokens_render_na()
+    test_render_table_na_for_zero_tokens()
+    test_render_table_no_na_when_tokens_present()
+    # hook spawn counting + double-count guard (a, b, c)
+    test_hook_spawn_counted_in_ad_hoc_session()
+    test_double_count_guard_ticketed_session()
+    test_hook_spawn_wall_and_tokens_render_na()
     print("All agentic-cost session/task/project/operator tests passed.")

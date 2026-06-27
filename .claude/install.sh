@@ -627,6 +627,17 @@ for spawn_matcher in ("Task", "Agent"):
         f"PreToolUse({spawn_matcher}) tier-enforcement hook",
     )
 
+    # Emits a spawn_start telemetry event to .agentic/events.jsonl on every
+    # subagent spawn. Fully fail-open (no deny, no stdout). Enables deterministic
+    # events.jsonl creation in ad-hoc sessions that never run /implement-ticket.
+    SPAWN_EMIT_CMD = f"node {repo_dir}/hooks/pre-tool-use-spawn-emit.js"
+    upsert_hook(
+        ptu_block["hooks"],
+        "pre-tool-use-spawn-emit.js",
+        {"type": "command", "command": SPAWN_EMIT_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) spawn-emit telemetry hook",
+    )
+
 # ---- PostToolUse capture-nudge hook -----------------------------------------
 # Surfaces an in-session capture-gap nudge when a subagent spawn launches and the
 # session has a learning-worthy event with no learning captured yet. Claude Code
