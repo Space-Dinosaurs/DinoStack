@@ -574,7 +574,7 @@ upsert_hook(
     "SessionStart deferred-wrap hook",
 )
 
-# ---- PreToolUse background-spawn + orchestrator-singularity hooks -----------
+# ---- PreToolUse background-spawn + orchestrator-singularity + tier hooks ----
 # NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool from
 # "Task" to "Agent". We wire BOTH matcher names so the hooks fire under either
 # CC version. The hooks themselves also guard on both names internally for
@@ -582,6 +582,7 @@ upsert_hook(
 # "Task" (legacy) and one for "Agent" (current), each containing both hooks.
 ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
 ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
+ENFORCE_TIER_CMD = f"python3 {repo_dir}/hooks/enforce-tier.py"
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
@@ -614,6 +615,16 @@ for spawn_matcher in ("Task", "Agent"):
         "enforce-orchestrator-singularity.py",
         {"type": "command", "command": ENFORCE_SINGULARITY_CMD, "timeout": 5},
         f"PreToolUse({spawn_matcher}) orchestrator-singularity enforcement hook",
+    )
+
+    # Denies an EXPLICIT model downgrade on a mandated-Tier-3 review agent
+    # (skeptic / security-auditor). Escalate-only, fail-open. To disable: set
+    # AE_TIER_GUARD_DISABLE=1 in the environment that launches Claude Code.
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-tier.py",
+        {"type": "command", "command": ENFORCE_TIER_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) tier-enforcement hook",
     )
 
 # ---- PostToolUse capture-nudge hook -----------------------------------------
