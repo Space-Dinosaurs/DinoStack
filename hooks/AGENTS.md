@@ -1,8 +1,8 @@
 # hooks/
 
 Claude Code lifecycle hooks that enforce methodology rules at the harness
-level and write session telemetry to disk. Eleven scripts in the table below
-(4 Python PreToolUse/Stop enforcers, 4 Node lifecycle handlers, 3 Bash helpers).
+level and write session telemetry to disk. Twelve scripts in the table below
+(5 Python PreToolUse/Stop enforcers, 4 Node lifecycle handlers, 3 Bash helpers).
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
 hook, and is out of scope for this table. `lib/` holds shared utilities
 consumed by the JS hooks and one bin script. Each script ships with a
@@ -17,6 +17,7 @@ module-group map.
 | `enforce-background-spawn.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns missing `run_in_background: true`; allow documented foreground-exempt agents. |
 | `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with permission-seeking interrogatives; inject a "proceed" directive. |
 | `enforce-orchestrator-singularity.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns issued from inside a subagent context (no nested orchestration). |
+| `enforce-tier.py` | Python | PreToolUse (Task/Agent) | Deny an explicit sub-Opus `model` downgrade on a mandated-Tier-3 review agent (security-auditor always; skeptic when the brief matches a Tier-3 escalation signal). Escalate-only, fail-open. |
 | `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. |
 | `session-end-wrap.js` | Node | SessionEnd | Finalize the deferred-`/wrap` pending-to-ready marker transition and optionally launch `wrap-daemon.js` detached. |
 | `session-start-version-check.sh` | Bash | (sub-script, not wired directly) | Emit a "newer version available" `systemMessage` via the version-check core; called by `session-start-wrap.sh`. |
