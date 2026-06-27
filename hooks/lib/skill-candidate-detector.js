@@ -31,7 +31,7 @@
  *   [cwd]/.agentic/skill-candidates.md (appended when domain first crosses threshold)
  *
  * Downstream consumers:
- *   hooks/stop-context.js (Stop-hook write path; NOT YET WIRED - to be wired in a later unit)
+ *   hooks/stop-context.js (Stop-hook write path; wired as of this PR)
  *   hooks/post-tool-use-capture-nudge.js (Layer-2 peek path; NOT YET WIRED - later unit)
  *
  * Failure modes: runSkillCandidateScan never throws - top-level try/catch absorbs

@@ -31,12 +31,15 @@
  *             stagePending, touchHeartbeat, etc.) now live in
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
- * Upstream deps: Node built-ins only (fs, path, os, child_process) plus two
+ * Upstream deps: Node built-ins only (fs, path, os, child_process) plus three
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/wrap
  *                marker single source of truth - lock gate, per-session staging,
- *                heartbeat) and hooks/lib/capture-gap.js (the shared capture-gap
+ *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
  *                detector - detectCaptureGap, GUARDRAIL_PATTERNS, _tokenize,
- *                extracted so the in-session PostToolUse nudge reuses it).
+ *                extracted so the in-session PostToolUse nudge reuses it), and
+ *                hooks/lib/skill-candidate-detector.js (Stop-hook write path
+ *                runSkillCandidateScan; required lazily inside the skill-candidate
+ *                detection path, gated by the skill_candidate_detection toggle).
  *                No npm dependencies. Reads from stdin (fd 0).
  *                Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
@@ -48,11 +51,18 @@
  *                ~/.agentic/identity.yml (read-only, global),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
  *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
- *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon toggle),
- *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop),
- *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop),
+ *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon +
+ *                skill_candidate_detection toggles),
+ *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop and
+ *                skill-candidate scan),
+ *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop and
+ *                skill-candidate scan),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor; atomic
- *                tmp+rename on write).
+ *                tmp+rename on write),
+ *                [cwd]/.agentic/.skill-candidate-tally.json (atomic tmp+rename),
+ *                [cwd]/.agentic/.skill-candidate-cursor (ISO8601 high-water mark),
+ *                [cwd]/.agentic/skill-candidates.md (appended when a domain first
+ *                crosses the candidate threshold).
  *                Via wrap-marker.js it also touches [cwd]/.agentic/wrap/heartbeats/<session_id>
  *                (per-turn liveness mtime) and may stage
  *                [cwd]/.agentic/wrap/pending-<session_id>.json (per-session marker).
@@ -67,7 +77,7 @@
  *                        globbed by agentic-cost (operator or team) - it is consumed
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
- * Failure modes: All failures are silent (process.exit(0)). Eleven independent
+ * Failure modes: All failures are silent (process.exit(0)). Twelve independent
  *                write paths: (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
@@ -111,7 +121,15 @@
  *                any fs error swallowed independently of all other paths.
  *                Marker staging (stageWrapPending -> wrap-marker lib) shares this
  *                fail-open discipline and is never counted as blocking exit.
- *                All eleven paths are independent - a failure in one does not
+ *                (12) runSkillCandidateScan writes .agentic/.skill-candidate-tally.json,
+ *                .agentic/.skill-candidate-cursor, and .agentic/skill-candidates.md
+ *                (when a domain first crosses the candidate threshold). Gated by
+ *                skill_candidate_detection in config.json (default true when absent
+ *                or unreadable). Any error is absorbed by runSkillCandidateScan's
+ *                own top-level try/catch; the path is additionally wrapped here in
+ *                an independent try/catch so a crash inside the detector can never
+ *                affect paths (1)-(11) or block session exit.
+ *                All twelve paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
  *                traversal components are rejected for the loop-state and
@@ -201,6 +219,31 @@ function deferredDaemonEnabled(cwd) {
     return config && config.deferred_wrap_daemon === true;
   } catch (_) {
     return false;
+  }
+}
+
+/**
+ * Read the `skill_candidate_detection` toggle from [cwd]/.agentic/config.json.
+ * Fail-open: absent file, unreadable file, parse error, or absent key all
+ * resolve to TRUE (default-on per the spec: detection is enabled unless
+ * explicitly set to false). When the key is explicitly false, returns false.
+ *
+ * @param {string} cwd - Project root directory.
+ * @returns {boolean}
+ */
+function skillCandidateDetectionEnabled(cwd) {
+  try {
+    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(raw);
+    // Only disable when the key is explicitly set to false (boolean).
+    if (config && config.skill_candidate_detection === false) {
+      return false;
+    }
+    return true;
+  } catch (_) {
+    // Absent file, unreadable, or parse error -> default true.
+    return true;
   }
 }
 
@@ -1188,6 +1231,17 @@ ${toolsLine}
         }
       } catch (_) { /* silent */ }
       removeLearningsAgentSession(cwd, sessionId);
+      // --- Skill-candidate detection (path 12 - independent soft-fail) ---
+      // Gated on skill_candidate_detection toggle (default true when absent).
+      // runSkillCandidateScan has its own top-level try/catch; this outer
+      // try/catch is an additional belt-and-suspenders layer so no error inside
+      // the detector can ever reach this exit path and block session exit.
+      try {
+        if (skillCandidateDetectionEnabled(cwd)) {
+          const { runSkillCandidateScan } = require('./lib/skill-candidate-detector.js');
+          runSkillCandidateScan(cwd, sessionId).catch(() => { /* soft-fail: async errors swallowed */ });
+        }
+      } catch (_) { /* soft-fail: require or sync setup errors swallowed */ }
       // Stage the wrap-pending marker (after the context.md decision, on every
       // exit path). Gated on deferredDaemonEnabled so the flag-off default never
       // accumulates markers. Fail-open; never blocks exit.
@@ -1278,6 +1332,19 @@ ${toolsLine}
       appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
     }
   } catch (_) { /* silent */ }
+
+  // --- 16b. Skill-candidate detection (path 12 - independent soft-fail) ---
+  // Gated on skill_candidate_detection toggle (default true when absent or
+  // unreadable). runSkillCandidateScan has its own top-level try/catch; this
+  // outer try/catch is an additional layer so no error can reach this exit path
+  // and block session exit. Lazy-require so the module is only loaded when the
+  // toggle is on.
+  try {
+    if (skillCandidateDetectionEnabled(cwd)) {
+      const { runSkillCandidateScan } = require('./lib/skill-candidate-detector.js');
+      runSkillCandidateScan(cwd, sessionId).catch(() => { /* soft-fail: async errors swallowed */ });
+    }
+  } catch (_) { /* soft-fail: require or sync setup errors swallowed */ }
 
   // --- 16. Stage the wrap-pending marker (deferred-wrap safety-net) ---
   // Runs after the context.md decision, on this exit path. Gated on
