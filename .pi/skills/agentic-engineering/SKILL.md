@@ -8,14 +8,14 @@ description: Structured multi-agent software engineering workflow for planning, 
 The Agentic Engineering system defines how to plan, delegate, review, and ship software using a
 structured multi-agent workflow. It covers risk classification, adversarial review, task
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
-files on every session and the reference docs on the triggers described in agent-methodology.md.
+files on every session and the reference docs on the triggers described in METHODOLOGY.md §Protocol Details (read on trigger).
 
-**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in `METHODOLOGY.md` for the full rule, anti-patterns, and stop-frequency thresholds.
+**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
 ## Rules (read these files)
 
-- **METHODOLOGY.md** - delegation model, risk classification, task decomposition, and
-  worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
+- **METHODOLOGY.md** - the assembled kernel: delegation, risk classification, activation preflight, planning gate,
+  task decomposition, and worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read/Glob/Grep
   over Bash for reads), code quality gates, package management conventions, and browser verification
@@ -33,7 +33,7 @@ files on every session and the reference docs on the triggers described in agent
 
 Run `/agentic-help` for the full command inventory.
 
-## Reference Docs (read on trigger - see Protocol Details in agent-methodology.md)
+## Reference Docs (read on trigger - see Protocol Details in METHODOLOGY.md)
 
 - **references/skeptic-protocol.md** - Skeptic loop orchestration, findings classification
   (Critical/Major/Minor), sign-off format, adversarial briefs, and the Elevated + Cleanup path.

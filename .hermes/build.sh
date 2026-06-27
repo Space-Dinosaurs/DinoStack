@@ -76,6 +76,8 @@ RULES_HEADER
 
 for f in "$CONTENT_DIR/rules/"*.md; do
   name=$(basename "$f")
+  # module-manifest is on-trigger reference only - skip from always-on embed
+  [[ "$name" == "module-manifest.md" ]] && continue
   echo "### ${name%.md}" >> "$HERMES_DIR/SKILL.md"
   echo "" >> "$HERMES_DIR/SKILL.md"
   cat "$f" >> "$HERMES_DIR/SKILL.md"
