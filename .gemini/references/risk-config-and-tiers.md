@@ -1,12 +1,13 @@
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         thirteen-toggle project config catalog (behavioral toggles only);
+         fifteen-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
-         tier table, model-param mapping, mandatory Tier-3 escalation,
-         frontmatter defaults, enforcement, and adapter-specific routing
-         (Codex/Gemini, Pi/oh-my-pi, cross-harness teams).
+         tier table, model-param mapping, mandatory Tier-3 escalation (with
+         enforce-tier.py hook note), frontmatter defaults, enforcement, and
+         adapter-specific routing (Codex/Gemini, Pi/oh-my-pi, cross-harness
+         teams).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/04-risk-classification.md (inline pointers
@@ -36,7 +37,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve thirteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -51,6 +52,8 @@ The conductor reads `.agentic/config.json` to resolve thirteen project-level orc
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits the per-developer session-log file (`.agentic/session-log/<developer_id>.jsonl`) as a separate commit on the PR branch, enabling cross-developer team visibility via `agentic-cost team` after pull. Set to `false` to opt out of telemetry commits on this project.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys (`deferred_wrap_idle_minutes`, `deferred_wrap_heartbeat_seconds`, `deferred_wrap_timeout_minutes`, `deferred_wrap_inprogress_reclaim_minutes`, `deferred_wrap_pending_ttl_days` - see `content/rules/conventions.md` §Project Config). The default `false` preserves the in-session synchronous `/wrap` behavior.
 - `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking permission for a non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in §Delegation. Default `false`; individual projects opt in. See `content/rules/conventions.md` §Project Config for full semantics.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking entirely.
+- `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
 
 #### Graph-derived risk signal
 
@@ -107,7 +110,7 @@ Spawning security-auditor.
 - high blast radius / shared-utility change
 - release, deploy, or production-state change
 
-This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model.
+This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Opus `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal). It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
 
 **Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
 
