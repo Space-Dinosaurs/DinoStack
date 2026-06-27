@@ -885,7 +885,10 @@ Seed with these documented defaults exactly:
   "deferred_wrap_heartbeat_seconds": 120,
   "deferred_wrap_timeout_minutes": 10,
   "deferred_wrap_inprogress_reclaim_minutes": 30,
-  "deferred_wrap_pending_ttl_days": 7
+  "deferred_wrap_pending_ttl_days": 7,
+  "abdication_guard_enabled": false,
+  "skill_candidate_detection": true,
+  "skill_candidate_nudge": false
 }
 ```
 
@@ -904,6 +907,9 @@ Seed with these documented defaults exactly:
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
 - `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
 - `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook blocks conductor abdication turns and injects a "proceed" directive. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
