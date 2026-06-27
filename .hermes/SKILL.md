@@ -9276,15 +9276,21 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             pr_url, conversation_summary, learnings_extracted. Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
-            skipped_reason, size_advisory.
+            skipped_reason, size_advisory,
+            cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
+            present; empty array when nothing qualifies or skill_candidate_detection
+            is off).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
               No external libraries; only Read/Glob/Grep/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
-                      return, prints operator_summary to the user, never blocks
-                      Phase 12 cleanup on wrap-ticket failure).
+                      return, prints operator_summary to the user, reads
+                      cluster_results and calls
+                      hooks/lib/skill-candidate-deep-cluster.js for any qualifying
+                      clusters, never blocks Phase 12 cleanup on wrap-ticket
+                      failure).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -9384,6 +9390,21 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 - If `brief_path` is a real path, Read it.
 - If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `\[(LRN|KNW)-\d{8}-\d{3}\]`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
 
+### 2.5. Extract skill-candidate clusters (reasoning only - no Bash, no shell-out)
+
+**Gate:** This step runs unless `skill_candidate_detection` is explicitly `false` in `.agentic/config.json` (read in Step 2 if the file exists; default true when absent). If gated off, set `cluster_results: []` and skip to Step 3.
+
+From the inputs read in Step 2 - the merged diff, findings_log, architect plan, brief, and conversation_summary - identify DISTINCT domains where the ticket implementation or the Skeptic/QA loop required repeated manual work or worked around recurring friction that might warrant a reusable skill/command/preset/lint-rule. Exclude one-off implementation details specific to this ticket.
+
+Emit 0-5 entries. If nothing qualifies, emit an empty array. Keep this a single bounded reasoning step - do NOT shell out, do NOT use Bash, do NOT call node.
+
+Each entry shape:
+- `domain` (required): short lowercase-hyphenated slug (e.g. `adapter-rebuild`, `skeptic-context-block`).
+- `exampleNote` (required): one sentence describing the concrete instance observed in this ticket.
+- `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
+
+Store the result as `cluster_results` for inclusion in the Step 8 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
+
 ### 3. Extract candidate facts
 
 Walk the inputs and extract candidate facts. **Priority order:**
@@ -9475,9 +9496,12 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "operator_summary": "<one-line human-readable summary of what was captured>",
   "writer_actions": ["<file path>: appended <N> entries", ...],
   "skipped_reason": null,
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}]
 }
 ```
+
+`cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
 If nothing was captured because the ticket produced no stable facts, return:
 
@@ -9489,7 +9513,8 @@ If nothing was captured because the ticket produced no stable facts, return:
   "operator_summary": "No durable learnings captured from this ticket.",
   "writer_actions": [],
   "skipped_reason": "zero-substance",
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": []
 }
 ```
 
@@ -12921,6 +12946,26 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 Lock release: the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every Phase 11b exit path before advancing to Phase 12.
 
+**Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
+
+After releasing the lock and after wrap-ticket has returned (or been skipped), the conductor performs this step if ALL of the following hold:
+- wrap-ticket returned a valid JSON shape (not a timeout, not a non-JSON return).
+- `cluster_results` in the return is a non-empty array.
+- `skill_candidate_detection` is not `false` in `.agentic/config.json` (default true when absent or config missing).
+- `$CLAUDE_CODE_SESSION_ID` is set and non-empty.
+
+If any condition is not met, skip silently. This step is soft-fail and MUST NOT block or delay Phase 12 in any way.
+
+```bash
+# Conductor-side skill-candidate deep-cluster merge (post-return, soft-fail)
+CLUSTER_TMP=$(mktemp /tmp/wrap-ticket-clusters-XXXXXX.json 2>/dev/null) && \
+printf '%s' '<cluster_results JSON from wrap-ticket return>' > "$CLUSTER_TMP" && \
+node hooks/lib/skill-candidate-deep-cluster.js "$REPO_CWD" "$CLAUDE_CODE_SESSION_ID" "$CLUSTER_TMP" 2>/dev/null || true
+rm -f "$CLUSTER_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
+
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
 ---
@@ -15851,6 +15896,7 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | Part A context.md merge | KEPT (cites `wrap-context-format.md`) |
 | Part B Open-PR deferral / memory-pending.md | omitted; direct append-dedup to memory.md |
 | Part C Open-PR deferral / agents-md-pending.md | omitted; direct write to AGENTS.md |
+| Part D skill-candidate wrap-time signal | omitted; `--disallowedTools "Bash"` removes the Bash tool from the daemon child's context, so no `node` shell-out is possible. Daemon-completed sessions do not contribute the wrap-time skill-candidate signal. |
 | Part E compression | omitted |
 | `gh pr` open-PR enumeration | omitted |
 | Step 5 `/cleanup-worktrees` | omitted |
@@ -16045,6 +16091,7 @@ Zero-substance procedure:
 - Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
 - Skip Steps 1-3 entirely (no Worker, no Skeptic)
 - Skip Step 4 Parts A, B, C entirely
+- Skip Part D (no session activity to extract skill-candidate signals from)
 - Skip Part E (nothing changed, nothing to compress)
 - Still run Step 5 (worktree cleanup) - that is always useful
 - Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
@@ -16059,9 +16106,10 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
 3. Proceed to Step 4 Part A with the inline draft.
 4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None).
-5. Skip Part E entirely (nothing changed, nothing to compress).
-6. Run Step 5 (worktree cleanup) as normal.
-7. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
+5. Run Part D (skill-candidate wrap-time signal) - the light path still ran a session worth extracting from.
+6. Skip Part E entirely (nothing changed, nothing to compress).
+7. Run Step 5 (worktree cleanup) as normal.
+8. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
 
 **Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
 
@@ -16284,6 +16332,42 @@ For each file with non-deferred updates:
 6. Write the updated file to disk.
 
 Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
+
+**Part D — Skill-candidate wrap-time signal**
+
+Skip Part D on the **zero-substance path** (already skipped Steps 1-3; no session activity to extract from). Run Part D on the **light path** and the **standard path**. This step runs INSIDE the `wrap/lock` window already held from pre-flight. Soft-fail: any error in this step is silently swallowed; Part D failure NEVER breaks or delays the wrap.
+
+**Gate:** Read `.agentic/config.json`. If `skill_candidate_detection` is explicitly `false`, skip Part D entirely. Default (key absent or config missing) is `true` - proceed.
+
+**Extraction (inline LLM reasoning over the session already reflected on in Step 0):**
+
+Emit a JSON array of 0-5 entries identifying DISTINCT domains where you or the user repeatedly did manual work, or worked around the same friction, this session - the kind of recurring manual workflow that might warrant a reusable skill/command/preset/lint-rule. Exclude one-off actions. Output `[]` if nothing qualifies.
+
+Each entry shape:
+- `domain` (required): short lowercase-hyphenated slug naming the recurring workflow (e.g. `adapter-rebuild`, `skeptic-context-block`). Reuse an obvious existing slug if the same workflow has appeared before; exact-match merging is the helper's job, not yours.
+- `exampleNote` (required): one sentence describing the concrete instance observed this session.
+- `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
+
+Do NOT include `count`, `firstSeen`, `lastSeen`, or any tally fields - those are helper-assigned.
+
+**Write and invoke (Bash):**
+
+Write the extracted array to a temp file and call the deep-cluster helper. Use `$CLAUDE_CODE_SESSION_ID` as the session id; if it is unset or empty, skip the invocation entirely (soft no-op).
+
+```bash
+CLUSTER_TMP=$(mktemp /tmp/wrap-clusters-XXXXXX.json)
+cat > "$CLUSTER_TMP" << 'EOF'
+[...the extracted array...]
+EOF
+
+# Skip if no session id
+if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
+  node hooks/lib/skill-candidate-deep-cluster.js "$REPO_CWD" "$CLAUDE_CODE_SESSION_ID" "$CLUSTER_TMP" 2>/dev/null || true
+fi
+rm -f "$CLUSTER_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the absolute cwd of the project (the same value identified in Step 0). Any failure (non-zero exit, missing node, missing helper) is silently swallowed via `|| true`; the wrap continues normally.
 
 **Part E — Compress always-loaded memory files**
 
