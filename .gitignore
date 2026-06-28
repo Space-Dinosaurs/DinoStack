@@ -50,7 +50,8 @@ docs/planning/
 docs/research/
 docs/technical/
 docs/operations/
-docs/overview/
+docs/overview/*
+!docs/overview/vision.md
 docs/_archive/session-learnings/
 
 # Stray .agentic/ runtime working dirs created when a command/subagent runs with a non-root cwd.
