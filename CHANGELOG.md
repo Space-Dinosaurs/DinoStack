@@ -7,6 +7,10 @@
 
 ### Features
 
+- **#351** [deterministic events.jsonl emission for ad-hoc sessions](https://github.com/Space-Dinosaurs/DinoStack/pull/351) - tyson-solara6
+- **#350** [wire wrap + wrap-ticket to deep-cluster (wrap-time signal)](https://github.com/Space-Dinosaurs/DinoStack/pull/350) - tyson-solara6
+- **#349** [enforce-tier PreToolUse hook - mechanical Tier-3 review-escalation backstop](https://github.com/Space-Dinosaurs/DinoStack/pull/349) - tyson-solara6
+- **#348** [wrap-time deep-cluster helper (library + CLI)](https://github.com/Space-Dinosaurs/DinoStack/pull/348) - tyson-solara6
 - **#346** [/skill-candidates command, session-start notice, scaffolding + canonical entry format](https://github.com/Space-Dinosaurs/DinoStack/pull/346) - tyson-solara6
 - **#344** [Layer-2 opt-in in-session nudge](https://github.com/Space-Dinosaurs/DinoStack/pull/344) - tyson-solara6
 - **#343** [add skill_candidate_detection + skill_candidate_nudge config toggles](https://github.com/Space-Dinosaurs/DinoStack/pull/343) - tyson-solara6
@@ -15,11 +19,17 @@
 
 ### Fixes
 
+- **#347** [quote heredoc delimiter so backtick in body is not command-substituted](https://github.com/Space-Dinosaurs/DinoStack/pull/347) - tyson-solara6
 - **#339** [abdication-guard counter fails toward allow-stop when unpersistable](https://github.com/Space-Dinosaurs/DinoStack/pull/339) - tyson-solara6
 - **#338** [preserve existing AGENTS.md via additive managed block (no overwrite)](https://github.com/Space-Dinosaurs/DinoStack/pull/338) - tyson-solara6
 
+### Refactoring
+
+- **#340** [progressive-disclosure kernel split, rebuilt on current main (supersedes #314)](https://github.com/Space-Dinosaurs/DinoStack/pull/340) - tyson-solara6
+
 ### Documentation
 
+- **#352** [deprecate conductor_direct event type](https://github.com/Space-Dinosaurs/DinoStack/pull/352) - tyson-solara6
 - **#345** [document the feature across rule prose, hooks inventory, init seed, and README](https://github.com/Space-Dinosaurs/DinoStack/pull/345) - tyson-solara6
 
 ## 2026-06-26
