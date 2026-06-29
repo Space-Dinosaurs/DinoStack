@@ -211,9 +211,15 @@ Write `status: iterating` during revision rounds.
    git add docs/planning/<slug>.md
    git commit -m "docs(brief): add <slug> brief"
    ```
-4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); invoke the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper). On CREATE_STATUS=created: hand off to `/implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc (architect spawn, step 6). In `require` mode + failed: stop and wait for operator resolution before proceeding.
-5. Surface-and-proceed (adjust wording when a ticket was created - mention the ticket ID):
-   > "Brief written to docs/planning/<slug>.md and committed[ - ticket <CREATED_TICKET_ID> created]. Spawning architect with
+4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); then:
+   - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
+   - **`require` mode:** invoke the Tracker Create Helper immediately (no skip path).
+   - On CREATE_STATUS=created: hand off to `/implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly (skip steps 5-6).
+   - On CREATE_STATUS=failed: emit the failure line; in `offer` mode proceed ad-hoc (architect spawn, step 6); in `require` mode STOP and wait for operator resolution.
+   - On CREATE_STATUS=skipped (`offer` mode): emit the skip line and proceed ad-hoc (architect spawn, step 6).
+   - On CREATE_STATUS=skipped (`require` mode): surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for operator.
+5. When no ticket was created (ad-hoc path only): surface-and-proceed:
+   > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
    > brief_path - reply STOP to halt or refine the Brief first."
 6. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
 7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
