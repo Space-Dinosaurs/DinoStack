@@ -86,6 +86,9 @@ Use this exact structure:
 
 ### Confidence
 [High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce"]
+
+### Learnings candidates
+[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels
@@ -106,3 +109,4 @@ Use this exact structure:
 - When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Do not keep testing hypotheses after 3 eliminations without fresh evidence. Continuing to guess without new information does not converge on a root cause - it produces a list of things that aren't wrong. Stop, set Confidence to Low, and begin the Fix brief with the exact sentence: "Insufficient evidence to write a fix brief." Describe what was found and eliminated, and identify what specific information would close the diagnosis.
 - The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.
+- Populate the "Learnings candidates" section for incidental discoveries encountered during diagnosis - tool workarounds, expensive dead-ends, cross-component gotchas. Do not put the root-cause finding there (that is Trigger 1 on the mandatory capture gate). Cap at 5 entries.

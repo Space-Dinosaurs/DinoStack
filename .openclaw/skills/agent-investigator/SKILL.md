@@ -99,6 +99,9 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 
 ### Confidence
 [High / Medium / Low] - [brief reason: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X"]
+
+### Learnings candidates
+[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels
