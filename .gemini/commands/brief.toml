@@ -213,12 +213,13 @@ Write `status: iterating` during revision rounds.
    git add docs/planning/<slug>.md
    git commit -m "docs(brief): add <slug> brief"
    ```
-4. Surface-and-proceed:
-   > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
+4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); invoke the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper). On CREATE_STATUS=created: hand off to `/implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc (architect spawn, step 6). In `require` mode + failed: stop and wait for operator resolution before proceeding.
+5. Surface-and-proceed (adjust wording when a ticket was created - mention the ticket ID):
+   > "Brief written to docs/planning/<slug>.md and committed[ - ticket <CREATED_TICKET_ID> created]. Spawning architect with
    > brief_path - reply STOP to halt or refine the Brief first."
-5. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
-6. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
-7. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
+6. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
+7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
+8. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.
 
 ---

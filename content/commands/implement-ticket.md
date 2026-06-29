@@ -302,6 +302,35 @@ For full details of the Phase 11 writeback subagent brief shape, see the Phase 1
 
 ---
 
+## Tracker Create Helper
+
+Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `/implement-ticket`. Called by the ticket-offer gate (cross-ref `content/sections/02-delegation.md` §Ticket-offer gate).
+
+**Invocation contract:**
+
+Caller supplies:
+- `TICKET_TITLE` - one-line summary of the work
+- `TICKET_BODY` - markdown description; include Problem + Acceptance Criteria when known
+- `TICKET_TYPE` - `feature` | `bug` | `task`
+
+Helper returns:
+- `CREATED_TICKET_ID` - e.g. DS-42; empty string on failure
+- `CREATED_TICKET_URL` - empty string on failure
+- `CREATE_STATUS` - `created` | `skipped` | `failed`
+- `CREATE_ERROR` - error message string, or null on success
+
+**Branch on TRACKER:**
+
+- **`TRACKER == linear`**: call `mcp__linear__save_issue` with NO `id` field (save_issue creates when no id is supplied - this matches the repo's existing Linear convention; do NOT use a `createIssue` tool, it does not exist). Pass `title`=TICKET_TITLE, `description`=TICKET_BODY, and the Linear team. IMPORTANT team-source note: the `## Linear` section's `Team:` field resolves to `TICKET_PREFIX` (a prefix string like "DS"), but save_issue needs the Linear team key/id - if only a prefix is available, resolve the actual team via the Linear team-list tool. Do NOT invent a `## Linear Team` heading; use the existing `## Linear` `Team:` resolution that the rest of this command uses. On success read `issue.identifier` -> CREATED_TICKET_ID, `issue.url` -> CREATED_TICKET_URL, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed, CREATE_ERROR=\<msg\>.
+
+- **`TRACKER == jira`**: call `mcp__mcp-atlassian__jira_create_issue` (naming-consistent with the existing `mcp__mcp-atlassian__jira_*` family used elsewhere in this file). Pass `project_key`=TICKET_PREFIX, `summary`=TICKET_TITLE, `description`=TICKET_BODY, `issue_type` mapped from TICKET_TYPE (feature -> "Story", bug -> "Bug", task -> "Task"; omit to accept project default if uncertain). On success read the returned issue key -> CREATED_TICKET_ID, construct CREATED_TICKET_URL as `<JIRA_BASE_URL>/browse/<CREATED_TICKET_ID>`, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed.
+
+- **`TRACKER` is a classifier-defined value (not linear/jira)**: CREATE_STATUS=skipped. Emit one operator line: `ticket_driven: create not supported for classifier-defined trackers - proceeding ad-hoc.` Do NOT run any shell command from `.agentic/phase0-classifiers.yml` as a create operation - the classifier contract is read-only; creation is a write operation outside that contract.
+
+**LOUD failure (NOT silent):** on CREATE_STATUS=failed, emit an operator-visible line mirroring the Writeback Helper's failure line format: `tracker-create: '<TICKET_TITLE>' FAILED: <CREATE_ERROR>`. Do not block the caller; the caller (the gate) decides: offer mode proceeds ad-hoc AFTER emitting the warning; require mode surfaces and waits.
+
+---
+
 ## Phase 0: Input normalization
 
 > Run this phase BEFORE Phase 0a-pre. Output is the in-memory `normalized_input` structure consumed by every later phase. No disk side-effects.

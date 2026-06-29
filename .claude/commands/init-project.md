@@ -885,11 +885,12 @@ Seed with these documented defaults exactly:
   "deferred_wrap_pending_ttl_days": 7,
   "abdication_guard_enabled": false,
   "skill_candidate_detection": true,
-  "skill_candidate_nudge": false
+  "skill_candidate_nudge": false,
+  "ticket_driven": "offer"
 }
 ```
 
-**Substitute the up-front dialogue answers into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE, `model_profile` <- INIT_MODELPROFILE, `debugger_on_failure` <- INIT_DEBUGGER. When a variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
+**Substitute the up-front dialogue answers into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE, `model_profile` <- INIT_MODELPROFILE, `debugger_on_failure` <- INIT_DEBUGGER, `ticket_driven` <- INIT_TICKETDRIVEN (set to `"offer"` when a tracker was confirmed in Step 1; `"off"` otherwise). When a variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
 
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
@@ -907,6 +908,7 @@ Seed with these documented defaults exactly:
 - `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
