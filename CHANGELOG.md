@@ -3,6 +3,19 @@
 
 # Changelog
 
+## 2026-06-29
+
+### Fixes
+
+- **#332** [add path-containment guard on manifest writes (#269) [bin-stack 2/3]](https://github.com/Space-Dinosaurs/DinoStack/pull/332) - bloodf
+
+## 2026-06-28
+
+### Documentation
+
+- **#354** [commit North Star vision + reference it in CONTRIBUTING](https://github.com/Space-Dinosaurs/DinoStack/pull/354) - tyson-solara6
+- **#353** [update AGENTS.md post kernel-split (#340)](https://github.com/Space-Dinosaurs/DinoStack/pull/353) - tyson-solara6
+
 ## 2026-06-27
 
 ### Features
