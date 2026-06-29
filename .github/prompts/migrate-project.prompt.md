@@ -1,5 +1,5 @@
 ---
-description: "<!--"
+description: "Inspect or apply project scaffolding migrations from the canonical manifest (`content/project-scaffolding.yml`). By defa"
 ---
 # /migrate-project
 
