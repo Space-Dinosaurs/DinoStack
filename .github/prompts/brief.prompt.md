@@ -1,5 +1,5 @@
 ---
-description: "<!--"
+description: "Interactive planning dialogue. Produces a Brief at `docs/planning/<slug>.md` via a"
 ---
 # /brief
 

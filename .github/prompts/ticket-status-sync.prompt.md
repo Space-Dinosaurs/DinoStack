@@ -1,5 +1,5 @@
 ---
-description: "<!--"
+description: "Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/implement-ticket` exits befo"
 ---
 # /ticket-status-sync
 <!--

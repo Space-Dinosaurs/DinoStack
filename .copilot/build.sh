@@ -326,10 +326,21 @@ else:
 # Apply prereq strip
 body = strip_prereq(body)
 
-# Extract description: first non-empty, non-header line
+# Extract description: first non-empty, non-header, non-comment line.
+# Skip HTML comment blocks (lines starting with <!-- or inside an open <!-- ... --> block).
 description = ''
+in_html_comment = False
 for line in body.split('\n'):
     stripped = line.strip()
+    # Track HTML comment block state
+    if in_html_comment:
+        if '-->' in stripped:
+            in_html_comment = False
+        continue
+    if stripped.startswith('<!--'):
+        if '-->' not in stripped:
+            in_html_comment = True
+        continue
     if stripped and not stripped.startswith('#') and not stripped.startswith('>'):
         description = stripped[:120]
         break
