@@ -29,9 +29,14 @@
  *             appendSpilloverRecord(cwd, record),
  *             writeContextMdOrSpill(cwd, outputPath, projectDir, body, record),
  *             stageWrapPending(cwd, sessionId, scan) (thin alias to wrap-marker
- *             lib stagePending). The marker reads/transitions (readLastWrap,
- *             liveMarkerForSession - which replaces the former liveMarkerExists -
- *             stagePending, touchHeartbeat, etc.) now live in
+ *             lib stagePending),
+ *             recordHealth(target, success, errMsg) — synchronous in-memory
+ *             accumulator for per-write-path success/failure counts; never throws,
+ *             flushHealth(cwd) — atomic read-merge-write of
+ *             [cwd]/.agentic/.telemetry-health.json; never throws; called once
+ *             before each process.exit(0). The marker reads/transitions
+ *             (readLastWrap, liveMarkerForSession - which replaces the former
+ *             liveMarkerExists - stagePending, touchHeartbeat, etc.) now live in
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process) plus three
@@ -66,6 +71,8 @@
  *                [cwd]/.agentic/.skill-candidate-cursor (ISO8601 high-water mark),
  *                [cwd]/.agentic/skill-candidates.md (appended when a domain first
  *                crosses the candidate threshold).
+ *                [cwd]/.agentic/.telemetry-health.json (atomic tmp+rename;
+ *                accumulated health outcomes flushed once per exit by flushHealth).
  *                Via wrap-marker.js it also touches [cwd]/.agentic/wrap/heartbeats/<session_id>
  *                (per-turn liveness mtime) and may stage
  *                [cwd]/.agentic/wrap/pending-<session_id>.json (per-session marker).
@@ -81,7 +88,8 @@
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
  * Failure modes: All failures are silent (process.exit(0)). Twelve independent
- *                write paths: (1) context.md write is best-effort; any fs error
+ *                write paths (plus the health-flush observability layer described
+ *                below): (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
  *                of path (1). (3) events.jsonl write is best-effort; writeSessionTotal
@@ -135,6 +143,17 @@
  *                own top-level try/catch; the path is additionally wrapped here in
  *                an independent try/catch so a crash inside the detector can never
  *                affect paths (1)-(11) or block session exit.
+ *                Health-flush observability layer: recordHealth(target, success,
+ *                errMsg) is called at success and catch sites for each of the
+ *                twelve paths (excludes: marker unlink, JSON-line-skip catches,
+ *                git-subprocess catches, appendSpilloverRecord, and the one-time
+ *                sentinel wx writes at ~1271/1367 where EEXIST is the expected
+ *                normal path - not a failure). flushHealth(cwd) atomically
+ *                merges accumulated counts into .agentic/.telemetry-health.json;
+ *                called once before each process.exit(0). Both functions are
+ *                wrapped in outer try/catch and never throw. The health flush is
+ *                the observability layer for existing paths, not a new data-loss
+ *                path itself.
  *                All twelve paths are independent - a failure in one does not
  *                affect the others. The 10-minute implicit-interrupt heuristic
  *                handles missed loop-state writes. cwd values with path
@@ -206,6 +225,113 @@ const wrapMarker = require('./lib/wrap-marker.js');
 // exported by the lib for test-capture-gap.js. appendCaptureGapNoticeToContextMd
 // (the sole writer of the .capture-gap-last-sweep cursor) stays in this file.
 const { detectCaptureGap } = require('./lib/capture-gap.js');
+
+// ---------------------------------------------------------------------------
+// Telemetry-health counter (in-memory accumulate + single flush per exit)
+// ---------------------------------------------------------------------------
+// Module-level accumulator: keyed by target label, holds per-path outcome state.
+// Populated by recordHealth(); flushed to disk once by flushHealth(cwd).
+const healthOutcomes = {};
+
+/**
+ * Record a success or failure for a named write-path target.
+ * Pure synchronous in-memory mutation — never throws (outer try/catch).
+ *
+ * @param {string} target   - Stable label for the write path (e.g. 'writeLoopState').
+ * @param {boolean} success - True on the success branch; false in the catch.
+ * @param {string|null} errMsg - Error message on failure; null on success.
+ */
+function recordHealth(target, success, errMsg) {
+  try {
+    if (!healthOutcomes[target]) {
+      healthOutcomes[target] = {
+        failures: 0,
+        last_success: null,
+        last_error: null,
+        last_error_ts: null,
+      };
+    }
+    const now = new Date().toISOString();
+    if (success) {
+      healthOutcomes[target].last_success = now;
+    } else {
+      healthOutcomes[target].failures += 1;
+      healthOutcomes[target].last_error = errMsg || null;
+      healthOutcomes[target].last_error_ts = now;
+    }
+  } catch (_) {
+    // Never throw from the health layer.
+  }
+}
+
+/**
+ * Flush accumulated health outcomes to [cwd]/.agentic/.telemetry-health.json.
+ * Single atomic read-merge-write: reads existing file (parse-fail or absent ->
+ * start fresh), merges accumulated outcomes (cumulative failures, latest
+ * timestamps), sets updated_at, writes to a .tmp file then renames.
+ *
+ * Schema note: `failures` is cumulative and approximate — concurrent same-repo
+ * sessions may both read a stale count before either flushes, causing undercounts.
+ * No lock by design — health flush must never block session exit.
+ *
+ * Never throws — entire body is wrapped in an outer try/catch.
+ *
+ * @param {string} cwd - Verified project root directory.
+ */
+function flushHealth(cwd) {
+  // Declare both paths before the outer try so the catch-block cleanup can
+  // reference them (avoids referencing try-scoped vars from catch).
+  let healthPath;
+  let tmp;
+  try {
+    if (!cwd) return;
+    healthPath = path.join(cwd, '.agentic', '.telemetry-health.json');
+    tmp = healthPath + '.tmp.' + process.pid;
+
+    // Read existing file (absent or parse-fail -> start fresh).
+    let existing = { updated_at: null, targets: {} };
+    try {
+      const raw = fs.readFileSync(healthPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.targets === 'object') {
+        existing = parsed;
+      }
+    } catch (_) {
+      // Absent or unreadable -> start fresh.
+    }
+
+    // Merge accumulated outcomes into the existing state.
+    for (const [target, outcome] of Object.entries(healthOutcomes)) {
+      if (!existing.targets[target]) {
+        existing.targets[target] = {
+          failures: 0,
+          last_success: null,
+          last_error: null,
+          last_error_ts: null,
+        };
+      }
+      const stored = existing.targets[target];
+      stored.failures = (stored.failures || 0) + outcome.failures;
+      if (outcome.last_success) {
+        stored.last_success = outcome.last_success;
+      }
+      if (outcome.last_error_ts) {
+        stored.last_error = outcome.last_error;
+        stored.last_error_ts = outcome.last_error_ts;
+      }
+    }
+    existing.updated_at = new Date().toISOString();
+
+    // Atomic write: tmp + rename.
+    fs.writeFileSync(tmp, JSON.stringify(existing, null, 2), 'utf8');
+    fs.renameSync(tmp, healthPath);
+  } catch (_) {
+    // Silent failure - health flush must never block session exit.
+    if (tmp) {
+      try { fs.unlinkSync(tmp); } catch (_e) { /* tmp absent or never created */ }
+    }
+  }
+}
 
 /**
  * Read the `deferred_wrap_daemon` toggle from [cwd]/.agentic/config.json.
@@ -280,9 +406,11 @@ function writeLoopState(cwd) {
         const tmpPath = loopStatePath + '.tmp';
         fs.writeFileSync(tmpPath, JSON.stringify(loopState, null, 2));
         fs.renameSync(tmpPath, loopStatePath);
+        recordHealth('writeLoopState', true, null);
       }
     }
   } catch (_) {
+    recordHealth('writeLoopState', false, _ && _.message);
     // Silent failure - the 10-minute implicit-interrupt heuristic handles missed writes
     try { fs.unlinkSync(loopStatePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
   }
@@ -329,7 +457,9 @@ function writeBatchState(cwd, sessionId) {
     const tmpPath = batchStatePath + '.tmp';
     fs.writeFileSync(tmpPath, JSON.stringify(batchState, null, 2));
     fs.renameSync(tmpPath, batchStatePath);
+    recordHealth('writeBatchState', true, null);
   } catch (_) {
+    recordHealth('writeBatchState', false, _ && _.message);
     // Silent failure - best-effort write; resume-time logic tolerates absent mark.
     try { fs.unlinkSync(batchStatePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
   }
@@ -482,7 +612,9 @@ function writeSessionTotal(cwd, sessionId) {
       },
     });
     fs.appendFileSync(eventsPath, totalLine + '\n');
+    recordHealth('writeSessionTotal', true, null);
   } catch (_) {
+    recordHealth('writeSessionTotal', false, _ && _.message);
     // Silent failure - consistent with context.md / loop-state.json paths.
   }
 }
@@ -584,7 +716,9 @@ function appendIdentityNudgeToContextMd(repoRoot) {
       'Sentinel: ~/.agentic/.identity-nudged (delete to re-nudge)',
     ].join('\n') + '\n';
     fs.appendFileSync(contextPath, nudge, 'utf8');
+    recordHealth('appendIdentityNudgeToContextMd', true, null);
   } catch (_) {
+    recordHealth('appendIdentityNudgeToContextMd', false, _ && _.message);
     // Silent failure
   }
 }
@@ -676,7 +810,9 @@ function writeSessionLog(cwd, identity, sessionId) {
     fs.mkdirSync(sessionLogDir, { recursive: true });
     const logFile = path.join(sessionLogDir, `${identity.developer_id}.jsonl`);
     fs.appendFileSync(logFile, logLine + '\n', 'utf8');
+    recordHealth('writeSessionLog', true, null);
   } catch (_) {
+    recordHealth('writeSessionLog', false, _ && _.message);
     // Silent failure - consistent with all other write paths
   }
 }
@@ -714,7 +850,9 @@ function writeSessionLogGlobal(identity, sessionId, data) {
     });
     const logFile = path.join(globalLogDir, `${identity.developer_id}.jsonl`);
     fs.appendFileSync(logFile, logLine + '\n', 'utf8');
+    recordHealth('writeSessionLogGlobal', true, null);
   } catch (_) {
+    recordHealth('writeSessionLogGlobal', false, _ && _.message);
     // Silent failure - independent of per-project write
   }
 }
@@ -825,7 +963,9 @@ function writePendingBuffer(cwd, sessionId) {
     pendingTmpFile = outFile + '.tmp';
     fs.writeFileSync(pendingTmpFile, JSON.stringify(record, null, 2), 'utf8');
     fs.renameSync(pendingTmpFile, outFile);
+    recordHealth('writePendingBuffer', true, null);
   } catch (_) {
+    recordHealth('writePendingBuffer', false, _ && _.message);
     // Silent failure - consistent with all other write paths
     if (pendingTmpFile) {
       try { fs.unlinkSync(pendingTmpFile); } catch (_e) { /* tmp absent or never created */ }
@@ -887,8 +1027,10 @@ function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecor
       appendSpilloverRecord(cwd, spilloverRecord);
     } else {
       fs.writeFileSync(outputPath, body, 'utf8');
+      recordHealth('writeContextMd', true, null);
     }
   } catch (_) {
+    recordHealth('writeContextMd', false, _ && _.message);
     // Silent failure
   }
 }
@@ -961,18 +1103,25 @@ function appendCaptureGapNoticeToContextMd(cwd, residualOnly) {
     }
 
     fs.appendFileSync(contextPath, nudgeText, 'utf8');
+    recordHealth('appendCaptureGapNoticeToContextMd-context', true, null);
 
     // Update pagination cursor atomically so the same session doesn't fire twice.
+    // Note: the inner catch uses _cursorErr to avoid shadowing the outer _ at the
+    // outer catch below. recordHealth for the cursor write goes in this catch, not
+    // in the _e cleanup catch (which handles tmp cleanup only).
     try {
       const nowIso = new Date().toISOString();
       const tmpCursor = cursorPath + '.tmp';
       fs.writeFileSync(tmpCursor, nowIso, 'utf8');
       fs.renameSync(tmpCursor, cursorPath);
-    } catch (_) {
+      recordHealth('appendCaptureGapNoticeToContextMd-cursor', true, null);
+    } catch (_cursorErr) {
+      recordHealth('appendCaptureGapNoticeToContextMd-cursor', false, _cursorErr && _cursorErr.message);
       /* silent - cursor update failure is non-fatal */
       try { fs.unlinkSync(cursorPath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
     }
   } catch (_) {
+    recordHealth('appendCaptureGapNoticeToContextMd-context', false, _ && _.message);
     // Silent failure - consistent with all other context.md append paths.
   }
 }
@@ -1268,6 +1417,8 @@ ${toolsLine}
             const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
             try {
               fs.mkdirSync(path.join(os.homedir(), '.agentic'), { recursive: true });
+              // NOTE: this wx write is intentionally NOT instrumented by recordHealth -
+              // EEXIST is the expected normal path (sentinel already written), not a failure.
               fs.writeFileSync(sentinelPath, '', { flag: 'wx' });
               // Write succeeded - sentinel did not exist, so nudge once
               appendIdentityNudgeToContextMd(cwd);
@@ -1303,6 +1454,7 @@ ${toolsLine}
       // accumulates markers. Fail-open; never blocks exit.
       // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
       if (deferredDaemonEnabled(cwd)) stageWrapPending(cwd, sessionId, spilloverScan);
+      flushHealth(cwd);
       process.exit(0);
     }
   } catch (_) {
@@ -1364,6 +1516,8 @@ ${toolsLine}
         const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
         try {
           fs.mkdirSync(path.join(os.homedir(), '.agentic'), { recursive: true });
+          // NOTE: this wx write is intentionally NOT instrumented by recordHealth -
+          // EEXIST is the expected normal path (sentinel already written), not a failure.
           fs.writeFileSync(sentinelPath, '', { flag: 'wx' });
           // Sentinel did not exist - nudge once
           appendIdentityNudgeToContextMd(cwd);
@@ -1411,7 +1565,15 @@ ${toolsLine}
   // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
   if (deferredDaemonEnabled(cwd)) stageWrapPending(cwd, sessionId, spilloverScan);
 
+  flushHealth(cwd);
   process.exit(0);
 }
 
 run();
+
+// Test shim: appended at module load so test files can import internals without
+// executing run(). stop-context.js has no production module.exports; this shim
+// is only reached when the test replaces `run();` before requiring.
+if (typeof module !== 'undefined') {
+  module.exports = { recordHealth, flushHealth, healthOutcomes };
+}
