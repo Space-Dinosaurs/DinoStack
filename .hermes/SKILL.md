@@ -6789,7 +6789,7 @@ Your spawn prompt will contain:
 
 When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract block, the engineer includes `task_id` in its return summary so the conductor can correlate the result with the task entry. The engineer does NOT write to `.agentic/tasks.jsonl` - the conductor handles all task-state writes.
 
-**Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
+**Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
 
 **HUD file writes (Phase 2 fan-out only).** When spawned as a parallel fan-out Worker with a `worker_id` field in the execution contract, the engineer writes phase transition updates to `.agentic/hud/<worker-id>.json` before each major action (before spawning sub-agents, at loop phase transitions, at completion). The HUD file write accompanies `[loop: ...]` breadcrumb emissions - both happen at the same event. Engineers spawned without a `worker_id` (single-unit, non-fan-out contexts) do not write HUD files. The `worker_id` is provided in the spawn prompt alongside `task_id`.
 
@@ -6815,6 +6815,7 @@ After every implementation:
 - Run available lint and typecheck commands. Fix any errors introduced by your changes. Do not introduce new warnings.
 - Run tests if a test command exists. All must pass. If a pre-existing test is broken by your change and the break is intentional (e.g., updating behavior), note it explicitly.
 - For new code: ensure it is exercised by the build (imported, registered, wired up). Dead code is a common mistake.
+- **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route, run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only (note: `dep-bump-no-runtime-change` is a valid `qa_skip` enum but is intentionally excluded from the smoke skip list, because a dependency bump can still affect a runtime path worth catching here). When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
 - Before reporting, run all verification commands one final time in the same message and paste their actual output. Do not rely on checks run earlier in the session.
 
 ## Output format
@@ -6841,6 +6842,7 @@ quality_gate_results:
   lint: pass | fail | not_run
   typecheck: pass | fail | not_run
   test: pass | fail | not_run
+  smoke_test: pass | fail | skipped | not_run   # skipped = no runtime path (state which: pure-backend-library | config-only | type-only-refactor | docs-only); not_run on a runtime-capable change is a Skeptic finding
   raw_output: |
     <truncated to 4000 chars; tail-wins on truncation>
 commit_sha: <full 40-char SHA, or null if no commit was made>
@@ -6877,11 +6879,12 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
     },
     "quality_gate_results": {
       "type": "object",
-      "required": ["lint", "typecheck", "test", "raw_output"],
+      "required": ["lint", "typecheck", "test", "smoke_test", "raw_output"],
       "properties": {
         "lint": { "enum": ["pass", "fail", "not_run"] },
         "typecheck": { "enum": ["pass", "fail", "not_run"] },
         "test": { "enum": ["pass", "fail", "not_run"] },
+        "smoke_test": { "enum": ["pass", "fail", "skipped", "not_run"] },
         "raw_output": { "type": "string", "maxLength": 4000 }
       }
     },
@@ -6911,7 +6914,7 @@ After the structured block, return a plain-text summary covering:
 
 - **What was changed** - files modified or created, and what each change does
 - **Why** - brief rationale for any non-obvious decisions made during implementation
-- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`.
+- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`. Report the runtime smoke test as `smoke_test: pass|fail|skipped` (state the skip reason when skipped).
 - **Out of scope** - anything the prompt implied but you deliberately did not do, and why
 - **Blockers or open questions** - anything that needs human input or a follow-up decision
 
@@ -9533,8 +9536,9 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. Apply tiered classification: a **missing** manifest is a **Minor finding** (does not block sign-off); a **stale** manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics) is a **Major finding** (blocks sign-off absent a compelling documented reason to defer); a stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path is a **Critical finding**. List every manifest issue in the findings so the author can address it.
 9. **Regression test check** - if this is a fix round (the spawn prompt identifies Critical or Major findings that were addressed), verify each fixed finding has a corresponding regression test, or a documented reason why one is not possible. A missing test without explanation is a **Major** finding: `Missing regression test for [finding title] — a test that would have caught this failure mode is required before sign-off.`
 10. **Doc-sync check** - a **standing check** applied every round (not fix-round-only). Apply the trigger predicate from `content/references/doc-sync-obligation.md` to the diff: ask whether any sentence, count, or list in README.md, CONTRIBUTING.md, or content/SKILL.md (or an affected `content/sections`/`content/references` cross-reference) becomes false or incomplete because of this diff. Not tripped -> no finding. Tripped and correctly updated -> no finding. Tripped and missing/incomplete -> classify per the tiered model: **Minor** (non-misleading omission, no stated count wrong), **Major** (a count/list/path/convention/behavior assertion now stale or false), **Critical** (a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system). Uncertainty is not an exemption - grep the docs for the changed identifier or count and resolve.
-11. Check the resolved issues preflight - do not re-raise resolved findings unless the resolution is genuinely insufficient.
-12. Write your findings using the sign-off format below.
+11. **Smoke-test gate check** - when reviewing an Elevated engineer return, check `quality_gate_results.smoke_test`. If the value is `not_run` and the diff has a runtime path (i.e. the change is not one of the documented skip reasons: pure-backend-library, config-only, type-only-refactor, docs-only), that is a **Major** finding. `skipped` with a stated valid reason from that list is acceptable.
+12. Check the resolved issues preflight - do not re-raise resolved findings unless the resolution is genuinely insufficient.
+13. Write your findings using the sign-off format below.
 
 ## Sign-off format
 
@@ -12075,7 +12079,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
-The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
+The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
 
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
@@ -12556,7 +12560,7 @@ Fires exactly once per ticket per `/implement-ticket` invocation. Skipped entire
 
 **Elevated path: verify from engineer return, do not re-execute.**
 
-The Elevated-path engineer ran `$QUALITY_CMD` itself (per the `quality_gates` contract field in Phase 5) and reported `quality_gate_results: { lint, typecheck, test, raw_output }` in its return summary. Phase 7 verifies this return shape - the conductor does NOT invoke `$QUALITY_CMD` directly on this path.
+The Elevated-path engineer ran `$QUALITY_CMD` itself (per the `quality_gates` contract field in Phase 5) and reported `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` in its return summary. Phase 7 verifies this return shape - the conductor does NOT invoke `$QUALITY_CMD` directly on this path.
 
 **Verification:**
 - If `quality_gate_results.lint == "pass" && quality_gate_results.typecheck == "pass" && quality_gate_results.test == "pass"`: mark Phase 7 complete. Proceed to Phase 8.
