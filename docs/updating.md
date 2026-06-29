@@ -1,5 +1,19 @@
 # Updating
 
+## Quick update (recommended)
+
+Run `agentic-update` from any directory, no arguments.
+
+What it does: pulls the latest `main`, rebuilds adapters only if something changed under `content/`, `hooks/`, `bin/`, or the build scripts, resets the version-check cache, and runs `agentic-doctor --fix` to repair drifted symlinks or hooks. No TTY required.
+
+Flags:
+
+- `--check` - report how many commits behind you are without pulling
+- `--no-doctor` - skip the `agentic-doctor --fix` repair step
+- `--adapters=cursor,codex` - rebuild only the specified adapters
+
+First time? `agentic-update` installs itself to `~/.local/bin/` on your next `./update.sh` or `/pull-and-install` run; after that it works from anywhere.
+
 ## TUI updater (`./update.sh`)
 
 Run `./update.sh` for an interactive update. It pulls the latest `main` branch and refreshes selected adapters. Uses a native Node.js TUI - arrow keys to navigate, space to toggle adapters, enter to confirm. The `.claude` adapter is always-on (locked, non-toggleable); the TUI is for selecting ADDITIONAL adapters to refresh. Your selections are saved to `~/.agentic/agentic-engineering-config.json` for future runs. Warnings are shown (but non-blocking) if you're not on `main` or have a dirty working tree. Failed adapter installs are reported at the end without aborting the others.
@@ -27,6 +41,44 @@ bash .claude/uninstall.sh
 git pull
 bash .claude/install.sh
 ```
+
+## Health check and repair (`agentic-doctor`)
+
+`agentic-doctor` is a read-only health inspector that verifies your install is wired correctly. Run it any time symlinks feel broken, hooks aren't firing, or you've moved the repo to a new path.
+
+```bash
+agentic-doctor          # read-only scan; exit 0 = healthy, 1 = findings
+agentic-doctor --fix    # re-point drifted symlinks and repair hook paths; exit 0 = all fixed, 2 = some unfixable
+agentic-doctor --dry-run  # same as the default scan - enumerate findings without changing anything
+```
+
+What it checks:
+
+- `repo_dir` in `~/.agentic/agentic-engineering-config.json` points to a valid git repo
+- Every managed symlink under `~/.claude/agents/`, `~/.claude/commands/`, and `~/.claude/skills/agentic-engineering/` resolves into `repo_dir`
+- Every hook command path in `~/.claude/settings.json` points into `repo_dir`
+- `~/.local/bin/agentic-*` wrappers exist and point into `repo_dir/bin/`
+- The git pre-commit hook at `<repo_dir>/.git/hooks/pre-commit` is linked to the managed hook
+
+Real files (not symlinks) and symlinks pointing outside any DinoStack repo are skipped rather than flagged.
+
+`--fix` repairs only links and paths that belong to DinoStack. It never runs `install.sh` or rebuilds adapters. Reach for it after moving the repo or if a partial install left something dangling.
+
+## Safeguards
+
+**Split-brain guard:** bootstrap detects an existing valid install before cloning. If `~/.agentic/agentic-engineering-config.json` already records a live DinoStack git repo at a different path, bootstrap aborts without cloning and prints an update-in-place message like:
+
+```
+To update in place: AE_DEST_DIR=<existing> <bootstrap.sh>, or run <existing>/update.sh.
+```
+
+The exact message echoes how you invoked bootstrap (the `<bootstrap.sh>` token is whatever you actually ran).
+
+This prevents two clones from diverging while adapters and config point at the wrong one.
+
+**Self-heal on reinstall:** re-running an adapter installer (e.g. `bash .claude/install.sh`) repairs drifted symlinks and stale hook paths instead of clobbering your config. `repo_dir` is updated when stale and never clobbered when it already points at another valid clone, so moving the repo and reinstalling is safe.
+
+**Fast-path on `update.sh`:** `./update.sh` skips the adapter rebuild step when no adapter source has changed since the last pull, so routine updates complete faster.
 
 ## Agent-driven update
 

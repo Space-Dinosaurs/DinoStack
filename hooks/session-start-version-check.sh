@@ -9,8 +9,11 @@
 #              JSON object to stdout; always exits 0.)
 # Upstream deps: hooks/lib/version-check-core.sh (resolution + cache + refresh),
 #                python3 (JSON-escapes the message), AGENTIC_QUIET env var.
-# Downstream consumers: Claude Code SessionStart hook, wired via
-#                       ~/.claude/settings.json by .claude/install.sh.
+# Downstream consumers: hooks/session-start-wrap.sh - the SessionStart wrapper
+#                       that .claude/install.sh registers. That wrapper composes
+#                       this version notice with the deferred-wrap .claude-host
+#                       sentinel self-heal and the guarded daemon launch. This
+#                       script is NOT wired into ~/.claude/settings.json directly.
 # Failure modes: always exits 0 (fail-open). If the core fails or prints nothing
 #                the wrapper emits `{"suppressOutput": true}`. AGENTIC_QUIET=1
 #                suppresses the systemMessage but still emits suppressOutput so

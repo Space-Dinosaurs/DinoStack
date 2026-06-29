@@ -41,10 +41,10 @@ bash ~/DinoStack/.cursor/uninstall.sh
 
 ## How rules load
 
-- **alwaysApply: true** - `agent-methodology.mdc` and `conventions.mdc` load every session
+- **alwaysApply: false** - `agent-methodology.mdc` and `conventions.mdc` load on-demand (not every session)
 - **Glob-based** - `code-standards.mdc` loads when code files (*.ts, *.py, *.go, etc.) are in context
 - **Commands** - available via `/` in Cursor's chat
-- **Reference docs** - in `.cursor/rules/references/`, loaded when referenced by rules
+- **Reference docs** - in `.cursor/references/`, loaded when referenced by rules
 
 ## Hooks
 

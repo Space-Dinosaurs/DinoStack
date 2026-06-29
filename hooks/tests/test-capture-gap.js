@@ -60,20 +60,63 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 // in a function that overrides run before the bottom-of-file call fires.
 // The shim replaces the trailing `run();` call with a no-op so the hook
 // doesn't actually read stdin during test setup.
+//
+// The shim is written to os.tmpdir() and require()d from there, so the hook's
+// relative `require('./lib/wrap-marker.js')` (added when stop-context.js was
+// extended to delegate marker/lock/heartbeat state to hooks/lib/wrap-marker.js)
+// cannot resolve from /tmp. Rewrite that one relative require to an absolute
+// path to the REAL hooks/lib/wrap-marker.js before writing the shim, so the
+// shimmed copy still loads the real lib (no behavior change, just resolution).
+const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
+const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
 const shimmedSource = hookSource
   // Replace the final bare `run();` call so the hook doesn't try to read stdin.
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
+  // Re-anchor the relative lib require to an absolute path to the real lib so the
+  // shim resolves it from /tmp. JSON.stringify yields a correctly-escaped literal
+  // on every platform (backslashes on Windows, etc.).
+  .replace(
+    /require\(['"]\.\/lib\/wrap-marker\.js['"]\)/,
+    `require(${JSON.stringify(libMarkerAbs)})`
+  )
+  // Second re-anchor: stop-context.js now requires the shared capture-gap
+  // detector via ./lib/capture-gap.js. Anchor it to the real lib too so the
+  // /tmp shim resolves both relative lib requires.
+  .replace(
+    /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
+    `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
   + `\n
 // Expose helpers for unit tests via a module-level export shim.
-// This block is appended by the test loader.
+// This block is appended by the test loader. detectCaptureGap and
+// appendCaptureGapNoticeToContextMd live in stop-context.js's scope;
+// _tokenize is now owned by hooks/lib/capture-gap.js (stop-context.js no longer
+// imports it), so pull it straight from the lib rather than module scope.
 if (typeof module !== 'undefined') {
   module.exports = {
     detectCaptureGap,
     appendCaptureGapNoticeToContextMd,
-    _tokenize,
+    _tokenize: require(${JSON.stringify(libCaptureGapAbs)})._tokenize,
   };
 }
 `;
+
+// Fail loudly if the re-anchor did not fire (e.g. the source's require text
+// changed form). Without this, a missed rewrite reverts to an opaque
+// MODULE_NOT_FOUND crash at require() time from /tmp.
+// NOTE: skill-candidate-detector.js is loaded lazily (inside function bodies,
+// gated on config toggles). It does NOT resolve from /tmp at module scope, but
+// it will never be called in test paths because the tmp dir has no config.json
+// (so the toggle defaults to off). Exempt it from the fragility guard.
+const relativeRequires = shimmedSource.match(/require\(['"]\.\/lib\/(?!skill-candidate).*?['"]\)/g) || [];
+if (relativeRequires.length > 0) {
+  console.error(
+    '  FATAL: a relative ./lib/ require survived the shim re-anchor - update the '
+    + 'rewrite in test-capture-gap.js so the /tmp shim can resolve it. Survivors: '
+    + relativeRequires.join(', ')
+  );
+  process.exit(1);
+}
 
 // Write shim to a temp file and require it.
 const tmpShimPath = path.join(os.tmpdir(), `stop-context-shim-${Date.now()}.js`);

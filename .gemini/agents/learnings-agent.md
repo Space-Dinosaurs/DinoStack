@@ -1,7 +1,7 @@
 ---
 name: learnings-agent
-description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
-tools: Read, Edit, Write
+description: "Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files."
+tools: [read_file, replace, write_file]
 kind: local
 ---
 

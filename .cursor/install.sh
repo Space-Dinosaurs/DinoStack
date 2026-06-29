@@ -17,6 +17,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out) AE_MODE_FLAG="${arg#--mode=}" ;;
@@ -28,6 +29,9 @@ for arg in "$@"; do
       ;;
     --no-identity)
       AE_NO_IDENTITY=true
+      ;;
+    --dry-run)
+      AE_DRY_RUN=true
       ;;
   esac
 done
@@ -175,12 +179,12 @@ except Exception:
 fi
 
 RULES_SRC="$REPO_DIR/.cursor/rules"
-REFS_SRC="$REPO_DIR/.cursor/rules/references"
+REFS_SRC="$REPO_DIR/.cursor/references"
 COMMANDS_SRC="$REPO_DIR/.cursor/commands"
 HOOKS_SRC="$REPO_DIR/.cursor/hooks.json"
 
 RULES_DST="$HOME/.cursor/rules"
-REFS_DST="$HOME/.cursor/rules/references"
+REFS_DST="$HOME/.cursor/references"
 COMMANDS_DST="$HOME/.cursor/commands"
 HOOKS_DST="$HOME/.cursor/hooks.json"
 
@@ -197,6 +201,26 @@ warned_commands=()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# _ae_is_ours DST
+#   Returns 0 (true) iff DST is "ours to own" - i.e. safe to re-point.
+#   A destination is ours iff:
+#     - it IS a symlink (never touch real files), AND
+#     - its current target is broken OR resolves under a methodology checkout
+#       (path contains a component equal to "DinoStack" or ending with "-DinoStack").
+_ae_is_ours() {
+  local dst="$1"
+  [[ -L "$dst" ]] || return 1
+  local current_target
+  current_target="$(readlink "$dst")"
+  if [[ ! -e "$dst" ]]; then
+    [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+    return 1
+  fi
+  [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+  return 1
+}
+
 array_append() {
   local _arr="$1"
   local _item="$2"
@@ -232,20 +256,38 @@ symlink_files() {
       if [[ "$current_target" == "$src_file" ]]; then
         array_append "$skipped_name" "$name (already linked)"
         continue
-      elif [[ "$current_target" == "$REPO_DIR"* ]]; then
-        array_append "$skipped_name" "$name (already linked to agentic-engineering but different path: $current_target - skipping)"
+      elif _ae_is_ours "$dst_file"; then
+        # Stale symlink pointing to another methodology checkout - re-point it.
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          array_append "$skipped_name" "$name (would re-point to repo_dir)"
+        else
+          ln -sfn "$src_file" "$dst_file"
+          array_append "$installed_name" "$name (re-pointed to repo_dir)"
+        fi
         continue
       else
-        array_append "$warned_name" "$name (symlink points elsewhere: $current_target - skipping)"
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          array_append "$warned_name" "$name (would skip: symlink points outside methodology checkout: $current_target)"
+        else
+          array_append "$warned_name" "$name (symlink points elsewhere: $current_target - skipping)"
+        fi
         continue
       fi
     elif [[ -e "$dst_file" ]]; then
-      array_append "$warned_name" "$name (real file exists at destination - skipping)"
+      if [[ "$AE_DRY_RUN" == "true" ]]; then
+        array_append "$warned_name" "$name (would skip: real file exists at destination)"
+      else
+        array_append "$warned_name" "$name (real file exists at destination - skipping)"
+      fi
       continue
     fi
 
-    ln -s "$src_file" "$dst_file"
-    array_append "$installed_name" "$name"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      array_append "$installed_name" "$name (would create)"
+    else
+      ln -s "$src_file" "$dst_file"
+      array_append "$installed_name" "$name"
+    fi
   done
 }
 
@@ -261,7 +303,38 @@ for f in "${skipped_rules[@]+"${skipped_rules[@]}"}"; do echo "  = $f"; done
 for f in "${warned_rules[@]+"${warned_rules[@]}"}"; do echo "  ! $f"; done
 
 # ---------------------------------------------------------------------------
-# Symlink reference docs (.md files in rules/references/)
+# Legacy cleanup: remove stale $HOME/.cursor/rules/references/ symlinks
+# created by versions prior to the references relocation (refs moved from
+# .cursor/rules/references/ to .cursor/references/). Idempotent; no-op when
+# the legacy path is absent.
+# ---------------------------------------------------------------------------
+
+_legacy_refs_dir="$HOME/.cursor/rules/references"
+if [[ -d "$_legacy_refs_dir" ]]; then
+  _removed_legacy=0
+  for _f in "$_legacy_refs_dir"/*.md; do
+    [[ -e "$_f" || -L "$_f" ]] || continue
+    if [[ -L "$_f" ]]; then
+      _cur_target="$(readlink "$_f")"
+      if [[ "$_cur_target" == "$REPO_DIR/"* ]]; then
+        rm "$_f"
+        _removed_legacy=$(( _removed_legacy + 1 ))
+      fi
+    fi
+  done
+  if [[ "$_removed_legacy" -gt 0 ]]; then
+    echo "  ~ legacy $HOME/.cursor/rules/references/: removed $_removed_legacy stale symlink(s)"
+  fi
+  # Remove the directory if now empty
+  if [[ -d "$_legacy_refs_dir" ]] && [[ -z "$(ls -A "$_legacy_refs_dir" 2>/dev/null)" ]]; then
+    rmdir "$_legacy_refs_dir"
+    echo "  ~ legacy $HOME/.cursor/rules/references/ directory removed (was empty)"
+  fi
+fi
+unset _legacy_refs_dir _removed_legacy _f _cur_target
+
+# ---------------------------------------------------------------------------
+# Symlink reference docs (.md files in references/)
 # ---------------------------------------------------------------------------
 
 echo "Linking reference docs..."
@@ -303,14 +376,30 @@ if [[ -L "$HOOK_DST" ]]; then
   current_target="$(readlink "$HOOK_DST")"
   if [[ "$current_target" == "$HOOK_SRC" ]]; then
     echo "  = pre-commit hook already linked"
+  elif _ae_is_ours "$HOOK_DST"; then
+    # Stale symlink pointing to another methodology checkout - re-point it.
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ pre-commit hook (would re-point to repo_dir)"
+    else
+      ln -sfn "$HOOK_SRC" "$HOOK_DST"
+      echo "  ~ pre-commit hook (re-pointed to repo_dir)"
+    fi
   else
-    echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ! pre-commit hook (would skip: symlink points outside methodology checkout: $current_target)"
+    else
+      echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
+    fi
   fi
 elif [[ -e "$HOOK_DST" ]]; then
   echo "  ! pre-commit hook is a real file (not a symlink) - skipping to preserve existing hook"
 else
-  ln -s "$HOOK_SRC" "$HOOK_DST"
-  echo "  + pre-commit hook installed"
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + pre-commit hook (would create)"
+  else
+    ln -s "$HOOK_SRC" "$HOOK_DST"
+    echo "  + pre-commit hook installed"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -417,16 +506,14 @@ echo "       - the agent team and how they compose"
 echo "    5. $REPO_DIR/docs/slides/quality-assurance-slides.html"
 echo "       - how the qa-engineer uses .claude/qa.md as project QA memory"
 echo "    6. $REPO_DIR/docs/slides/work-tracking-slides.html"
-echo "       - how the planner uses .claude/tracking.md for tracker actions"
-echo "    7. $REPO_DIR/docs/slides/skill-creator-slides.html"
-echo "       - how agents and skills are built and evaluated with the skill creator"
-echo "    8. $REPO_DIR/docs/slides/skeptic-protocol-slides.html"
+echo "       - how the planner uses .agentic/tracking.md for tracker actions"
+echo "    7. $REPO_DIR/docs/slides/skeptic-protocol-slides.html"
 echo "       - adversarial review methodology and the Skeptic loop"
-echo "    9. $REPO_DIR/docs/slides/agents-md-hierarchy-slides.html"
+echo "    8. $REPO_DIR/docs/slides/agents-md-hierarchy-slides.html"
 echo "       - the three-tier AGENTS.md context hierarchy"
-echo "   10. $REPO_DIR/docs/slides/contributing-slides.html"
+echo "    9. $REPO_DIR/docs/slides/contributing-slides.html"
 echo "       - how to contribute to the repo"
-echo "   11. $REPO_DIR/docs/index.html"
+echo "   10. $REPO_DIR/docs/index.html"
 echo "       - full system architecture reference"
 echo ""
 echo "  Present the list, ask which ones they want to see, open only those."

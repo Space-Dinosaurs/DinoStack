@@ -19,7 +19,8 @@
 # Downstream consumers:
 #   .claude/install.sh, .codex/install.sh, .cursor/install.sh,
 #   .gemini/install.sh, .hermes/install.sh, .kimi/install.sh,
-#   .omp/install.sh, .opencode/install.sh, .pi/install.sh
+#   .omp/install.sh, .openclaw/install.sh, .opencode/install.sh,
+#   .pi/install.sh
 #
 # Failure modes:
 #   Never aborts the caller - every agentic-identity call captures rc;
@@ -72,7 +73,7 @@ _ae_setup_identity() {
   local show_out
   show_out="$(agentic-identity show --scope effective 2>/dev/null)" || show_out=""
   local existing_handle
-  existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')"
+  existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')" || existing_handle=""
   if [[ -n "$existing_handle" ]]; then
     if echo "$show_out" | grep -q 'provisional:'; then
       echo "  = identity already set to '$existing_handle' (provisional - run 'agentic-identity confirm' to lock it in)"
@@ -127,10 +128,16 @@ _ae_setup_identity() {
   # Branch 7: gh absent or unauthenticated - prompt manually
   echo "  Developer identity links telemetry to your handle across sessions."
   local typed_handle=""
+  local raw_handle=""
   read -r -p "  GitHub handle [skip]: " typed_handle </dev/tty || typed_handle=""
-  typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')"
+  raw_handle="$typed_handle"
+  typed_handle="$(echo "$typed_handle" | xargs | tr '[:upper:]' '[:lower:]')" || typed_handle=""
   if [[ -z "$typed_handle" ]]; then
-    echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
+    if [[ -n "${raw_handle//[[:space:]]/}" ]]; then
+      echo "  - typed handle could not be parsed, skipping identity setup (run 'agentic-identity init <handle>' later)"
+    else
+      echo "  - identity setup skipped (run 'agentic-identity init <handle>' later)"
+    fi
     return
   fi
   if ! echo "$typed_handle" | grep -qE '^[a-z0-9._-]{1,64}$'; then

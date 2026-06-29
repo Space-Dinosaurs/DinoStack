@@ -1,5 +1,6 @@
 ---
 name: wrap-ticket
+model: sonnet
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
@@ -21,15 +22,21 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             pr_url, conversation_summary, learnings_extracted. Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
-            skipped_reason, size_advisory.
+            skipped_reason, size_advisory,
+            cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
+            present; empty array when nothing qualifies or skill_candidate_detection
+            is off).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
               No external libraries; only Read/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
-                      return, prints operator_summary to the user, never blocks
-                      Phase 12 cleanup on wrap-ticket failure).
+                      return, prints operator_summary to the user, reads
+                      cluster_results and calls
+                      hooks/lib/skill-candidate-deep-cluster.js for any qualifying
+                      clusters, never blocks Phase 12 cleanup on wrap-ticket
+                      failure).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -37,7 +44,7 @@ Failure modes:
   Phase 12 or PR completion.
 - JSON parse failure (bad return shape): conductor warns and proceeds with no
   appends.
-- Lock contention: if .agentic/wrap.lock is held by another session (e.g., /wrap
+- Lock contention: if .agentic/wrap/lock is held by another session (e.g., /wrap
   is running concurrently), return immediately with skipped_reason set to
   "wrap-lock-contention" and writer_actions: [].
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
@@ -64,7 +71,7 @@ You are a **constrained automated subset of `/wrap`**. The differences are inten
 | Skeptic review | None | Required |
 | Rolling session labels | None | Yes (5-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
-| Lock | `.agentic/wrap.lock` (shared with /wrap) | `.agentic/wrap.lock` (shared with wrap-ticket) |
+| Lock | `.agentic/wrap/lock` (shared with /wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
 You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only).
@@ -91,12 +98,12 @@ Your spawn prompt provides the following inputs (all required unless noted):
 
 ### 1. Acquire the wrap lock
 
-Before any read or write, attempt to acquire `.agentic/wrap.lock`:
+Before any read or write, attempt to acquire `.agentic/wrap/lock`:
 
 ```bash
-mkdir -p .agentic
-mkdir .agentic/wrap.lock 2>/dev/null && {
-  printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap.lock/owner
+mkdir -p .agentic/wrap
+mkdir .agentic/wrap/lock 2>/dev/null && {
+  printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap/lock/owner
 } || {
   # Lock is held by another session (likely /wrap). Return immediately with
   # skipped_reason: "wrap-lock-contention" and writer_actions: [].
@@ -118,7 +125,7 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 }
 ```
 
-**Lock release is mandatory on every exit path.** Before returning, run `rm -rf .agentic/wrap.lock` regardless of whether the run succeeded, partially succeeded, or skipped.
+**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `agentic-wrap-release-lock`) at /implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
 
 ### 2. Read the inputs
 
@@ -128,6 +135,21 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 - If `architect_plan_path` is a real path, Read it.
 - If `brief_path` is a real path, Read it.
 - If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `\[(LRN|KNW)-\d{8}-\d{3}\]`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
+
+### 2.5. Extract skill-candidate clusters (reasoning only - no Bash, no shell-out)
+
+**Gate:** This step runs unless `skill_candidate_detection` is explicitly `false` in `.agentic/config.json` (read in Step 2 if the file exists; default true when absent). If gated off, set `cluster_results: []` and skip to Step 3.
+
+From the inputs read in Step 2 - the merged diff, findings_log, architect plan, brief, and conversation_summary - identify DISTINCT domains where the ticket implementation or the Skeptic/QA loop required repeated manual work or worked around recurring friction that might warrant a reusable skill/command/preset/lint-rule. Exclude one-off implementation details specific to this ticket.
+
+Emit 0-5 entries. If nothing qualifies, emit an empty array. Keep this a single bounded reasoning step - do NOT shell out, do NOT use Bash, do NOT call node.
+
+Each entry shape:
+- `domain` (required): short lowercase-hyphenated slug (e.g. `adapter-rebuild`, `skeptic-context-block`).
+- `exampleNote` (required): one sentence describing the concrete instance observed in this ticket.
+- `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
+
+Store the result as `cluster_results` for inclusion in the Step 8 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
 
 ### 3. Extract candidate facts
 
@@ -206,7 +228,7 @@ Otherwise leave `size_advisory: null`.
 
 ### 7. Release the lock
 
-`rm -rf .agentic/wrap.lock`. This is mandatory on every exit path.
+The conductor releases the lock (via `agentic-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
 ### 8. Return
 
@@ -220,9 +242,12 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "operator_summary": "<one-line human-readable summary of what was captured>",
   "writer_actions": ["<file path>: appended <N> entries", ...],
   "skipped_reason": null,
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}]
 }
 ```
+
+`cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
 If nothing was captured because the ticket produced no stable facts, return:
 
@@ -234,7 +259,8 @@ If nothing was captured because the ticket produced no stable facts, return:
   "operator_summary": "No durable learnings captured from this ticket.",
   "writer_actions": [],
   "skipped_reason": "zero-substance",
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": []
 }
 ```
 
@@ -264,7 +290,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to context.md - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** Every exit path runs `rm -rf .agentic/wrap.lock`.
+- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.

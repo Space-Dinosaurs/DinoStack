@@ -8,14 +8,14 @@ description: Structured multi-agent software engineering workflow for planning, 
 The Agentic Engineering system defines how to plan, delegate, review, and ship software using a
 structured multi-agent workflow. It covers risk classification, adversarial review, task
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
-files on every session and the reference docs on the triggers described in agent-methodology.md.
+files on every session and the reference docs on the triggers described in METHODOLOGY.md §Protocol Details (read on trigger).
 
-**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in `METHODOLOGY.md` for the full rule, anti-patterns, and stop-frequency thresholds.
+**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
 ## Rules (read these files)
 
-- **METHODOLOGY.md** - delegation model, risk classification, task decomposition, and
-  worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
+- **METHODOLOGY.md** - the assembled kernel: delegation, risk classification, activation preflight, planning gate,
+  task decomposition, and worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read always
   primary; prefer Glob/Grep when available, Bash `rg`/`grep`/`find` as the sanctioned fallback
@@ -34,7 +34,7 @@ files on every session and the reference docs on the triggers described in agent
 
 Run `/agentic-help` for the full command inventory.
 
-## Reference Docs (read on trigger - see Protocol Details in agent-methodology.md)
+## Reference Docs (read on trigger - see Protocol Details in METHODOLOGY.md)
 
 - **references/skeptic-protocol.md** - Skeptic loop orchestration, findings classification
   (Critical/Major/Minor), sign-off format, adversarial briefs, and the Elevated + Cleanup path.
@@ -55,6 +55,22 @@ Run `/agentic-help` for the full command inventory.
 - **references/doc-sync-obligation.md** - per-change doc-sync obligation: a reality-asserting
   change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
   the affected docs in the same change; read when a change touches a documented surface.
+
+- **references/role-models.md** - Pi / oh-my-pi per-role model routing and antagonist
+  reviewer model diversity; read when resolving `role-models.yml` or spawning reviewers on Pi/omp.
+
+- **references/model-discovery.md** - Pi/oh-my-pi model selection paths (ask-user
+  wizard, harness-native, pin-by-hand) and the per-role ranking heuristics in
+  `bin/agentic-models`; read when seeding `role-models.yml`.
+
+- **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema for
+  orchestrating parallel agent teams across multiple AI harnesses; read when using
+  `agentic-team` or configuring cross-harness dispatch with `team.yml`.
+
+- **references/digest-return-pattern.md** - digest-return discipline: when a background
+  loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns, the conductor
+  reads the structured digest and acts - it does not re-read the internal transcript; read
+  when running a multi-unit plan with parallel background loops.
 
 ## Rules (read on trigger)
 

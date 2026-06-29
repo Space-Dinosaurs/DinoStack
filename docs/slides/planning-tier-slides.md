@@ -175,13 +175,13 @@ Tiered Brief / Plan promotion gate
 ## The gap planning artifacts close
 
 <style scoped>
-  p { font-size: 0.9em; margin: 0.3em 0; }
-  .callout { font-size: 0.88em; padding: 0.5em 1em; margin-top: 0.5em; }
-  ul { font-size: 0.88em; }
-  ul li { margin: 0.3em 0; }
+  p { font-size: 0.85em; margin: 0.2em 0; }
+  .callout { font-size: 0.84em; padding: 0.4em 1em; margin-top: 0.4em; }
+  ul { font-size: 0.84em; }
+  ul li { margin: 0.2em 0; }
 </style>
 
-Before planning artifacts, the methodology had three layers producing forward artifacts:
+Before planning artifacts, three forward-producing layers existed:
 
 - **architect** - produces "what to build"
 - **orchestration-planner** - produces "how to decompose it"
@@ -189,12 +189,12 @@ Before planning artifacts, the methodology had three layers producing forward ar
 
 What was missing: a committed answer to "what problem are we solving and how will we know it is done?"
 
-Without that commitment, multi-unit fan-out and cross-session resume suffered from drift - each engineer spawned against an informal interpretation of the original ticket rather than a locked problem statement, success criteria, and verification plan.
+Without that commitment, multi-unit fan-out and cross-session resume drifted - each engineer spawned against an informal interpretation rather than a locked problem statement, success criteria, and verification plan.
 
-Also missing: operator participation in framing. The Brief was conductor-synthesized, not operator-negotiated. The `/brief` command adds operator negotiation before the architect is spawned.
+Also missing: operator participation in framing. The Brief was conductor-synthesized, not operator-negotiated. The `/brief` command adds operator negotiation before the architect spawns.
 
 <div class="callout">
-Planning artifacts add the missing layer: a gate that commits to the framing before the first engineer spawns and keeps that commitment alive through fan-out and resume.
+Planning artifacts add the missing layer: a gate that commits to the framing before the first engineer spawns, keeping that commitment alive through fan-out and resume.
 </div>
 
 ---
@@ -233,11 +233,11 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 ## Two paths to a Brief
 
 <style scoped>
-  .columns { gap: 1.5em; }
-  .card { font-size: 0.84em; line-height: 1.5; }
-  ul li { margin: 0.3em 0; }
+  .columns { gap: 0.8em; margin-bottom: 0.4em; }
+  .card { font-size: 0.76em; line-height: 1.35; padding: 0.7em 0.85em; }
+  ul li { margin: 0.15em 0; }
   h4 { margin-top: 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.6em; }
+  .callout { font-size: 0.74em; padding: 0.3em 0.8em; margin-top: 0.3em; }
 </style>
 
 <div class="columns">
@@ -250,9 +250,8 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 - Operator has exploratory framing ("I want to build...")
 - Conductor auto-triggers or operator invokes `/brief [topic]`
 - Multi-turn dialogue: intent, gray areas, Q&A, draft, iterate
-- Brief committed to feature worktree BEFORE architect spawns
-- `brief_source: operator` - Skeptic does completeness-only review (framing is already confirmed)
-- Worktree persists through architect + engineer flow
+- Brief committed to conductor's branch BEFORE architect spawns (no worktree)
+- `brief_source: operator` - Skeptic does completeness-only review
 
 </div>
 </div>
@@ -273,7 +272,7 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 </div>
 
 <div class="callout">
-Interactive path is preferred for features the operator is still framing. Mechanical path is the backstop for work that arrives well-specified. Both paths converge on the same artifact: a committed Brief at docs/planning/<slug>.md.
+Interactive path is preferred for features still being framed. Mechanical path is the backstop for well-specified tickets. Both converge on the same artifact: <code>docs/planning/&lt;slug&gt;.md</code>.
 </div>
 
 ---
@@ -281,10 +280,11 @@ Interactive path is preferred for features the operator is still framing. Mechan
 ## Trigger table
 
 <style scoped>
-  table { font-size: 0.82em; width: 100%; border-collapse: collapse; margin-top: 0.4em; }
-  th { background: rgba(255,255,255,0.05); padding: 0.5em 0.8em; text-align: left; }
-  td { padding: 0.45em 0.8em; border-bottom: 1px solid rgba(255,255,255,0.12); vertical-align: top; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.6em; }
+  table { font-size: 0.82em; width: 100%; border-collapse: collapse; margin-top: 0.3em; }
+  th { background: rgba(255,255,255,0.05); padding: 0.4em 0.7em; text-align: left; }
+  td { padding: 0.35em 0.7em; border-bottom: 1px solid rgba(255,255,255,0.12); vertical-align: top; }
+  p { font-size: 0.84em; margin: 0.3em 0; }
+  .callout { font-size: 0.78em; padding: 0.35em 0.9em; margin-top: 0.4em; }
 </style>
 
 | Condition | Artifact required |
@@ -294,9 +294,9 @@ Interactive path is preferred for features the operator is still framing. Mechan
 | 6+ Elevated units OR cross-track OR multi-session | Plan (Brief + assembled artifacts + 3 coverage docs) |
 | Cross-track OR architecture-decision-constraining | Plan + ADR |
 
-**Unit counting rule:** only units whose risk is Elevated or above count. Trivial units in a mixed-risk plan contribute zero.
+**Unit counting rule:** only units whose risk is Elevated or above count. Trivial units contribute zero.
 
-**"Cross-track" definition (mechanical):** a depth-1 directory under the repo root that has its own `AGENTS.md`. Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks.
+**"Cross-track" (mechanical):** a depth-1 directory under the repo root with its own `AGENTS.md`. Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks.
 
 <div class="callout">
 All triggers are mechanical. Operator judgment is not a field. Evaluate after orchestration-planner returns.
@@ -307,9 +307,10 @@ All triggers are mechanical. Operator judgment is not a field. Evaluate after or
 ## Cross-artifact alignment check
 
 <style scoped>
-  ul { font-size: 0.88em; }
-  ul li { margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  p { font-size: 0.86em; margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
 After orchestration-planner returns and before Skeptic-on-Brief runs, the conductor maps every Brief success criterion to at least one unit's `acceptance_criteria` in the planner JSONL:
@@ -322,45 +323,57 @@ Resolution paths for uncovered criteria: re-spawn planner with the gap called ou
 When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed.
 
 <div class="callout">
-This check is mechanical and conductor-direct - no agent spawn needed. It complements the adversarial Skeptic-on-Brief; it does not replace it. An uncovered criterion is a planning gap: the Brief commits to an outcome no unit is scoped to deliver.
+Mechanical and conductor-direct - no agent spawn needed. Complements the adversarial Skeptic-on-Brief; does not replace it. An uncovered criterion is a planning gap: the Brief commits to an outcome no unit is scoped to deliver.
 </div>
 
 ---
 
-## Brief template
+## Brief template (fields 1-5)
 
 <style scoped>
-  pre { font-size: 0.78em; background: #04070F; border-radius: 8px; padding: 0.8em 1.2em; margin: 0.3em 0; }
-  p { font-size: 0.88em; margin: 0.25em 0; }
+  pre { font-size: 0.67em; background: #04070F; border-radius: 8px; padding: 0.5em 0.9em; margin: 0.2em 0; line-height: 1.28; }
+  p { font-size: 0.82em; margin: 0.15em 0; }
 </style>
 
 Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines).
 
 ```markdown
 # Brief: <feature name>
-
-**Problem:**           <1-2 sentences. Behavior gap in user/system terms, not implementation terms.>
-
+**Problem:**           <1-2 sentences. Behavior gap in user/system terms, not implementation.>
 **Success criteria:**  <Bulleted, observable from outside. Max 4 bullets.>
 - <criterion 1>
 - <criterion 2>
-
 **Non-goals:**         <What this explicitly does NOT do. Max 3 bullets.>
 - <non-goal 1>
-
 **Constraints:**       <Hard constraints only - contracts, perf budgets, compat targets, deadlines.>
+**Verification:**      <Non-skippable. Tests, gates, qa.md trigger patterns, and regression
+                        tests from .agentic/findings.md. "Cannot specify" blocks sign-off.>
+```
 
-**Verification:**      <Single non-skippable line. Tests, gates, qa.md trigger patterns,
-                        and regression tests required by .agentic/findings.md that prove this is done.
-                        "Cannot specify" is itself a planning gap and blocks Skeptic sign-off.>
+---
 
-**QA criteria:**       <Required for Elevated. YAML block: qa_skip (one of 5 valid enums or null),
-                        qa_skip_rationale (required if qa_skip != null), scenarios[] (required if
-                        qa_skip null; method in {browser, api, runtime-required, visual_conformance,
-                        accessibility, perceptual_diff}), manual_smoke. Absence on Elevated is a
-                        Critical Skeptic finding.>
+## Brief template (cont.) — fields 6-8
 
-**Linked artifacts:**  architect-plan: <path>; orchestration: <path or inline JSONL block>
+<style scoped>
+  pre { font-size: 0.72em; background: #04070F; border-radius: 8px; padding: 0.6em 1em; margin: 0.25em 0; line-height: 1.35; }
+  p { font-size: 0.84em; margin: 0.2em 0; }
+</style>
+
+```markdown
+**Outcome rubric:**    <Pass/fail lines (max 6), each tagged
+                        verification_type: deterministic | judgment.
+                        Required for Elevated; absence is a Critical Skeptic finding.>
+- [ ] <e.g. all existing tests pass with zero regressions> [deterministic]
+- [ ] <e.g. the new flow is coherent from an operator perspective> [judgment]
+
+**QA criteria:**       <Required for Elevated. YAML block: qa_skip (one of 5 valid
+                        enums or null), qa_skip_rationale (if qa_skip != null),
+                        viewport, scenarios[] (method in {browser, api,
+                        runtime-required, visual_conformance, accessibility,
+                        perceptual_diff, motion}), manual_smoke.
+                        Absence on Elevated is a Critical Skeptic finding.>
+
+**Linked artifacts:**  architect-plan: <path>; orchestration: <path or inline JSONL>
 ```
 
 ---
@@ -368,9 +381,9 @@ Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines)
 ## Brief field guidance
 
 <style scoped>
-  .card { font-size: 0.85em; line-height: 1.5; }
-  ul li { margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  .card { font-size: 0.75em; line-height: 1.35; padding: 0.65em 0.85em; }
+  ul li { margin: 0.1em 0; }
+  .callout { font-size: 0.72em; padding: 0.28em 0.8em; margin-top: 0.3em; }
 </style>
 
 <div class="card">
@@ -378,15 +391,16 @@ Canonical path: `docs/planning/<slug>.md`. Must fit on one screen (~15-20 lines)
 - **Problem** - behavior gap, not solution. If you wrote "add X", restate as "users cannot Y".
 - **Success criteria** - pass/fail testable from outside. Drives Skeptic completion review.
 - **Non-goals** - written to defeat the most likely scope-creep direction.
-- **Constraints** - list only what would change the architect's design if violated.
-- **Verification** - non-skippable. Name the concrete tests, gates, qa.md trigger patterns, and regression tests required by the findings flywheel. If verification cannot be specified at planning time, that is a planning gap - the Brief is not Skeptic-eligible until verification is named.
-- **QA criteria** - required for Elevated. YAML block with `qa_skip` enum (or null) and `scenarios[]`. Absence on an Elevated Brief is a Critical Skeptic finding.
+- **Constraints** - only what would change the architect's design if violated.
+- **Verification** - non-skippable. Name the concrete tests, gates, qa.md trigger patterns, and regression tests from the findings flywheel. If verification cannot be specified, that is a planning gap - Brief is not Skeptic-eligible until it is named.
+- **Outcome rubric** - distinct from Verification. Verification names gate commands; the Outcome rubric is the operator's semantic definition of done. Deterministic lines name a gate; judgment lines are graded adversarially by the Skeptic.
+- **QA criteria** - required for Elevated. YAML block with `qa_skip` enum (or null) and `scenarios[]`. Absence on Elevated is a Critical Skeptic finding.
 - **Linked artifacts** - makes the Brief auditable against its own inputs.
 
 </div>
 
 <div class="callout">
-<=20 lines total. If the Brief exceeds one screen, it is not a Brief - it is a mini-spec and should be reworked. The Brief is a commitment, not a design document.
+&lt;=20 lines total. If the Brief exceeds one screen, it is a mini-spec - rework it. The Brief is a commitment, not a design document.
 </div>
 
 ---
@@ -424,9 +438,9 @@ If any of the three authored files exceeds 10 lines, the Plan is too large. Spli
 ## Verification gate
 
 <style scoped>
-  pre { font-size: 0.76em; background: #04070F; border-radius: 8px; padding: 0.8em 1.2em; margin: 0.3em 0; }
-  p { font-size: 0.88em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  pre { font-size: 0.66em; background: #04070F; border-radius: 8px; padding: 0.45em 0.85em; margin: 0.15em 0; line-height: 1.25; }
+  p { font-size: 0.82em; margin: 0.15em 0; }
+  .callout { font-size: 0.74em; padding: 0.28em 0.85em; margin-top: 0.3em; }
 </style>
 
 `verification-gate.md` template:
@@ -497,9 +511,11 @@ If any of the three authored files exceeds 10 lines, the Plan is too large. Spli
 ## Worker contract additions
 
 <style scoped>
-  pre { font-size: 0.8em; background: #04070F; border-radius: 8px; padding: 0.8em 1.2em; margin: 0.3em 0; }
-  p { font-size: 0.88em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  pre { font-size: 0.72em; background: #04070F; border-radius: 8px; padding: 0.5em 0.9em; margin: 0.2em 0; line-height: 1.3; }
+  p { font-size: 0.84em; margin: 0.2em 0; }
+  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.35em; }
+  ol { font-size: 0.84em; margin: 0.2em 0; }
+  ol li { margin: 0.15em 0; }
 </style>
 
 Two new optional fields in the execution contract:
@@ -529,10 +545,10 @@ brief_path and plan_path are populated by the conductor at spawn time. Workers d
 ## Mid-flight retroactive Brief
 
 <style scoped>
-  p { font-size: 0.9em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
-  ul { font-size: 0.88em; }
-  ul li { margin: 0.3em 0; }
+  p { font-size: 0.86em; margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 0.9em; margin-top: 0.4em; }
+  ul { font-size: 0.84em; }
+  ul li { margin: 0.2em 0; }
 </style>
 
 A task can be promoted upward mid-work. It cannot be demoted.
@@ -547,7 +563,7 @@ When escalation fires (e.g., a 3-unit Brief-tier task is re-planned into 8 units
 - `.agentic/loop-state.json` `promotion_tier` is updated to reflect the new tier.
 
 <div class="callout">
-"Retroactive" means the Brief was not written at the start because the shape wasn't yet known. It is not a failure mode - it is the correct protocol for tasks whose scope expands during execution.
+"Retroactive" means the Brief was not written at the start because the shape wasn't yet known. Not a failure mode - it is the correct protocol for tasks whose scope expands during execution.
 </div>
 
 ---
@@ -555,10 +571,10 @@ When escalation fires (e.g., a 3-unit Brief-tier task is re-planned into 8 units
 ## 3rd-resume auto-promotion
 
 <style scoped>
-  p { font-size: 0.9em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
-  ul { font-size: 0.88em; }
-  ul li { margin: 0.3em 0; }
+  p { font-size: 0.86em; margin: 0.2em 0; }
+  .callout { font-size: 0.78em; padding: 0.35em 0.9em; margin-top: 0.35em; }
+  ul { font-size: 0.84em; }
+  ul li { margin: 0.15em 0; }
 </style>
 
 Trigger: `.agentic/loop-state.json` records a third resume of a Brief-tier task.

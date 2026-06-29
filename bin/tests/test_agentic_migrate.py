@@ -8,6 +8,7 @@ All tests use tmpdir isolation to avoid polluting the real project.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BIN = str(REPO_ROOT / "bin" / "agentic-migrate")
 MANIFEST = str(REPO_ROOT / "content" / "project-scaffolding.yml")
+
+
+def _manifest_version() -> int:
+    """Read scaffolding_version from the canonical manifest. Mirrors the regex
+    used by bin/agentic-migrate._load_manifest so the test always tracks the
+    real source of truth without hardcoding a version integer."""
+    text = Path(MANIFEST).read_text(encoding="utf-8")
+    m = re.search(r'^scaffolding_version:\s*(\d+)', text, re.MULTILINE)
+    if not m:
+        raise RuntimeError(f"scaffolding_version not found in {MANIFEST}")
+    return int(m.group(1))
 
 
 def run(args: list[str], env: dict | None = None, cwd: str | None = None) -> subprocess.CompletedProcess:
@@ -65,11 +77,12 @@ class TestHappyPath(unittest.TestCase):
 
         # .agentic/config.json should be seeded (already existed) and stamped
         data = json.loads((self.project / ".agentic" / "config.json").read_text())
-        self.assertEqual(data["scaffolding_version"], 1)
+        expected_version = _manifest_version()
+        self.assertEqual(data["scaffolding_version"], expected_version)
 
         # audit line in context.md
         ctx = (self.project / ".agentic" / "context.md").read_text()
-        self.assertIn("[scaffolding-sync] Applied v0 -> v1", ctx)
+        self.assertIn(f"[scaffolding-sync] Applied v0 -> v{expected_version}", ctx)
 
     def test_check_returns_drift_before_apply(self):
         result = run(
@@ -99,15 +112,21 @@ class TestAlreadyCompliant(unittest.TestCase):
             "debugger_on_failure": False,
         }) + "\n")
 
-        # Write .gitignore with ALL patterns already present
-        patterns = [
-            ".agentic/*",
-            "!.agentic/config.json",
-            "!.agentic/findings.md",
-            "!.agentic/session-log/",
-            "!.agentic/session-log/**",
-        ]
+        # Write .gitignore with ALL patterns from the current manifest already present.
+        # Read them dynamically so this list stays in sync with future manifest bumps.
+        import re as _re
+        _manifest_text = Path(MANIFEST).read_text(encoding="utf-8")
+        patterns = _re.findall(r'- pattern:\s*"([^"]+)"', _manifest_text)
         (self.project / ".gitignore").write_text("\n".join(patterns) + "\n")
+
+        # Seed all files listed in the manifest so apply finds nothing to write
+        # and correctly skips the audit line.
+        file_paths = _re.findall(r'- path:\s*"([^"]+)"', _manifest_text)
+        for rel_path in file_paths:
+            target = self.project / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                target.write_text("")
 
     def test_no_audit_line_when_all_present(self):
         result = run(
@@ -117,7 +136,7 @@ class TestAlreadyCompliant(unittest.TestCase):
 
         # stamp should be updated
         data = json.loads((self.project / ".agentic" / "config.json").read_text())
-        self.assertEqual(data["scaffolding_version"], 1)
+        self.assertEqual(data["scaffolding_version"], _manifest_version())
 
         # NO audit line (nothing was written)
         ctx_path = self.project / ".agentic" / "context.md"
@@ -409,6 +428,80 @@ markers: []
         )
 
         # 4. No crash (result.returncode already checked above)
+
+
+class TestPathTraversalGuard(unittest.TestCase):
+    """Manifest entries with traversal paths must not write outside project_root; exit 3."""
+
+    def _make_fixture(self):
+        """Return (tmp, project, manifest_dir) with a minimal project scaffold."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        project.mkdir()
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"debugger_on_failure": False}) + "\n")
+        (project / ".gitignore").write_text("")
+        manifest_dir = Path(tmp)
+        (manifest_dir / "innocent.json").write_text("{}\n")
+        return tmp, project, manifest_dir
+
+    def test_relative_traversal_blocked(self):
+        """../escape.txt must not be written outside project_root."""
+        tmp, project, manifest_dir = self._make_fixture()
+
+        manifest_text = """
+scaffolding_version: 1
+gitignore: []
+files:
+  - path: "../escape.txt"
+    seed: "innocent.json"
+    purpose: "relative traversal attempt"
+markers: []
+"""
+        manifest_path = manifest_dir / "traversal-manifest.yml"
+        manifest_path.write_text(manifest_text)
+
+        result = run(
+            ["apply", "--manifest", str(manifest_path), "--project-root", str(project)],
+        )
+
+        self.assertEqual(result.returncode, 3, msg=f"Expected exit 3, got {result.returncode}\n{result.stderr}")
+        escaped = project.parent / "escape.txt"
+        self.assertFalse(escaped.exists(), "Traversal target must not be written outside project_root")
+        self.assertIn("escape.txt", result.stderr, "stderr must mention the offending path")
+
+    def test_absolute_path_blocked(self):
+        """An absolute path outside project_root must not be written."""
+        tmp, project, manifest_dir = self._make_fixture()
+
+        # Use a predictable temp path that is clearly outside project
+        import tempfile as _tf
+        target_dir = Path(_tf.mkdtemp())
+        absolute_target = str(target_dir / "agentic-escape-test.txt")
+
+        manifest_text = f"""
+scaffolding_version: 1
+gitignore: []
+files:
+  - path: "{absolute_target}"
+    seed: "innocent.json"
+    purpose: "absolute path attack"
+markers: []
+"""
+        manifest_path = manifest_dir / "absolute-manifest.yml"
+        manifest_path.write_text(manifest_text)
+
+        result = run(
+            ["apply", "--manifest", str(manifest_path), "--project-root", str(project)],
+        )
+
+        self.assertEqual(result.returncode, 3, msg=f"Expected exit 3, got {result.returncode}\n{result.stderr}")
+        self.assertFalse(
+            Path(absolute_target).exists(),
+            "Absolute out-of-root target must not be written",
+        )
+        self.assertIn("agentic-escape-test.txt", result.stderr, "stderr must mention the offending path")
 
 
 if __name__ == "__main__":

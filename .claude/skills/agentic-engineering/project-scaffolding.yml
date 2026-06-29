@@ -4,6 +4,10 @@
 #          at preflight Step 6 to auto-apply drift.
 #          v2: adds !.agentic/learnings.md negation + learnings.md seed so fix-patterns
 #              are committed and shared across operators by default.
+#          v3: adds !.agentic/team.yml negation so cross-harness team topology is
+#              committed shareable project intent (like config.json).
+#          v4: adds !.agentic/skill-candidates.md negation + seed so the skill-candidate
+#              backlog is committed and visible to all team members by default.
 # Public API: read by bin/agentic-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
 # Upstream: none (this is the canonical source)
@@ -12,20 +16,24 @@
 # Failure modes: if malformed or missing, agentic-migrate exits 2 and skips migration;
 #                preflight swallows the error silently and proceeds with methodology active.
 
-scaffolding_version: 2
+scaffolding_version: 4
 gitignore:
   - pattern: ".agentic/*"
     purpose: "umbrella ignore"
   - pattern: "!.agentic/config.json"
     purpose: "committed: methodology toggles"
-  - pattern: "!.agentic/findings.md"
-    purpose: "committed: findings tracker"
+  - pattern: "!.agentic/qa-regressions.md"
+    purpose: "committed: qa regression patterns shared across operators"
   - pattern: "!.agentic/session-log/"
     purpose: "committed: Stage 1 telemetry"
   - pattern: "!.agentic/session-log/**"
     purpose: "committed: Stage 1 telemetry contents"
   - pattern: "!.agentic/learnings.md"
     purpose: "committed: per-ticket fix-pattern learnings shared across operators"
+  - pattern: "!.agentic/team.yml"
+    purpose: "committed: cross-harness team topology (shareable project intent)"
+  - pattern: "!.agentic/skill-candidates.md"
+    purpose: "committed: skill-candidate backlog shared across operators"
 files:
   - path: ".agentic/config.json"
     seed: "templates/.agentic/config.json"
@@ -33,4 +41,7 @@ files:
   - path: ".agentic/learnings.md"
     seed: "templates/.agentic/learnings.md"
     purpose: "per-ticket fix-pattern learnings - header-only stub; entries appended by agents"
+  - path: ".agentic/skill-candidates.md"
+    seed: "templates/.agentic/skill-candidates.md"
+    purpose: "skill-candidate backlog - header-only stub; entries written by Stop hook detector"
 markers: []   # parsed only by /migrate-project --include-destructive; preflight apply IGNORES this key

@@ -4,9 +4,14 @@
  * Purpose: Interactive updater for agentic-engineering. Presents a TUI
  *          multi-select menu of adapters, runs git pull --ff-only
  *          origin main, and executes each selected adapter's install.sh.
+ *          Skips adapter rebuilds when no adapter-source paths changed,
+ *          making pure consumer daily updates near-instant.
  *
- * Public API: main() — CLI entry point. Called directly when the file is
- *             executed as a script.
+ * Public API:
+ *   main()        - CLI entry point. Called directly when the file is
+ *                   executed as a script.
+ *   needsRebuild(oldHead, newHead, changedPaths) - pure predicate; exported
+ *                   for unit tests via module.exports when not run directly.
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
  *                external packages.
@@ -18,7 +23,8 @@
  *                adapter installs and config writes.
  *
  * Performance: Standard. TUI is synchronous; git and install script
- *              operations block until completion.
+ *              operations block until completion. Rebuild-skip path skips
+ *              all adapter install.sh executions and is near-instant.
  *
  * Usage: node scripts/update.js <repo_dir>
  */
@@ -57,16 +63,25 @@ function loadConfig() {
 
 function saveConfig(selectedAdapters) {
   const configPath = getConfigPath();
-  const config = {
-    adapters: {},
-    updatedAt: new Date().toISOString()
-  };
+  // Read-merge-write: load existing config to preserve keys like repo_dir.
+  let config = {};
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (_) {
+    // File absent or unreadable - start from empty object.
+  }
+  config.adapters = {};
   for (const adapter of selectedAdapters) {
     config.adapters[adapter] = true;
   }
+  config.updatedAt = new Date().toISOString();
+  // Atomic write: tmp + rename to avoid partial-write corruption.
+  const tmpPath = `${configPath}.tmp.${process.pid}`;
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmpPath, configPath);
   } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
     console.error(`Warning: failed to write config: ${err.message}`);
   }
 }
@@ -206,6 +221,63 @@ function getDirtyFiles(repoDir) {
     }
   }
   return { staged, unstaged, untracked };
+}
+
+// ---------------------------------------------------------------------------
+// Rebuild decision
+// ---------------------------------------------------------------------------
+
+// Prefixes/paths that require a full adapter rebuild when any changed file
+// starts with one of these strings (after normalising to forward slashes).
+const REBUILD_TRIGGERS = [
+  'content/',
+  'scripts/build-all.sh',
+  'scripts/build-methodology.sh',
+  'scripts/build-slides.sh',
+  'hooks/',
+  '.claude/install.sh',
+  'bin/',
+];
+
+// Returns true if adapter install scripts should be run after a pull.
+//
+// Decision table:
+//   oldHead empty/null/undefined -> true  (first install, never skip)
+//   oldHead === newHead           -> false (already up to date)
+//   any changedPath matches a REBUILD_TRIGGER prefix -> true
+//   otherwise                    -> false (doc-only or unrelated changes)
+//
+// changedPaths: string[] of repo-relative paths as returned by
+//               `git diff --name-only OLD NEW`.
+function needsRebuild(oldHead, newHead, changedPaths) {
+  // Safety case: no prior HEAD means first install - always rebuild.
+  if (!oldHead) return true;
+
+  // No commits pulled - nothing to rebuild.
+  if (oldHead === newHead) return false;
+
+  // Check each changed path against rebuild triggers.
+  for (const p of changedPaths) {
+    // Normalise separators (Windows safety) and strip leading slashes.
+    const normalised = p.replace(/\\/g, '/').replace(/^\//, '');
+    for (const trigger of REBUILD_TRIGGERS) {
+      if (trigger.endsWith('/')) {
+        // Directory prefix: match any file under this directory.
+        if (normalised.startsWith(trigger)) return true;
+      } else if (trigger.includes('/')) {
+        // Exact file path (e.g. 'scripts/build-all.sh').
+        if (normalised === trigger) return true;
+      } else {
+        // Bare glob: any path ending in this filename pattern.
+        // Currently unused but kept for forward compatibility.
+        if (normalised === trigger || normalised.endsWith('/' + trigger)) return true;
+      }
+    }
+    // Any adapter-local build.sh (e.g. '.cursor/build.sh', '.claude/build.sh').
+    if (/\/build\.sh$/.test(normalised) || normalised === 'build.sh') return true;
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -554,6 +626,13 @@ async function main() {
   }
 
   // Git operations
+
+  // Capture HEAD immediately before the pull so we can diff what changed.
+  // The fetch does not move HEAD; capturing here (before fetch) vs. after
+  // fetch produces the same SHA. We go before fetch to be maximally clear
+  // about "the state we started from".
+  const oldHead = git(resolvedRepoDir, 'rev-parse', 'HEAD').stdout || '';
+
   console.log('\n>>> git fetch origin');
   const fetchResult = git(resolvedRepoDir, 'fetch', 'origin');
   if (!fetchResult.success) {
@@ -561,8 +640,6 @@ async function main() {
     console.error(fetchResult.stderr);
     process.exit(1);
   }
-
-  const oldHead = git(resolvedRepoDir, 'rev-parse', 'HEAD').stdout;
 
   console.log('\n>>> git pull --ff-only origin main');
   const pullResult = git(resolvedRepoDir, 'pull', '--ff-only', 'origin', 'main');
@@ -573,9 +650,9 @@ async function main() {
     process.exit(1);
   }
 
-  const newHead = git(resolvedRepoDir, 'rev-parse', 'HEAD').stdout;
+  const newHead = git(resolvedRepoDir, 'rev-parse', 'HEAD').stdout || '';
   let commitsPulled = 0;
-  if (oldHead !== newHead) {
+  if (oldHead && newHead && oldHead !== newHead) {
     const countResult = git(resolvedRepoDir, 'rev-list', '--count', `${oldHead}..${newHead}`);
     commitsPulled = countResult.success ? parseInt(countResult.stdout, 10) : 0;
   }
@@ -585,26 +662,50 @@ async function main() {
   // rather than waiting for the next TTL-gated background refresh.
   resetVersionCheckCache();
 
-  // Run install scripts (fail-fast: stop on first failure)
-  const successes = [];
-
-  for (const adapter of selected) {
-    const result = await runInstallScript(resolvedRepoDir, adapter);
-    if (result.success) {
-      successes.push(result.display);
-    } else {
-      console.error(`\nerror: ${result.display}/install.sh failed (exit ${result.code}).`);
-      console.error('       Fix the failure and re-run ./update.sh.');
-      process.exit(result.code || 1);
+  // Decide whether to run adapter install scripts.
+  let changedPaths = [];
+  if (oldHead && newHead && oldHead !== newHead) {
+    const diffResult = git(resolvedRepoDir, 'diff', '--name-only', oldHead, newHead);
+    if (diffResult.success && diffResult.stdout) {
+      changedPaths = diffResult.stdout.split('\n').filter(Boolean);
     }
   }
 
-  // Save config
+  const rebuild = needsRebuild(oldHead, newHead, changedPaths);
+
+  // Run install scripts (fail-fast: stop on first failure)
+  const successes = [];
+
+  if (!rebuild) {
+    const reason = oldHead === newHead
+      ? 'Already up to date - skipping adapter rebuild.'
+      : 'No adapter-source changes - skipping rebuild.';
+    console.log(`\n${reason}`);
+  } else {
+    for (const adapter of selected) {
+      const result = await runInstallScript(resolvedRepoDir, adapter);
+      if (result.success) {
+        successes.push(result.display);
+      } else {
+        console.error(`\nerror: ${result.display}/install.sh failed (exit ${result.code}).`);
+        console.error('       Fix the failure and re-run ./update.sh.');
+        process.exit(result.code || 1);
+      }
+    }
+  }
+
+  // Save config (always - adapter selection is independent of rebuild)
   saveConfig(selected);
 
   // Summary
   console.log('');
-  if (commitsPulled === 0) {
+  if (!rebuild) {
+    if (commitsPulled === 0) {
+      console.log('Already up to date. Adapter rebuild skipped.');
+    } else {
+      console.log(`Updated: pulled ${commitsPulled} commit(s). Adapter rebuild skipped (no adapter-source changes).`);
+    }
+  } else if (commitsPulled === 0) {
     console.log(`Already up to date. Refreshed ${successes.length} adapter(s): ${successes.join(' ')}.`);
   } else {
     console.log(`Updated: pulled ${commitsPulled} commit(s); refreshed ${successes.length} adapter(s): ${successes.join(' ')}.`);
@@ -632,7 +733,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Export pure helpers for unit tests. Guard the main() call so that requiring
+// this file from a test does not launch the interactive TUI.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+} else {
+  module.exports = { needsRebuild };
+}

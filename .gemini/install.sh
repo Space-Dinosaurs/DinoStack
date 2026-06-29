@@ -337,6 +337,30 @@ else:
 
 hooks = settings.setdefault("hooks", {})
 
+def upsert_hook(hook_list, script_basename, expected_entry, label):
+    """Upsert a hook entry using equality-based idempotency.
+
+    Identifies an existing entry by script_basename appearing in its command
+    (stable identity that survives repo moves). Then:
+    - command already equals expected -> leave it, print '= already present'
+    - command differs (stale/moved path) -> replace command (and name if set),
+      print '~ updated stale hook'
+    - no match -> append new entry, print '+ added'
+    """
+    expected_cmd = expected_entry["command"]
+    for entry in hook_list:
+        if script_basename in entry.get("command", ""):
+            if entry["command"] == expected_cmd:
+                print(f"  = {label} already present")
+            else:
+                entry["command"] = expected_cmd
+                if "name" in expected_entry:
+                    entry["name"] = expected_entry["name"]
+                print(f"  ~ {label} updated stale hook -> {expected_cmd}")
+            return
+    hook_list.append(expected_entry)
+    print(f"  + Added {label}: {expected_cmd}")
+
 # ---- BeforeAgent hook (risk reminder) ----------------------------------------
 RISK_CMD = f'bash "{hooks_dir}/risk-reminder.sh"'
 
@@ -355,40 +379,22 @@ if ba_star is None:
 
 ba_star.setdefault("hooks", [])
 
-already_has_risk = any(
-    entry.get("name") == "risk-reminder" or
-    ("risk-reminder.sh" in entry.get("command", "") and "agentic-engineering" in entry.get("command", ""))
-    for entry in ba_star["hooks"]
+upsert_hook(
+    ba_star["hooks"],
+    "risk-reminder.sh",
+    {"name": "risk-reminder", "type": "command", "command": RISK_CMD},
+    "BeforeAgent risk-reminder hook",
 )
-
-if already_has_risk:
-    print("  = BeforeAgent risk-reminder hook already present")
-else:
-    ba_star["hooks"].append({
-        "name": "risk-reminder",
-        "type": "command",
-        "command": RISK_CMD
-    })
-    print(f"  + Added BeforeAgent risk-reminder hook: {RISK_CMD}")
 
 # ---- BeforeAgent hook (skill auto-load check) --------------------------------
 SKILL_CMD = f'bash "{repo_dir}/hooks/skill-auto-load-check.sh"'
 
-already_has_skill = any(
-    entry.get("name") == "skill-auto-load-check" or
-    ("skill-auto-load-check.sh" in entry.get("command", "") and "agentic-engineering" in entry.get("command", ""))
-    for entry in ba_star["hooks"]
+upsert_hook(
+    ba_star["hooks"],
+    "skill-auto-load-check.sh",
+    {"name": "skill-auto-load-check", "type": "command", "command": SKILL_CMD},
+    "BeforeAgent skill-auto-load-check hook",
 )
-
-if already_has_skill:
-    print("  = BeforeAgent skill-auto-load-check hook already present")
-else:
-    ba_star["hooks"].append({
-        "name": "skill-auto-load-check",
-        "type": "command",
-        "command": SKILL_CMD
-    })
-    print(f"  + Added BeforeAgent skill-auto-load-check hook: {SKILL_CMD}")
 
 # ---- SessionEnd hook (context save) ------------------------------------------
 STOP_CMD = f'node "{hooks_dir}/stop-context-gemini.js"'
@@ -408,29 +414,12 @@ if se_exit is None:
 
 se_exit.setdefault("hooks", [])
 
-already_correct = False
-replaced = False
-for entry in se_exit["hooks"]:
-    cmd = entry.get("command", "")
-    if "stop-context-gemini.js" in cmd:
-        if "agentic-engineering" in cmd:
-            already_correct = True
-        else:
-            entry["command"] = STOP_CMD
-            replaced = True
-        break
-
-if already_correct:
-    print("  = SessionEnd hook already points to correct stop-context-gemini.js")
-elif replaced:
-    print(f"  ~ Replaced SessionEnd hook with: {STOP_CMD}")
-else:
-    se_exit["hooks"].append({
-        "name": "stop-context",
-        "type": "command",
-        "command": STOP_CMD
-    })
-    print(f"  + Added SessionEnd hook: {STOP_CMD}")
+upsert_hook(
+    se_exit["hooks"],
+    "stop-context-gemini.js",
+    {"name": "stop-context", "type": "command", "command": STOP_CMD},
+    "SessionEnd stop-context hook",
+)
 
 # ---- Write back --------------------------------------------------------------
 os.makedirs(os.path.dirname(settings_path) or ".", exist_ok=True)

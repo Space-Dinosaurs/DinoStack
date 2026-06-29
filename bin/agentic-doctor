@@ -1,0 +1,652 @@
+#!/usr/bin/env python3
+"""
+Purpose: Inspect global agentic-engineering install health and (with --fix)
+         converge drift. Checks that managed symlinks under ~/.claude resolve
+         into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
+         each bin/agentic-* script, that hook commands in ~/.claude/settings.json
+         point into repo_dir, and that the repo_dir pre-commit hook is wired.
+         With --fix, re-points ours-to-own broken/stale symlinks and rewrites
+         hook paths in settings.json (atomic read-merge-write). Never invokes
+         install.sh, never touches real files or foreign symlinks.
+
+Public API: agentic-doctor [--fix] [--dry-run]
+            Prints one status line per check:
+              OK <kind>: <detail>
+              FAIL <kind>: <detail>
+              FIX symlink: <dst> : <old/broken target> -> <new target>
+              SKIP <kind>: <dst> (reason)
+            Exits 0 (all pass / --fix resolved all), 1 (findings in read-only
+            or dry-run mode), 2 (--fix ran but one or more items could not be
+            fixed).
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, sys, tempfile).
+               Reads ~/.agentic/agentic-engineering-config.json (repo_dir source),
+               ~/.claude/settings.json (hook inspection/repair),
+               ~/.claude/agents/, ~/.claude/commands/, ~/.claude/skills/.
+               Reads <repo_dir>/bin/agentic-* (bin wrapper check).
+               Reads <repo_dir>/.git/hooks/pre-commit (pre-commit check).
+
+Downstream consumers: developers diagnosing broken installs after cloning to a
+                      new path; bootstrap guard advisory for two-clone setups.
+
+Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
+               ~/.claude/settings.json -> check (c) skipped with SKIP output.
+               All file errors swallowed; a failing check is counted as FAIL.
+               Never modifies files unless --fix is passed (without --dry-run).
+
+Performance: O(small). Linear scan of a few directories + one JSON parse.
+             <100 ms on any modern machine.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+def _home() -> Path:
+    """Current HOME directory (re-evaluated each call so tests can override HOME)."""
+    return Path(os.path.expanduser("~"))
+
+
+def _config_path() -> Path:
+    return _home() / ".agentic" / "agentic-engineering-config.json"
+
+
+def _settings_path() -> Path:
+    return _home() / ".claude" / "settings.json"
+
+
+def _local_bin() -> Path:
+    return _home() / ".local" / "bin"
+
+
+def _managed_link_dirs() -> list[Path]:
+    """Managed symlink trees under ~/.claude. Re-evaluated each call."""
+    h = _home()
+    return [
+        h / ".claude" / "agents",
+        h / ".claude" / "commands",
+        h / ".claude" / "skills" / "agentic-engineering",
+    ]
+
+# Basenames of hook scripts that live in <repo_dir>/hooks/.
+MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
+    "enforce-askuserquestion-default.py",
+    "enforce-background-spawn.py",
+    "enforce-orchestrator-singularity.py",
+    "post-tool-use-capture-nudge.js",
+    "session-end-wrap.js",
+    "session-start-version-check.sh",
+    "session-start-wrap.sh",
+    "skill-auto-load-check.sh",
+    "stop-context.js",
+    "wrap-daemon.js",
+])
+
+# ---------------------------------------------------------------------------
+# Config resolution
+# ---------------------------------------------------------------------------
+
+
+def _load_repo_dir() -> Path:
+    """Read repo_dir from config, falling back to ~/DinoStack.
+
+    Always returns a realpath (os.path.realpath) so comparisons with other
+    realpath'd paths work correctly on macOS where /var is a symlink to
+    /private/var.
+    """
+    fallback = Path(os.path.realpath(str(_home() / "DinoStack")))
+    try:
+        config = _config_path()
+        if config.is_file():
+            data = json.loads(config.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("repo_dir"):
+                raw = Path(str(data["repo_dir"])).expanduser()
+                return Path(os.path.realpath(str(raw)))
+    except Exception:
+        pass
+    return fallback
+
+
+def _is_git_repo(path: Path) -> bool:
+    """Return True if path contains a .git directory or file."""
+    try:
+        return (path / ".git").exists()
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+
+def _realpath(p: Path) -> Path:
+    """os.path.realpath resolving symlinks and /private/var -> /var on macOS."""
+    return Path(os.path.realpath(str(p)))
+
+
+def _is_relative_to(child: Path, parent: Path) -> bool:
+    """Path.is_relative_to polyfill for Python < 3.9.
+
+    For broken symlinks, os.path.realpath follows the link to its (non-existent)
+    target, so we must NOT use realpath on the child directly - instead, we
+    realpath the child's parent directory (which does exist) and re-attach the
+    final name. This correctly handles cases where child is a symlink (broken or
+    otherwise) that lives in a real directory.
+
+    For regular files/dirs and non-symlink paths, both approaches are equivalent.
+    """
+    # Resolve parent normally
+    parent_r = Path(os.path.realpath(str(parent)))
+    # For child: resolve its parent dir, then re-attach the name.
+    # This avoids following the symlink itself.
+    child_parent_r = Path(os.path.realpath(str(child.parent)))
+    child_r = child_parent_r / child.name
+    try:
+        child_r.relative_to(parent_r)
+        return True
+    except ValueError:
+        return False
+
+
+def _readlink_resolved(dst: Path) -> tuple[str, Path | None]:
+    """Return (raw_target_str, realpath_or_None_if_broken).
+
+    Uses os.path.realpath (not Path.resolve) so /private/var and /var
+    compare correctly on macOS.
+    """
+    try:
+        raw = os.readlink(str(dst))
+        candidate = Path(raw) if Path(raw).is_absolute() else dst.parent / raw
+        real = Path(os.path.realpath(str(candidate)))
+        return raw, real if real.exists() else None
+    except Exception:
+        return "(unreadable)", None
+
+
+# ---------------------------------------------------------------------------
+# Ownership predicate
+# ---------------------------------------------------------------------------
+
+
+def _is_ours(dst: Path, repo_dir: Path) -> bool:
+    """Return True if we own this symlink and may re-point it.
+
+    Owned iff ALL of:
+    - dst is under ~/.claude/{agents,commands,skills/agentic-engineering}
+      OR under <repo_dir>/.git/hooks OR under LOCAL_BIN
+    - dst is a symlink (not a real file)
+    - current target is either already under some DinoStack-looking repo_dir
+      OR broken (target does not exist)
+    """
+    if not os.path.islink(str(dst)):
+        return False
+
+    in_managed = any(_is_relative_to(dst, d) for d in _managed_link_dirs())
+    in_git_hooks = _is_relative_to(dst, repo_dir / ".git" / "hooks")
+    in_local_bin = _is_relative_to(dst, _local_bin())
+
+    if not (in_managed or in_git_hooks or in_local_bin):
+        return False
+
+    _raw, resolved = _readlink_resolved(dst)
+
+    # Broken symlink - target does not exist -> we can reclaim it
+    if resolved is None:
+        return True
+
+    # Target exists under repo_dir -> clearly ours
+    if _is_relative_to(resolved, repo_dir):
+        return True
+
+    # Target exists under another DinoStack clone (name heuristic).
+    # Match any path component that IS "DinoStack" or ENDS WITH "-DinoStack"
+    # (e.g. "old-DinoStack", "backup-DinoStack").
+    for part in resolved.parts:
+        if part == "DinoStack" or part.endswith("-DinoStack"):
+            return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Finding accumulator
+# ---------------------------------------------------------------------------
+
+
+class Doctor:
+    def __init__(self, repo_dir: Path, fix: bool) -> None:
+        self.repo_dir = repo_dir
+        self.fix = fix  # True only when --fix passed AND --dry-run NOT passed
+        self.findings: list[tuple[str, str]] = []
+        self.unfixable: list[str] = []
+
+    def _emit(self, status: str, message: str) -> None:
+        self.findings.append((status, message))
+        print(f"{status} {message}")
+
+    def ok(self, kind: str, detail: str) -> None:
+        self._emit("OK", f"{kind}: {detail}")
+
+    def fail(self, kind: str, detail: str) -> None:
+        self._emit("FAIL", f"{kind}: {detail}")
+
+    def skip(self, kind: str, dst_or_detail: object, reason: str) -> None:
+        self._emit("SKIP", f"{kind}: {dst_or_detail} ({reason})")
+
+    def repoint_symlink(self, kind: str, dst: Path, old: str, new: Path) -> None:
+        """Announce and (if fix mode) perform a symlink re-point.
+
+        Prints: FIX symlink: <dst> : <old/broken target> -> <new target>
+        In read-only/dry-run mode, the FIX line is informational only and
+        counts as a finding (exit 1). In live fix mode, performs the re-point.
+        """
+        self._emit("FIX", f"symlink: {dst} : {old} -> {new}")
+        if self.fix:
+            try:
+                if os.path.islink(str(dst)):
+                    os.remove(str(dst))
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(str(new), str(dst))
+            except Exception as exc:
+                self.fail(kind, f"could not re-point {dst}: {exc}")
+                self.mark_unfixable(dst)
+
+    def has_unresolved_findings(self) -> bool:
+        """Return True if there are FAIL or FIX lines in the output.
+
+        In live fix mode, FIX lines represent completed repairs (not failures),
+        so only FAIL lines count. In read-only/dry-run mode, both FAIL and FIX
+        lines count as findings requiring action.
+        """
+        if self.fix:
+            # Fix mode: only unfixed items (FAIL lines) matter
+            return any(s == "FAIL" for s, _ in self.findings)
+        else:
+            # Read-only/dry-run: FAIL or FIX both indicate drift
+            return any(s in ("FAIL", "FIX") for s, _ in self.findings)
+
+    def has_unfixable(self) -> bool:
+        return bool(self.unfixable)
+
+    def mark_unfixable(self, item) -> None:
+        """Append str(item) to unfixable only when fix mode is active."""
+        if self.fix:
+            self.unfixable.append(str(item))
+
+
+# ---------------------------------------------------------------------------
+# Check (a): repo_dir is a valid git repo
+# ---------------------------------------------------------------------------
+
+
+def check_repo_dir(doc: Doctor) -> None:
+    if not doc.repo_dir.exists():
+        doc.fail(
+            "repo_dir",
+            f"{doc.repo_dir} does not exist; re-run bootstrap or set repo_dir in {_config_path()}",
+        )
+        doc.mark_unfixable(doc.repo_dir)
+        return
+    if not _is_git_repo(doc.repo_dir):
+        doc.fail(
+            "repo_dir",
+            f"{doc.repo_dir} exists but is not a git repo; re-run bootstrap or set repo_dir in {_config_path()}",
+        )
+        doc.mark_unfixable(doc.repo_dir)
+        return
+    doc.ok("repo_dir", f"{doc.repo_dir} is a valid git repo")
+
+
+# ---------------------------------------------------------------------------
+# Check (b): managed ~/.claude symlinks resolve into repo_dir
+# ---------------------------------------------------------------------------
+
+
+def check_managed_symlinks(doc: Doctor) -> None:
+    """Check all entries under the managed ~/.claude dirs resolve into repo_dir."""
+    for root in _managed_link_dirs():
+        # If the root itself is a symlink (e.g. skills/agentic-engineering)
+        if os.path.islink(str(root)):
+            _check_one_link(doc, root, "managed_links")
+            continue
+
+        if not root.exists():
+            doc.skip("managed_links", root, "directory does not exist")
+            continue
+
+        try:
+            entries = sorted(root.iterdir())
+        except Exception:
+            doc.skip("managed_links", root, "could not read directory")
+            continue
+
+        for entry in entries:
+            if os.path.islink(str(entry)):
+                _check_one_link(doc, entry, "managed_links")
+            else:
+                # Real file in a managed dir: skip, do not touch
+                doc.skip("managed_links", entry, "real file, not a symlink")
+
+
+def _check_one_link(doc: Doctor, dst: Path, kind: str) -> None:
+    """Verify one symlink resolves into repo_dir; fix or skip as appropriate."""
+    raw, resolved = _readlink_resolved(dst)
+
+    if resolved is not None and _is_relative_to(resolved, doc.repo_dir):
+        doc.ok(kind, f"{dst} -> {raw}")
+        return
+
+    expected = _expected_target_in_repo(dst, doc.repo_dir)
+
+    if not _is_ours(dst, doc.repo_dir):
+        t_display = raw if resolved is None else str(resolved)
+        doc.skip(kind, dst, f"not ours - target {t_display} exists outside repo_dir")
+        return
+
+    # Broken or wrong target - we own it
+    old_display = f"{raw} (broken)" if resolved is None else raw
+
+    if expected is not None:
+        doc.repoint_symlink(kind, dst, old_display, expected)
+    else:
+        doc.fail(kind, f"{dst}: target {old_display} is wrong; could not determine repair target")
+        doc.mark_unfixable(dst)
+
+
+def _expected_target_in_repo(dst: Path, repo_dir: Path) -> Path | None:
+    """Compute where dst should point within repo_dir.
+
+    Agents/commands: ~/.claude/agents/foo.md -> <repo_dir>/.claude/agents/foo.md
+    Skills dir:      ~/.claude/skills/agentic-engineering ->
+                     <repo_dir>/.claude/skills/agentic-engineering
+
+    Uses parent-realpath to avoid following symlinks on dst itself (which would
+    resolve to the broken/stale target, not the symlink's location).
+    """
+    claude_dir = _home() / ".claude"
+    # Build the realpath of dst's location (not its target) for comparison
+    dst_resolved = Path(os.path.realpath(str(dst.parent))) / dst.name
+    claude_dir_r = Path(os.path.realpath(str(claude_dir)))
+    try:
+        rel = dst_resolved.relative_to(claude_dir_r)
+        return repo_dir / ".claude" / rel
+    except ValueError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Check (c): hook commands in settings.json embed paths under repo_dir
+# ---------------------------------------------------------------------------
+
+
+def check_hook_paths(doc: Doctor) -> None:
+    settings_path = _settings_path()
+    if not settings_path.exists():
+        doc.skip("hooks", settings_path, "settings.json not found")
+        return
+
+    try:
+        raw_text = settings_path.read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except Exception as exc:
+        doc.fail("hooks", f"could not parse {settings_path}: {exc}")
+        return
+
+    drift: list[tuple[str, str]] = []  # (old_cmd, new_cmd)
+
+    def _walk(obj: object) -> None:
+        if isinstance(obj, list):
+            for item in obj:
+                _walk(item)
+        elif isinstance(obj, dict):
+            cmd = obj.get("command")
+            if isinstance(cmd, str):
+                replacement = _hook_replacement(cmd, doc.repo_dir)
+                if replacement is not None:
+                    drift.append((cmd, replacement))
+            for v in obj.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+
+    _walk(data)
+
+    if not drift:
+        doc.ok("hooks", f"{settings_path}: all managed hook paths reference repo_dir")
+        return
+
+    for old_cmd, new_cmd in drift:
+        doc.repoint_symlink("hooks", settings_path, old_cmd, Path(new_cmd))
+
+    if doc.fix:
+        _atomic_patch_settings(doc, settings_path, data, {old: new for old, new in drift})
+
+
+def _hook_replacement(cmd: str, repo_dir: Path) -> str | None:
+    """If cmd references a managed hook at the wrong path, return the fixed cmd."""
+    for basename in MANAGED_HOOK_BASENAMES:
+        if basename not in cmd:
+            continue
+        tokens = cmd.split()
+        for token in tokens:
+            if basename not in token:
+                continue
+            token_path = Path(token)
+            expected = repo_dir / "hooks" / basename
+            if _is_relative_to(token_path, repo_dir):
+                return None  # already correct
+            # Only fix paths that look like a DinoStack install
+            if any(p == "DinoStack" or p.endswith("-DinoStack") for p in token_path.parts):
+                return cmd.replace(str(token_path), str(expected), 1)
+        break
+    return None
+
+
+def _atomic_patch_settings(
+    doc: Doctor, settings_path: Path, data: dict, replacements: dict[str, str]
+) -> None:
+    """Atomic read-merge-write: fix only the matched hook command strings."""
+
+    def _patch(obj: object) -> object:
+        if isinstance(obj, list):
+            return [_patch(item) for item in obj]
+        elif isinstance(obj, dict):
+            return {
+                k: (
+                    replacements[v]
+                    if k == "command" and isinstance(v, str) and v in replacements
+                    else _patch(v)
+                )
+                for k, v in obj.items()
+            }
+        return obj
+
+    try:
+        patched = _patch(data)
+        new_text = json.dumps(patched, indent=2) + "\n"
+        dir_ = str(settings_path.parent)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_, prefix=".settings-tmp-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(new_text)
+            os.replace(tmp_path, str(settings_path))
+            doc.ok("hooks", f"{settings_path}: hook paths repaired (atomic rewrite)")
+        except Exception as exc:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            doc.fail("hooks", f"could not write {settings_path}: {exc}")
+            doc.mark_unfixable(settings_path)
+    except Exception as exc:
+        doc.fail("hooks", f"patch failed: {exc}")
+        doc.mark_unfixable(settings_path)
+
+
+# ---------------------------------------------------------------------------
+# Check (d): ~/.local/bin/<name> symlinks for each bin/agentic-* script
+# ---------------------------------------------------------------------------
+
+
+def check_local_bin_symlinks(doc: Doctor) -> None:
+    bin_dir = doc.repo_dir / "bin"
+    if not bin_dir.is_dir():
+        doc.skip("local_bin", bin_dir, "repo_dir/bin does not exist")
+        return
+
+    try:
+        scripts = sorted(
+            p for p in bin_dir.iterdir()
+            if p.name.startswith("agentic-") and p.is_file()
+        )
+    except Exception:
+        doc.skip("local_bin", bin_dir, "could not read bin/")
+        return
+
+    if not scripts:
+        doc.skip("local_bin", bin_dir, "no agentic-* scripts found in repo_dir/bin")
+        return
+
+    local_bin = _local_bin()
+    for script in scripts:
+        link = local_bin / script.name
+        _check_bin_link(doc, link, script)
+
+
+def _check_bin_link(doc: Doctor, link: Path, expected_target: Path) -> None:
+    """Verify or fix one ~/.local/bin/<name> symlink."""
+    link_exists = link.exists() or os.path.islink(str(link))
+
+    if not link_exists:
+        doc.repoint_symlink("local_bin", link, "(missing)", expected_target)
+        return
+
+    if not os.path.islink(str(link)):
+        doc.skip("local_bin", link, "real file, not a symlink")
+        return
+
+    raw, resolved = _readlink_resolved(link)
+
+    if resolved is not None and resolved == _realpath(expected_target):
+        doc.ok("local_bin", f"{link} -> {raw}")
+        return
+
+    if _is_ours(link, doc.repo_dir):
+        old = raw if resolved is not None else f"{raw} (broken)"
+        doc.repoint_symlink("local_bin", link, old, expected_target)
+    else:
+        t = str(resolved) if resolved else f"{raw} (broken)"
+        doc.skip("local_bin", link, f"not ours - target {t} exists outside repo_dir")
+
+
+# ---------------------------------------------------------------------------
+# Check (e): <repo_dir>/.git/hooks/pre-commit -> <repo_dir>/hooks/pre-commit
+# ---------------------------------------------------------------------------
+
+
+def check_git_precommit(doc: Doctor) -> None:
+    expected_src = doc.repo_dir / "hooks" / "pre-commit"
+    git_hook = doc.repo_dir / ".git" / "hooks" / "pre-commit"
+
+    if not expected_src.exists():
+        doc.skip("git_precommit", git_hook, f"managed pre-commit not found at {expected_src}")
+        return
+
+    hook_exists = git_hook.exists() or os.path.islink(str(git_hook))
+
+    if not hook_exists:
+        doc.repoint_symlink("git_precommit", git_hook, "(missing)", expected_src)
+        return
+
+    if not os.path.islink(str(git_hook)):
+        doc.skip("git_precommit", git_hook, "real file, not a symlink - not managed by us")
+        return
+
+    raw, resolved = _readlink_resolved(git_hook)
+
+    if resolved is not None and resolved == _realpath(expected_src):
+        doc.ok("git_precommit", f"{git_hook} -> {raw}")
+        return
+
+    if _is_ours(git_hook, doc.repo_dir):
+        old = raw if resolved is not None else f"{raw} (broken)"
+        doc.repoint_symlink("git_precommit", git_hook, old, expected_src)
+    else:
+        t = str(resolved) if resolved else f"{raw} (broken)"
+        doc.skip("git_precommit", git_hook, f"not ours - target {t} exists outside repo_dir")
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="agentic-doctor",
+        description=(
+            "Inspect global agentic-engineering install health. "
+            "With --fix, re-points drifted symlinks toward the canonical repo_dir "
+            "and repairs hook paths in ~/.claude/settings.json. "
+            "NEVER invokes install.sh or rebuilds adapters. "
+            "Note: with two DinoStack clones, --fix re-points links toward the "
+            "canonical repo_dir (from ~/.agentic/agentic-engineering-config.json); "
+            "prevention is the bootstrap guard."
+        ),
+    )
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Re-point ours-to-own drifted symlinks and repair hook paths in settings.json.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help=(
+            "Enumerate findings and planned re-points without changing anything. "
+            "Same as no-flag mode (read-only scan)."
+        ),
+    )
+    args = parser.parse_args()
+
+    # --dry-run takes priority; --fix alone is the live-fix mode
+    actually_fix = args.fix and not args.dry_run
+
+    repo_dir = _load_repo_dir()
+    doc = Doctor(repo_dir=repo_dir, fix=actually_fix)
+
+    # (a) repo_dir validity
+    check_repo_dir(doc)
+
+    # (b) managed ~/.claude symlinks
+    check_managed_symlinks(doc)
+
+    # (c) hook paths in settings.json
+    check_hook_paths(doc)
+
+    # (d) ~/.local/bin wrappers
+    check_local_bin_symlinks(doc)
+
+    # (e) git pre-commit hook
+    check_git_precommit(doc)
+
+    # Exit codes
+    if actually_fix:
+        return 2 if doc.has_unfixable() else 0
+
+    # Read-only mode (no --fix, or --dry-run): exit 1 if any FAIL or FIX
+    return 1 if doc.has_unresolved_findings() else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

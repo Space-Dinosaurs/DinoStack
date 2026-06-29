@@ -56,46 +56,12 @@ Run this check once at the top of the first skill invocation in a session (and a
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
    - Any other combination (including `marker=none` with `mode=opt-out`, or `marker=opt-in` with `mode=opt-in`) - proceed with the methodology.
-5. **First-activation notice (one-time, per-project, TTY-only).** Triggered only when Step 4 resolved to active (any proceed branch). Otherwise skip this step entirely.
 
-   **TTY/QUIET gate.** If `os.environ.get("AGENTIC_QUIET") == "1"` OR `not sys.stdout.isatty()`, skip BOTH the notice print AND the sentinel write. Activation proceeds normally without producing the notice or creating the sentinel. This prevents fixture contamination in eval harness runs and unwanted output in CI/headless contexts.
+   On any proceed branch: immediately run Step 5 (first-activation notice) and Step 6 (scaffolding-sync); read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the full implementation.
 
-   **Sentinel write contract (race-safe; create-only).** Two parallel subagent activations on the same fresh project must produce exactly one notice and exactly one sentinel; the loser stays silent. The notice prints if and only if the create-only write succeeded.
+   *(Steps 5-6 are deferred to `content/references/activation-detail.md` as a deliberate forcing-read exception - the breadcrumb above ensures every active session reads them.)*
 
-   1. Compute path: `<project_root>/.agentic/.activated`.
-   2. Ensure `.agentic/` exists (`mkdir -p`); failures silently swallowed - do not crash.
-   3. Attempt **create-only** write (must fail if the file already exists):
-      - Python: `open(path, 'x')` (raises `FileExistsError` if present).
-      - Shell: write to `<path>.tmp.<pid>`, then `ln <tmp> <path>` (atomic, fails on EEXIST), unlink tmp.
-      - <!-- Race-safe pattern: O_EXCL / link() guarantees that only one of N concurrent racers wins the create; losers see EEXIST and stay silent. Do NOT replace with `if exists: ... else: write` - that pattern has a TOCTOU race. -->
-   4. **Print the notice if and only if the create succeeded.** On EEXIST (sentinel already present), skip the print silently. Losers in a race stay silent.
-   5. Filesystem errors other than `EEXIST` (read-only filesystem, permission denied, ENOSPC, etc.) are silently swallowed; the notice may re-print on the next session. Methodology must not crash.
-
-   **Sentinel body (exactly three lines, plain text):**
-   ```
-   # agentic-engineering: first-activation notice has been shown for this project.
-   # Deleting this file re-arms the notice only; it does not change activation state.
-   # To opt out, use /agentic-disable.
-   ```
-
-   **Notice text (verbatim, single line, printed to stdout when create succeeds):**
-   ```
-   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>, preset=<preset or 'none'>). Run /agentic-status to inspect, /agentic-disable to opt out.
-   ```
-   Values come from the resolver outputs of Steps 1-3. The literal JSON `null` for `preset` is rendered as the string `none`.
-
-6. **Scaffolding-sync check.** Runs only when Step 4 resolved to active. Silent-fail: any error swallowed; methodology proceeds.
-
-   a. Invoke `agentic-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
-   b. If status is "ok" (project version >= manifest version): no-op.
-   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/migrate-project --include-destructive` only).
-   d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/migrate-project --include-destructive`.
-
-7. **When no-opping, print one line and stop:**
-   `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
-   Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
-
-**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none, profile=default, preset=null" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
+7. **When no-opping, print one line and stop:** *(Steps 5-6 deferred above)*
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -109,7 +75,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
 
-**Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step.
+**Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects a permission-seeking interrogative in the final assistant message and blocks the session stop, injecting a "proceed" directive; opt in per-project via `abdication_guard_enabled: true` in `.agentic/config.json`; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/brief.md` Section 1.
 
@@ -156,57 +122,15 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **AskUserQuestion precondition (no multiple-choice ballots).** Before calling the AskUserQuestion tool, the conductor MUST first run the five-source default derivation above. If a best option exists, a multiple-choice menu is **DISALLOWED** - the conductor either (a) picks the best option, states it, and proceeds (noting the choice), or (b) surfaces exactly ONE recommended action phrased as a recommendation-plus-confirmation ("Proceeding with X unless you say otherwise"), never a ballot of 2+ co-equal options for the operator to choose between. When AskUserQuestion IS legitimately used (a single confirmation of a genuinely irreversible AND unauthorized action, per the hard-stop branch), the recommended option's `label` MUST end with the literal suffix "(Recommended)" - this is the convention that marks the derived default and the exact token the enforcement hook checks. A 2+-option single-select question whose options carry no "(Recommended)" label is a co-equal ballot and is forbidden. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-askuserquestion-default.py`, wired by `.claude/install.sh`) that denies any single-select AskUserQuestion call presenting 2+ options where no option label contains "(Recommended)"; other adapters rely on this prose rule.
 
-**Exception (Open Questions) and Deferred defaults.** Artifacts produced by the architect (and by the conductor when it authors a Brief, Plan, or ADR) use two distinct sections with different semantics. Categorization is set at authoring time, not changed by the conductor at gate time.
-
-Use this table to bucket each parked choice:
-
-| Condition | Section |
-|---|---|
-| No derivable default OR irreversible OR load-bearing fork | **Open Questions** |
-| Reversible AND a default is derivable AND not a load-bearing fork | **Deferred defaults** |
-
-**Open Questions** items are a protocol-level blocker and are NOT resolvable by this protocol. Resolution paths: (a) re-spawn the architect to resolve or re-categorize, (b) ask the user the specific question directly, or (c) descope. Conductor-derived defaults do not close an Open Question.
-
-**Deferred defaults** items are reversible choices the author has already derived a default for. The author records each item with its derived default under a "Deferred defaults" subsection, noting "revisit at implementation if context changes." The conductor does not stop, does not ask the operator, and does not spawn any resolution agent for these items - it proceeds with the recorded defaults.
-
-The author derives the default first. If a default is derivable and the choice is reversible, it is authored as a Deferred default - the conductor never has to be asked. Only non-defaultable, irreversible, or load-bearing-fork items become Open Questions. When the conductor receives a plan whose "Open Questions" section contains an item that appears reversible or defaultable (a mis-bucketing), the correction path is to re-spawn the architect, not for the conductor to self-rebucket.
-
-**Worked example.** ADR-0008 (cloud multi-device, Proposed) ends with 8 parked choices, each with a conductor-derived recommendation, each reversible (a Proposed ADR commits no code), with no downstream worker pending. The ADR author lists all 8 under a "Default decisions (reversible; revisit at implementation)" subsection - the "Deferred defaults" analogue - records each derived default inline, and proceeds. None of the 8 ever enter the "Open Questions" section. The conductor is never gated. No ballot is presented to the operator.
+**Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
 
 **Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s BASE_BRANCH stop-and-ask when neither `develop` nor `development` exists.
 
-**Worker autonomy contract.** Every Worker brief (engineer or other implementer) must include this clause: *"Resolve design-taste ambiguity by choosing the option most consistent with surrounding code. Return BLOCKED only for hard blockers: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Do not return BLOCKED for style, naming, choice among libraries already in use in this project, or 'which of several reasonable approaches' questions - pick one, proceed, and note the choice in the return summary. Introducing a new runtime dependency or performing a major-version upgrade of an existing dependency is NOT within this contract - if the task requires either, return BLOCKED so the conductor can route through architect + dependency-auditor per the risk table."*
+**Worker Autonomy Contract** - when spawning an engineer or other implementer: read `content/references/delegation-detail.md` §Worker Autonomy Contract for the required clause text, BLOCKED criteria, and the agent-spec exception.
 
-**Exception (agent-spec-mandated human decisions).** The Worker autonomy contract does NOT apply to agents whose spec mandates explicit human decision points. When the agent's own spec mandates surfacing a decision to the human (e.g. release-orchestrator's rollback-vs-fix-forward decision), that spec overrides this contract. The Worker follows its spec and surfaces the decision as instructed.
+**Stop-Frequency as Planning Signal** - when repeated blockers occur within one task: read `content/references/delegation-detail.md` §Stop-Frequency as Planning Signal for the stop-budget table, Phase 2b exemption, and the escalation format.
 
-**Stop-frequency is a planning signal.** Repeated genuine blockers within a single task indicate the plan is under-specified, not that the conductor is being appropriately cautious. Continuing to ask piecemeal questions papers over the structural gap and burns operator attention. Track stops against task complexity:
-
-| Task shape | Max genuine stops before flagging the plan |
-|---|---|
-| Trivial or single-unit | 0 - one blocker means it was not well-scoped |
-| Single-unit Elevated | 1 |
-| Multi-unit plan (2-5 units) | 2 across the whole plan |
-| Large multi-unit plan (6+ units) | 3 across the whole plan |
-
-**Pre-architect planning-input scans are exempt from this budget.** The Phase 2b ambiguity scan in `/implement-ticket` surfaces clarifying questions before any agent is spawned — no architect, investigator, or engineer has run yet. This is structurally different from a mid-work stop: it is bounded to exactly one operator turn, has a proceed-with-defaults fallback, and produces no work that needs to be discarded if the operator redirects. Phase 2b does not count against the per-task stop budget for any task shape.
-
-When the threshold is exceeded, the conductor stops spawning Workers and surfaces a planning concern to the user instead of another piecemeal question. Format:
-
-*"I've hit N blockers on this task: [bullet list of each blocker and why]. This is past the threshold for a [task shape] task and suggests the plan needs revisiting before we continue. Options: (a) re-spawn architect with these gaps, (b) answer the genuine Open Questions upfront and resume (Deferred defaults in the plan do not count toward this budget and do not block), or (c) descope. Recommendation: [pick one]."*
-
-Then wait. Do NOT keep spawning Workers against an under-specified plan - that compounds the cost of the missing planning work and produces churn the user has to clean up later.
-
-**Common rationalizations to reject:**
-
-- "Looks simple" - not a Low signal
-- "Following the spirit, not the letter" - violating the letter is violating the spirit
-- "Only one file / few lines" - line count is not a risk signal
-- "I already reviewed it myself" - self-review is for Low risk only
-- "Moving fast, can skip this once" - speed is not a Low signal
-- "The Skeptic will catch any mistakes" - the Skeptic reviews Worker output; it does not excuse skipping risk classification or spawning a Worker
-- "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
-- "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
-- "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
+**Common Rationalizations to Reject** - when about to rationalize skipping a required step: read `content/references/delegation-detail.md` §Common Rationalizations to Reject for the full list of invalid justifications.
 
 **Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
 
@@ -247,32 +171,22 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 
 **Editing methodology files under `~/DinoStack/`.** Before editing any file under `content/**`, `.codex/skill/**`, build scripts, or hooks, the conductor MUST Read `content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `/update-agentic-engineering` instead of direct Edit/Write.
 
-**Investigator-before-Architect for unfamiliar territory.** When the task touches a codebase area the main session has not recently investigated - i.e., the "Unfamiliar codebase area" Elevated signal is present - the conductor must spawn the `investigator` agent first and pass its brief as input to the `architect` agent. The Architect consumes "what exists" from the Investigator and produces "what to build". This separates concerns: the Investigator maps the terrain and blast radius, the Architect makes design decisions on top of that map. The only exception is when the relevant files have been Read within the current conversation AND no substantive changes have been made to those files since they were read - i.e., the conductor has the current file contents in context as a direct tool-result, not a summary or recollection. "Relevant files" means the specific files the Architect would need to reason about the change, not the directory or the project generally. If this test is not met in full, spawn the Investigator - "I know this area" is not a valid skip reason, and neither is "I read something nearby". When in doubt, spawn the Investigator.
-
-**Investigator-before-Architect MANDATORY for shared-utility surfaces.** The "in-context file already read" exception above does NOT apply when the ticket's likely target is a shared utility, shared component, or shared type. Specifically: when the target file lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or any analogous shared-module directory convention used by the project, AND `grep`/`Glob` reveals 5 or more importers of the symbol(s) being changed, the Investigator step is mandatory regardless of whether the conductor has the file contents in context. The Investigator's output for this case MUST include a per-consumer impact table (see `content/agents/architect.md` "Per-consumer impact table" requirement) that the Architect then consumes verbatim. The conductor cannot skip the Investigator on shared-utility surfaces by self-assessing "I already know what this does" - in-context familiarity with the shared file itself does NOT imply familiarity with every call site. The 5-importer threshold is a mechanical signal: count importers with `grep -rn` before deciding; do not estimate. If the count is uncertain, default to spawning the Investigator (when in doubt, spawn).
-
-**Parallel Investigators feeding a single Architect.** When investigation spans multiple independent surfaces (e.g. backend, frontend, schema), the conductor MAY spawn multiple Investigators in a single message. Before doing so, Read `content/references/conductor-operating-rules.md` §Parallel Investigators for the merge-into-one-Architect rule and the single-Architect invariant.
+**Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
 
 **Investigator external-data claims require evidence.** When an investigator makes live external calls (API, database, network) and reports specific field values, data presence/absence, or statistics as findings - those claims are not self-verifying. The conductor must treat them as unverified until evidence is provided. Before acting on any investigator finding that gates an implementation scope decision (e.g. "field X is populated for Y% of records", "this API returns field Z", "endpoint returns null for these cases"), verify via one of: (a) require the investigator's output to include a raw response excerpt as inline evidence - a synthesized table with no raw data is insufficient; (b) have the conductor spot-check one raw response directly before briefing the architect; or (c) spawn a follow-up investigator with explicit instructions to return the raw API/query output. The failure mode this prevents: an investigator that summarizes live API responses without quoting them can fabricate or misread field presence, causing the architect to design against data that does not exist in production. "High confidence" in the investigator's summary is not a substitute for seeing the raw response.
 
 **Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
-
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 **wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
 
-**Learnings pipeline (two feeders, distinct triggers).** The learnings pipeline has two separate feeders with different trigger mechanisms:
-
-- **`learning-extractor`** - mechanically wired to `/implement-ticket` Phase 6 clean exit. Fires automatically on every ticketed Skeptic loop completion. The conductor does NOT spawn this manually; it is part of the Phase 6 sequence.
-- **`learnings-agent`** - conductor-discretionary background capture. The conductor spawns it ad-hoc the first time a learning-worthy event occurs in a session (Skeptic finding resolved, error->fix cycle, tool failure workaround, architectural decision, cross-component gotcha, user-called-out reusable pattern). No automatic phase trigger.
-
-For `learnings-agent` session-tracking semantics, see `content/references/conductor-operating-rules.md` §learnings-agent background capture.
+**Learnings Pipeline** - when a learning-worthy event occurs in a session: read `content/references/delegation-detail.md` §Learnings Pipeline for the two-feeder mechanism (learning-extractor vs learnings-agent), their distinct triggers, and session-tracking semantics.
 
 **Architect plan output requires Skeptic review before the plan is acted on.** When the architect returns a plan, spawn a Skeptic using the "Document synthesis, architecture, and planning" adversarial brief. Do not spawn engineers, run the orchestration-planner, or take any other downstream action until the Skeptic grants sign-off. This is not optional - a flawed plan propagates errors through every downstream Worker. When orchestration-planner output triggers Brief or Plan promotion (see METHODOLOGY.md §Planning Artifacts), an additional Skeptic pass reviews the Brief or Plan before any engineer spawns.
 
 **Open Questions are a hard gate.** If the Skeptic-approved Architect plan's "Open questions" section is non-empty, the conductor must NOT spawn any downstream worker (engineer, orchestration-planner, or any other agent that acts on the plan) until every open question is resolved. Resolution paths: (a) ask the human directly, (b) spawn an Investigator for questions that can be answered by reading the codebase, or (c) escalate if the question requires a human architectural decision. "Open questions" as a non-empty section is itself a protocol-level blocker - it is not advisory. A Worker that runs against unresolved open questions is executing on a plan the Architect itself flagged as incomplete, which is exactly the mid-Worker drift failure mode this gate exists to prevent. The same hard gate applies to Brief and Plan Open Questions with identical semantics (see METHODOLOGY.md §Planning Artifacts). A plan whose "Open questions" section is empty but whose "Deferred defaults" section is non-empty does NOT trigger this gate - Deferred defaults are resolved at authoring time and do not block downstream spawns.
 
-**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
+**Worker Preamble and Execution Contract Template** - when spawning an Elevated-risk engineer: read `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template for the full contract fields, verification mandate, and task_id field semantics.
 
 **Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
 
@@ -283,22 +197,9 @@ Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-s
 Preamble:
 *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
 
-Execution contract template:
-- outputs: [what artifact(s) the Worker must produce - e.g. "modified files committed to branch", "diff only", "summary report only"]
-- budget: [rough max tool-call count, or omit; advisory, not enforced]
-- tool_scope: [expected tool categories - e.g. "Read, Glob, Grep, Edit"; documentation only, does not override the harness-level Agent tool grants]
-- completion_conditions: [acceptance criteria verbatim from architect plan or ticket, plus any quality-gate pass requirements]
-- verification: [how this unit will be verified after it lands - existing test path that exercises it, new test the Worker must add, manual QA trigger pattern, or "self-evident review" if no test path is feasible]
-- output_paths: [specific file paths the Worker is expected to write or modify, or "conductor-directed" if paths emerge during implementation]
-- task_id: [unique task identifier for multi-unit correlation, or omit for single-unit]
-- brief_path: [path to the Brief governing this unit, or "n/a" if architect plan is the sole artifact]
-- plan_path: [path to the Plan directory governing this unit, or "n/a" if Brief-tier or below]
+**Cross-harness teams (opt-in).** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. Collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, config schema, self-containment guard, and per-harness dispatch table.
 
-When `brief_path` or `plan_path` is populated, the engineer reads it before starting. Success criteria, non-goals, and the verification gate supersede any informal interpretation of the ticket. If the engineer discovers a conflict between the Brief and the architect plan, it returns BLOCKED so the conductor can resolve.
-
-The `verification` field is **mandatory**. Its purpose is to force the conductor to specify *how the change will be verified before implementation begins*, not as a Skeptic afterthought. As coding gets cheaper, verification is the expensive thing, and the protocol reorganizes around verification rather than around shipping code. If the verification path is not knowable up front (truly novel surface, no existing tests, no feasible new test), state that explicitly as `"self-evident review"` and accept that the Skeptic and any QA gate are the only line of defense - do not leave the field blank.
-
-The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
+**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields and conductor consumption rules.
 
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
@@ -498,46 +399,9 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-### Project config (`.agentic/config.json`)
+The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
-The conductor reads `.agentic/config.json` to resolve eleven project-level orchestration toggles before classifying and spawning. The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
-
-- `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
-- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
-- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`.
-- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
-- `capability_preflight_mode` - enum (`advisory | blocking`); default `blocking` as of P2 (all agent manifests are populated). The conductor reads this before every Agent spawn to decide whether missing required capabilities warn-and-proceed (`advisory`) or halt the spawn (`blocking`). Canonical reference: `content/references/capability-preflight.md`.
-- `perceptual_diff_enabled` - boolean, default `false`. Opt-in for the `perceptual_diff` QA scenario method; when `true`, qa-engineer runs Playwright `page.screenshot()` + pixelmatch comparison against committed baselines.
-- `theme_aware` - boolean, default `false`. Opt-in for per-theme QA tuples; when `true`, qa-engineer runs `visual_conformance` and `accessibility` scenarios in both light and dark themes and reports per-(scenario x viewport x theme) results. The conductor reads this toggle when inspecting `qa_criteria` to determine whether theme enforcement auto-Major rules apply.
-- `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer targets the Storybook iframe for isolated component verification. Requires Storybook 7+; init-project sets the related `storybook_url` config key when SB7+ is detected.
-- `motion_aware` - boolean, default `false`. Opt-in for the `motion` scenario method auto-Major Skeptic rule; when `true`, qa-engineer runs CDP-emulated reduced-motion checks per scenario.
-- `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios; `6` uses `?selectedKind=&selectedStory=` format. Set automatically by init-project.
-- `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits the per-developer session-log file (`.agentic/session-log/<developer_id>.jsonl`) as a separate commit on the PR branch, enabling cross-developer team visibility via `agentic-cost team` after pull. Set to `false` to opt out of telemetry commits on this project.
-
-#### Graph-derived risk signal
-
-When a fresh `GRAPH_REPORT.md` exists at the repo root, the conductor uses a Graphify knowledge graph during risk classification to detect high-blast-radius or non-obvious-coupling changes. It is presence-gated and escalate-only: it can raise a classification toward Elevated, never lower one.
-
-**Rationale.** Graphify writes `GRAPH_REPORT.md` at the repo root. Two of its computed sections name the symbols that carry the most architectural weight: God Nodes (highest-degree core abstractions) and Surprising Connections (cross-file couplings the author probably did not know about). A change touching one of those symbols is, by construction, the "Changes to shared utilities (single-file but high blast radius)" or "Logic with emergent/non-obvious cross-component interactions" Elevated signal - this mechanizes that judgment from an artifact the project already maintains.
-
-**Mechanism (when a fresh `GRAPH_REPORT.md` exists at the repo root).** Before classifying, the conductor checks freshness (below). If fresh, it reads `GRAPH_REPORT.md` and tests the change's target symbol(s) for membership, against the graphify v8 report format:
-- God Nodes: under the exact heading `## God Nodes (most connected - your core abstractions)`, each entry is `N. ` followed by a backtick-wrapped bare symbol label followed by ` - <degree> edges`. The match set is those bare labels.
-- Surprising Connections: under the exact heading `## Surprising Connections (you probably didn't know these)`, each entry's first line is `- ` followed by backtick-wrapped `<source>`, ` --<relation>--> `, backtick-wrapped `<target>`, then `  [<tag>]`. The match set is the bare `<source>` and `<target>` labels. The literal line `- None detected - all connections are within the same source files.` means no surprises.
-
-On a match, the conductor treats it as an additional Elevated signal and classifies the change Elevated (or higher if other signals apply). On no match, no effect - classify as today. When the target symbol is not yet known at classification time (for example a vague task before investigation), the signal does not fire; classify as today. The signal never downgrades a classification.
-
-Symbol matching is best-effort and bare-name-based (the report uses bare labels with no path qualification). Ambiguity (overloaded names, the same name in multiple files) is acceptable because the signal is escalate-only: over-firing toward Elevated only spawns a cheap extra Skeptic, while under-firing leaves today's behavior, so over-fire is the correct failure mode.
-
-**Freshness.** The conductor reads freshness from the same file as the signal (`GRAPH_REPORT.md`):
-- Primary (graph built in a git repo): under the exact heading `## Graph Freshness`, parse the line `- Built from commit: ` followed by a backtick-wrapped 8-character SHA. The graph is fresh only if that SHA equals the first 8 characters of `git rev-parse HEAD` AND the change's target file(s) have no uncommitted modifications (`git status --porcelain -- <target-paths>` is empty for those paths - a commit match alone misses uncommitted edits).
-- Fallback (no `## Graph Freshness` section, i.e. the graph was built outside a git repo): compare `GRAPH_REPORT.md`'s mtime against the newest target-source-file mtime; if any target source is newer, treat as stale. Fail safe to stale on any ambiguity.
-- On stale or undetermined: ignore the signal entirely - neither escalate nor downgrade - and classify exactly as today by human judgment.
-
-**Autonomous refresh.** The conductor keeps the graph fresh itself. At the point it is about to use the graph - before its own risk classification and before spawning the investigator - the conductor checks for an existing graph (`graphify-out/graph.json` or `GRAPH_REPORT.md`). If one exists and the staleness check above fails (built-commit not equal to HEAD, or uncommitted changes to the relevant files), the conductor runs `graphify update .` once from the repo root on its own checkout (honoring `GRAPHIFY_OUT` if set), then reads the refreshed report. This runs at most ONCE per session: after the first refresh the conductor treats the graph as fresh for the remainder of the session regardless of how many times staleness is later detected - it does not re-run `graphify update .` on every classification (in-session memory, the same once-per-session discipline as the cached base branch; no new state file). The conductor refreshes ONLY an existing graph this way: it NEVER autonomously runs a from-scratch `graphify .`, `graphify --watch`, or any rebuild or destructive path. If no graph exists at all, the conductor does NOT build one - it falls back to today's non-graph behavior. The conductor alone refreshes; the investigator and every other subagent keep their read-only lock and never run a mutating graphify subcommand. `graphify update .` is incremental and free for code-only deltas (tree-sitter AST, no LLM), but re-extracting changed docs, papers, or images costs LLM tokens, so on a mixed corpus an autonomous refresh may spend tokens; this is intrinsic to keeping an adopted graph fresh and has no opt-out toggle. If `graphify update .` fails (non-zero exit, binary error, or timeout), the conductor proceeds with the existing stale graph and notes the staleness; an update failure never blocks risk classification, and because the signal is escalate-only, using a stale graph is safe (it can only under-fire, never create a false downgrade).
-
-**Format coupling.** The pinned strings above are the graphify v8 report format. A future graphify heading change fails safe (no heading match means an empty match set and no escalation); if graphify changes the format, these strings need a follow-up sync.
-
-**GRAPHIFY_OUT.** The conductor reads the repo-root `GRAPH_REPORT.md` and, when refreshing, honors `GRAPHIFY_OUT` to locate the graph directory. A report relocated via `GRAPHIFY_OUT` is treated as "no report present" at the repo root - the signal does not fire and behavior is unchanged. Projects wanting the signal keep the report at the repo root.
+When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
 Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
 
@@ -547,10 +411,12 @@ Separately, the operator-owned product-intent layer `docs/overview/vision.md` + 
 
 ```
 Risk: Elevated - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review.
 ```
 ```
 Risk: Elevated + Cleanup - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -569,40 +435,13 @@ Plan: docs/planning/<slug>/
 Applying adversarial review.
 ```
 
-### Tier declaration
-
-Conductors declare the model tier at spawn time to route lightweight tasks to lower-depth models and critical reviews to maximum-reasoning-depth models. Tier is declared in the same block as Risk, immediately below the Risk line.
-
-**Declaration format:**
-```
-Risk: Elevated - security adversarial brief
-Tier: 3  (max reasoning depth - security audit; Tier 3)
-Spawning security-auditor.
-```
-
-**Default:** Tier 2. When no tier is declared, the agent uses the Tier 2 model for the active harness. Most spawns are Tier 2 - omit the declaration entirely.
-
-**Model param mapping (Claude Code):**
-
-| Tier | Claude Code `model` param | Use when |
-|---|---|---|
-| 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
-| 2 | `"sonnet"` | Standard work - engineer, investigator, skeptic at normal depth |
-| 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
-
-**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
-
-**When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
-
-**When to declare Tier 3:** task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Reserve Tier 3 for these cases and include a justification parenthetical.
-
-**Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
+Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
 
 ### Spawn presets (per-spawn capability bundles)
 
 **Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
 
-For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
+For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
 
 ## QA Gate
 
@@ -696,31 +535,11 @@ For the full YAML schema, `required_when` predicate grammar, `auto_install` safe
 
 ## Cross-session loop resume
 
-Long-running `/implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`:
-
-- **Disk writes at every phase transition.** The conductor writes `.agentic/loop-state.json` (atomic: tmp+rename) at initialization and at every phase transition (Skeptic spawn, Skeptic return, Engineer spawn, Engineer return, QA spawn, QA return, quality gate steps). The `last_phase` and `last_phase_action` fields are the authoritative resume keys.
-
-- **Resume check on session start.** When `/implement-ticket` is invoked, it checks for `.agentic/loop-state.json` before reading AGENTS.md. If `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. See `/implement-ticket` Resume check section for the full protocol.
-
-- **Stop hook writes interrupted status.** The Stop hook writes `status: "interrupted"` to `.agentic/loop-state.json` on session exit if the file exists and `status == "active"`. Silent failure is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
-
-- **Resumable phases (automatic):** Phase 6/6b Skeptic/QA loop at iteration boundaries (committed Engineer output, clean branch); Phase 7 quality gate when engineer committed (`engineer_returned` / `rerun_pending`).
-
-- **Resumable with human confirmation:** Mid-Engineer (dirty branch) - conductor asks human to discard or commit the partial work.
-
-- **Restart required:** Phases 1-4 (cheap to re-run, no branch side effects). State file is not written until Phase 6 loop initialization.
-
-- **Full Skeptic re-run on interruption.** If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch (last_phase=skeptic, last_phase_action=spawned). Skeptic is read-only and idempotent.
-
-- **Brief/Plan paths recorded.** When a Brief or Plan governs the task, `brief_path`, `plan_path`, and `promotion_tier` (enum: `none`, `brief`, `plan`) are written to `.agentic/loop-state.json` at authoring time. On resume, the conductor re-reads the Brief/Plan before spawning the next worker. Mid-flight escalation from Trivial or single-unit Elevated to Brief or Plan tier authors a retroactive Brief before the next engineer spawn (the in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed). Brief-tier tasks auto-promote to Plan tier on the 3rd resume.
-
-- **File hygiene:** `.agentic/loop-state.json` must not be committed to git (gitignored). It is set to `status: "complete"` or deleted after the PR is opened.
-
-- **Batch-state coexistence.** When `/implement-ticket` is invoked with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor (which tickets are pending, in-progress, complete, blocked) alongside `loop-state.json`'s per-ticket phase cursor. Both files carry a `session_id` field written on every conductor write; every write applies a per-write gate that aborts (with an operator-visible warning) if the file's existing `session_id` belongs to a different session whose `last_updated` is within 10 min, OR if the existing `session_id` is null/absent (legacy state from a prior version is force-takeover-eligible). This prevents orphan-session corruption uniformly across both files. The Stop hook mirrors its `loop-state.json` interrupted-mark write to `batch-state.json` via the same best-effort silent-fail discipline. Single-ticket Trivial invocations never create `batch-state.json` and remain bit-for-bit unchanged. Only one batch per project root is supported; a second concurrent N≥2 invocation is refused at Phase 0a-pre. N=1 invocations against an active foreign batch warn but do not refuse.
+Long-running `/implement-ticket` loops survive via `.agentic/loop-state.json` written at every phase transition; read `content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when loop-state.json exists.
 
 ## Task-state file
 
-When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` (sole writer); read `content/references/task-state-file.md` §Task-state file for schema and protocol (incl author_model).
 
 ## Events log
 
@@ -736,15 +555,7 @@ When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the co
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-Additionally, the Stop hook writes a one-line per-session rollup to `.agentic/session-log/<developer_id>.jsonl` - a per-developer surface for session telemetry. Committed to git via the `.agentic/session-log/` gitignore carve-out; `/implement-ticket` Phase 8 commits it as a SEPARATE commit on the PR branch when `commit_telemetry: true` (default) and identity is confirmed. See `content/references/events-log.md` "Per-developer session log" for the schema.
-
-**Pending-buffer (pre-attribution staging).** When no confirmed identity exists at session exit - i.e., `agentic-identity init` has not yet been run - the Stop hook writes the session telemetry record to `~/.agentic/session-log/.pending/<session_uuid>.json` instead of a named per-developer log. This file is a staging area only: it is not an `events.jsonl` event type, it is not read by `agentic-cost`, and it carries no `developer_id` field. When the user later runs `agentic-identity confirm` or `agentic-identity init <handle>`, the identity layer flushes all pending records, stamps each with the confirmed handle, and appends them to the appropriate per-project and global session-log files as if they had been written at session time.
-
-**`session_uuid` on conductor-emitted events.** The conductor stamps `data.session_uuid` on every `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, and `tool_failure_workaround` emit. The value is the Claude Code harness session uuid obtained from `$CLAUDE_CODE_SESSION_ID`, which MUST equal the Stop hook's `payload.session_id`. This allows the Stop hook and session-scoped readers to filter precisely to one session. Absent on legacy lines; general readers treat absence as include for back-compat.
-
-**`tool_failure_workaround` event type.** Emitted by the conductor when it resolves a tool or command failure via retry or workaround. Schema: `{ event: "tool_failure_workaround", agent: null, data: { session_uuid, tool, domain_tag, note } }`. PII boundary identical to `conductor_direct` (no args, no output, no secrets; `note` is one sentence). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
-
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`.
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
@@ -775,8 +586,17 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 ## Protocol Details (read on trigger)
 
+**Activation detail (Steps 5-6)** - when Step 4 of the activation preflight resolves to active:
+Read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the sentinel write contract, TTY/QUIET gate, and `agentic-migrate` flow.
+
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
-See METHODOLOGY.md §Planning Artifacts for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
+See `content/sections/03-planning-artifacts.md` for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
+
+**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
+Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
+
+**Risk config and tiers** - when consulting config toggles, the graph-derived risk signal, or tier declaration detail:
+Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, and §Tier Declaration Detail.
 
 **Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
 Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
@@ -812,16 +632,28 @@ Read `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-ob
 Read `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
 
 **Capability preflight** - before every Agent spawn:
-See METHODOLOGY.md §Capability Preflight for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
+See `content/sections/06-capability-preflight.md` for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-See METHODOLOGY.md §QA Gate for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
+See `content/sections/05-qa-gate.md` for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
 
 **Events log schema** - full V1 telemetry event-type field shapes and operational notes:
-Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in METHODOLOGY.md §Events log.
+Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.)
 
 **Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
-Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in METHODOLOGY.md §Worktree Lifecycle.
+Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in `content/sections/11-worktree-lifecycle.md`.
+
+**Cross-session loop resume** - when `/implement-ticket` loop state must be resumed:
+Read `content/references/cross-session-loop-resume.md` §Cross-session loop resume for disk-write discipline, resumable phases, Brief/Plan path recording, and batch-state coexistence.
+
+**Task-state file** - when managing multi-unit plan orchestration state:
+Read `content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, field-level merge algorithm, and `author_model` field semantics.
+
+**Code standards detail** - when implementing or modifying code in a specific language:
+Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults for TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs, and §Browser Verification for `agent-browser` usage patterns.
+
+**Conventions detail** - when consulting the intent layer, context economy, or external comment rules:
+Read `content/references/conventions-detail.md` §The Intent Layer for artifact list and Project Config toggle catalog, §Context Economy for context-window discipline, and §External Comment Discipline for PR/review comment rules.
 
 **Capture classification** - when deciding whether to write a learning entry at a mandatory trigger:
 Read `content/references/capture-classification.md` for the guardrail-first precedence chain, the two-gate MUST/SHOULD/SKIP table, and the per-trigger declaration format. Mandatory triggers and the `Capture:` block format are owned by `content/references/conductor-operating-rules.md §learnings-agent`.
@@ -919,12 +751,7 @@ The Skeptic review layer enforces this: duplication and missed abstractions are 
 - **New projects (via `/init-project`):** set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit framework for Python)
 - **Existing projects without tooling:** run whatever checks are available and recommend setup to the user
 
-**Per-language strict defaults:**
-- **TypeScript/JS:** `strict: true` in tsconfig, ESLint `--max-warnings 0`, Vitest/Jest with 80% line coverage
-- **Python:** `mypy --strict` or pyright strict mode, `ruff` with recommended + strict rule selection, `pytest --strict-markers -x`
-- **Go:** `golangci-lint run --enable-all`
-- **Rust:** `deny(warnings, clippy::all, clippy::pedantic)` for applications; libraries use `warn(...)` in source and `-D warnings` in CI
-- **Next.js:** disable `devIndicators` in `next.config.ts`; restore `cursor: pointer` on buttons in `globals.css` (`@layer base { button, [role="button"] { cursor: pointer; } }`) - Tailwind preflight removes it
+Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults and §Browser Verification when implementing or modifying code.
 
 ## Package Management
 
@@ -933,19 +760,6 @@ The Skeptic review layer enforces this: duplication and missed abstractions are 
 - Never monkey-patch or work around bugs in an outdated package version; upgrade the package instead
 - When adding a new dependency, do not hardcode a version number - use the package manager's default latest resolution (e.g., `npm install pkg`, `pip install pkg`, `go get pkg@latest`)
 - If a version constraint already exists in the project, respect it - do not silently downgrade, but flag it to the user if it's causing a problem
-
-## Browser Verification
-
-`agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
-
-```bash
-agent-browser open <url>      # navigate
-agent-browser snapshot        # get page structure with element refs
-agent-browser click @e1       # click by ref
-agent-browser fill @e2 "text" # fill input by ref
-```
-
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior.
 
 ---
 
@@ -981,6 +795,17 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 
 **Pagination (vicious loop defense):** The sweep MUST NOT read the full `.agentic/events.jsonl` on every boot. It reads only events with `ts` strictly greater than the timestamp stored in `.agentic/.meta-divergence-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), the scan is capped to the most recent 100 lines of the events file. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to the tracker file (atomic: tmp + `mv`). This prevents the vicious loop where growing telemetry consumes ever more context on every session start. See `content/references/skeptic-protocol.md` Section 14 "Session-start sweep pagination" for the full procedure.
 
+**Skill-candidate sweep at session start.** After the meta-divergence sweep, the conductor checks `.agentic/skill-candidates.md` for entries. Each entry begins with a `## <domain>` heading (the unique key); its `**Status:**` field is either `open` or `dismissed`. For each entry whose `**Status:**` is `open` AND whose domain is NOT present in `.agentic/.skill-candidates-surfaced`, emit at the next user-facing turn boundary:
+
+```
+SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - consider creating a skill (suggested artifact: <suggestedArtifact>). Run /skill-candidates for the full backlog.
+[phase: skill-candidate]
+```
+
+Then append the domain (the `## <domain>` heading value, without the `## ` prefix) to `.agentic/.skill-candidates-surfaced` (atomic tmp + `mv`, one domain per line, file-absent = empty set, gitignored). File-absent for `.agentic/skill-candidates.md` = no-op. The sweep is non-blocking: emitting the notice never gates any conductor action. Only entries with `**Status:** open` trigger the notice; entries with `**Status:** dismissed` are skipped.
+
+**Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
+
 **Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
@@ -1014,66 +839,7 @@ The notice re-surfaces next session if ignored. CI/headless sessions never reach
 - Session-specific state (current task, next steps) belongs in `context.md`, not here
 - Entry format: `- **YYYY-MM-DD:** [what and why, in one sentence]`
 
-## The Intent Layer
-
-A project's intent is encoded across a small set of artifacts. Treat them as a coherent layer, not as unrelated files:
-
-- `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
-- `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
-- `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
-- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; auto-injected by Claude Code at startup. Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
-- `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (conductor-discretionary).
-- `decisions.md` - the project's decision log, where used.
-- `.agentic/findings.md` - curated Skeptic-finding patterns; committed. Written by `findings-curator` at Phase 6 loop exit.
-- `.agentic/qa-regressions.md` - curated QA regression patterns; committed. Written by `qa-regressions-curator` at Phase 6b QA FAIL.
-- `qa.md` - QA triggers and project-specific quirks the QA engineer needs to know.
-- Module manifests - file-level intent embedded in the source itself (see `module-manifest.md`).
-- `glossary.md` - the project's Ubiquitous Language (see below).
-
-Together these form the project's **intent layer**. Drift in any of them is **intent debt** - the system stops reflecting what we meant to build, and downstream agents and humans drift along with the artifacts. Keep them current. A stale entry is worse than a missing one because readers trust it.
-
-### Project Overview Layer
-
-`docs/overview/vision.md` and `docs/overview/requirements.md` are operator-authored documents that capture durable product intent above the task level. When present, Architect and Investigator read them before producing output; the design or investigation must not contradict them.
-
-**What each file contains:**
-- `vision.md` - why the product exists, who it serves, what outcome it delivers (one screen, narrative form)
-- `requirements.md` - scoped functional and non-functional requirements, as bulleted statements
-
-**Rules:**
-- Operator-owned: agents read, never write or propose edits to these files
-- Optional and graceful: if `docs/overview/` does not exist or these files are absent, nothing breaks
-- Not a replacement for per-task Briefs: the Brief's "Problem" and "Constraints" fields should be consistent with these docs when present, but overview docs do not replace task-scoped planning artifacts
-
-### Project Config (`.agentic/config.json`)
-
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Eleven toggles:
-
-- `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
-- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
-- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`.
-- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
-- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls what happens when the conductor finds a missing required dependency during capability preflight. `advisory` emits a warning with the install command and proceeds with the spawn. `blocking` refuses the spawn when any required dependency remains missing after auto-install. Default flipped to `blocking` at P2 now that all agent manifests are populated. See `content/references/capability-preflight.md` for the full preflight protocol.
-- `perceptual_diff_enabled` - boolean, default `false`. When `true`, qa-engineer runs Playwright `toHaveScreenshot` against committed baselines in `tests/visual-baselines/` and raises auto-Major on drift exceeding per-scenario `tolerance`. Opt-in; baseline maintenance overhead justifies the default of `false`.
-- `theme_aware` - boolean, default `false`. Opt-in for the `theme` field on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer toggles light/dark themes and runs per-(scenario x viewport x theme) tuples. Default toggle covers CSS class (`document.documentElement.classList.toggle('dark')`) and data-attribute (`setAttribute('data-theme', 'dark')`) patterns; other patterns require a `theme` knowledge tag in `qa.md`.
-- `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` field on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer navigates to the Storybook iframe URL (`/iframe.html?id=<story_id>`) instead of the live app. Requires Storybook 7+; init-project detects the installed version and configures the related `storybook_url` key when SB7+ is present.
-- `motion_aware` - boolean, default `false`. Opt-in for the `motion` scenario method auto-Major Skeptic rule. When `true`, qa-engineer runs CDP-emulated reduced-motion checks per scenario. Absent motion scenarios on UI-visible Elevated units with `qa_skip == null` trigger a Skeptic-on-Brief Major finding. Matches `theme_aware` / `perceptual_diff_enabled` opt-in precedent.
-- `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. When `6`, qa-engineer converts story IDs to the `?selectedKind=&selectedStory=` URL format. When `7` or absent, uses the current `?id=` format. Set automatically by init-project based on detected framework adapter version.
-- `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. The commit makes per-session telemetry team-visible after squash merge. Set to `false` to opt out. No effect when identity is absent or provisional.
-
-**Related config key (not a toggle):** `storybook_url` - optional string, default `http://localhost:6006` when present. Set automatically by init-project Storybook version detection when a SB6 or SB7+ framework adapter is found. Override per-run via the `story-url` knowledge tag in `qa.md`.
-
-The file is operator-tunable but optional and graceful: if absent, every toggle takes its default and nothing breaks.
-
-### Ubiquitous Language (`glossary.md`)
-
-A `glossary.md` at the project root (or referenced from the root `AGENTS.md`) holds the project's domain terms - the **Ubiquitous Language** that humans, code, and LLM agents all use to describe the system. When a glossary is present:
-
-- Agents prefer existing terms over inventing synonyms. If the glossary calls it "shipment", do not introduce "delivery", "consignment", or "package" in code, comments, prompts, or docs without first updating the glossary.
-- The Skeptic flags a synonym-of-an-existing-term as a **Minor** finding (style + intent drift).
-- The glossary is part of the intent layer above - keep it current as the domain vocabulary evolves.
-
-A glossary is optional; not every project needs one. But once introduced, it is binding on the project.
+Read `content/references/conventions-detail.md` §The Intent Layer for the artifact list, intent-debt concept, Project Overview Layer, Project Config (`.agentic/config.json`) toggle catalog, and Ubiquitous Language (`glossary.md`).
 
 ## Git Workflow
 
@@ -1120,140 +886,91 @@ git branch -d <branch-name>
 
 ## Context Economy
 
-Agents must be mindful of context-window consumption. Large outputs increase latency, burn tokens, and can push the session toward truncation. Follow these rules:
-
-- **Do not duplicate file contents in prose.** Reference files by path. The reader can use ReadFile if they need the full text.
-- **Keep diffs minimal.** Use standard unified diff format with 3 lines of context per hunk. Do not paste entire files when only a few lines changed.
-- **Do not paste tool output verbatim** unless specifically asked or unless the output is short (<20 lines). Summarize command results: "`pytest` passes (42 tests, 0 failures)" rather than dumping the full test log.
-- **Structured blocks over prose.** Prefer the JSON structured block for machine-readable data (file lists, gate results) and keep prose for human-readable narrative only.
-
-Multi-developer coordination guidance lives in `content/references/multi-developer-coordination.md`.
+Read `content/references/conventions-detail.md` §Context Economy for context-window discipline rules (no duplicate file contents, minimal diffs, no verbatim tool output, structured blocks over prose) and multi-developer coordination guidance.
 
 ## External Comment Discipline
 
-Agents author artifacts that humans read outside the session - PR titles and bodies, PR review comments, Linear comments, Jira comments, commit messages that summarise work, deploy and release notes. These surfaces have a different cost profile from in-session output: humans read them under time pressure, often on a phone, often days after the work landed. Verbosity is not free here - it is a tax on every future reader.
-
-Apply these rules to every external-facing comment:
-
-- **Lead with the result and the link.** The first line should answer "what changed and where do I look?" - not restate the ticket, not narrate the journey.
-- **Bullets over prose.** Each bullet earns its place by adding something the diff, screenshot, or linked artifact does not already show. If a bullet just describes what the diff shows, delete it.
-- **Cut what the reader can see for themselves.** Do not restate the ticket. Do not narrate the agent's own process ("I reviewed", "we investigated", "after analysis"). Do not summarise a diff that is one click away.
-- **Evidence beats description.** A screenshot, a test URL, a log excerpt, or a link to the failing line is worth more than a paragraph of explanation. Link, do not transcribe.
-- **No marketing voice, no emojis, no agent attribution footers.** The writing-style rules elsewhere in this methodology (plain verbs, no rule-of-three triads, no AI vocabulary, no em dashes) apply with extra force on external surfaces because humans read them quickly and judgmentally.
-- **Length is not the metric; signal-per-line is.** A long comment is fine when every line is load-bearing. A three-line comment that restates the ticket is too long.
-- **Skeptic findings posted as PR review comments** are one finding per comment in the form `[Severity] path:line - issue. Fix: <one-line action>.` No preamble, no sign-off banner, no "Active search" line on per-finding comments - that line belongs to the conductor-internal sign-off, not the PR surface.
-- **Self-check before posting.** Re-read this section. For each sentence ask: is this load-bearing for a human deciding "do I need to act on this?" If not, delete it.
-
-This rule layers conciseness expectations on top of the structural templates in `content/commands/implement-ticket.md` (PR body, tracker comment). The templates still apply; this rule governs the substance that fills them.
-
----
-
-### module-manifest
-
-# Module Manifests
-
-## What it is
-
-A module manifest is a short header block at the top of a non-trivial source file. It lives in the code itself so that comprehension travels with the code — not in Architect plans that get discarded after merge, not in wikis that drift, not in PR descriptions nobody reads six months later. This is the self-describing layer of the system: a reader should be able to open a file and immediately understand what it does, what it depends on, and what breaks if it misbehaves.
-
-## When required
-
-**Required** for any source file that meets one or more of these criteria:
-
-- Exports a public symbol (function, class, type, constant) consumed by another module
-- Over ~50 lines of non-trivial logic
-- Implements a side-effecting operation: network call, disk I/O, database access, external service interaction, or any operation that cannot be safely retried without thought
-
-**Exempt:**
-
-- Test files and test fixtures
-- Generated files (migration outputs, protobuf outputs, GraphQL codegen, etc.)
-- One-off scripts not imported by anything else
-- Trivial pure utility files (thin wrappers, simple formatters, constants-only files)
-
-**Modified files:** a manifest must be updated when changes meaningfully alter purpose, public API, upstream dependencies, or failure/retry semantics. A manifest that no longer reflects the file is worse than no manifest — it is active misinformation.
-
-## Required fields
-
-Every manifest must cover these six fields. Omit a field only if it genuinely does not apply (e.g., "Performance: standard" is acceptable shorthand; leaving a failure modes field blank is not):
-
-| Field | What to say |
-|---|---|
-| **Purpose** | One sentence. What this module does and why it exists. |
-| **Public API** | The exports or entry points a caller should use. Not an exhaustive type dump — the canonical surface. |
-| **Upstream dependencies** | What this module imports, calls, or consumes that it does not own. External libraries, internal modules, environment variables, config values. |
-| **Downstream consumers** | Who uses this module. Best-effort: list known callers. "Unknown at creation" is acceptable for new modules; update it when consumers are identified. |
-| **Failure modes** | How this module fails, and what the caller needs to know about retrying or recovering. Idempotency guarantees or lack thereof. |
-| **Performance** | Expected latency, throughput, or memory profile if non-obvious. Omit or write "standard" if there is nothing a caller needs to know. |
-
-## Format
-
-Use the idiomatic comment or docstring syntax for the language. Do not invent a schema or force a rigid structure — the fields are required, the exact syntax is per-language.
-
-**TypeScript / JavaScript:**
-
-```typescript
-/**
- * Purpose: Validates and normalizes incoming webhook payloads before they
- *          enter the processing pipeline.
- *
- * Public API: validateWebhook(raw: unknown): WebhookPayload
- *
- * Upstream deps: zod (schema validation), ./types (WebhookPayload type)
- *
- * Downstream consumers: src/handlers/webhook.ts, src/workers/ingest.ts
- *
- * Failure modes: throws WebhookValidationError on malformed input — callers
- *                must catch and return 400, not 500. No side effects; safe to
- *                retry or call multiple times on the same input.
- *
- * Performance: ~0.2 ms per call; zod parse is synchronous, no I/O.
- */
-```
-
-**Python:**
-
-```python
-"""
-Purpose: Resolves feature flag values for a given user context, with local
-         cache to avoid repeated network calls within a request lifecycle.
-
-Public API: get_flag(flag_name: str, context: UserContext) -> bool
-
-Upstream deps: flagsmith SDK, app.cache (RequestScopeCache), config.FLAGSMITH_URL
-
-Downstream consumers: app.views.experiment, app.middleware.ab_test
-
-Failure modes: falls back to flag default on SDK timeout or network error —
-               never raises; callers can rely on always receiving a bool.
-               Cache is request-scoped; not safe to share across threads.
-
-Performance: first call per flag per request hits network (~50 ms);
-             subsequent calls within the same request hit local cache (<1 ms).
-"""
-```
-
-## Why
-
-Comprehension should live in the code. An Architect plan describes what was decided; it does not travel with the file when the file is moved, refactored, or read by an engineer three months later who was not in that session. A module manifest embeds the essential context — the "why does this exist and what breaks if I change it" — directly in the artifact that persists. This is the self-describing layer of the dark code framework: systems that communicate their own structure rather than requiring external documentation to make sense of them.
-
-A missing or stale manifest is **intent debt**: the artifact stops reflecting what the code is actually for. Technical debt lives in the code, cognitive debt lives in the people who hold the context in their heads, and intent debt lives in the artifacts that are supposed to encode that intent for everyone else. Intent debt is the most insidious of the three, because downstream agents (and humans) read the stale manifest, trust it, and drift further from what the code actually does. Keeping the manifest current is how this file pays down its share of that debt.
-
-## Enforcement
-
-Skeptic applies tiered enforcement:
-
-- **Missing manifest** on a non-trivial module: **Minor finding** (does not block sign-off). Comprehension hygiene; flagged for awareness.
-- **Stale manifest** (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics): **Major finding** (blocks sign-off absent a compelling documented reason to defer). A stale manifest is active misinformation - worse than no manifest.
-- **Stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path** (e.g., a documented "no side effects" claim that is no longer true, an idempotency guarantee that no longer holds, a failure-mode contract that has silently changed): **Critical finding**. The manifest is actively misleading callers on a load-bearing path.
-
-Minor findings are addressed via the Minor-fix workflow (see `content/references/skeptic-protocol.md` Section 2 step 4 and Section 6). Major and Critical findings must be resolved before sign-off.
-
-See `content/references/skeptic-protocol.md` for findings classification definitions.
+Read `content/references/conventions-detail.md` §External Comment Discipline for rules on PR bodies, review comments, commit messages, and other external-facing artifacts (lead with result, bullets over prose, evidence beats description, no marketing voice).
 
 ---
 
 ## Reference Docs
+
+### activation-detail
+
+<!--
+Purpose: Detailed activation-preflight reference blocks extracted from
+         content/sections/01-activation-preflight.md. Contains: Step 5
+         (first-activation notice - TTY/QUIET gate, sentinel write contract,
+         sentinel body, notice text verbatim) and Step 6 (scaffolding-sync
+         check - agentic-migrate check/apply flow, gitignore patterns,
+         AGENTS.md carve-out).
+
+Public API: Read-only reference document. Cross-referenced from:
+            content/sections/01-activation-preflight.md (inline pointers
+            replacing the Step 5 and Step 6 detail blocks).
+
+Upstream deps: content/sections/01-activation-preflight.md (parent section;
+               read Steps 1-4 and Step 7 there for activation decision and
+               no-op path); bin/agentic-migrate (scaffolding-sync binary
+               invoked in Step 6).
+
+Downstream consumers: every adapter that implements the activation preflight
+                      (Claude, Codex, Cursor, Hermes, OpenCode, etc.) must
+                      implement Step 5 and Step 6 per this spec; CI checks
+                      adapter-sync against source.
+
+Failure modes: Sentinel write is create-only (O_EXCL / link() pattern);
+               concurrent racers produce exactly one notice. Filesystem
+               errors other than EEXIST are silently swallowed - the notice
+               may re-print on the next session. agentic-migrate failures
+               are silently swallowed; methodology proceeds.
+
+Performance: Standard (single file write + optional binary shell-out).
+-->
+
+> Parent section: `content/sections/01-activation-preflight.md`. Read Steps 1-4 and Step 7 there for the activation decision and no-op path.
+
+## Step 5: First-Activation Notice
+
+5. **First-activation notice (one-time, per-project, TTY-only).** Triggered only when Step 4 resolved to active (any proceed branch). Otherwise skip this step entirely.
+
+   **TTY/QUIET gate.** If `os.environ.get("AGENTIC_QUIET") == "1"` OR `not sys.stdout.isatty()`, skip BOTH the notice print AND the sentinel write. Activation proceeds normally without producing the notice or creating the sentinel. This prevents fixture contamination in eval harness runs and unwanted output in CI/headless contexts.
+
+   **Sentinel write contract (race-safe; create-only).** Two parallel subagent activations on the same fresh project must produce exactly one notice and exactly one sentinel; the loser stays silent. The notice prints if and only if the create-only write succeeded.
+
+   1. Compute path: `<project_root>/.agentic/.activated`.
+   2. Ensure `.agentic/` exists (`mkdir -p`); failures silently swallowed - do not crash.
+   3. Attempt **create-only** write (must fail if the file already exists):
+      - Python: `open(path, 'x')` (raises `FileExistsError` if present).
+      - Shell: write to `<path>.tmp.<pid>`, then `ln <tmp> <path>` (atomic, fails on EEXIST), unlink tmp.
+      - <!-- Race-safe pattern: O_EXCL / link() guarantees that only one of N concurrent racers wins the create; losers see EEXIST and stay silent. Do NOT replace with `if exists: ... else: write` - that pattern has a TOCTOU race. -->
+   4. **Print the notice if and only if the create succeeded.** On EEXIST (sentinel already present), skip the print silently. Losers in a race stay silent.
+   5. Filesystem errors other than `EEXIST` (read-only filesystem, permission denied, ENOSPC, etc.) are silently swallowed; the notice may re-print on the next session. Methodology must not crash.
+
+   **Sentinel body (exactly three lines, plain text):**
+   ```
+   # agentic-engineering: first-activation notice has been shown for this project.
+   # Deleting this file re-arms the notice only; it does not change activation state.
+   # To opt out, use /agentic-disable.
+   ```
+
+   **Notice text (verbatim, single line, printed to stdout when create succeeds):**
+   ```
+   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>, preset=<preset or 'none'>). Run /agentic-status to inspect, /agentic-disable to opt out.
+   ```
+   Values come from the resolver outputs of Steps 1-3. The literal JSON `null` for `preset` is rendered as the string `none`.
+
+## Step 6: Scaffolding-Sync Check
+
+6. **Scaffolding-sync check.** Runs only when Step 4 resolved to active. Silent-fail: any error swallowed; methodology proceeds.
+
+   a. Invoke `agentic-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
+   b. If status is "ok" (project version >= manifest version): no-op.
+   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/migrate-project --include-destructive` only).
+   d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/migrate-project --include-destructive`.
+
+---
 
 ### agent-team
 
@@ -1271,11 +988,14 @@ See `content/references/skeptic-protocol.md` for findings classification definit
 | `dependency-auditor` | Supply-chain review. Runs vulnerability scanners across all detected ecosystems, audits lockfiles, flags license risks and maintenance signals. Produces a findings report for the engineer to execute. | No |
 | `release-orchestrator` | End-to-end release sequencing. Owns pre-flight gates, version bump, changelog, tag, deploy, and post-deploy verification. Writes version bumps and changelog entries; does not write feature code. | Yes |
 | `architect` | Pre-implementation design. Reads the codebase, produces a structured technical plan. | No |
+| `adr-generator` | Architectural Decision Record authoring. Gathers decision context, determines the next ADR number, and writes a structured ADR to `docs/adr/`. | Yes (writes ADR files to docs/adr/) |
+| `adr-drift-detector` | ADR compliance audit. Locates ADRs, extracts their decisions, searches the codebase for evidence of compliance or violation, and produces a structured drift report. | No |
 | `orchestration-planner` | Team composition and sequencing. Given a goal, produces a structured execution plan: which agents to spawn, in what order, with what handoffs, and where Skeptic review is needed. | No |
 | `engineer` | Implements the change. Reads conventions, writes code, runs quality gates, reports clearly. | Yes |
 | `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.agentic/qa.md` (resolved via resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). Verifies changes in a real browser, returns structured pass/fail report. Appends learned quirks to the resolved qa.md's Knowledge section. | No (appends to qa.md only) |
 | `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
 | `learnings-agent` | Session-scoped background learnings capture. Conductor-discretionary - spawned ad-hoc on the first learning-worthy event in a session; no automatic phase trigger. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
+| `wrap-ticket` | Per-ticket learnings capture at `/implement-ticket` Phase 11b. Constrained automated subset of `/wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/context.md Recent Focus only) |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
 The `skeptic` is the cross-cutting review layer - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
@@ -1823,13 +1543,71 @@ A trigger event with no declaration is a protocol gap; the Stop-hook backstop
 
 ---
 
+### code-standards-detail
+
+<!--
+Purpose: Detailed code-standards reference blocks extracted from
+         content/rules/code-standards.md. Contains: the verbose Per-language
+         strict defaults block (TypeScript/JS, Python, Go, Rust, Next.js
+         strict settings) and the Browser Verification block (agent-browser
+         CLI usage for all browser verification tasks).
+
+Public API: Read-only reference document. Cross-referenced from:
+            content/rules/code-standards.md (inline pointers replacing
+            these verbose blocks).
+
+Upstream deps: content/rules/code-standards.md (parent rules file; read
+               that file first for Documentation Lookups, Tool Discipline,
+               Context Window Management, Module Manifests, DRY, Code
+               Quality Gates preamble, and Package Management rules).
+
+Downstream consumers: engineer agents (run per-language quality gates
+                      after every implementation); content/sections/
+                      12-protocol-details.md (code standards reference).
+
+Failure modes: Prose + code blocks; does not auto-execute. Per-language
+               defaults are pinned to the tool versions current at time
+               of authoring - check tooling docs for version-specific
+               changes (e.g. ESLint flat-config migration, ruff rule
+               selection changes).
+
+Performance: Standard.
+-->
+
+> Parent rules file: `content/rules/code-standards.md`. Read that file first for Documentation Lookups, Tool Discipline, Context Window Management, Module Manifests, DRY, and Package Management rules.
+
+## Per-Language Strict Defaults
+
+**Per-language strict defaults:**
+- **TypeScript/JS:** `strict: true` in tsconfig, ESLint `--max-warnings 0`, Vitest/Jest with 80% line coverage
+- **Python:** `mypy --strict` or pyright strict mode, `ruff` with recommended + strict rule selection, `pytest --strict-markers -x`
+- **Go:** `golangci-lint run --enable-all`
+- **Rust:** `deny(warnings, clippy::all, clippy::pedantic)` for applications; libraries use `warn(...)` in source and `-D warnings` in CI
+- **Next.js:** disable `devIndicators` in `next.config.ts`; restore `cursor: pointer` on buttons in `globals.css` (`@layer base { button, [role="button"] { cursor: pointer; } }`) - Tailwind preflight removes it
+
+## Browser Verification
+
+`agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
+
+```bash
+agent-browser open <url>      # navigate
+agent-browser snapshot        # get page structure with element refs
+agent-browser click @e1       # click by ref
+agent-browser fill @e2 "text" # fill input by ref
+```
+
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior.
+
+---
+
 ### conductor-operating-rules
 
 <!--
 Purpose: Conductor operating rules reference for on-demand consultation.
          Covers permission-blocked fallback, methodology-file editing routing,
-         parallel Investigator pattern, wrap-ticket writer carve-out, and
-         the mandatory learnings capture gate (§learnings-agent). Anti-patterns
+         parallel Investigator pattern, wrap-ticket writer carve-out (incl. the
+         two lock-aware context.md auto-writers under the deferred-wrap feature),
+         and the mandatory learnings capture gate (§learnings-agent). Anti-patterns
          and Common rationalizations were reverted to content/sections/02-
          delegation.md (hot-path rules belong inline, not in a reference).
 
@@ -1843,12 +1621,25 @@ Upstream deps: content/sections/02-delegation.md (parent section; gate rules,
                content/references/capture-classification.md (guardrail-first
                precedence chain and two-gate MUST/SHOULD/SKIP table).
                content/agents/wrap-ticket.md, content/agents/learnings-agent.md.
+               content/commands/wrap.md (authoritative `/wrap` write paths and
+               wrap/lock scope) and content/commands/wrap-deferred.md (the
+               non-interactive single-pass enrichment the daemon runs; owns the
+               `pending.json` marker data model and the spillover drain). The
+               carve-out points to both rather than restating field semantics.
+               hooks/stop-context.js and .opencode/plugins/session-context.ts (the
+               two lock-aware context.md auto-writers the carve-out names) and
+               hooks/wrap-daemon.js (the per-project daemon that drains the
+               spillover by running `/wrap-deferred` headlessly).
 
 Downstream consumers: content/sections/02-delegation.md (inline pointers from
                       each extracted block), content/agents/wrap-ticket.md
                       (required reading directive), content/agents/learnings-
                       agent.md (required reading directive), conductor (applies
                       mandatory trigger protocol at each capture gate).
+                      hooks/post-tool-use-capture-nudge.js (the in-session
+                      PostToolUse(Task) capture-gap nudge that mechanically
+                      surfaces the §learnings-agent "spawn autonomously, do not
+                      ask the user" rule mid-session).
 
 Failure modes: Prose reference; does not auto-execute. Permission-blocked
                fallback requires immediate Skeptic on the applied edit -
@@ -1857,6 +1648,12 @@ Failure modes: Prose reference; does not auto-execute. Permission-blocked
                removed by Stop hook on exit; a missed removal blocks re-spawn.
                A mandatory trigger with no Capture: declaration is a protocol
                gap; the Stop-hook backstop is the mechanical catch.
+               The deferred-wrap marker data model and lock semantics are owned by
+               content/commands/wrap-deferred.md and hooks/wrap-daemon.js; this
+               carve-out only summarizes that the two context.md auto-writers are
+               lock-aware and that the daemon drains their spillover, and points
+               there - it is not the implementation contract, so divergence from
+               wrap-deferred.md is the drift risk to watch.
 
 Performance: Standard.
 -->
@@ -1887,7 +1684,11 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. The Stop hook retains its `.agentic/context.md` auto-write. `/wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap.lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. `/wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+
+**`.agentic/context.md` lock-aware auto-writers (deferred-wrap feature).** Under the deferred / background `/wrap` feature there are **two** lock-aware `context.md` auto-writers, not one: the Node Stop hook (`hooks/stop-context.js`) on Claude Code and the OpenCode plugin (`.opencode/plugins/session-context.ts`). Both check `.agentic/wrap/lock` before writing `context.md`; while the lock is held they **skip** their `context.md` write and append a spillover record to `.agentic/wrap/deferred-activity.jsonl`, which the per-project deferred-wrap daemon drains into the activity block when it runs `/wrap-deferred` and performs its own `context.md` write. Neither hook is "the one/only unlocked `context.md` writer" any longer - both serialize against the daemon's `/wrap-deferred` (and a manual `/wrap`) via `wrap/lock`. The daemon's headless `/wrap-deferred` likewise serializes its own `context.md` write via `.agentic/wrap/lock`, holding the lock only around the narrow Part-A read-merge-write window (not the whole flow); correctness otherwise rests on idempotency (the Part A merge dedups). The daemon is launched by the SessionStart hook (see the daemon `hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/wrap-deferred`, which is the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/wrap-deferred.md`.
+
+The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learnings-agent, append-with-dedup) and `/wrap`'s own paths is unchanged by the deferred-wrap feature: root `MEMORY.md` is not a `/wrap` target and is not added to the `wrap/lock` scope.
 
 ## learnings-agent background capture
 
@@ -1973,7 +1774,9 @@ When `Capture: MUST` is declared, the conductor spawns `learnings-agent` in the
 background (the harness default). Before spawning, check
 `.agentic/learnings-agent.session`; if present and its `session_id` matches the
 current session, the agent is already active - send the event message to the running
-agent rather than re-spawning.
+agent rather than re-spawning. When `Capture: MUST` is declared, the conductor writes
+the entry or spawns `learnings-agent` autonomously - do not ask the user whether to
+capture, do not wait for acknowledgment.
 
 The conductor's message contains: `event_type`, `description`, `resolution`,
 `domain_tag`, `severity` (omit `severity` for KNW-producing event types). The agent
@@ -1988,6 +1791,642 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 This is additive - `/wrap` still handles AGENTS.md updates, rolling session labels,
 compression, and full session wrap. If learnings-agent fails, the conductor warns
 and proceeds (soft-fail).
+
+---
+
+### conventions-detail
+
+<!--
+Purpose: Detailed conventions reference blocks extracted from
+         content/rules/conventions.md. Contains: the full Intent Layer
+         section (artifact list, intent debt, Project Overview Layer,
+         Project Config toggle prose, and Ubiquitous Language); the Context
+         Economy rules; and the External Comment Discipline rules.
+
+         Note: The Project Config prose here is the conventions-angle
+         description of the same toggles also described in
+         content/references/risk-config-and-tiers.md §Config Toggle Catalog
+         (behavioral). Both copies must stay in sync with .agentic/config.json.
+
+Public API: Read-only reference document. Cross-referenced from:
+            content/rules/conventions.md (inline pointers replacing these
+            verbose blocks).
+
+Upstream deps: content/rules/conventions.md (parent rules file; read that
+               file first for Writing Style, Project Structure Convention,
+               Session Context and Memory, and Git Workflow rules).
+
+Downstream consumers: conductor (Intent Layer for understanding artifact
+                      routing; External Comment Discipline for PR bodies,
+                      tracker comments, and review comments; Context Economy
+                      for output discipline); content/sections/
+                      12-protocol-details.md (conventions reference).
+
+Failure modes: Prose reference; does not auto-execute. The Project Config
+               toggle list here is a conventions-angle mirror of the
+               section-04 catalog; both must agree with config defaults.
+               The glossary.md Ubiquitous Language section is binding on the
+               project once introduced - the methodology cannot enforce this
+               automatically.
+
+Performance: Standard.
+-->
+
+> Parent rules file: `content/rules/conventions.md`. Read that file first for Writing Style, Project Structure Convention, Session Context and Memory, and Git Workflow rules.
+
+## The Intent Layer
+
+A project's intent is encoded across a small set of artifacts. Treat them as a coherent layer, not as unrelated files:
+
+- `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
+- `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
+- `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
+- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; auto-injected by Claude Code at startup. Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
+- `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (conductor-discretionary).
+- `decisions.md` - the project's decision log, where used.
+- `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
+- `.agentic/qa-regressions.md` - curated QA regression patterns; committed. Written by `qa-regressions-curator` at Phase 6b QA FAIL.
+- `qa.md` - QA triggers and project-specific quirks the QA engineer needs to know.
+- Module manifests - file-level intent embedded in the source itself (see `module-manifest.md`).
+- `glossary.md` - the project's Ubiquitous Language (see below).
+
+Together these form the project's **intent layer**. Drift in any of them is **intent debt** - the system stops reflecting what we meant to build, and downstream agents and humans drift along with the artifacts. Keep them current. A stale entry is worse than a missing one because readers trust it.
+
+### Project Overview Layer
+
+`docs/overview/vision.md` and `docs/overview/requirements.md` are operator-authored documents that capture durable product intent above the task level. When present, Architect and Investigator read them before producing output; the design or investigation must not contradict them.
+
+**What each file contains:**
+- `vision.md` - why the product exists, who it serves, what outcome it delivers (one screen, narrative form)
+- `requirements.md` - scoped functional and non-functional requirements, as bulleted statements
+
+**Rules:**
+- Operator-owned: agents read, never write or propose edits to these files
+- Optional and graceful: if `docs/overview/` does not exist or these files are absent, nothing breaks
+- Not a replacement for per-task Briefs: the Brief's "Problem" and "Constraints" fields should be consistent with these docs when present, but overview docs do not replace task-scoped planning artifacts
+
+### Project Config (`.agentic/config.json`)
+
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Fifteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+
+- `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
+- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
+- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
+- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls what happens when the conductor finds a missing required dependency during capability preflight. `advisory` emits a warning with the install command and proceeds with the spawn. `blocking` refuses the spawn when any required dependency remains missing after auto-install. Default flipped to `blocking` at P2 now that all agent manifests are populated. See `content/references/capability-preflight.md` for the full preflight protocol.
+- `perceptual_diff_enabled` - boolean, default `false`. When `true`, qa-engineer runs Playwright `toHaveScreenshot` against committed baselines in `tests/visual-baselines/` and raises auto-Major on drift exceeding per-scenario `tolerance`. Opt-in; baseline maintenance overhead justifies the default of `false`.
+- `theme_aware` - boolean, default `false`. Opt-in for the `theme` field on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer toggles light/dark themes and runs per-(scenario x viewport x theme) tuples. Default toggle covers CSS class (`document.documentElement.classList.toggle('dark')`) and data-attribute (`setAttribute('data-theme', 'dark')`) patterns; other patterns require a `theme` knowledge tag in `qa.md`.
+- `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` field on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer navigates to the Storybook iframe URL (`/iframe.html?id=<story_id>`) instead of the live app. Requires Storybook 7+; init-project detects the installed version and configures the related `storybook_url` key when SB7+ is present.
+- `motion_aware` - boolean, default `false`. Opt-in for the `motion` scenario method auto-Major Skeptic rule. When `true`, qa-engineer runs CDP-emulated reduced-motion checks per scenario. Absent motion scenarios on UI-visible Elevated units with `qa_skip == null` trigger a Skeptic-on-Brief Major finding. Matches `theme_aware` / `perceptual_diff_enabled` opt-in precedent.
+- `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. When `6`, qa-engineer converts story IDs to the `?selectedKind=&selectedStory=` URL format. When `7` or absent, uses the current `?id=` format. Set automatically by init-project based on detected framework adapter version.
+- `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. The commit makes per-session telemetry team-visible after squash merge. Set to `false` to opt out. No effect when identity is absent or provisional.
+- `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/wrap` jobs (idle detection, heartbeat, timeout, reclaim, and pending TTL are tuned by the `deferred_wrap_*` related keys below). The default `false` preserves the in-session synchronous `/wrap` behavior.
+- `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking the user permission to proceed with an obvious non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in `content/sections/02-delegation.md`. Precision-biased classifier (false-negative over false-positive). Two loop-guard layers: `stop_hook_active` flag (primary) and a consecutive-block counter cap (backstop for CC bug #54360). Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. Default `false` because this ships in the open-source methodology; individual projects opt in.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns (clustered by `domain_tag` / `Domain`) and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). Layer 3 (`/skill-candidates` command) is also gated on this toggle. When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking on this project.
+- `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. `skill_candidate_nudge` alone (with `skill_candidate_detection: false`) has no effect. Default `false` (matches `deferred_wrap_daemon` opt-in precedent).
+
+**Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
+
+- `storybook_url` - optional string, default `http://localhost:6006` when present. Set automatically by init-project Storybook version detection when a SB6 or SB7+ framework adapter is found. Override per-run via the `story-url` knowledge tag in `qa.md`.
+- `deferred_wrap_idle_minutes` - integer, default `15`. Minutes of session idle before the deferred-wrap daemon considers a session eligible for an out-of-session wrap. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_heartbeat_seconds` - integer, default `120`. Interval in seconds at which the daemon writes a liveness heartbeat while processing a deferred-wrap job. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_timeout_minutes` - integer, default `10`. Maximum minutes a single deferred-wrap job may run before the daemon aborts it. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_inprogress_reclaim_minutes` - integer, default `30`. Minutes after which an in-progress job whose heartbeat has gone stale is reclaimed and re-queued by the daemon. Only consulted when `deferred_wrap_daemon` is `true`.
+- `deferred_wrap_pending_ttl_days` - integer, default `7`. Days a pending deferred-wrap job is retained before the daemon expires it. Only consulted when `deferred_wrap_daemon` is `true`.
+
+The file is operator-tunable but optional and graceful: if absent, every toggle takes its default and nothing breaks.
+
+### Ubiquitous Language (`glossary.md`)
+
+A `glossary.md` at the project root (or referenced from the root `AGENTS.md`) holds the project's domain terms - the **Ubiquitous Language** that humans, code, and LLM agents all use to describe the system. When a glossary is present:
+
+- Agents prefer existing terms over inventing synonyms. If the glossary calls it "shipment", do not introduce "delivery", "consignment", or "package" in code, comments, prompts, or docs without first updating the glossary.
+- The Skeptic flags a synonym-of-an-existing-term as a **Minor** finding (style + intent drift).
+- The glossary is part of the intent layer above - keep it current as the domain vocabulary evolves.
+
+A glossary is optional; not every project needs one. But once introduced, it is binding on the project.
+
+## Context Economy
+
+Agents must be mindful of context-window consumption. Large outputs increase latency, burn tokens, and can push the session toward truncation. Follow these rules:
+
+- **Do not duplicate file contents in prose.** Reference files by path. The reader can use ReadFile if they need the full text.
+- **Keep diffs minimal.** Use standard unified diff format with 3 lines of context per hunk. Do not paste entire files when only a few lines changed.
+- **Do not paste tool output verbatim** unless specifically asked or unless the output is short (<20 lines). Summarize command results: "`pytest` passes (42 tests, 0 failures)" rather than dumping the full test log.
+- **Structured blocks over prose.** Prefer the JSON structured block for machine-readable data (file lists, gate results) and keep prose for human-readable narrative only.
+
+Multi-developer coordination guidance lives in `content/references/multi-developer-coordination.md`.
+
+## External Comment Discipline
+
+Agents author artifacts that humans read outside the session - PR titles and bodies, PR review comments, Linear comments, Jira comments, commit messages that summarise work, deploy and release notes. These surfaces have a different cost profile from in-session output: humans read them under time pressure, often on a phone, often days after the work landed. Verbosity is not free here - it is a tax on every future reader.
+
+Apply these rules to every external-facing comment:
+
+- **Lead with the result and the link.** The first line should answer "what changed and where do I look?" - not restate the ticket, not narrate the journey.
+- **Bullets over prose.** Each bullet earns its place by adding something the diff, screenshot, or linked artifact does not already show. If a bullet just describes what the diff shows, delete it.
+- **Cut what the reader can see for themselves.** Do not restate the ticket. Do not narrate the agent's own process ("I reviewed", "we investigated", "after analysis"). Do not summarise a diff that is one click away.
+- **Evidence beats description.** A screenshot, a test URL, a log excerpt, or a link to the failing line is worth more than a paragraph of explanation. Link, do not transcribe.
+- **No marketing voice, no emojis, no agent attribution footers.** The writing-style rules elsewhere in this methodology (plain verbs, no rule-of-three triads, no AI vocabulary, no em dashes) apply with extra force on external surfaces because humans read them quickly and judgmentally.
+- **Length is not the metric; signal-per-line is.** A long comment is fine when every line is load-bearing. A three-line comment that restates the ticket is too long.
+- **Skeptic findings posted as PR review comments** are one finding per comment in the form `[Severity] path:line - issue. Fix: <one-line action>.` No preamble, no sign-off banner, no "Active search" line on per-finding comments - that line belongs to the conductor-internal sign-off, not the PR surface.
+- **Self-check before posting.** Re-read this section. For each sentence ask: is this load-bearing for a human deciding "do I need to act on this?" If not, delete it.
+
+This rule layers conciseness expectations on top of the structural templates in `content/commands/implement-ticket.md` (PR body, tracker comment). The templates still apply; this rule governs the substance that fills them.
+
+---
+
+### cross-harness-teams
+
+<!--
+Purpose: Documents the cross-harness agent-team layer that lets the conductor
+         dispatch leaf workers to entirely different CLIs (codex, gemini,
+         cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning
+         them as native subagents within the conductor's own harness.
+
+Public API: Read-only reference. Load when configuring team.yml, deciding
+            whether to use cross-harness dispatch vs native delegation,
+            authoring or reviewing the self-containment guard, or understanding
+            how collected worker output re-enters the Skeptic/QA gates.
+
+Upstream deps: content/sections/02-delegation.md (delegation decision table);
+               content/sections/04-risk-classification.md (Tier/role layer);
+               bin/agentic-team (discover|dispatch|status|collect);
+               bin/_role_spec.py (shared role-spec normalizer).
+
+Downstream consumers: content/sections/02-delegation.md (pointer);
+                      content/sections/04-risk-classification.md (pointer);
+                      bin/agentic-team (schema section);
+                      bin/agentic-configure (team subcommand).
+
+Failure modes: Prose reference; not auto-executed. The most common error path
+               is a stale team.yml referencing a harness binary that was
+               uninstalled - agentic-team discover catches this and marks the
+               harness absent. A PATH guardrail shim that erroneously blocks the
+               worker's own binary is caught by the dispatch test suite; workers
+               that hang (cursor-agent known bug) are bounded by the per-run
+               timeout + kill watchdog.
+
+Performance: Standard. Dispatch is background shell-out per worker; no blocking
+             network call on the conductor's critical path. Web enrichment in
+             agentic-configure is opt-in and cached.
+-->
+
+# Cross-harness agent teams
+
+This layer lets the conductor dispatch leaf workers to entirely different CLI
+harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, or claude-as-worker --
+rather than spawning native subagents within its own harness. It is **OMC-
+independent**: it does not trigger oh-my-claudecode, nor does it use the
+conductor harness's own built-in subagent mechanism.
+
+## When to use cross-harness dispatch vs native delegation
+
+**Use the standard delegation table first** (see `content/sections/02-
+delegation.md`). Cross-harness dispatch is a *specialization* of the Worker
+spawn path, not a replacement for it. Apply it when all of the following hold:
+
+1. The task warrants a Worker spawn by the standard risk table (Elevated or
+   Trivial-delegate).
+2. `team.yml` is present and `enabled: true` for this project or globally.
+3. The role being dispatched has a `roles[<role>]` entry in `team.yml` with a
+   `harness` value other than the conductor's own harness.
+4. `agentic-team discover` confirms that harness is installed and reachable.
+
+When `team.yml` is absent or `enabled: false`, or when the harness is not
+installed, the conductor falls back to native delegation unchanged -- no error,
+no prompt, no degraded mode. Cross-harness is additive and fully opt-in.
+
+**The conductor does NOT use cross-harness dispatch for:**
+
+- The `conductor` role itself (conductor re-rooting is not supported in v1;
+  the `conductor` entry in `team.yml` is advisory only).
+- Orchestration-planner, investigator, or architect roles -- these run in the
+  conductor's own context because they produce plans the conductor reasons over
+  directly.
+- Any spawn that the conductor would classify as direct-action (Low or
+  diagnostic-only) -- those stay conductor-direct.
+- Spawns where `agentic-team discover` marks the target harness absent.
+  (Authentication errors are not a discover state -- they surface at dispatch
+  time from the harness's own stderr/exit code.)
+
+## Config: `team.yml`
+
+Cross-harness team topology is stored in a **dedicated committed file** -- NOT
+a block inside `role-models.yml`. `role-models.yml` is Pi/omp-only and
+gitignored (it may name user-private model handles); team topology is shareable
+project intent and belongs in version control.
+
+**File locations (project wins on key collision, merged shallowly per top-level
+key):**
+
+- Global: `~/.agentic/team.yml`
+- Project: `.agentic/team.yml` (committed; `.gitignore` carries `!.agentic/team.yml`)
+
+### Schema
+
+```yaml
+# ~/.agentic/team.yml  or  .agentic/team.yml
+enabled: true
+default_harness: codex          # where a role goes if no per-role harness is set;
+                                # validated same as roles[*].harness -- unknown value
+                                # produces a non-zero exit from agentic-team
+roles:
+  engineer:        { harness: codex,         model: gpt-5.3-codex }
+  qa-engineer:     { harness: gemini,        model: gemini-2.5-flash }
+  skeptic:         { harness: cursor-agent,  model: cursor-fast }
+  security-auditor:{ harness: codex,         model: gpt-5.3-codex }
+dispatch:
+  timeout_seconds: 1800
+  output_format: json
+```
+
+**Field notes:**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `enabled` | bool | yes | Set `false` to disable cross-harness dispatch without removing the file. |
+| `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
+| `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
+| `roles[*].harness` | string | yes (if mapping) | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
+| `roles[*].model` | string | no | For codex/gemini/claude, forwarded to the harness `--model`/`-m` flag at dispatch. For all other harnesses, supplying `model` is rejected at dispatch with a non-zero exit (no silent drop). Omit to let the harness use its session default (no hardcoded IDs). |
+| `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
+| `dispatch.output_format` | string | no | `json` (default) or `text`. Governs the `collect` demux path. |
+
+The scalar-or-mapping normalize logic for role-spec entries is shared with
+`bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
+normalizer; there is no inline copy.
+
+Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
+`conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`,
+`debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Unrecognized role
+keys are passed through and the dispatch tool validates the harness field
+regardless.
+
+## Per-harness dispatch table
+
+`bin/agentic-team dispatch` builds the worker invocation from this table. Exact
+flags for kimi, pi, and omp are **probed at discovery time** (`agentic-team
+discover`), not hardcoded -- consistent with the "no hardcoded model IDs" stance
+anchored in `bin/_role_spec.py` (single source of harness/role labels) and the
+binary-name map in `bin/agentic-team` (the one allowed per-harness hardcoded
+fact).
+
+| Harness | Non-interactive incantation | Output flag | Notes / gotchas |
+|---|---|---|---|
+| **codex** | `codex exec "<brief>"` or `codex exec -` (stdin) | `--json` (JSONL events) | `--sandbox read-only` applied by default; `--skip-git-repo-check` added when workdir is not a git repo; reads saved auth or `CODEX_API_KEY`; final message extracted from the last JSONL event. |
+| **gemini** | `gemini -p "<brief>"` | `--output-format json` | Headless on non-TTY or `-p`; slash/custom commands are broken headless -- pass the full brief inline; `head -c 50000` guard applied to large stdin. Response text extracted via `jq '.response'`. |
+| **cursor-agent** | `cursor-agent -p --force "<brief>" < /dev/null` | `--output-format json` | `--force` required for file writes; **known hang bug** -- stdin is always redirected from `/dev/null` AND a timeout + kill watchdog is applied; marked `experimental` in discovery output until upstream fixes the hang. |
+| **kimi** | `kimi-cli` headless run (exact flag confirmed by `discover`) | per kimi-cli | Binary name is `kimi-cli` (not `kimi`); exact non-interactive flag probed at discovery. No custom slash commands; methodology loaded via inline skill content in the brief. |
+| **pi** | `pi` run with prompt (pi-coding-agent; `.pi/` project resources) | per pi | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Exact headless flag probed at discovery. |
+| **omp** | oh-my-pi headless run | per omp | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. Exact flag probed at discovery. |
+| **claude (worker)** | `claude -p "<brief>"` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
+
+**Binary-name map (discovery uses this, not the harness label):**
+
+| Harness label | Binary name |
+|---|---|
+| codex | `codex` |
+| gemini | `gemini` |
+| cursor-agent | `cursor-agent` |
+| kimi | `kimi-cli` |
+| pi | `pi` |
+| omp | `omp` |
+| claude | `claude` |
+
+The binary-name map is the only per-harness hardcoded fact in the repo. It maps
+*names*, not model IDs or flag strings.
+
+## Self-containment guard
+
+When a DinoStack team is triggered, the worker must NOT trigger external
+orchestration (oh-my-claudecode) NOR the conductor harness's own native
+subagents. The guard is layered; the layers are listed from strongest to
+weakest:
+
+### 1. Workdir fence (PRIMARY containment)
+
+Each worker runs in its own **throwaway `--workdir`** -- either a git worktree
+or a directory copy of the relevant files. The worker has no access to the real
+repository tree regardless of what it runs. The conductor is the sole git
+owner; workers never run git on the live repo. This is the real containment
+boundary.
+
+### 2. Harness-native sandbox (strongest per-worker fence, where available)
+
+Where the harness exposes a sandbox flag, it is applied at dispatch time. For
+codex this is `--sandbox read-only`. The `agentic-team discover` output records
+`native_subagent_disable_flag` per harness; dispatch sets it when non-null.
+This is stronger than the PATH guardrail because it is enforced by the harness
+process itself, not by a wrapper script.
+
+### 3. PATH guardrail (accidental re-entry -- NOT a security sandbox)
+
+Each worker launch prepends a wrapper directory to `PATH`. Shims in that
+directory for `git`, `omc`, and all sibling CLI names (`codex`, `gemini`,
+`cursor-agent`, `kimi-cli`, `pi`, `omp`, `claude`) exit 1 and append a line to
+`<workdir>/.agentic/teamrun/<run-id>/violations.log`. The worker's own binary
+is exempt (a codex worker can still run `codex`; its shim is not placed).
+
+**This guardrail catches accidental bare-name re-entry by a cooperative worker.
+It does NOT stop an absolute-path call (`/usr/bin/git`, a pre-resolved path, or
+a worker that deliberately bypasses `PATH`).** It is a guardrail, not a
+guarantee. Do not claim it provides enforcement beyond its design surface.
+
+### 4. Leaf-worker clause (defense-in-depth)
+
+Every worker brief includes the clause:
+
+> "You are a leaf worker: no sub-agents, no git, no oh-my-claudecode. Write
+> your output to the workdir and exit. Do not spawn any additional processes
+> beyond your own execution."
+
+This relies on worker cooperation. It is defense-in-depth, not a hard fence.
+
+### 5. Conductor-side suppression
+
+While the sentinel file `<workdir>/.agentic/teamrun/.active` exists, the
+conductor suppresses native `Task` spawns and OMC skill calls.
+
+**On Claude Code:** hook-enforced. The existing
+`hooks/enforce-background-spawn.py` hook (wired by `.claude/install.sh`, already
+intercepting `Task`) is extended with a branch: when `.active` exists and is
+live (conductor PID present + not dead, mtime < 2 h), the hook denies any
+`Task` call outright (not just non-background) and denies any Skill call whose
+`skill` argument starts with `oh-my-claudecode:`. The denial message instructs
+the conductor to dispatch via `agentic-team` instead.
+
+Stale-sentinel guard: the hook treats `.active` as expired when its recorded
+PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
+not permanently suppress native Task. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
+
+Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
+conductor PID); removed by `agentic-team collect` when the last run in the
+batch completes.
+
+**On all other harnesses:** Agents running on non-Claude harnesses MUST treat
+`<workdir>/.agentic/teamrun/.active` as a hard suppression signal and MUST NOT
+spawn the conductor harness's native subagents while it is live. This is a
+binding prose contract, not a mechanically enforced hook. Per-harness status:
+
+| Harness | Enforcement status | Hook location (if it existed) |
+|---|---|---|
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` + OMC skill calls while `.active` is live) | Already deployed |
+| **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
+| **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
+| **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |
+| **Cursor** | Prose-contract only - Cursor extension hooks exist but do not cover CLI headless mode | Would require a cursor-agent wrapper or sidecar |
+| **OpenCode** | Prose-contract only - no hook infrastructure | Would live in `.opencode/` hooks if the runtime adds them |
+| **OpenClaw** | Prose-contract only - no hook infrastructure | Would live in `.openclaw/` hooks if the runtime adds them |
+| **Pi** | Prose-contract only - no hook infrastructure | Would live in `.pi/` config hooks if the runtime adds them |
+| **omp** | Prose-contract only - no hook infrastructure | Would live in `.omp/` config hooks if the runtime adds them |
+| **Hermes** | Prose-contract only - no hook infrastructure | Would live in a Hermes hook slot if the runtime adds them |
+
+The leaf-worker clause (layer 4) and workdir fence (layer 1) provide
+defense-in-depth for harnesses without hook enforcement. Agents on prose-only
+harnesses must apply the suppression as a discipline; callers cannot rely on
+mechanical enforcement as a guarantee.
+
+## How collected worker output re-enters the Skeptic/QA gates
+
+Cross-harness workers are leaf processes. They write their output to
+`<workdir>/.agentic/teamrun/<run-id>/stdout` (and `stderr`, `exit`).
+`agentic-team collect <run-id>` demuxes the per-harness output shape and
+returns the final message text:
+
+| Harness | Output shape | collect extraction |
+|---|---|---|
+| codex | JSONL events | last event matching `type: message` |
+| gemini | JSON `{response: ...}` | `jq '.response'` |
+| cursor-agent | JSON | `jq '.result'` |
+| kimi | per kimi-cli (probed) | shape confirmed at AC2 discovery |
+| pi / omp | per harness (probed) | shape confirmed at AC2 discovery |
+| claude (worker) | JSON `{result: ...}` | `jq '.result'` |
+
+Once `collect` returns the final message, **that text is treated identically to
+a Worker return summary from a native subagent.** The conductor passes it to the
+standard Skeptic and QA gates unchanged:
+
+- The Skeptic receives the collected output as the diff/plan under review; the
+  adversarial brief and findings classification are unchanged.
+- The QA gate fires on the same `qa_criteria` trigger logic as any other Worker
+  unit (see `content/sections/05-qa-gate.md`).
+- Re-route limits (max 3 fix passes), convergence-failure escalation, and
+  per-ticket QA flow are all applied identically.
+
+No new gate, no bypass, no special case for cross-harness origin. The harness
+boundary is transparent to the Skeptic/QA layer.
+
+---
+
+### cross-session-loop-resume
+
+<!--
+Purpose: Full reference for cross-session loop resume mechanics extracted
+         from content/sections/07-cross-session-loop-resume.md. Contains:
+         loop-state.json disk-write discipline (atomic tmp+rename at every
+         phase transition); resume check on session start; Stop hook
+         interrupted-status write; resumable phases (automatic and with
+         human confirmation); restart-required phases; full Skeptic re-run
+         on interruption; Brief/Plan path recording; file hygiene; and
+         batch-state coexistence (session_id gate, Stop hook mirror, N>=2
+         invocation guard).
+
+Public API: Read-only reference document. Cross-referenced from:
+            content/sections/07-cross-session-loop-resume.md (parent
+            section); content/sections/12-protocol-details.md (Cross-session
+            loop resume Protocol Details entry).
+
+Upstream deps: content/sections/07-cross-session-loop-resume.md (parent
+               section); /implement-ticket Phase 6 loop initialization
+               (writes loop-state.json); hooks/stop-context.js (Stop hook
+               that writes interrupted status and batch-state mirror).
+
+Downstream consumers: conductor (/implement-ticket resume check at session
+                      start); Stop hook (interrupted-status write); any
+                      session that may resume a prior implement-ticket run.
+
+Failure modes: loop-state.json is gitignored and must not be committed.
+               Silent Stop hook failure is acceptable - the 10-minute
+               implicit-interrupt heuristic handles missed writes. Batch-
+               state per-write session_id gate prevents orphan-session
+               corruption; EWOULDBLOCK on the scaffolding lock is silently
+               skipped.
+
+Performance: Standard (local filesystem reads/writes; no network).
+-->
+
+> Parent section: `content/sections/07-cross-session-loop-resume.md`. This file contains the complete body of that section verbatim.
+
+## Cross-session loop resume
+
+Long-running `/implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`:
+
+- **Disk writes at every phase transition.** The conductor writes `.agentic/loop-state.json` (atomic: tmp+rename) at initialization and at every phase transition (Skeptic spawn, Skeptic return, Engineer spawn, Engineer return, QA spawn, QA return, quality gate steps). The `last_phase` and `last_phase_action` fields are the authoritative resume keys.
+
+- **Resume check on session start.** When `/implement-ticket` is invoked, it checks for `.agentic/loop-state.json` before reading AGENTS.md. If `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. See `/implement-ticket` Resume check section for the full protocol.
+
+- **Stop hook writes interrupted status.** The Stop hook writes `status: "interrupted"` to `.agentic/loop-state.json` on session exit if the file exists and `status == "active"`. Silent failure is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
+
+- **Resumable phases (automatic):** Phase 6/6b Skeptic/QA loop at iteration boundaries (committed Engineer output, clean branch); Phase 7 quality gate when engineer committed (`engineer_returned` / `rerun_pending`).
+
+- **Resumable with human confirmation:** Mid-Engineer (dirty branch) - conductor asks human to discard or commit the partial work.
+
+- **Restart required:** Phases 1-4 (cheap to re-run, no branch side effects). State file is not written until Phase 6 loop initialization.
+
+- **Full Skeptic re-run on interruption.** If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch (last_phase=skeptic, last_phase_action=spawned). Skeptic is read-only and idempotent.
+
+- **Brief/Plan paths recorded.** When a Brief or Plan governs the task, `brief_path`, `plan_path`, and `promotion_tier` (enum: `none`, `brief`, `plan`) are written to `.agentic/loop-state.json` at authoring time. On resume, the conductor re-reads the Brief/Plan before spawning the next worker. Mid-flight escalation from Trivial or single-unit Elevated to Brief or Plan tier authors a retroactive Brief before the next engineer spawn (the in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed). Brief-tier tasks auto-promote to Plan tier on the 3rd resume.
+
+- **File hygiene:** `.agentic/loop-state.json` must not be committed to git (gitignored). It is set to `status: "complete"` or deleted after the PR is opened.
+
+- **Batch-state coexistence.** When `/implement-ticket` is invoked with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor (which tickets are pending, in-progress, complete, blocked) alongside `loop-state.json`'s per-ticket phase cursor. Both files carry a `session_id` field written on every conductor write; every write applies a per-write gate that aborts (with an operator-visible warning) if the file's existing `session_id` belongs to a different session whose `last_updated` is within 10 min, OR if the existing `session_id` is null/absent (legacy state from a prior version is force-takeover-eligible). This prevents orphan-session corruption uniformly across both files. The Stop hook mirrors its `loop-state.json` interrupted-mark write to `batch-state.json` via the same best-effort silent-fail discipline. Single-ticket Trivial invocations never create `batch-state.json` and remain bit-for-bit unchanged. Only one batch per project root is supported; a second concurrent N≥2 invocation is refused at Phase 0a-pre. N=1 invocations against an active foreign batch warn but do not refuse.
+
+---
+
+### delegation-detail
+
+<!--
+Purpose: Detailed delegation-model reference blocks extracted from
+         content/sections/02-delegation.md. Contains: Open Questions /
+         Deferred Defaults bucketing rules + table + worked example; Worker
+         autonomy contract + agent-spec exception; Stop-frequency planning
+         signal + table; Common rationalizations to reject; Investigator-
+         before-Architect rules (incl shared-utility-MANDATORY + Parallel
+         Investigators); Learnings pipeline; Worker preamble + execution
+         contract template; Digest-return discipline.
+
+Public API: Read-only reference document. Cross-referenced from:
+            content/sections/02-delegation.md (inline pointers replacing
+            each verbose block).
+
+Upstream deps: content/sections/02-delegation.md (parent section; read
+               that section first for the full delegation model overview,
+               spawn threshold rules, and signal table).
+
+Downstream consumers: conductor (Worker preamble and execution-contract
+                      template); content/sections/12-protocol-details.md
+                      (Delegation Protocol Details entry); any agent that
+                      authors a Brief or Plan (Open Questions / Deferred
+                      defaults bucketing).
+
+Failure modes: Prose reference; does not auto-execute. Stale content
+               (divergence from parent section) is the primary risk - the
+               parent section is authoritative and this file is a copy.
+
+Performance: Standard.
+-->
+
+> Parent section: `content/sections/02-delegation.md`. Read that section first for the full delegation model, spawn threshold, and signal table.
+
+## Open Questions and Deferred Defaults
+
+**Exception (Open Questions) and Deferred defaults.** Artifacts produced by the architect (and by the conductor when it authors a Brief, Plan, or ADR) use two distinct sections with different semantics. Categorization is set at authoring time, not changed by the conductor at gate time.
+
+Use this table to bucket each parked choice:
+
+| Condition | Section |
+|---|---|
+| No derivable default OR irreversible OR load-bearing fork | **Open Questions** |
+| Reversible AND a default is derivable AND not a load-bearing fork | **Deferred defaults** |
+
+**Open Questions** items are a protocol-level blocker and are NOT resolvable by this protocol. Resolution paths: (a) re-spawn the architect to resolve or re-categorize, (b) ask the user the specific question directly, or (c) descope. Conductor-derived defaults do not close an Open Question.
+
+**Deferred defaults** items are reversible choices the author has already derived a default for. The author records each item with its derived default under a "Deferred defaults" subsection, noting "revisit at implementation if context changes." The conductor does not stop, does not ask the operator, and does not spawn any resolution agent for these items - it proceeds with the recorded defaults.
+
+The author derives the default first. If a default is derivable and the choice is reversible, it is authored as a Deferred default - the conductor never has to be asked. Only non-defaultable, irreversible, or load-bearing-fork items become Open Questions. When the conductor receives a plan whose "Open Questions" section contains an item that appears reversible or defaultable (a mis-bucketing), the correction path is to re-spawn the architect, not for the conductor to self-rebucket.
+
+**Worked example.** ADR-0008 (cloud multi-device, Proposed) ends with 8 parked choices, each with a conductor-derived recommendation, each reversible (a Proposed ADR commits no code), with no downstream worker pending. The ADR author lists all 8 under a "Default decisions (reversible; revisit at implementation)" subsection - the "Deferred defaults" analogue - records each derived default inline, and proceeds. None of the 8 ever enter the "Open Questions" section. The conductor is never gated. No ballot is presented to the operator.
+
+## Worker Autonomy Contract
+
+**Worker autonomy contract.** Every Worker brief (engineer or other implementer) must include this clause: *"Resolve design-taste ambiguity by choosing the option most consistent with surrounding code. Return BLOCKED only for hard blockers: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Do not return BLOCKED for style, naming, choice among libraries already in use in this project, or 'which of several reasonable approaches' questions - pick one, proceed, and note the choice in the return summary. Introducing a new runtime dependency or performing a major-version upgrade of an existing dependency is NOT within this contract - if the task requires either, return BLOCKED so the conductor can route through architect + dependency-auditor per the risk table."*
+
+**Exception (agent-spec-mandated human decisions).** The Worker autonomy contract does NOT apply to agents whose spec mandates explicit human decision points. When the agent's own spec mandates surfacing a decision to the human (e.g. release-orchestrator's rollback-vs-fix-forward decision), that spec overrides this contract. The Worker follows its spec and surfaces the decision as instructed.
+
+## Stop-Frequency as Planning Signal
+
+**Stop-frequency is a planning signal.** Repeated genuine blockers within a single task indicate the plan is under-specified, not that the conductor is being appropriately cautious. Continuing to ask piecemeal questions papers over the structural gap and burns operator attention. Track stops against task complexity:
+
+| Task shape | Max genuine stops before flagging the plan |
+|---|---|
+| Trivial or single-unit | 0 - one blocker means it was not well-scoped |
+| Single-unit Elevated | 1 |
+| Multi-unit plan (2-5 units) | 2 across the whole plan |
+| Large multi-unit plan (6+ units) | 3 across the whole plan |
+
+**Pre-architect planning-input scans are exempt from this budget.** The Phase 2b ambiguity scan in `/implement-ticket` surfaces clarifying questions before any agent is spawned — no architect, investigator, or engineer has run yet. This is structurally different from a mid-work stop: it is bounded to exactly one operator turn, has a proceed-with-defaults fallback, and produces no work that needs to be discarded if the operator redirects. Phase 2b does not count against the per-task stop budget for any task shape.
+
+When the threshold is exceeded, the conductor stops spawning Workers and surfaces a planning concern to the user instead of another piecemeal question. Format:
+
+*"I've hit N blockers on this task: [bullet list of each blocker and why]. This is past the threshold for a [task shape] task and suggests the plan needs revisiting before we continue. Options: (a) re-spawn architect with these gaps, (b) answer the genuine Open Questions upfront and resume (Deferred defaults in the plan do not count toward this budget and do not block), or (c) descope. Recommendation: [pick one]."*
+
+Then wait. Do NOT keep spawning Workers against an under-specified plan - that compounds the cost of the missing planning work and produces churn the user has to clean up later.
+
+## Common Rationalizations to Reject
+
+**Common rationalizations to reject:**
+
+- "Looks simple" - not a Low signal
+- "Following the spirit, not the letter" - violating the letter is violating the spirit
+- "Only one file / few lines" - line count is not a risk signal
+- "I already reviewed it myself" - self-review is for Low risk only
+- "Moving fast, can skip this once" - speed is not a Low signal
+- "The Skeptic will catch any mistakes" - the Skeptic reviews Worker output; it does not excuse skipping risk classification or spawning a Worker
+- "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
+- "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
+- "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
+
+## Investigator-Before-Architect Rules
+
+**Investigator-before-Architect for unfamiliar territory.** When the task touches a codebase area the main session has not recently investigated - i.e., the "Unfamiliar codebase area" Elevated signal is present - the conductor must spawn the `investigator` agent first and pass its brief as input to the `architect` agent. The Architect consumes "what exists" from the Investigator and produces "what to build". This separates concerns: the Investigator maps the terrain and blast radius, the Architect makes design decisions on top of that map. The only exception is when the relevant files have been Read within the current conversation AND no substantive changes have been made to those files since they were read - i.e., the conductor has the current file contents in context as a direct tool-result, not a summary or recollection. "Relevant files" means the specific files the Architect would need to reason about the change, not the directory or the project generally. If this test is not met in full, spawn the Investigator - "I know this area" is not a valid skip reason, and neither is "I read something nearby". When in doubt, spawn the Investigator.
+
+**Investigator-before-Architect MANDATORY for shared-utility surfaces.** The "in-context file already read" exception above does NOT apply when the ticket's likely target is a shared utility, shared component, or shared type. Specifically: when the target file lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or any analogous shared-module directory convention used by the project, AND `grep`/`Glob` reveals 5 or more importers of the symbol(s) being changed, the Investigator step is mandatory regardless of whether the conductor has the file contents in context. The Investigator's output for this case MUST include a per-consumer impact table (see `content/agents/architect.md` "Per-consumer impact table" requirement) that the Architect then consumes verbatim. The conductor cannot skip the Investigator on shared-utility surfaces by self-assessing "I already know what this does" - in-context familiarity with the shared file itself does NOT imply familiarity with every call site. The 5-importer threshold is a mechanical signal: count importers with `grep -rn` before deciding; do not estimate. If the count is uncertain, default to spawning the Investigator (when in doubt, spawn).
+
+**Parallel Investigators feeding a single Architect.** When investigation spans multiple independent surfaces (e.g. backend, frontend, schema), the conductor MAY spawn multiple Investigators in a single message. Before doing so, Read `content/references/conductor-operating-rules.md` §Parallel Investigators for the merge-into-one-Architect rule and the single-Architect invariant.
+
+## Learnings Pipeline
+
+**Learnings pipeline (two feeders, distinct triggers).** The learnings pipeline has two separate feeders with different trigger mechanisms:
+
+- **`learning-extractor`** - mechanically wired to `/implement-ticket` Phase 6 clean exit. Fires automatically on every ticketed Skeptic loop completion. The conductor does NOT spawn this manually; it is part of the Phase 6 sequence.
+- **`learnings-agent`** - conductor-discretionary background capture. The conductor spawns it ad-hoc the first time a learning-worthy event occurs in a session (Skeptic finding resolved, error->fix cycle, tool failure workaround, architectural decision, cross-component gotcha, user-called-out reusable pattern). No automatic phase trigger.
+
+For `learnings-agent` session-tracking semantics, see `content/references/conductor-operating-rules.md` §learnings-agent background capture.
+
+## Worker Preamble and Execution Contract Template
+
+**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
+
+**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
+
+There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: "worktree"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.
+
+Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-spawn stash fallback.
+
+Preamble:
+*"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
+
+Execution contract template:
+- outputs: [what artifact(s) the Worker must produce - e.g. "modified files committed to branch", "diff only", "summary report only"]
+- budget: [rough max tool-call count, or omit; advisory, not enforced]
+- tool_scope: [expected tool categories - e.g. "Read, Glob, Grep, Edit"; documentation only, does not override the harness-level Agent tool grants]
+- completion_conditions: [acceptance criteria verbatim from architect plan or ticket, plus any quality-gate pass requirements]
+- verification: [how this unit will be verified after it lands - existing test path that exercises it, new test the Worker must add, manual QA trigger pattern, or "self-evident review" if no test path is feasible]
+- output_paths: [specific file paths the Worker is expected to write or modify, or "conductor-directed" if paths emerge during implementation]
+- task_id: [unique task identifier for multi-unit correlation, or omit for single-unit]
+- brief_path: [path to the Brief governing this unit, or "n/a" if architect plan is the sole artifact]
+- plan_path: [path to the Plan directory governing this unit, or "n/a" if Brief-tier or below]
+
+When `brief_path` or `plan_path` is populated, the engineer reads it before starting. Success criteria, non-goals, and the verification gate supersede any informal interpretation of the ticket. If the engineer discovers a conflict between the Brief and the architect plan, it returns BLOCKED so the conductor can resolve.
+
+The `verification` field is **mandatory**. Its purpose is to force the conductor to specify *how the change will be verified before implementation begins*, not as a Skeptic afterthought. As coding gets cheaper, verification is the expensive thing, and the protocol reorganizes around verification rather than around shipping code. If the verification path is not knowable up front (truly novel surface, no existing tests, no feasible new test), state that explicitly as `"self-evident review"` and accept that the Skeptic and any QA gate are the only line of defense - do not leave the field blank.
+
+The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
+
+## Digest-Return Discipline
+
+**Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, and not-done list - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. See `content/references/digest-return-pattern.md` for the required digest fields and conductor consumption rules.
 
 ---
 
@@ -2084,6 +2523,14 @@ The trigger-pointer pattern in `~/.claude/CLAUDE.md` operationalizes this goal. 
 
 Runtime context management complements structural delegation: the conductor defines context budgets, exchange log compression, and memory retrieval to manage its own context window. See `content/references/subagent-protocol.md` Section 13.
 
+### The three-question partition test
+
+The partition test (apply to every candidate chunk). A chunk may be DEFERRED to a reference file iff Q1=no AND Q2=yes AND Q3=yes:
+- Q1 - Every-task or before-a-read? Does any task need this chunk before the agent has decided to read anything else, OR on essentially every task/turn regardless of task type? If yes, it stays inline (kernel); deferring is a defect.
+- Q2 - Trigger named in kernel? Is the trigger that pulls this chunk in named by a line that remains in the kernel? If no, defect.
+- Q3 - Trigger unambiguous from kernel-only state? Is the trigger a concrete, nameable event the agent can recognize WITHOUT first reading the deferred file? If no, defect.
+This operationalizes the evaluator question in Goal 4; it does not weaken it. Section content is kernel-only; detail belongs in `content/references/**` behind a `12-protocol-details.md` pointer.
+
 ---
 
 ## Non-Goals
@@ -2101,6 +2548,45 @@ The system deliberately does not attempt to:
 - **Eliminate the need for human judgment.** Escalation paths exist precisely because some decisions are genuinely ambiguous. When the same finding is contested for 2 or more re-routes without resolution, the protocol escalates to the human rather than forcing a resolution. The system is designed to reduce the burden on human reviewers, not replace them.
 
 - **Manage infrastructure or secrets.** The install script creates symlinks and registers a hook. It does not provision cloud resources, manage environment variables, handle credentials, or configure external services.
+
+---
+
+### digest-return-pattern
+
+# Digest-Return Pattern
+
+## Principle
+
+The conductor stays context-lean by spawning context-heavy work in the background and consuming a structured digest on return - not by absorbing the internal loop transcript. Multi-iteration Skeptic/QA loops, long investigations, and parallel fan-out units each run inside a worker's context. Only the digest crosses back.
+
+This is not a new mechanism. The engineer DONE summary and Skeptic sign-off format already produce it. This doc names the discipline so conductors apply it consistently rather than treating each background return as a trigger to re-read or re-derive.
+
+## Digest contract
+
+A loop-running spawn returns a structured digest. Required fields:
+
+- **Terminal status** - one of DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED. No intermediate states.
+- **Branch / PR** - the branch name and PR URL (or "no PR" if none was opened).
+- **Skeptic sign-off** - verbatim sign-off line including the reviewed scope: a SHA range (base..head) for PR reviews, or the files/components examined for inline reviews. See `content/references/skeptic-protocol.md` for the sign-off format.
+- **Falsifiable claims + evidence** - for any claim gated by the conductor's verification rules (Skeptic absence-or-critical findings, investigator external-data claims), include the exact command run and a literal output excerpt. A synthesized summary without raw output is insufficient.
+- **Residual risk** - any known open issue, assumption, or concern that did not block the terminal status but could matter downstream.
+- **Not-done list** - explicit list of scope items not completed, or "none" if all scope was addressed.
+
+The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
+
+## Conductor consumption
+
+When a background loop returns:
+
+1. Read the digest fields above.
+2. Spot-check falsifiable claims against live state before acting on them. This is the same obligation described in `content/sections/02-delegation.md` under §Skeptic absence-or-critical findings and §Investigator external-data claims.
+3. Act on the terminal outcome. Do not re-read the worker's internal transcript, re-derive findings, or re-run the Skeptic loop. The digest is the output; the transcript is a detail.
+
+This discipline is what keeps the conductor's context flat across many parallel loops. Each parallel unit deposits a digest; the conductor synthesizes digests, not transcripts.
+
+## Why this over a nested-orchestration tier
+
+A nested sub-conductor tier (a "unit-lead" that runs its own Skeptic/QA loop and reports up) would deliver the same context-separation benefit but at real cost: it requires reproducing the conductor's in-session state machinery one level down, rewriting the sole-orchestrator/Skeptic-independence foundation (subagents cannot spawn subagents), and introducing a new trust boundary where digest integrity needs verification. Background-spawn + structured digest return captures most of the benefit without those costs. A formal nested tier remains a future option if conductor context becomes a measured bottleneck on very large parallel fan-out tasks.
 
 ---
 
@@ -2180,11 +2666,12 @@ Analogous to the regression-test-obligation "what counts" bar: the update must m
 <!--
 Purpose: Full reference for the events log V1 telemetry event-type schemas and
          operational notes extracted from METHODOLOGY.md §Events log. Contains
-         field-level data shapes for all 6 event types (spawn_start, spawn_complete,
-         conductor_direct, meta_review_complete, session_total, tool_failure_workaround),
-         plus append discipline, atomicity, retention, and consumer notes. Also
-         documents the per-developer session log (.agentic/session-log/) written
-         by the Stop hook.
+         field-level data shapes for all active event types (spawn_start,
+         spawn_complete, meta_review_complete, session_total,
+         tool_failure_workaround) plus the deprecated conductor_direct block kept
+         for historical reference, append discipline, atomicity, retention, and
+         consumer notes. Also documents the per-developer session log
+         (.agentic/session-log/) written by the Stop hook.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/09-events-log.md (pointer after Schema block),
@@ -2199,7 +2686,7 @@ Upstream deps: content/sections/09-events-log.md (parent section; read that
                content/references/skeptic-protocol.md Section 14
                (calibration mechanism specification for Skeptic-specific fields).
 
-Downstream consumers: conductor (constructs spawn_start/spawn_complete/conductor_direct/
+Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       tool_failure_workaround payloads at orchestration boundaries);
                       Stop hook (constructs session_total payload at session exit AND
                       writes per-developer session log to .agentic/session-log/);
@@ -2225,12 +2712,12 @@ Performance: Standard.
 - `spawn_start`: emitted by the conductor immediately before an `Agent` tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, `agent_id: null` (Claude Code assigns the agent id after the `Agent` spawn returns), and `session_uuid` (see below).
 - `spawn_complete`: emitted by the conductor immediately after an `Agent` tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), `status`, and `session_uuid` (see below).
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
-- `conductor_direct`: emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carries `wall_seconds`, a `note`, and `session_uuid` (see below); tokens are zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
+- `conductor_direct`: **[DEPRECATED - no longer emitted; hook-emitted `spawn_start` (data.source:"hook") now provides ad-hoc spawn telemetry]** _(Historical reference only.)_ Was emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carried `wall_seconds`, a `note`, and `session_uuid`; tokens were zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
 - `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
-- `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; same PII boundary as `conductor_direct` - no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
+- `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
 
-**`session_uuid` field (conductor-emitted events).** The four conductor-emitted event types above (`spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` at session exit. **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
+**`session_uuid` field (conductor-emitted events).** The four active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` at session exit. **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
 
 ## Append discipline
 
@@ -2506,6 +2993,97 @@ are otherwise responsive.
 <div className="w-full sm:w-[500px]">Sidebar</div>
 // or use a responsive utility class appropriate for the design
 ```
+
+---
+
+### model-discovery
+
+<!--
+Purpose: Documents how the Pi / oh-my-pi role-model routing layer selects
+         models. Discovery is ask-user (the configure wizard prompts you per
+         role) or harness-native (your login/subscription exposes models).
+         Model names are pinned by hand in role-models.yml.
+
+Public API: Read-only reference. Load when seeding role-models.yml, when
+            adding new roles, or when adding effort / reasoning fields.
+
+Upstream deps: content/references/role-models.md (parent schema);
+               content/sections/04-risk-classification.md (Role-model
+               routing tier); bin/agentic-models (ranking implementation).
+
+Downstream consumers: bin/agentic-configure (TUI; ranking input);
+                      content/commands/init-project.md (Step 6g seed path);
+                      content/sections/04-risk-classification.md.
+
+Failure modes: If no role-models.yml exists, the conductor omits model/effort/
+               reasoning for every spawn and Pi uses its session default.
+               This is not an error - it is the documented no-op path.
+               There are NO hardcoded model catalogs in the repo; suggestions
+               come from the hint dictionaries applied to names you supply.
+
+Performance: Standard. Ranking is O(M * R) where M is the model count you
+             provide and R is the role count, both small.
+-->
+
+# Model selection - Pi / oh-my-pi reference
+
+The role-model routing layer in `content/references/role-models.md` lets the user pin a specific model per role. The **selection layer** described here explains how to decide _which model names to use_ so you are not guessing strings from memory.
+
+This is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. On Claude/Codex/Gemini the user picks models from the harness's built-in catalog; there is nothing to discover here.
+
+## How model selection works
+
+There are three paths - use whichever matches your setup:
+
+**1. Ask-user (the configure wizard).** Run `bin/agentic-configure` interactively. The wizard prompts you role by role and ranks a list you provide against the hint dictionaries. You supply the model names your harness exposes; the wizard scores them and writes a starter `role-models.yml` you can then edit directly.
+
+**2. Harness-native.** Your Pi or oh-my-pi login already grants access to a set of models. Open the harness's own model picker or settings panel, find the models your subscription includes, and copy those names into the wizard prompt or directly into `role-models.yml`. There is no separate network call needed - the harness already knows what you have.
+
+**3. Pin by hand.** Skip the wizard. Open `~/.agentic/role-models.yml` and write model names directly. The format is simple: see the schema in `content/references/role-models.md`. Use the harness's exact model handle (the string you would pass to a spawn call). The conductor forwards it verbatim.
+
+There are NO hardcoded model catalogs in this repo. Suggestions from the wizard come from the hint dictionaries in `bin/agentic-models` applied to the names you supply - not from any built-in list.
+
+## The binary: `bin/agentic-models`
+
+```
+agentic-models [--json] [--suggest <role>] [--all-suggestions] \
+               [model-name ...] [--models-from FILE]
+```
+
+Default mode prints a human-readable summary. `--json` emits the structured payload consumed by the TUI. `--suggest <role>` prints only one role's primary recommendation (used by hooks that want a quick default without parsing JSON).
+
+Model names are supplied as positional arguments, via `--models-from FILE` (one name per line), or piped from stdin. Empty input returns empty suggestions with exit 0.
+
+**Heuristics.** Per role, the binary scores every model you supply with a small hint dictionary. Substring match is case-insensitive; higher score wins. The hint tables are tuned so Opus-class models surface for the architect / security-auditor tier, Sonnet-class for engineer / debugger, Haiku-class for investigator / qa-engineer, and cross-family candidates (Kimi, GLM, GPT-5.x) for the reviewer pool so the antagonist is plausibly as good as the author without being the same model.
+
+**No hardcoded model IDs.** The hint tables in `bin/agentic-models` use family names (`opus`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
+
+## Schema extension: effort and reasoning
+
+`role-models.yml` accepts a per-role mapping in addition to the scalar form. The mapping carries three keys:
+
+| Key         | Type   | Default | Notes                                                                                                             |
+| ----------- | ------ | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `model`     | string | unset   | The model id the harness recognises. Required for the spawn to have any effect.                                   |
+| `effort`    | string | unset   | Pass-through; the harness interprets (e.g. `low` / `medium` / `high` / `xhigh`). Conductor does not validate.     |
+| `reasoning` | string | unset   | Pass-through; the harness interprets (e.g. `enabled` or a token budget like `8192`). Conductor does not validate. |
+
+**Resolution rules** (full algorithm in `role-models.md`):
+
+1. If the role value is a string, treat it as `{model: <string>}` and `effort`/`reasoning` stay unset.
+2. If the role value is a mapping, copy present keys. Absent keys are not passed on the spawn call; the harness uses its own default.
+3. Unknown keys in the mapping are passed through unchanged.
+
+The conductor forwards `model`, `effort`, and `reasoning` to the spawn call as separate parameters (or whatever the harness API takes). The setup wizard surfaces only the keys the live harness accepts -- it does not ask for `reasoning` on a model the harness does not support.
+
+**Backward compatibility.** Files written against the scalar-only schema (PR #249) continue to work: every scalar `engineer: sonnet` becomes `{model: sonnet}` at load time. No migration is required.
+
+## Failure modes
+
+- **No model names provided to wizard.** The wizard still runs and writes a `role-models.yml` with scalar defaults drawn from the hint tables' top family names (`opus`, `sonnet`, `haiku`). Edit the file with the exact handles your harness exposes.
+- **Model name not recognised by harness.** The conductor forwards whatever string is in `role-models.yml` verbatim. If the harness rejects it, the spawn fails with the harness's own error. Fix the string in `role-models.yml` and retry.
+- **Harness does not support `effort` or `reasoning`.** The conductor forwards only the keys the user's spawn target supports. There is no error; the harness silently ignores unknown parameters.
+- **No role-models.yml present.** The conductor omits `model`/`effort`/`reasoning` for every spawn and Pi uses its session defaults. This is the documented no-op path, not an error.
 
 ---
 
@@ -2937,6 +3515,297 @@ A test that passes even without the fix does not count. The Worker should confir
 
 ---
 
+### risk-config-and-tiers
+
+<!--
+Purpose: Detailed risk-classification reference blocks extracted from
+         content/sections/04-risk-classification.md. Contains: the
+         fifteen-toggle project config catalog (behavioral toggles only);
+         the Graph-derived risk signal mechanism + freshness + autonomous
+         refresh; and the full Tier declaration detail including role-default
+         tier table, model-param mapping, mandatory Tier-3 escalation (with
+         enforce-tier.py hook note), frontmatter defaults, enforcement, and
+         adapter-specific routing (Codex/Gemini, Pi/oh-my-pi, cross-harness
+         teams).
+
+Public API: Read-only reference document. Cross-referenced from:
+            content/sections/04-risk-classification.md (inline pointers
+            replacing each verbose block).
+
+Upstream deps: content/sections/04-risk-classification.md (parent section;
+               read that section first for risk levels, profiles, and
+               signal table); content/references/planning-artifacts.md
+               (canonical qa_default_skip definition).
+
+Downstream consumers: conductor (reads config toggles before classifying
+                      and spawning; reads tier table at every Elevated
+                      spawn); content/sections/12-protocol-details.md
+                      (Risk Classification Protocol Details entry).
+
+Failure modes: Prose reference; does not auto-execute. The project-config
+               toggle descriptions here shadow the conventions.md version
+               (which covers the same toggles from the conventions angle);
+               both must stay in sync with .agentic/config.json defaults.
+
+Performance: Standard.
+-->
+
+> Parent section: `content/sections/04-risk-classification.md`. Read that section first for the risk levels, profiles, and the full signal table.
+
+## Config Toggle Catalog (behavioral)
+
+### Project config (`.agentic/config.json`)
+
+The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+
+- `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
+- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
+- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
+- `capability_preflight_mode` - enum (`advisory | blocking`); default `blocking` as of P2 (all agent manifests are populated). The conductor reads this before every Agent spawn to decide whether missing required capabilities warn-and-proceed (`advisory`) or halt the spawn (`blocking`). Canonical reference: `content/references/capability-preflight.md`.
+- `perceptual_diff_enabled` - boolean, default `false`. Opt-in for the `perceptual_diff` QA scenario method; when `true`, qa-engineer runs Playwright `page.screenshot()` + pixelmatch comparison against committed baselines.
+- `theme_aware` - boolean, default `false`. Opt-in for per-theme QA tuples; when `true`, qa-engineer runs `visual_conformance` and `accessibility` scenarios in both light and dark themes and reports per-(scenario x viewport x theme) results. The conductor reads this toggle when inspecting `qa_criteria` to determine whether theme enforcement auto-Major rules apply.
+- `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer targets the Storybook iframe for isolated component verification. Requires Storybook 7+; init-project sets the related `storybook_url` config key when SB7+ is detected.
+- `motion_aware` - boolean, default `false`. Opt-in for the `motion` scenario method auto-Major Skeptic rule; when `true`, qa-engineer runs CDP-emulated reduced-motion checks per scenario.
+- `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios; `6` uses `?selectedKind=&selectedStory=` format. Set automatically by init-project.
+- `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits the per-developer session-log file (`.agentic/session-log/<developer_id>.jsonl`) as a separate commit on the PR branch, enabling cross-developer team visibility via `agentic-cost team` after pull. Set to `false` to opt out of telemetry commits on this project.
+- `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys (`deferred_wrap_idle_minutes`, `deferred_wrap_heartbeat_seconds`, `deferred_wrap_timeout_minutes`, `deferred_wrap_inprogress_reclaim_minutes`, `deferred_wrap_pending_ttl_days` - see `content/rules/conventions.md` §Project Config). The default `false` preserves the in-session synchronous `/wrap` behavior.
+- `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking permission for a non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in §Delegation. Default `false`; individual projects opt in. See `content/rules/conventions.md` §Project Config for full semantics.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking entirely.
+- `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
+
+#### Graph-derived risk signal
+
+When a fresh `GRAPH_REPORT.md` exists at the repo root, the conductor uses a Graphify knowledge graph during risk classification to detect high-blast-radius or non-obvious-coupling changes. It is presence-gated and escalate-only: it can raise a classification toward Elevated, never lower one.
+
+**Rationale.** Graphify writes `GRAPH_REPORT.md` at the repo root. Two of its computed sections name the symbols that carry the most architectural weight: God Nodes (highest-degree core abstractions) and Surprising Connections (cross-file couplings the author probably did not know about). A change touching one of those symbols is, by construction, the "Changes to shared utilities (single-file but high blast radius)" or "Logic with emergent/non-obvious cross-component interactions" Elevated signal - this mechanizes that judgment from an artifact the project already maintains.
+
+**Mechanism (when a fresh `GRAPH_REPORT.md` exists at the repo root).** Before classifying, the conductor checks freshness (below). If fresh, it reads `GRAPH_REPORT.md` and tests the change's target symbol(s) for membership, against the graphify v8 report format:
+- God Nodes: under the exact heading `## God Nodes (most connected - your core abstractions)`, each entry is `N. ` followed by a backtick-wrapped bare symbol label followed by ` - <degree> edges`. The match set is those bare labels.
+- Surprising Connections: under the exact heading `## Surprising Connections (you probably didn't know these)`, each entry's first line is `- ` followed by backtick-wrapped `<source>`, ` --<relation>--> `, backtick-wrapped `<target>`, then `  [<tag>]`. The match set is the bare `<source>` and `<target>` labels. The literal line `- None detected - all connections are within the same source files.` means no surprises.
+
+On a match, the conductor treats it as an additional Elevated signal and classifies the change Elevated (or higher if other signals apply). On no match, no effect - classify as today. When the target symbol is not yet known at classification time (for example a vague task before investigation), the signal does not fire; classify as today. The signal never downgrades a classification.
+
+Symbol matching is best-effort and bare-name-based (the report uses bare labels with no path qualification). Ambiguity (overloaded names, the same name in multiple files) is acceptable because the signal is escalate-only: over-firing toward Elevated only spawns a cheap extra Skeptic, while under-firing leaves today's behavior, so over-fire is the correct failure mode.
+
+**Freshness.** The conductor reads freshness from the same file as the signal (`GRAPH_REPORT.md`):
+- Primary (graph built in a git repo): under the exact heading `## Graph Freshness`, parse the line `- Built from commit: ` followed by a backtick-wrapped 8-character SHA. The graph is fresh only if that SHA equals the first 8 characters of `git rev-parse HEAD` AND the change's target file(s) have no uncommitted modifications (`git status --porcelain -- <target-paths>` is empty for those paths - a commit match alone misses uncommitted edits).
+- Fallback (no `## Graph Freshness` section, i.e. the graph was built outside a git repo): compare `GRAPH_REPORT.md`'s mtime against the newest target-source-file mtime; if any target source is newer, treat as stale. Fail safe to stale on any ambiguity.
+- On stale or undetermined: ignore the signal entirely - neither escalate nor downgrade - and classify exactly as today by human judgment.
+
+**Autonomous refresh.** The conductor keeps the graph fresh itself. At the point it is about to use the graph - before its own risk classification and before spawning the investigator - the conductor checks for an existing graph (`graphify-out/graph.json` or `GRAPH_REPORT.md`). If one exists and the staleness check above fails (built-commit not equal to HEAD, or uncommitted changes to the relevant files), the conductor runs `graphify update .` once from the repo root on its own checkout (honoring `GRAPHIFY_OUT` if set), then reads the refreshed report. This runs at most ONCE per session: after the first refresh the conductor treats the graph as fresh for the remainder of the session regardless of how many times staleness is later detected - it does not re-run `graphify update .` on every classification (in-session memory, the same once-per-session discipline as the cached base branch; no new state file). The conductor refreshes ONLY an existing graph this way: it NEVER autonomously runs a from-scratch `graphify .`, `graphify --watch`, or any rebuild or destructive path. If no graph exists at all, the conductor does NOT build one - it falls back to today's non-graph behavior. The conductor alone refreshes; the investigator and every other subagent keep their read-only lock and never run a mutating graphify subcommand. `graphify update .` is incremental and free for code-only deltas (tree-sitter AST, no LLM), but re-extracting changed docs, papers, or images costs LLM tokens, so on a mixed corpus an autonomous refresh may spend tokens; this is intrinsic to keeping an adopted graph fresh and has no opt-out toggle. If `graphify update .` fails (non-zero exit, binary error, or timeout), the conductor proceeds with the existing stale graph and notes the staleness; an update failure never blocks risk classification, and because the signal is escalate-only, using a stale graph is safe (it can only under-fire, never create a false downgrade).
+
+**Format coupling.** The pinned strings above are the graphify v8 report format. A future graphify heading change fails safe (no heading match means an empty match set and no escalation); if graphify changes the format, these strings need a follow-up sync.
+
+**GRAPHIFY_OUT.** The conductor reads the repo-root `GRAPH_REPORT.md` and, when refreshing, honors `GRAPHIFY_OUT` to locate the graph directory. A report relocated via `GRAPHIFY_OUT` is treated as "no report present" at the repo root - the signal does not fire and behavior is unchanged. Projects wanting the signal keep the report at the repo root.
+
+## Tier Declaration Detail
+
+### Tier declaration
+
+Conductors declare the model tier at spawn time to route lightweight tasks to lower-depth models and critical reviews to maximum-reasoning-depth models. Tier is declared in the same block as Risk, immediately below the Risk line.
+
+**Declaration format:**
+```
+Risk: Elevated - security adversarial brief
+Tier: 3  (max reasoning depth - security audit; Tier 3)
+Spawning security-auditor.
+```
+
+**Tier is a required field of the spawn declaration.** Every Elevated spawn carries a `Tier:` line directly below `Risk:`. The conductor either (a) names a tier explicitly with a justification, or (b) writes `Tier: <n> (role default)` to consciously accept the spawned agent's role-default tier from the Role-default tier table below. "Forgetting" to think about tier is no longer available: an Elevated declaration with no `Tier:` line is malformed. Most implementation spawns resolve to Tier 2 by role default; review spawns (skeptic, security-auditor) resolve to Tier 3 by role default.
+
+**Model param mapping (Claude Code):**
+
+| Tier | Claude Code `model` param | Use when |
+|---|---|---|
+| 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
+| 2 | `"sonnet"` | Standard work - engineer, investigator, qa-engineer at normal depth |
+| 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis; skeptic and security-auditor review by default |
+
+**Mandatory Tier-3 review escalation.** When a unit is Elevated AND matches any of the following signals, the Skeptic (or security-auditor) reviewing that unit MUST be Tier 3 (Opus), regardless of the agent's role default or the project `model_profile`:
+- security, auth, crypto, payments, or secrets
+- irreversible operation: delete, migration, schema change, force push
+- novel architecture constraining future choices
+- high blast radius / shared-utility change
+- release, deploy, or production-state change
+
+This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Opus `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal). It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
+
+**Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
+
+| Agent | Default tier | Claude `model:` | Rationale |
+|---|---|---|---|
+| skeptic | 3 | opus | Adversarial review quality binds correctness |
+| security-auditor | 3 | opus | Spec-mandated Tier 3; threat-model depth |
+| architect | 2 | sonnet | Standard design; upgrade to Tier 3 per the escalation rule for novel-architecture units |
+| engineer | 2 | sonnet | Implementation |
+| investigator | 2 | sonnet | Terrain mapping |
+| orchestration-planner | 2 | sonnet | Decomposition |
+| qa-engineer | 2 | sonnet | Runtime verification |
+| debugger | 2 | sonnet | Root-cause analysis |
+| dependency-auditor | 2 | sonnet | Dependency review |
+| perf-analyst | 2 | sonnet | Performance analysis |
+| release-orchestrator | 2 | sonnet | Release execution; escalate the reviewing Skeptic per the rule above |
+| product-discovery | 2 | sonnet | Requirements synthesis |
+| adr-generator | 2 | sonnet | ADR authoring |
+| adr-drift-detector | 2 | sonnet | Compliance audit |
+| learning-extractor | 2 | sonnet | Pattern extraction |
+| learnings-agent | 2 | sonnet | Discretionary capture |
+| wrap-ticket | 2 | sonnet | Session wrap |
+
+Tier 1 (haiku) has no default-role owner; it is opt-in per spawn for shallow mechanical tasks.
+
+**Frontmatter defaults and the model param.** Each agent's frontmatter `model:` encodes its role-default tier. Resolution precedence (Claude Code): `CLAUDE_CODE_SUBAGENT_MODEL` env var > spawn-call `model` param > frontmatter `model:` > inherited session model. Therefore:
+- To accept an agent's role default, the conductor OMITS the `model` param; the frontmatter supplies the model (a skeptic spawn with no param runs Opus).
+- To OVERRIDE for a specific spawn (upgrade a Tier-2 agent to Tier 3 for a novel-architecture unit, or assert a mandated-Tier-3 Skeptic), the conductor passes an explicit `model` param, which wins.
+- Every agent declares an explicit frontmatter `model:` so an omitted param is always correct and a Sonnet-intended agent never silently inherits Opus from an Opus session.
+- Budget mode: `model_profile: budget` acts ONLY through the spawn-call param, never by rewriting frontmatter. To get a Tier-1 (haiku) review on a NON-mandated skeptic spawn under budget mode, the conductor passes an explicit downgrade param; omitting the param yields the Opus frontmatter default. Budget mode never downgrades a mandated-Tier-3 Skeptic (see the escalation rule above).
+- Org allowlist caveat: if `availableModels` excludes opus, frontmatter `model: opus` is silently dropped and the agent inherits the session model. On a mandated-Tier-3 unit in such an org, the conductor must surface that Opus is unavailable rather than proceed on an inherited model.
+
+**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism. On Pi/omp with `role-models.yml` present and a reviewer strategy that depends on author identity (`distinct-from-author`), the conductor records, in-context, the model string it used for each engineer/architect spawn, and passes that author-model into the subsequent skeptic/security-auditor spawn so the reviewer-diversity strategy can resolve. This is in-context state only - no new state file.
+
+**When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
+
+**When to declare Tier 3:** task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Reserve Tier 3 for these cases and include a justification parenthetical.
+
+**Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
+
+**Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. To seed the file, run `bin/agentic-configure`: the wizard asks you per role and ranks the model names you supply using the hint dictionaries in `bin/agentic-models`. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the per-role ranking heuristics and selection paths.
+
+**Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
+
+---
+
+### role-models
+
+<!--
+Purpose: Defines the Pi / oh-my-pi role-model routing layer for mapping
+         agentic-engineering roles and adversarial reviewers to concrete
+         model strings.
+
+Public API: Read-only reference. Load when authoring `role-models.yml` or
+            resolving a Pi/omp role spawn, skeptic spawn, or
+            security-auditor spawn.
+
+Upstream deps: content/sections/04-risk-classification.md (Tier declaration);
+               content/references/role-models-example.yml (example library).
+
+Downstream consumers: content/sections/04-risk-classification.md (inline pointer);
+                      content/agents/skeptic.md;
+                      content/agents/security-auditor.md;
+                      content/commands/init-project.md;
+                      bin/agentic-status.
+
+Failure modes: Prose + YAML schema; not auto-executed. Mis-set author-model
+               tracking is the common error path: reviewer diversity depends
+               on the conductor recording the model used for the author spawn
+               and carrying it into the reviewer spawn.
+
+Performance: Standard.
+-->
+
+# Role-model routing - Pi / oh-my-pi reference
+
+This layer is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. On Claude/Codex/Gemini the conductor ignores `role-models.yml` entirely and uses the existing Tier mechanism. The conductor determines the harness from its own runtime identity; if unsure, treat the session as not-Pi and skip this layer.
+
+## File locations + resolution
+
+**Role-model library location:**
+- Global: `~/.agentic/role-models.yml`
+- Project override: `.agentic/role-models.yml` (wins on key collision; merged shallowly per top-level key)
+
+If neither file exists when a Pi/omp spawn happens, the conductor omits the `model` field and Pi uses its session default. There are NO hardcoded model IDs anywhere in the repo or adapters.
+
+The file is **gitignored** under the `.agentic/` umbrella because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
+
+## Schema
+
+```yaml
+roles:
+  conductor: opus              # advisory; scalar form
+  engineer:                    # mapping form
+    model: sonnet
+    effort: medium
+    reasoning: 4096
+  architect: opus
+  orchestration-planner: opus
+  investigator: glm-4.6
+  debugger: sonnet
+  qa-engineer: glm-4.6
+  skeptic: gpt-5
+  security-auditor: gpt-5
+
+reviewers:
+  strategy: distinct-from-author   # distinct-from-author | round-robin | by-task
+  pool:
+    - gpt-5
+    - model: glm-4.6
+      effort: high
+  by_task:
+    security: gpt-5
+    architecture: opus
+    correctness: glm-4.6
+    default: sonnet
+  fallback: gpt-5
+```
+
+`roles:` maps `<role>: <role-spec>`. Each entry is either:
+
+- A **scalar string** treated as the model name (the simple form). Example: `engineer: sonnet`.
+- A **mapping** with the keys `model: <string>`, `effort: <string>`, and `reasoning: <string|int>`. All keys are optional; the conductor substitutes harness-specific defaults for any omitted key. The mapping form lets the user pin model and tuning per role without growing a separate config file.
+
+Supported role keys are exactly: `conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Any role absent from the map means the conductor omits `model` for that spawn and Pi uses its session default. `conductor` is advisory: it applies only if the harness supports re-rooting the main agent; otherwise it is ignored because the main session model is already running.
+
+`effort` and `reasoning` are pass-through fields the harness interprets (e.g. `effort: high`, `reasoning: 8192` for token-budget reasoning, or `reasoning: enabled` for boolean toggles). The conductor does not interpret these values -- it forwards them on the spawn call alongside `model`. On harnesses that do not support one of the fields, the conductor silently drops it. The setup wizard (`bin/agentic-configure`) asks you per role and only offers values the harness accepts -- it ranks the list of model names you provide rather than fetching them from a remote endpoint.
+
+`reviewers:` controls adversarial-reviewer model diversity for `skeptic` and `security-auditor` spawns. Reviewer entries accept the same scalar-or-mapping form as `roles:`. When a reviewer entry is a mapping, the `model:` key is the candidate the strategy picks from; `effort:` and `reasoning:` are carried through to the chosen reviewer verbatim.
+
+- `strategy:` enum, exactly one of `distinct-from-author`, `round-robin`, or `by-task`. Default when `reviewers:` exists but `strategy:` is absent: `distinct-from-author`.
+- `pool:` ordered list of role-specs (scalar or mapping) the reviewer may use. Required when `strategy` is `distinct-from-author` or `round-robin`. The author-model check compares only the resolved `model` string from each pool entry.
+- `by_task:` map of `<task-kind>: <role-spec>`, required only when `strategy: by-task`. Task kinds are `security`, `architecture`, `correctness`, and `default`. `default` is the fallback when no specific kind matches.
+- `fallback:` single role-spec used when the strategy cannot pick, such as `distinct-from-author` with the only pool model equal to the author model. Optional; if absent and the strategy cannot pick, the conductor omits `model` and notes the fallback inline.
+
+## Resolution algorithm
+
+1. Conductor reads `.agentic/role-models.yml` if it exists; merges it shallowly over `~/.agentic/role-models.yml`. Project keys win on collision.
+2. **Normalize a role-spec** to a mapping `{model, effort, reasoning}`. If the YAML value is a string, treat it as `{model: <string>}`. If the YAML value is a mapping, copy the present keys; the absent keys stay unset. Unknown keys are passed through and the harness decides what to do.
+3. For a non-reviewer role spawn, resolve `spec = roles[<role>]` if present. If absent, omit `model`/`effort`/`reasoning` for that spawn. If `spec.model` is set, pass it as the spawn's `model` field; if `spec.effort` is set, pass it; if `spec.reasoning` is set, pass it. Absent keys are simply not passed -- the harness falls back to its own default.
+4. For a reviewer spawn (`skeptic` or `security-auditor`), determine the **author model**: the model the conductor used for the engineer or architect spawn that produced the diff or plan under review. The conductor tracks this in-context. If untracked or unknown, treat author model as the session default string and proceed.
+5. Apply `reviewers.strategy`:
+   - `distinct-from-author`: pick the first `pool` entry whose normalized `model` is not equal to the author model. If all pool entries equal the author model, use `fallback` if set, else omit `model`. `effort` and `reasoning` from the chosen entry pass through.
+   - `round-robin`: pick `pool[i mod len(pool)]` where `i` is the count of reviewer spawns so far this session. The conductor maintains the counter in-context, starting at 0. Round-robin ignores author identity by design; it does not guarantee distinctness from the author. Users who need guaranteed distinctness should use `distinct-from-author`.
+   - `by-task`: pick `by_task[<kind>]` where kind is derived from the adversarial brief. `security-auditor` or a security brief maps to `security`; architect-plan review maps to `architecture`; otherwise use `correctness`; final fallback is `default`. If the resolved kind is absent from `by_task`, use `by_task.default`; if `default` is absent, omit `model`.
+6. Pass the resolved reviewer's `{model, effort, reasoning}` to the reviewer subagent spawn. Missing keys are not passed.
+
+## Interaction with Tier and presets
+
+`role-models.yml` resolves the concrete `model`/`effort`/`reasoning` strings. The `Tier:` declaration and `Preset:` line remain the conductor's capability-intent signal and still appear in the spawn declaration. On Pi/omp, when both a Tier and a `roles[<role>]` entry exist, the explicit `roles[<role>]` model string wins for the model param because it is the more specific, user-authored intent, and the conductor notes the override inline. The Tier line is still printed for review evidence. `effort` and `reasoning` are independent of Tier: there is no Tier-implied default for them, and an explicit `roles[<role>]` mapping sets them directly on the spawn call.
+
+## Worked example
+
+```yaml
+roles:
+  architect: opus
+  engineer: sonnet
+  skeptic: gpt-5
+  security-auditor: gpt-5
+
+reviewers:
+  strategy: distinct-from-author
+  pool:
+    - gpt-5
+    - glm-4.6
+  fallback: gpt-5
+```
+
+Resolution traces:
+- `role=engineer` -> `roles.engineer=sonnet` -> spawn `model=sonnet`.
+- `author=opus`, `strategy=distinct-from-author`, `pool=[gpt-5, glm-4.6]` -> reviewer `model=gpt-5`.
+- `author=opus`, `strategy=distinct-from-author`, `pool=[opus]`, `fallback=gpt-5` -> reviewer `model=gpt-5`.
+- `author=opus`, `strategy=distinct-from-author`, `pool=[opus]`, no `fallback` -> omit `model` and note session-default fallback.
+
+---
+
 ### skeptic-protocol
 
 <!--
@@ -3042,6 +3911,7 @@ When classifying as Elevated, the main agent declares before acting:
 
 ```
 Risk: Elevated - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review.
 ```
 
@@ -3390,7 +4260,7 @@ The audit-note mechanism is the **primary** defense against the rubber-stamp / c
 
 **Minor** — Optional. Never blocks sign-off. When Minor findings are present at sign-off, the primary agent spawns a general-purpose agent (background) to apply them - no follow-up Skeptic review is required, regardless of file type. Minor-fix Workers are an intentional exception to the "modifies protocol or infrastructure files" Elevated signal. Examples: style improvements, non-critical logging gaps, minor documentation issues, low-impact optimizations.
 
-- **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa or performs a Trivial-path direct edit and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` or `conductor_direct` events for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate.
+- **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` events (or, for ad-hoc sessions, the hook-emitted `spawn_start` with `data.source:"hook"`) for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate. (`conductor_direct` is deprecated and no longer emitted; its absence is not a finding.)
 
 The Skeptic must classify every finding. Unclassified findings are treated as Major by default.
 
@@ -3625,6 +4495,7 @@ When classifying as Elevated + Cleanup, the main agent declares before acting:
 
 ```
 Risk: Elevated + Cleanup - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -3663,6 +4534,7 @@ When using this strategy, the conductor declares before spawning:
 
 ```
 Risk: Elevated (multi-dimensional review) - [specific signal]
+Tier: 3 (Opus)
 Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
 ```
 
@@ -4241,7 +5113,7 @@ The Subagent Protocol does not replace The Skeptic Protocol — it provides the 
 
 When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `METHODOLOGY.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
 
-For non-Tier-2 spawns, the conductor also passes a `model` param in the Agent tool call (Claude Code: `haiku` for Tier 1, `opus` for Tier 3; other harnesses resolve from tier-map or omit). This param is omitted for Tier 2 (default). Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
+The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in 04-risk-classification.md); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3 for a novel-architecture unit, asserting a mandated-Tier-3 Skeptic, or a Tier-1 mechanical task. Claude Code: `haiku`/`opus` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
@@ -4322,6 +5194,63 @@ The context budget applies to **implementation work** and **multi-turn planning*
 - Single-turn Q&A or information retrieval
 - Brief sessions that resolve quickly (fewer than 5 gray areas)
 - Diagnostic-only work (reading logs, explaining errors)
+
+---
+
+### task-state-file
+
+<!--
+Purpose: Full reference for the task-state file (.agentic/tasks.jsonl)
+         extracted from content/sections/08-task-state-file.md. Contains:
+         multi-unit plan initialization and maintenance lifecycle; conductor-
+         sole-writer invariant; single-unit skip rule; protocol cross-
+         reference (/implement-ticket Phase 3b and Phase 5); and the
+         author_model field (model id for reviewer-diversity routing).
+
+Public API: Read-only reference document. Cross-referenced from:
+            content/sections/08-task-state-file.md (parent section);
+            content/sections/12-protocol-details.md (Task-state file
+            Protocol Details entry).
+
+Upstream deps: content/sections/08-task-state-file.md (parent section);
+               /implement-ticket Phase 3b (task-state initialization schema,
+               file-absent/present behavior, orphan detection, field-level
+               merge algorithm) and Phase 5 (task_id correlation, author_model
+               recording); content/agents/skeptic.md and
+               content/agents/security-auditor.md (reviewer-diversity prose
+               that consumes author_model).
+
+Downstream consumers: conductor (/implement-ticket multi-unit orchestration;
+                      reads and writes tasks.jsonl as sole writer); engineer
+                      agents (receive task_id in execution contract for
+                      identification only - never write to tasks.jsonl);
+                      skeptic / security-auditor (read author_model before
+                      selecting their own model).
+
+Failure modes: tasks.jsonl is NOT gitignored (unlike loop-state.json) but
+               should not carry sensitive data. Single-unit plans skip this
+               file entirely. Workers must never write to tasks.jsonl - only
+               the conductor writes; no lock protocol is needed because of
+               this sole-writer invariant.
+
+Performance: Standard (local JSONL append/read; no network).
+-->
+
+> Parent section: `content/sections/08-task-state-file.md`. This file contains the complete body of that section verbatim.
+
+## Task-state file
+
+When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+
+**Field: `author_model`** (string, nullable). The model id the implementing
+engineer ran under for this task, or `null` when unknown (single-unit plans,
+pre-P249 historical entries, or conductor-directed spawns where the model was
+not recorded). Consumed by reviewer spawns (Skeptic, security-auditor) to pick
+a different model when role-model routing is active -- reviewer-diversity
+prose lives in `content/agents/skeptic.md` and `content/agents/security-auditor.md`.
+The conductor records `author_model` at engineer spawn time (Phase 5) and
+reviewer spawns read it before selecting their own model; the conductor remains
+the sole writer of `.agentic/tasks.jsonl`.
 
 ---
 
@@ -4570,6 +5499,87 @@ This is a fallback only. Worktree isolation is the primary mechanism; the stash 
 
 ---
 
+### wrap-context-format
+
+# Wrap context.md Format (shared normative reference)
+
+> Consumers: `content/commands/wrap.md` (Part A) and `content/commands/wrap-deferred.md`. Both CITE this file for the pinned header prefix, the `context.md` rolling-session-label merge algorithm, the `.agentic/wrap/last-wrap` write contract, and the spillover-drain procedure. This is the single normative home for those four contracts so that the interactive `/wrap` and the non-interactive `/wrap-deferred` write byte-identical `context.md` output. Edit the algorithm here, not in either consumer.
+
+This is a prose reference. It restates - verbatim - the shared `context.md` formatting contract that previously lived inline in `content/commands/wrap.md` Part A. The extraction is behavior-preserving: a golden-file byte-identity test pins `/wrap` Part A output across the extraction.
+
+## Pinned header prefix (NORMATIVE)
+
+Exactly one byte-exact prefix is the contract between writer and matcher:
+
+    # Session Context\n*Written by /wrap
+
+This is what the `/wrap`-coexistence `existing.startsWith('# Session Context\n*Written by /wrap')` check in `hooks/stop-context.js` (the "Append/replace session activity on /wrap-authored files" step) and the equivalent `startsWith` check in `.opencode/plugins/session-context.ts` test, and what every `/wrap` Output-1 / merge write must emit as its first two lines. (Referenced by behavior, not line number, so the citation does not rot as those files change.) The on-disk header date is a UTC calendar date (`date -u +%Y-%m-%d`); the header STRING does NOT contain the "UTC" literal - it stays `*Written by /wrap on YYYY-MM-DD. ...` exactly as the Output-1 template reads. The matcher only tests the pinned prefix (which stops before the date), so the date format and the absence of the "UTC" literal are both compatible. The Part A merge rule (the "(merged context)" header rewrite) appends after the date and is outside the pinned prefix - it stays. The rolling-session-label merge (below) is preserved unchanged.
+
+"Second line" means the literal second line of the file. A `/wrap`-produced file always starts with `# Session Context` on line 1 and `*Written by /wrap on ...` on line 2.
+
+## `.agentic/wrap/last-wrap` write contract (NORMATIVE)
+
+A single line containing the `session_id` of the session whose `/wrap` (sync, background enrichment, or `/wrap-deferred`) last successfully wrote `context.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker). Note: a same-session `done` tombstone stamped `wrapped_at` ALSO suppresses `stagePending` (covering the case where `last-wrap` has rolled to a different session), so `last-wrap` is not the sole staging-suppression mechanism - the retained tombstone is the durable backstop when `last-wrap` no longer names this session.
+
+The `last-wrap` write is performed inside the same narrow lock window as the `context.md` write: it is the last write before the lock is released (after the merged `context.md` write, before lock release). The interactive `/wrap` releases the lock itself (via the `agentic-wrap-release-lock` helper); on the headless `/wrap-deferred` path the lock is cleared out-of-band by the daemon's stale-lock backstop, since that child has no Bash — so `last-wrap` is the child's last write.
+
+<!-- ACCEPTED cross-version window: during an in-place upgrade where old-code sessions use .agentic/wrap.lock and new-code sessions use .agentic/wrap/lock, two sessions may hold different lock paths concurrently. This race is bounded to a transient recency-label discrepancy in context.md (a convenience label, not committed work). It self-heals on the next clean SessionStart. No lost-update of committed work occurs; the window is accepted and documented. -->
+
+## Spillover-drain procedure (NORMATIVE, 3-step rename-first)
+
+Run this as the first action inside the locked Part A window, before the rolling-session-label merge. The three steps; rename-first prevents loss of a record a hook appended just before the lock was observed:
+
+1. `rename(.agentic/wrap/deferred-activity.jsonl -> .agentic/wrap/deferred-activity.jsonl.draining.<pid>)`. Atomic. Any hook append after this rename creates a fresh `deferred-activity.jsonl` belonging to the next drain - not lost.
+2. Read the renamed copy's records and fold them into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance; the block header reflects the enrichment session).
+3. `unlink(.agentic/wrap/deferred-activity.jsonl.draining.<pid>)`.
+
+The spillover log record schema (`.agentic/wrap/deferred-activity.jsonl`, append-only JSONL, one record per Stop-hook / OpenCode-idle invocation that found `wrap/lock` held and skipped its `context.md` write):
+
+    {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
+
+A crash between the rename and the unlink can leave a `.agentic/wrap/deferred-activity.jsonl.draining.*` temp file. A session-start drain-temp sweep (`rm -f .agentic/wrap/deferred-activity.jsonl.draining.*`, fail-open) cleans it.
+
+## context.md rolling-session-label merge algorithm (NORMATIVE)
+
+The merged write always begins with the pinned header prefix above (the matcher contract); no site parses the header date.
+
+1. Read the file at the `context.md` output path.
+
+2. **If the file does not exist**: write the new draft content directly to the output path. Result: "Wrote fresh context to [path] (no existing file)."
+
+3. **If the file exists but is empty, or its second line does not begin with `*Written by /wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file. Result: "Wrote fresh context to [path] (replaced non-/wrap file)."
+
+4. **If the file exists and its second line begins with `*Written by /wrap`** (i.e. it was produced by a previous `/wrap` run): proceed to the merge step below.
+
+### Merge step
+
+**Duplicate-claim dedup (idempotency).** Before assigning a new session label below, apply the Recent-Focus dedup rule: key the new draft by the marker's `session_id` + `staged_at`; if a draft for this same `session_id`+`staged_at` has already been folded under an existing label (a re-run of the same marker across two sessions), SKIP the append entirely - do not add a new label, do not roll the window. The rest of Part A (Part B/C/E gating, `last-wrap` write) still proceeds. This makes a duplicate enrichment of the same marker wasteful but non-corrupting.
+
+First, check how many session labels are already present in the existing file's Recent Focus section.
+
+- **Five labels present (`[Session A]` through `[Session E]`)**: apply a rolling-window merge. Discard the `[Session A]` content from Recent Focus, relabel `[Session B]` as `[Session A]`, `[Session C]` as `[Session B]`, `[Session D]` as `[Session C]`, `[Session E]` as `[Session D]`, and use the new draft as `[Session E]`. For all other sections (Current Task / Next Steps, Key File Paths, Watch Out For, Tools Used), treat the full existing content as the prior session and apply the standard merge rules below.
+
+- **Four labels present (`[Session A]` through `[Session D]`)**: label the new draft entry `[Session E]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Three labels present (`[Session A]`, `[Session B]`, `[Session C]`)**: label the new draft entry `[Session D]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Two labels present (`[Session A]` and `[Session B]`)**: label the new draft entry `[Session C]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Single unlabeled Recent Focus** (standard case - first merge): label the existing entry `[Session A]` and the new draft entry `[Session B]`, each on its own paragraph.
+
+**Merge rules (existing file = prior session(s), new draft = newest session):**
+
+- **Header line** (`*Written by /wrap...`): replace with a new line using today's date and the note "(merged context)". Keep the `*Project:` line from the new draft.
+- **Recent Focus**: apply the labeling logic above.
+- **Current Task / Next Steps**: combine all items from both. Remove exact duplicate lines. Keep all non-duplicate items.
+- **Key File Paths**: union both lists. Remove exact duplicate lines.
+- **Watch Out For**: union both lists. Remove exact duplicate lines. If one had "None" and the other has real entries, use only the real entries.
+- **Tools Used**: combine both comma-separated lists, split by comma, trim whitespace, deduplicate, re-join as a single comma-separated list.
+
+Write the merged result to disk. Result: "Merged context written to [path] (combined sessions)."
+
+---
+
 ## Agent Team
 
 Named specialist agents available for delegation. Spawn via `delegate_task` or use their definitions as prompts.
@@ -4578,6 +5588,7 @@ Named specialist agents available for delegation. Spawn via `delegate_task` or u
 
 ---
 name: adr-drift-detector
+model: sonnet
 description: Audits codebase compliance against Architecture Decision Records (ADRs). Invoke when the user mentions ADR compliance, architecture drift, "does code match ADRs", architectural audit, or wants to verify decisions are being followed. Automatically finds ADRs, extracts decisions, searches code for evidence, and produces a structured drift report.
 tools: Read, Bash, Grep, Glob
 disallowedTools: [Edit, Write, Agent]
@@ -4851,6 +5862,7 @@ If there are no items in a section, write "[None]" under that heading - do not o
 
 ---
 name: adr-generator
+model: sonnet
 description: Expert agent for creating comprehensive Architectural Decision Records (ADRs) with structured formatting optimized for AI consumption and human readability.
 tools: Read, Bash, Grep, Glob, Edit, Write
 ---
@@ -5088,6 +6100,7 @@ Your work is complete when:
 
 ---
 name: architect
+model: sonnet
 description: Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -5119,6 +6132,7 @@ Your spawn prompt will contain:
 4. **Investigator brief (if provided)** - if the spawn prompt includes an Investigator brief, treat it as authoritative for "what exists" and focus your own reading on design-relevant follow-ups rather than re-mapping the terrain. Do not re-read files already covered in the Investigator brief unless you identify a specific design-relevant gap in that coverage - if you do re-read, name the gap explicitly before doing so.
 5. **Committed Brief constraints (if provided)** - if the spawn prompt contains a "Committed success criteria" block, treat the Problem statement, Success criteria, Non-goals, and Constraints as fixed inputs, not suggestions. Do not redefine the problem. Your Approach and Implementation steps must collectively address every committed success criterion; state explicitly in Approach which steps satisfy which criteria if the mapping is not self-evident. An uncovered committed success criterion is a Critical Skeptic finding on your plan.
 6. **Project overview docs (if present)** - before producing the plan, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it and treat it as authoritative product intent: the design must not contradict stated vision or requirements. These are operator-owned - never propose edits to them in the plan. If neither exists, proceed normally; their absence is not a gap to flag.
+7. **Prior plan + change request (if provided)** - if your spawn prompt contains a prior plan together with a request to change it, you are *revising*, not authoring from scratch. Follow the **Revising a prior plan** section below before producing output. This is easy to miss because a revision arrives as a normal fresh spawn - watch for it.
 
 ## Exploration process
 
@@ -5128,6 +6142,17 @@ Your spawn prompt will contain:
 4. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
 5. Write the technical plan using the output format below.
 
+## Revising a prior plan
+
+Because subagents are single-shot, a "revision" reaches you as a fresh spawn whose prompt contains a prior plan plus a change request. You have no memory of having written that prior plan - so the safe mental model is that the prior plan is a contract authored by someone else that you have been asked to amend, not a draft of your own to rewrite freely. Two failure modes happen when an architect forgets this, and both have shipped real defects: silently dropping a unit nobody asked to remove, and quietly altering load-bearing logic that was not in the change request. The discipline below exists to prevent exactly those.
+
+When your spawn prompt contains a prior plan and a change request:
+
+1. **Enumerate the prior units first.** Before writing anything new, list every implementation unit / section / component from the prior plan. That list is your baseline - you are accountable for all of it.
+2. **Account for every prior unit explicitly.** Open your output - before the standard `## Technical Plan:` structure, not in place of it - with a short **"Changed vs prior plan"** block that marks each prior unit as exactly one of: **kept** (carried forward unchanged), **changed** (say what changed and why), or **removed** (quote the operator instruction that authorized the removal). A unit that exists in the prior plan but lands in none of those three buckets is a silent scope drop - the precise defect this rule prevents. If you think a unit *should* go but were not told to remove it, do not remove it: keep it and raise the concern in Open Questions or Trade-offs so the operator decides.
+3. **Change only what the request names.** You may flag an out-of-scope concern, but you may not act on it. Adding, removing, or redefining anything the change request did not mention is scope drift, even when your reasoning feels sound in the moment. Scope is the operator's call, not yours.
+4. **Re-read before you re-touch logic.** Before you change any sentence that defines a detection signal, trigger condition, threshold, comparison direction, or core mechanism, re-read the prior plan's definition of it and quote that definition verbatim in your output immediately before proposing the change. Restating it in its own words forces you to notice when an edit would invert it. ("Detect recurring friction" silently becoming "count invocations" is an inversion that a quote-first step catches; without it, an unrelated edit elsewhere can flip the core signal and no one notices.)
+
 ## Output format
 
 Use this exact structure. Do not rename or reorder sections.
@@ -5136,7 +6161,7 @@ Use this exact structure. Do not rename or reorder sections.
 ## Technical Plan: [feature name]
 
 ### Approach
-[1-2 sentences: what is being built and the core design decision]
+[Open with one plain-language sentence restating the feature's core goal - what problem this solves and for whom - then the core design decision, and a one-line confirmation that the design serves that goal. On a revision, also confirm in one line that the core goal is unchanged from the prior plan. This restatement is cheap insurance against drifting away from what was actually asked for.]
 
 ### Codebase context
 [What the Architect found that shapes the design: existing patterns, relevant files, conventions to follow]
@@ -5293,6 +6318,9 @@ qa_criteria:
 
 ### Deferred defaults
 [Reversible, individually-defaultable parked choices - or "None" if all choices were resolved. An item belongs here when ALL of the following hold: (a) a default is derivable; (b) the choice is reversible; (c) it is not a load-bearing fork. For each item, record the derived default and note "revisit at implementation if context changes." These items do NOT block downstream worker spawns. The Skeptic verifies that nothing in this section should actually be in Open Questions.]
+
+### Verification footer
+List every file path, line reference, and symbol name you asserted anywhere in the plan above. Tag each one `[verified-by-read]` (you opened it with Read/Glob/Grep in THIS run) or `[assumed]` (you did not). The count of `[assumed]` entries must be zero: if any remain, either go read the file now and re-tag it, or delete the assertion from the plan. This footer is your own audit that the plan is grounded in the real codebase rather than in memory or a prior plan - a Skeptic will spot-check it against your actual tool calls, and a path you asserted but never opened is how plans acquire confident-looking wrong paths.
 ```
 
 ## Rules
@@ -5300,6 +6328,7 @@ qa_criteria:
 - **Read-only.** Never write, edit, or create files. Never use Bash for anything that modifies state (no writes, no package installs, no git commits). Bash is for reading: `find`, `cat`, `ls`, `grep`, dependency inspection.
 - **Do not implement.** Return only the plan. Short illustrative examples (5 lines max) are permitted inside the plan to clarify an API shape or data structure - nothing more.
 - **Commit to a recommendation.** Do not present a list of options without choosing one. If trade-offs exist, name them and pick.
+- **Verify before you assert.** Every file path, line reference, or symbol name that appears in your plan must come from a file you actually opened in THIS run (Read/Glob/Grep) - not from memory, not from training, not carried over from a prior plan you were handed. A path that looks plausible is not a path that exists; the only way to know is to open it. If you genuinely cannot read (no codebase path was provided), say so at the top of your response and mark every such reference as unverified rather than presenting it as fact. The Verification footer at the end of the plan is where you account for this; treat producing a plan with zero file reads as a red flag that you are guessing.
 - **If critical context is missing** - no codebase path, no task description, or a required constraint is unstated - say so explicitly at the top of your response before attempting a plan. Do not invent assumptions to fill the gap.
 - **If the codebase is large**, focus reading on: entry points, data models, API layer, test conventions, and files named in the task description or directly adjacent to the change area.
 - **Emit `qa_criteria` for Elevated tickets.** The QA criteria section above is mandatory on every Elevated plan. Absence is a Critical Skeptic finding. Do not omit the block; do not write "n/a" - if the ticket genuinely has no runtime surface, set `qa_skip` to one of the 5 valid enum values and supply `qa_skip_rationale`. If the ticket has runtime surface, populate `scenarios[]` with at least 1 entry.
@@ -5334,6 +6363,7 @@ Runs at Tier 3 because grill mode demands the widest design-question aperture; s
 
 ---
 name: debugger
+model: sonnet
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -5443,6 +6473,7 @@ Use this exact structure:
 
 ---
 name: dependency-auditor
+model: sonnet
 description: Supply-chain review specialist. Spawn when the user says "audit our dependencies", "is this upgrade safe", "any CVEs in our lockfile", "check license compliance", "review this new dependency", "do we have vulnerable packages", or "check our supply chain". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -5682,6 +6713,7 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 
 ---
 name: engineer
+model: sonnet
 description: General-purpose implementation agent. Spawn for any code change: new features, bug fixes, refactors, configuration changes, or script writing. Reads the codebase to understand conventions, implements the change, runs quality gates, and returns a clear summary of what was done. This is the standard Worker for all Elevated-risk implementation tasks.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -5871,6 +6903,7 @@ See `content/references/frontend-discipline.md` for full rules and canonical vio
 
 ---
 name: investigator
+model: sonnet
 description: Codebase investigation agent. Spawn when you need to understand code before deciding how to change it - tracing data flow, mapping blast radius, understanding feature behavior without a stack trace, or exploring an unfamiliar area. Returns a structured investigation brief the conductor can hand directly to architect or engineer. Does NOT implement changes or write to disk.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -5999,6 +7032,7 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 
 ---
 name: learning-extractor
+model: sonnet
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
 tools: Read, Edit, Write
 ---
@@ -6190,6 +7224,7 @@ The only file you may write is:
 
 ---
 name: learnings-agent
+model: sonnet
 description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
 tools: Read, Edit, Write
 ---
@@ -6442,6 +7477,7 @@ The only files you may write are:
 
 ---
 name: orchestration-planner
+model: sonnet
 description: Agent team composition planner. Spawn when you have a complex goal or task and need to determine the optimal combination of agents, their sequencing, handoff points, and parallelization strategy before executing. Use when the right agent team is not obvious, when multiple phases are involved, when a high-level requirement needs decomposing into a concrete execution plan, or when you want to avoid costly mid-task reclassification. Returns a structured orchestration plan the conductor can execute directly. Does not implement anything - planning only.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -6657,6 +7693,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 
 ---
 name: perf-analyst
+model: sonnet
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -6849,6 +7886,7 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 
 ---
 name: product-discovery
+model: sonnet
 description: Facilitated product discovery before any architecture or implementation work. Spawn when someone arrives with a product or feature idea that is not yet scoped - "I want to build...", "we should add...", "thinking about a tool that...", "here's an idea for..." - or when a project has no vision/requirements docs yet and work is about to start. Also spawn when the user asks to scope a feature, write a PRD, frame a problem, identify target users, run a competitive scan, or draft a product brief or PRFAQ. Decides WHAT to build and WHY, then stages a proposed vision.md and requirements.md for the operator to confirm. Stages proposals to docs/overview/_proposed/ only; never writes the canonical docs/overview/ files. Prefer this over jumping straight to design or code when the underlying problem, users, or scope are still fuzzy.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -7072,6 +8110,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 
 ---
 name: qa-engineer
+model: sonnet
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -7951,6 +8990,7 @@ fs.writeFileSync(diff_image, PNG.sync.write(diff));
 
 ---
 name: release-orchestrator
+model: sonnet
 description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Hands failures to the debugger.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -8249,6 +9289,7 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 
 ---
 name: security-auditor
+model: opus
 description: Specialized security reviewer. Spawn when a deep, threat-model-driven security audit is needed on code changes. Applies OWASP Top 10 and CWE-category analysis systematically, assumes a capable attacker, and produces a structured findings report with severity ratings, specific code locations, and remediation guidance. The spawn prompt provides the files or code to audit, the security domain, and any known prior mitigations.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -8361,6 +9402,7 @@ Use this exact structure. Do not paraphrase the section headers.
 - Do not re-raise findings that are demonstrably addressed by a prior mitigation - unless the mitigation is insufficient, in which case explain specifically why.
 - Do not soften or hedge findings to be diplomatic. An unraised Critical finding that reaches production costs more than a false positive caught here. Do not inflate severity: a finding must meet every element of the Critical definition before you assign it.
 - If no files are readable or no code is provided, state that clearly and do not fabricate findings.
+- On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: perform the security review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.
 
 ---
 
@@ -8368,6 +9410,7 @@ Use this exact structure. Do not paraphrase the section headers.
 
 ---
 name: skeptic
+model: opus
 description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a "## Global-context inputs" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format.
 tools: Read, Grep, Glob, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -8478,6 +9521,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Minor findings do not block sign-off but must be listed.
 - Always be a fresh read - do not carry assumptions from prior rounds. Each invocation sees only what the spawn prompt provides.
 - Do not soften findings to be polite. A missed Critical finding that reaches production costs more than a false positive caught here.
+- On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.
 
 ---
 
@@ -8485,6 +9529,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 
 ---
 name: wrap-ticket
+model: sonnet
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
@@ -8503,15 +9548,21 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             pr_url, conversation_summary, learnings_extracted. Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
-            skipped_reason, size_advisory.
+            skipped_reason, size_advisory,
+            cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
+            present; empty array when nothing qualifies or skill_candidate_detection
+            is off).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
               No external libraries; only Read/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
-                      return, prints operator_summary to the user, never blocks
-                      Phase 12 cleanup on wrap-ticket failure).
+                      return, prints operator_summary to the user, reads
+                      cluster_results and calls
+                      hooks/lib/skill-candidate-deep-cluster.js for any qualifying
+                      clusters, never blocks Phase 12 cleanup on wrap-ticket
+                      failure).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -8519,7 +9570,7 @@ Failure modes:
   Phase 12 or PR completion.
 - JSON parse failure (bad return shape): conductor warns and proceeds with no
   appends.
-- Lock contention: if .agentic/wrap.lock is held by another session (e.g., /wrap
+- Lock contention: if .agentic/wrap/lock is held by another session (e.g., /wrap
   is running concurrently), return immediately with skipped_reason set to
   "wrap-lock-contention" and writer_actions: [].
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
@@ -8546,7 +9597,7 @@ You are a **constrained automated subset of `/wrap`**. The differences are inten
 | Skeptic review | None | Required |
 | Rolling session labels | None | Yes (5-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
-| Lock | `.agentic/wrap.lock` (shared with /wrap) | `.agentic/wrap.lock` (shared with wrap-ticket) |
+| Lock | `.agentic/wrap/lock` (shared with /wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
 You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only).
@@ -8573,12 +9624,12 @@ Your spawn prompt provides the following inputs (all required unless noted):
 
 ### 1. Acquire the wrap lock
 
-Before any read or write, attempt to acquire `.agentic/wrap.lock`:
+Before any read or write, attempt to acquire `.agentic/wrap/lock`:
 
 ```bash
-mkdir -p .agentic
-mkdir .agentic/wrap.lock 2>/dev/null && {
-  printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap.lock/owner
+mkdir -p .agentic/wrap
+mkdir .agentic/wrap/lock 2>/dev/null && {
+  printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap/lock/owner
 } || {
   # Lock is held by another session (likely /wrap). Return immediately with
   # skipped_reason: "wrap-lock-contention" and writer_actions: [].
@@ -8600,7 +9651,7 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 }
 ```
 
-**Lock release is mandatory on every exit path.** Before returning, run `rm -rf .agentic/wrap.lock` regardless of whether the run succeeded, partially succeeded, or skipped.
+**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `agentic-wrap-release-lock`) at /implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
 
 ### 2. Read the inputs
 
@@ -8610,6 +9661,21 @@ If lock acquisition fails, return immediately with the JSON return shape populat
 - If `architect_plan_path` is a real path, Read it.
 - If `brief_path` is a real path, Read it.
 - If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `\[(LRN|KNW)-\d{8}-\d{3}\]`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
+
+### 2.5. Extract skill-candidate clusters (reasoning only - no Bash, no shell-out)
+
+**Gate:** This step runs unless `skill_candidate_detection` is explicitly `false` in `.agentic/config.json` (read in Step 2 if the file exists; default true when absent). If gated off, set `cluster_results: []` and skip to Step 3.
+
+From the inputs read in Step 2 - the merged diff, findings_log, architect plan, brief, and conversation_summary - identify DISTINCT domains where the ticket implementation or the Skeptic/QA loop required repeated manual work or worked around recurring friction that might warrant a reusable skill/command/preset/lint-rule. Exclude one-off implementation details specific to this ticket.
+
+Emit 0-5 entries. If nothing qualifies, emit an empty array. Keep this a single bounded reasoning step - do NOT shell out, do NOT use Bash, do NOT call node.
+
+Each entry shape:
+- `domain` (required): short lowercase-hyphenated slug (e.g. `adapter-rebuild`, `skeptic-context-block`).
+- `exampleNote` (required): one sentence describing the concrete instance observed in this ticket.
+- `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
+
+Store the result as `cluster_results` for inclusion in the Step 8 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
 
 ### 3. Extract candidate facts
 
@@ -8688,7 +9754,7 @@ Otherwise leave `size_advisory: null`.
 
 ### 7. Release the lock
 
-`rm -rf .agentic/wrap.lock`. This is mandatory on every exit path.
+The conductor releases the lock (via `agentic-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
 ### 8. Return
 
@@ -8702,9 +9768,12 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "operator_summary": "<one-line human-readable summary of what was captured>",
   "writer_actions": ["<file path>: appended <N> entries", ...],
   "skipped_reason": null,
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}]
 }
 ```
+
+`cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
 If nothing was captured because the ticket produced no stable facts, return:
 
@@ -8716,7 +9785,8 @@ If nothing was captured because the ticket produced no stable facts, return:
   "operator_summary": "No durable learnings captured from this ticket.",
   "writer_actions": [],
   "skipped_reason": "zero-substance",
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": []
 }
 ```
 
@@ -8746,7 +9816,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to context.md - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** Every exit path runs `rm -rf .agentic/wrap.lock`.
+- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.
@@ -9384,6 +10454,7 @@ No subcommands, no flags. Reads:
 - `~/.claude/agentic-engineering.json` (global config)
 - `<cwd>/AGENTS.md` (project marker; resolves through `CLAUDE.md` `@AGENTS.md` import if present)
 - `<cwd>/.agentic/.activated` (first-activation sentinel)
+- `<cwd>/.agentic/config.json` (project config; surfaces the `deferred_wrap_daemon` toggle - prints its value, or `false` when the file or key is absent)
 
 ## Output
 
@@ -9398,6 +10469,7 @@ agentic-engineering status
   marker: none
   active: yes (mode=opt-out + marker=none -> active: opt-out activates everywhere unless a project opts out)
   sentinel: .agentic/.activated (present)
+  deferred_wrap_daemon: false (source: .agentic/config.json; out-of-session daemon for deferred /wrap jobs)
 
 What this means
   Active here: yes. The methodology governs how work gets done in this project.
@@ -9439,6 +10511,9 @@ the effective value came from:
 - `preset-resolved` - the profile was resolved from a preset (e.g.
   `lean -> relaxed`).
 - `none` - no preset is in effect.
+- `.agentic/config.json` - the `deferred_wrap_daemon` line comes from the
+  project config file; when the file or the key is absent, the line prints the
+  documented default (`false`).
 
 The `active` line carries the derivation that produced the active state -
 the `(mode=... + marker=... -> active|inactive: <reason>)` clause - so it is
@@ -9980,6 +11055,64 @@ Report a summary:
 - The main worktree (first entry in `git worktree list`) is always skipped.
 - Works on the repository in the current working directory - not project-specific.
 - If `gh` is not available, flag feature worktrees for manual review and continue.
+
+---
+
+### /configure-team
+
+# /configure-team - Cross-Harness Team Setup
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+Set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments.
+
+This is a standalone any-harness capability - it is independent of the Pi/oh-my-pi role-model routing layer and does not require it. Any conductor can configure and run a team.
+
+## Step 1 - Configure the team
+
+Run `bin/agentic-team configure` to launch an interactive wizard that walks through role-to-harness assignments and writes `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
+
+```bash
+bin/agentic-team configure
+```
+
+For non-interactive use - useful in scripts or automated onboarding - pass assignments directly:
+
+```bash
+bin/agentic-team configure \
+  --non-interactive \
+  --assign architect=claude:claude-opus-4-5 \
+  --assign engineer=codex:gpt-5 \
+  --assign skeptic=gemini:gemini-2.5-pro \
+  [--default-harness claude] \
+  [--path .agentic/team.yml]
+```
+
+`--assign` accepts `role=harness:model`. Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`).
+
+Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-harness`, or `--non-interactive` used without `--assign`.
+
+## Step 2 - Verify discovery
+
+Confirm which harnesses are installed and which models they can reach:
+
+```bash
+bin/agentic-team discover
+```
+
+For machine-readable output:
+
+```bash
+bin/agentic-team discover --json
+```
+
+Each discovered harness reports its binary path, reachable models, and any auth errors. A harness listed as `--assign` target but absent from discovery output means it is not installed or not authenticated - resolve that before dispatching.
+
+## Step 3 - Dispatch a team
+
+See `content/references/cross-harness-teams.md` for the full dispatch, status-check, and collect flow.
+
+**Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/team-active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/team-active` as a hard suppression signal regardless of harness.
 
 ---
 
@@ -10763,7 +11896,7 @@ Also add `.agentic/` to the project's `.gitignore` if not already present.
 - `session_id`: `<ISO-date>-<4hex>`, e.g. `20260415-a3f2`
 - `task_id` per task: `<ticket_id>-<unit_slug>` (e.g. `ENG-42-auth-middleware`), or `<session_id>-<unit_slug>` for null-ticket projects
 
-**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
+**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
 
@@ -10900,7 +12033,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
-Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), and `branch_name` (the branch the worker will operate on).
+Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
 
 After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Write an update entry to `.agentic/tasks.jsonl` with these output fields. Status remains `in_progress` until Skeptic sign-off or final determination.
 
@@ -11091,7 +12224,7 @@ agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_k
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
 ```
-See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time.
+See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
 
 ```
 ## Prior iteration findings
@@ -12056,7 +13189,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
-**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap.lock` (atomic `mkdir`). The lock is shared with `/wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
+**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap/lock` (atomic `mkdir`). The lock is shared with `/wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
 
 - **If the lock is held by another session** (e.g., `/wrap` is running concurrently in another session): skip Phase 11b with the operator note: `"Phase 11b skipped: /wrap is running in another session."` Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
 - **If the lock is acquired:** spawn `wrap-ticket` with the inputs below. The conductor releases the lock on every exit path (success, timeout, soft-fail) before proceeding to Phase 12.
@@ -12083,7 +13216,27 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock is released before timeout.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Lock release: `rm -rf .agentic/wrap.lock` runs unconditionally on every Phase 11b exit path before advancing to Phase 12.
+Lock release: the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every Phase 11b exit path before advancing to Phase 12.
+
+**Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
+
+After releasing the lock and after wrap-ticket has returned (or been skipped), the conductor performs this step if ALL of the following hold:
+- wrap-ticket returned a valid JSON shape (not a timeout, not a non-JSON return).
+- `cluster_results` in the return is a non-empty array.
+- `skill_candidate_detection` is not `false` in `.agentic/config.json` (default true when absent or config missing).
+- `$CLAUDE_CODE_SESSION_ID` is set and non-empty.
+
+If any condition is not met, skip silently. This step is soft-fail and MUST NOT block or delay Phase 12 in any way.
+
+```bash
+# Conductor-side skill-candidate deep-cluster merge (post-return, soft-fail)
+CLUSTER_TMP=$(mktemp /tmp/wrap-ticket-clusters-XXXXXX.json 2>/dev/null) && \
+printf '%s' '<cluster_results JSON from wrap-ticket return>' > "$CLUSTER_TMP" && \
+node hooks/lib/skill-candidate-deep-cluster.js "$REPO_CWD" "$CLAUDE_CODE_SESSION_ID" "$CLUSTER_TMP" 2>/dev/null || true
+rm -f "$CLUSTER_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
@@ -12281,11 +13434,12 @@ Capture the answer as INIT_PROFILE. Empty (Enter) = "keep current default": INIT
 = null, write NOTHING. Typing 'default' is also a no-op write (do not pin default
 explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE to that value.
 
-**0a-config. Three project settings that change how work gets done (additive; Enter keeps each default).**
+**0a-config. Four project settings that change how work gets done (additive; Enter keeps each default).**
 
-These map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
+Q1-Q3 map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
 captured into a variable substituted into that single seed write - there is no separate
-config write. Empty input keeps the documented default exactly.
+config write. Empty input keeps the documented default exactly. Q4 does not write to
+`config.json`; it gates Step 6g only.
 
 Q1 - Auto-merge on green CI?
 
@@ -12320,6 +13474,18 @@ Q3 - Diagnose failures with a debugger pass?
   > Press Enter to keep the default (No). Or type y to enable debugger-on-failure.
 
   Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
+
+Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
+
+  > On Pi, the workflow can run each role (architect, engineer, reviewer, ...) on a
+  > model you choose, and run the adversarial reviewer on a DIFFERENT model than the one
+  > that wrote the code - a true antagonist (e.g. an Opus author reviewed by GPT or GLM).
+  > Enabling this seeds an editable `~/.agentic/role-models.yml` you fill in with the
+  > models you have in Pi. Ignored on Claude/Codex/Gemini.
+  >
+  > Press Enter to skip (no routing file; Pi uses session defaults). Or type y to seed it.
+
+  Capture as INIT_ROLEMODELS. Enter / n / no -> skip. y / yes -> seed in Step 6g.
 
 Note: the other config keys (capability preflight, the QA-method toggles, Storybook,
 theme) are left at their safe defaults and detected automatically where relevant. They
@@ -12434,7 +13600,9 @@ Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / e
 
 **Idempotent mode trigger** — if `AGENTS.md` already exists and contains any of the standard sections (`## Tools`, `## Docs`, `## Conventions`, `## Linear`, or `## Tracker`), this is an **update run**, not a greenfield run. Switch to the update mode algorithm (Step 2a) instead of the normal create flow.
 
-**Greenfield mode** — if `AGENTS.md` does not exist, or exists but contains none of the standard sections, proceed with the normal create flow (Steps 3 onward).
+**Custom-file mode** — if `AGENTS.md` already exists but contains none of the standard AE sections, this is a **custom-file run**. The file was not created by /init-project and its content must be preserved unchanged. Proceed to Step 3 with custom-file mode active (see "If `AGENTS.md` exists" branch in Step 3).
+
+**Greenfield mode** — if `AGENTS.md` does not exist, proceed with the normal create flow (Steps 3 onward).
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
@@ -12463,7 +13631,7 @@ Missing (will be created):
   - backend/AGENTS.md
   - ...
 
-Already exists (will be left untouched or curated in place):
+Already exists (will be left untouched or additive-only):
   - .claude/settings.json
   - .gitignore
   - ...
@@ -12473,7 +13641,7 @@ Already exists (will be left untouched or curated in place):
 
 **`.claude/settings.local.json` - always skip silently if it exists.** Do not ask. Do not overwrite. **Exception:** if the file exists but lacks the `autoMemoryDirectory` key, Step 2a item 9 will perform a narrow idempotent merge to add that single field without touching any other keys. See Step 2a item 9. Remind the user: "`.claude/settings.local.json` already exists and was left untouched - it may contain real secrets. Add any new env keys manually."
 
-**`AGENTS.md` (root) - if it exists, curate in place.** Do not skip. Do not overwrite wholesale. Read it and reorganize it to conform to the target structure (under 45 lines). See Step 3 for the curation process.
+**`AGENTS.md` (root) - if it exists, leave all existing content untouched.** Apply only the additive managed-block update from Step 3. Never reorganize, compress, or rewrite to the template structure. See Step 3 for the managed-block procedure.
 
 **All other existing files - leave untouched.** Note them in the scan output. Do not ask. Do not overwrite.
 
@@ -12637,53 +13805,66 @@ On "y": apply all planned changes. On "n" or Enter: abort with "Update cancelled
 
 After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 through 11.
 
-### 3. Curate or create root `AGENTS.md`
+### 3. Create or update root `AGENTS.md`
 
-**If `AGENTS.md` does not exist:** create from scratch using the template below. No curation needed - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
+**If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
 
 **Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator pressed Enter) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
 
-**If `AGENTS.md` exists:** perform intelligent curation with Worker + Skeptic review:
+**If `AGENTS.md` exists:** use the additive managed-block approach. No Worker is spawned; no existing content is removed, reordered, or compressed. The only change to the file is the addition or refresh of a delimited managed block. All user-authored content outside that block is left untouched. This command does NOT write any entries to `MEMORY.md` on the custom-file path.
 
-**Main agent pre-work (inline, before spawning Worker):**
-Read the existing `AGENTS.md` and identify two groups of content:
+**Step 3 existing-file procedure (sub-steps in order):**
 
-- **Memory candidates** - content that belongs in `MEMORY.md`, not `AGENTS.md`: detailed rationale paragraphs, implementation details (code snippets, schema explanations), setup command sequences, decision alternatives considered, anything that reads as "what we learned" or "here is how it works" rather than "we decided X".
-- **Architecture content to keep** - content that belongs in `AGENTS.md`: resolved decisions expressed as brief bullets (1 sentence each), cross-cutting conventions, repo structure map, tools and their usage, docs structure.
+**3a. Decide whether a change is needed; back up only if so.** Run 3b, 3d-pre, and (when 3d-pre does not fire) 3c first to compute the would-be managed block. If a managed block already exists and the would-be block is byte-for-byte identical to it (idempotent re-run), make NO change - no backup, no write - and report "AGENTS.md: managed block already current - no changes made." Otherwise: obtain a UTC timestamp via `date -u +%Y%m%dT%H%M%SZ`, copy `AGENTS.md` to `AGENTS.md.bak-<timestamp>`, and append the line `AGENTS.md.bak-*` to `.gitignore` if that exact glob is not already present (additive; do not duplicate). Report "Backup created: AGENTS.md.bak-<timestamp>".
 
-**Spawn a background Worker** (labeled "AGENTS.md curation Worker") with:
-- The raw existing `AGENTS.md` content
-- The memory candidates identified above
-- The Step 1 answers (project name, description, tracks, tools)
-- The target `AGENTS.md` structure below
-- Instruction to produce two artifacts: (1) the curated `AGENTS.md` content conforming to the target structure, (2) `MEMORY.md` entries for each memory candidate using format `- **YYYY-MM-DD:** [what and why, one-two sentences]` with today's date
+**3b. Locate or prepare the managed block.** Use the exact markers (verbatim, copied from `.claude/install.sh`): begin `<!-- BEGIN managed-by-agentic-engineering -->`, end `<!-- END managed-by-agentic-engineering -->`. If absent: the block will be appended at end of file, preceded by one blank line. If present: it will be replaced from begin-marker through end-marker inclusive, via a non-greedy DOTALL match anchored on those exact strings (mirror the `re.sub` in `.claude/install.sh`).
 
-**Target `AGENTS.md` structure (under 45 lines):**
-- H1: project name
-- One-paragraph description
-- `## Activation` - always emitted; see the template below for the base block and conditional assembly. When curating an existing `AGENTS.md` that lacks this section, add it (preserving any active `agentic-engineering: opt-in` or `agentic-engineering-profile:` line already present by folding it into the section per the conditional-assembly rules). The explanatory HTML-comment lines inside the `## Activation` base block are guidance, not content - they do not count against the under-45-line budget.
-- `## Decisions` - resolved architecture decisions as brief bullets, no rationale paragraphs
-- Repo structure map listing each track with a one-line description (omit if no tracks)
-- `## Tools`
-- `## Linear` OR `## Tracker` (preserve whichever is present — do not drop during curation)
-- `## Docs`
-- `## Conventions`
-- `## Session start` (tool-agnostic session-agent scaffolding check; see template block below)
+**3d-pre. Guard - preserve a user-authored `## Activation` section.** Scan the file OUTSIDE the begin/end block range for a line beginning `## Activation`. If FOUND: do NOT emit a `## Activation` heading inside the managed block; leave the user's `## Activation` section and every marker line inside it completely untouched; the managed block will contain ONLY the profile helper (resolved per 3d); SKIP step 3c entirely; surface "Note: an existing ## Activation section was found and left as authored. The managed block adds only the resolver profile helper." If NOT FOUND: proceed to 3c.
 
-**Spawn a fresh Skeptic** after the Worker returns with this adversarial brief:
-> "Is the curated AGENTS.md under 45 lines? Does it have all required sections (H1, overview paragraph, Activation, Decisions, Tools, Docs, Conventions, Session start)? Is the `## Activation` section present with resolver-safe markers (commented unless an active opt-in / profile line was carried over), and free of contradictory duplicate markers (e.g. both an active profile line and a commented `default` helper)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
+**3c. Resolve the activation marker (only when 3d-pre did not fire).** Choose the activation state by this PRIORITY, highest first:
+  1. A bare active `agentic-engineering: opt-in` or `agentic-engineering: opt-out` line OUTSIDE the managed block -> MOVE it: remove that line from the file and use its value.
+  2. Else, an active (uncommented) `agentic-engineering:` marker already INSIDE the existing managed block -> preserve its value (re-emit the same active line on refresh).
+  3. Else, the Step 0a activation decision: if the operator explicitly chose opt-in for this project, use an active `agentic-engineering: opt-in` line (mirror the greenfield template's Step 0a handling).
+  4. Else, use the commented `<!-- agentic-engineering: opt-out -->` helper (inert default).
 
-Require sign-off format:
+**3d. Assemble the managed block.** Resolve the PROFILE line by the same priority: an active (uncommented) `agentic-engineering-profile:` line already inside the existing block is preserved; else INIT_PROFILE (relaxed/strict emit an active line; default/null emit the commented helper). Because both the activation (3c) and profile lines are reproduced from any existing active value, regeneration of an unchanged block is a FIXED POINT - a second run reproduces it byte-for-byte and 3a NO-OPs.
+
+When 3d-pre did NOT fire, the block contains a `## Activation` heading plus the resolved activation + profile lines, e.g. (base case: no active marker resolved, profile default):
+```markdown
+<!-- BEGIN managed-by-agentic-engineering -->
+## Activation
+<!--
+  agentic-engineering governs how work is done in this project.
+  Run /agentic-status to see the resolved mode, profile, and whether it is active here.
+
+  This project is ACTIVE by default. To turn it off for this project only,
+  uncomment the marker line just below this block.
+-->
+<!-- agentic-engineering: opt-out -->
+
+<!--
+  Optional review strictness: relaxed | default | strict.
+  Uncomment the line below to override the global setting for this project.
+-->
+<!-- agentic-engineering-profile: default -->
+<!-- END managed-by-agentic-engineering -->
 ```
-Reviewed: [file]
-Findings: Critical: N, Major: N, Minor: N - [brief descriptions, or "None"]
-Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
-No unresolved Critical or Major findings. Sign-off granted.
+If 3c resolved an ACTIVE marker (e.g. a preserved or moved `agentic-engineering: opt-out`/`opt-in`), emit that as an uncommented line in place of the commented helper (never both). Same for an active profile line.
+
+When 3d-pre DID fire, the block omits the `## Activation` heading and the activation line, containing only the profile helper (or active profile line), e.g.:
+```markdown
+<!-- BEGIN managed-by-agentic-engineering -->
+<!--
+  Optional review strictness: relaxed | default | strict.
+  Uncomment the line below to override the global setting for this project.
+-->
+<!-- agentic-engineering-profile: default -->
+<!-- END managed-by-agentic-engineering -->
 ```
 
-After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory entries into `MEMORY.md` using semantic dedup - skip any entry already captured, supersede if updated, append if new. Before merging, check whether `MEMORY.md` exists. If it does not exist, create it with the stub header first (same content as Step 7), then merge. This ensures Step 8's guard ("if the file already exists, leave the stub header step") remains correct.
+**3e. Report.** On change: "AGENTS.md updated: added/refreshed the managed block. All prior content preserved. Backup at AGENTS.md.bak-<timestamp>." On no-op: "AGENTS.md: managed block already current - no changes made."
 
-**`AGENTS.md` template (use for new files, and as the structural target for curation):**
+**`AGENTS.md` template (use for new files):**
 - H1: project name
 - One-paragraph description. If no description was provided, use `<!-- TODO: Add one-paragraph description -->` as the placeholder.
 - `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that agentic-engineering governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
@@ -13033,7 +14214,16 @@ Seed with these documented defaults exactly:
   "storybook_enabled": false,
   "motion_aware": false,
   "storybook_version": 7,
-  "commit_telemetry": true
+  "commit_telemetry": true,
+  "deferred_wrap_daemon": false,
+  "deferred_wrap_idle_minutes": 15,
+  "deferred_wrap_heartbeat_seconds": 120,
+  "deferred_wrap_timeout_minutes": 10,
+  "deferred_wrap_inprogress_reclaim_minutes": 30,
+  "deferred_wrap_pending_ttl_days": 7,
+  "abdication_guard_enabled": false,
+  "skill_candidate_detection": true,
+  "skill_candidate_nudge": false
 }
 ```
 
@@ -13050,6 +14240,16 @@ Seed with these documented defaults exactly:
 - `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
+- `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
+- `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
+
+
+### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
+
+Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `agentic-engineering` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 
@@ -13097,7 +14297,7 @@ If `<cwd>/MEMORY.md` does not already exist, create it:
 <!-- Entry format: - **YYYY-MM-DD:** [what and why, one sentence] -->
 ```
 
-If the file already exists (e.g. because AGENTS.md curation in Step 3 merged entries into it), skip this step and proceed to Step 9.
+If the file already exists (e.g. because a prior run or Step 2a's CLAUDE.md migration already wrote it), skip this step and proceed to Step 9.
 
 ### 9. Create `.gitignore`
 
@@ -13136,7 +14336,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/context.md
 .agentic/memory/
 .agentic/memory.md
-.agentic/wrap.lock/
+.agentic/wrap/
 .agentic/preferences.json
 .agentic/compression-state.json
 .agentic/tracker-states.json
@@ -13152,7 +14352,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 !.agentic/learnings.md
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
 
 ### 10. Create `docs/` structure
 
@@ -13317,7 +14517,7 @@ No tracker setup needed. Skip this step.
 After all files are processed, print a short summary with three sections:
 
 **Created:** list every file that was newly written.
-**Curated:** list `AGENTS.md` if it was reorganized in place (with a note: "reorganized to target structure; extracted facts moved to MEMORY.md").
+**Updated:** note whether `AGENTS.md` was created fresh (new file, greenfield path) or had the managed `## Activation` block appended/refreshed (existing file - all prior content left untouched).
 **Skipped (already existed):** list every file that was left untouched and why (auto-skipped `.claude/settings.local.json`, or existing track `AGENTS.md`, or other existing files left untouched).
 
 **Config readout.** Print the resolved configuration in two blocks, then the pointers.
@@ -13336,6 +14536,7 @@ Project config (.agentic/config.json)
   model_profile: <value>            (default = right model per task; budget = cheaper tier)
   debugger_on_failure: <value>      (run a Debugger diagnosis before each fix on a gate failure)
   commit_telemetry: <value>         (commit session-log to PR branch at Phase 8; default true)
+  deferred_wrap_daemon: <value>     (out-of-session daemon picks up deferred /wrap jobs; default false)
   (other keys at defaults - see the file or /agentic-status to adjust)
 ```
 
@@ -13355,7 +14556,7 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 1. Update the `## Tools` section in root `AGENTS.md` as new CLI tools are added to the project over time
 2. Fill in the `## Conventions` section in root `AGENTS.md` as the project takes shape
 3. Grow each `[track]/AGENTS.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
-4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
+4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, backfill missing config, and (for custom non-AE files) refresh the managed `## Activation` block - all without destroying or rewriting any existing content.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
 7. Update `.agentic/qa.md` with your staging URL once a staging environment is available - show only if `.agentic/qa.md` was created (and therefore web UI was not declined)
@@ -13951,9 +15152,26 @@ done
 
 On non-zero exit from any adapter: stop immediately, report which adapter failed and its exit code. Do not run remaining adapters. Surface error messages verbatim.
 
-## Step 5 - Persist config and report
+## Step 5 - Install health check
 
-**5a - Merged config write:**
+After adapters are installed, run a read-only health check to surface any configuration or wiring issues:
+
+```bash
+agentic-doctor
+```
+
+`agentic-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `agentic-doctor` not found on PATH; open a new shell and run `agentic-doctor` manually."
+
+Parse the exit code and output:
+
+- **Exit 0 (no findings):** print `Health: OK`
+- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run agentic-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
+
+Print the full `agentic-doctor` output below the summary line so the user can see what was found.
+
+## Step 6 - Persist config and report
+
+**6a - Merged config write:**
 
 Read the existing config, update only the keys this command owns (`repo_dir` for fresh install, `adapters`, `updatedAt`), and write back atomically (tmp + rename). Preserve ALL other keys including any the user or other tools may have written.
 
@@ -13995,7 +15213,7 @@ os.replace(tmp_path, cfg_path)
 
 If the config write fails, warn the user (non-fatal) and continue.
 
-**5b - Summary report:**
+**6b - Summary report:**
 
 ```
 Done.
@@ -14005,6 +15223,7 @@ Done.
   Commits pulled: N  (or "already up to date" / "fresh install")
   Adapters installed: Claude, Codex
   Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)
+  Health: OK  (or "N issue(s) - run agentic-doctor --fix to converge")
 
 Next steps:
   - Run /agentic-status to verify the install is active in this project.
@@ -14359,6 +15578,127 @@ Pick the single best match. If multiple apply, use the first match in this list.
 
 ---
 
+### /skill-candidates
+
+# /skill-candidates
+
+Read-only view of the skill-candidate backlog. Displays open and dismissed
+candidates detected from recurring workflow friction - each with its domain,
+count, suggested artifact type, and example note. Points at the `skill-creator`
+skill for open items.
+
+No writes, no agent spawns, no network calls. Always exits 0.
+
+## Usage
+
+```
+/skill-candidates
+```
+
+No subcommands, no flags. Reads `.agentic/skill-candidates.md` from the
+current working directory. If the file is absent: "No skill candidates
+detected yet."
+
+## Entry format (canonical)
+
+Each entry in `.agentic/skill-candidates.md` has the following structure.
+The `## <domain>` heading is the unique key. `Status` is `open` (written by
+the detector on first promotion) or `dismissed` (set by a human to suppress).
+
+```markdown
+## <domain>
+**Count:** <lifetime occurrence count>
+**Suggested artifact:** command | named-agent | preset | lint-rule
+**First seen:** YYYY-MM-DD
+**Last seen:** YYYY-MM-DD
+**Status:** open
+**Example:** "<data.note from the triggering event>"
+```
+
+## What this shows
+
+The backlog is written by the Stop hook's `runSkillCandidateScan` whenever a
+domain tag accumulates >= 3 occurrences across sessions (from
+`tool_failure_workaround` events and `.agentic/learnings.md` entries). Each
+entry carries:
+
+- **Domain** - the `## <domain>` heading (unique key)
+- **Count** - lifetime occurrence count across sessions
+- **Suggested artifact** - `command`, `named-agent`, `preset`, or `lint-rule`
+  (routing taxonomy from the detection signal)
+- **Status** - `open` (not yet dismissed) or `dismissed` (operator suppressed)
+- **First seen / Last seen** - ISO date range of the friction signal
+- **Example** - the `data.note` from the triggering event (illustrative only)
+
+## Grouping by status
+
+The command groups entries by `**Status:**` value:
+
+- **OPEN** - entries with `**Status:** open` whose domain is NOT present in
+  `.agentic/.skill-candidates-surfaced`. These are the primary action items.
+- **OPEN (already surfaced)** - entries with `**Status:** open` whose domain IS
+  in `.agentic/.skill-candidates-surfaced`. Conductor has already nudged once.
+- **DISMISSED** - entries with `**Status:** dismissed`.
+
+The command reads `.agentic/.skill-candidates-surfaced` (one domain per line)
+to determine which open entries have already been surfaced at session start.
+It never writes to this file.
+
+## Output example
+
+```
+Skill candidates  (.agentic/skill-candidates.md)
+
+OPEN
+  adapter-interface   count: 5   suggested: command
+    first seen: 2026-05-01   last seen: 2026-05-12
+    example: "adapter build.sh signatures diverged; had to reconcile manually"
+
+  deploy-verification  count: 3   suggested: named-agent
+    first seen: 2026-05-10   last seen: 2026-05-12
+    example: "ran manual Vercel rollout check; no automated verify step"
+
+OPEN (already surfaced)
+  worktree-cleanup    count: 4   suggested: command
+    first seen: 2026-05-05   last seen: 2026-05-11
+    example: "forgot to remove worktree after merge"
+
+DISMISSED
+  (none)
+
+To create a skill for an open item: run /skill-creator <domain>
+To dismiss a candidate: edit .agentic/skill-candidates.md and change
+  **Status:** open  to  **Status:** dismissed
+```
+
+When `.agentic/skill-candidates.md` is absent:
+
+```
+No skill candidates detected yet.
+
+The detector runs at session end (Stop hook) and writes candidates here
+when a domain tag accumulates >= 3 occurrences. Check back after a few
+more sessions, or verify that skill_candidate_detection is true in
+.agentic/config.json.
+```
+
+## Gating
+
+This command is a no-op (displays the absent-file message) when
+`skill_candidate_detection: false` in `.agentic/config.json`. The file is
+the single source of truth; the command never calls the detector itself.
+
+## Intent layer note
+
+`.agentic/skill-candidates.md` is **committed** in consumer projects (via a
+`!.agentic/skill-candidates.md` carve-out in `project-scaffolding.yml`) so
+the backlog travels with the repo and is visible to all team members. It is
+NOT committed in the DinoStack methodology source repo itself (the blanket
+`.agentic/*` ignore governs there - intended; DinoStack is the source, not
+a consumer).
+
+---
+
 ### /test-suite-comprehension
 
 # /test-suite-comprehension
@@ -14614,6 +15954,8 @@ fi
 
 Fallback behavior: if `~/.agentic/agentic-engineering-config.json` does not exist, has no `repo_dir` key, or `repo_dir` is not a git repository, `AE_REPO_DIR` defaults to `~/DinoStack` exactly as before.
 
+**Canonical resolver:** the inline block above is the reference implementation. The same logic is extracted into `scripts/lib/repo-dir.sh` (`resolve_repo_dir` function), which is what hooks and the installer use at runtime. If you need to understand or audit the resolution behavior, `scripts/lib/repo-dir.sh` is the single source to read - the command spec above and the shell lib must stay in sync.
+
 **Compare the session repo against `AE_REPO_DIR` by canonical path:**
 
 ```bash
@@ -14760,6 +16102,81 @@ Note: This command governs edits to its own source file - the recursion is inten
 
 ---
 
+### /wrap-deferred
+
+# /wrap-deferred - Non-Interactive Single-Pass Session Enrichment
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+> Operators/maintainers: see `hooks/wrap-deferred.README.md` for enabling and configuring the daemon, the runtime state it owns, how to stop/reset it, the security model, and the rollback procedure.
+
+This command is invoked by the deferred-wrap daemon (`hooks/wrap-daemon.js`), not directly by users. The daemon resumes a cleanly-ended session headlessly (`claude --resume <id> -p "/wrap-deferred"` with `AGENTIC_WRAP_DAEMON=1`) and runs this command in the MAIN project directory. It is the non-interactive counterpart of `/wrap`: where `/wrap` is an interactive, multi-pass, Skeptic-reviewed pipeline that a human drives, `/wrap-deferred` is a single headless model pass that writes good-faith enrichment of the same three targets with NO prompts and NO subagents, then exits.
+
+**The interactive `/wrap` provably hangs headlessly** on its first human-decision point (a stale-lock prompt). `/wrap-deferred` exists so the daemon can finalize forgotten wraps unattended. Manual `/wrap --sync` remains the full-fidelity path; users never invoke `/wrap-deferred` themselves.
+
+## Non-interactive contract (binding)
+
+`/wrap-deferred` MUST satisfy all of these on every path:
+
+- **Never prompts.** No question, no confirmation, no escalation-to-user is ever emitted. There is no human at the other end of a daemon-resumed session. On ANY ambiguity, blocker, contention, or drift: write what it can safely write, exit cleanly, NEVER ask.
+- **One model pass.** A single in-session pass surveys the resumed transcript and live state, then writes. No iteration loop, no re-route, no re-draft.
+- **No subagents.** Spawns nothing. Specifically OMITTED versus `/wrap`: the draft Worker, the Skeptic (both the Steps 2-3 draft review and the Step 4 hand-authored on-disk Skeptic), Part E compression, `/cleanup-worktrees`, the `gh pr` open-PR enumeration and its Open-PR deferral passes, the scaffold-migration pre-flight, the no-active-Workers pre-flight, and the drift-requires-input prompt. The conductor of the resumed session performs the survey and the writes inline itself.
+- **Always reaches a terminal state.** Every path ends in either a write-or-clean-exit. There is no hang, no wait-loop, no blocking.
+- **Marker `done` is NOT transitioned here.** The daemon owns the per-session marker lifecycle: it claimed the marker to `in_progress` before spawning this command, and it transitions the marker to a retained `done` tombstone (stamped `wrapped_at`; reaped by the janitor after ttl) ONLY after this headless process exits 0. `/wrap-deferred` does NOT touch `.agentic/wrap/pending-<session_id>.json` at all. If `/wrap-deferred` cannot write a target, it still exits cleanly (the daemon counts the attempt); it never marks itself done or gave_up.
+
+## Inputs
+
+- **The resumed transcript** - the conversation of the ended session, reloaded by `claude --resume`. This is the primary source for Recent Focus, next steps, files touched, stable facts, AND any git-state detail (uncommitted changes, recent commits, branch, stashes) the ended session described in its conversation.
+- **Live file state in the main project dir** - read-only reads of: the existing `.agentic/context.md`, `.agentic/memory.md`, root and track `AGENTS.md` files (merge targets); and `.agentic/learnings.md` (read-only - so a proposed memory entry is not re-derived from a fact already captured as a structured learning).
+
+**No git execution under the daemon (deliberate security boundary).** `/wrap-deferred` has NO Bash/git access: the daemon spawns it with `--disallowedTools "Bash"`, which REMOVES the `Bash` tool from the headless model's context entirely. This is intentional, not an oversight. The headless child runs under `--permission-mode bypassPermissions`, and under that mode `--allowedTools` does NOT constrain the tool set - it only suppresses approval prompts for the tools it lists, while any unlisted tool (including `Bash`) stays in context and is auto-approved by the bypass. So the file-tools allowlist (`Read,Edit,Write,Glob,Grep`) is NOT the boundary; the actual boundary is `--disallowedTools "Bash"`, which deletes `Bash` from context before the bypass-mode step runs. This matters because a malicious cloned repo's own repo-local `.git/config` executes attacker code on ordinary read-only verbs (`core.fsmonitor` on `git status`, `diff.external` on `git diff`, `core.pager`/`alias.*`/`ext::`) - running git in that context is an RCE vector. With `Bash` removed from context the deferred path can NEVER shell git. (Supplementary `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`/`GIT_CONFIG_NOSYSTEM` env hardening neutralizes the global/system config tiers as defense-in-depth.) Note that the deferred Write/Edit surface (`.agentic/`, `.git/hooks/`, `core.hooksPath` under `bypassPermissions`) is broad and trusted-child-only, not reviewed for adversarial input; RCE-via-read-only-git-verb is closed by `--disallowedTools "Bash"` but not every write-path risk is addressed by that boundary alone.
+
+Consequently the context.md git-state section (uncommitted changes, recent commits, branch, stashes) is derived from the resumed **conversation transcript** when the ended session described that state, and is **OMITTED** otherwise. Do not attempt to run `git status`, `git log`, `git stash list`, `git diff`, `git rev-parse`, or `git branch` - the tool is not granted and the attempt fails. The interactive `/wrap` - run by a human under normal (non-bypassed) permissions - still reads git normally; that path is unaffected.
+
+The daemon enriches in the main project dir (no worktree, no copy-back, no merge), so the schema carries no `branch`/`head_sha`.
+
+## Procedure (single pass, in this order)
+
+**Step 1 - Survey (inline, no subagent).** From the resumed transcript and the live FILE reads above (no git - see the Inputs note), compile: the main task and its state; files touched this session (full paths); errors/gotchas/near-misses; concrete remaining next steps; tools used; stable project facts worth preserving (distinguish stable facts -> memory.md from temporary state -> context.md); the uncommitted/stashed safety-net lists ONLY when the resumed transcript described them (no `git status`/`git stash list` is run under the daemon - omit if the conversation did not surface them); the touched tracks that are candidates for AGENTS.md updates. Read `.agentic/learnings.md` so already-captured facts are not duplicated into memory.md. This is the same survey `/wrap` Step 0 performs, minus the `gh pr` open-PR enumeration (omitted - no deferral pass here) and minus all git reads (the deferred path has no Bash/git - the interactive `/wrap` keeps them).
+
+**Step 2 - Write `.agentic/context.md` (Part A; the lock-guarded write - daemon holds wrap/lock for this step).**
+
+This step runs inside a `wrap/lock` window the daemon holds (see item (4) below). Run the shared algorithm cited in `content/references/wrap-context-format.md`: (1) the 3-step rename-first spillover drain; (2) the rolling-session-label merge write (file-absent / non-/wrap / merge branches, duplicate-claim dedup, 1-to-5 label rolling window, per-section merge rules) - the merged write begins with the pinned header prefix `# Session Context\n*Written by /wrap`; (3) write `.agentic/wrap/last-wrap` = this `session_id`; (4) the lock is acquired and released by the daemon, not this child - the daemon calls `acquireWrapLock` before spawning and `releaseWrapLock` after the child exits (success or failure); the child never touches the lock. (`clearProvablyStaleWrapLock` is the daemon's crash-backstop only: it clears the lock if the daemon itself died after acquiring but before releasing; under normal operation it is not the release path.)
+
+**Step 3 - Write `.agentic/memory.md` (Part B; no lock, no Open-PR deferral).**
+
+Skip if there are no stable facts to record. Otherwise apply the shared Part B append-dedup from `/wrap`: read the existing `.agentic/memory.md`; for each proposed stable-fact entry, skip it if the same fact is already captured in `.agentic/memory.md` OR as a structured learning in `.agentic/learnings.md` (semantic dedup, not string match); supersede an existing entry in place when the new entry corrects or updates the same topic; otherwise append. Entry format `- **YYYY-MM-DD:** [what was decided and why]` using today's date. There is NO Open-PR deferral pass and NO `.agentic/memory-pending.md` routing - write directly to `.agentic/memory.md`.
+
+**Step 4 - Write AGENTS.md updates (Part C; no lock, no Open-PR deferral).**
+
+Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from `/wrap`: for each touched track's AGENTS.md, append only genuinely-new, session-derived bullets (semantic dedup against existing content); create a minimal stub for a touched directory that has no AGENTS.md and apply the additions into it; apply any `Update:` corrections in place. Root AGENTS.md focuses on `## Decisions` and `## Conventions`; subdir AGENTS.md on `## Stack` / `## Key Conventions` / track-relevant categories. There is NO Open-PR deferral pass and NO `.agentic/agents-md-pending.md` routing - write directly to the AGENTS.md files. Do NOT run the pre-AGENTS.md three-way split (that requires user confirmation `/wrap` cannot provide headlessly either) - if a pre-AGENTS.md layout is detected, record it as a context.md "Watch Out For" bullet instead.
+
+**Drift is never a prompt.** Any scaffolding drift, ambiguity, or condition that the interactive `/wrap` would surface to the user becomes a single `## Watch Out For` bullet in the `.agentic/context.md` output (e.g. "Pre-AGENTS.md layout detected; run /init-project to migrate", "Linear workspace slug not set", "both .claude/findings.md and .agentic/findings.md exist - resolve manually"). `/wrap-deferred` writes the bullet and moves on; it does not pause, migrate destructively, or ask.
+
+**Exit.** After the writes (or after a clean early exit because the lock could not be acquired, or because the survey found nothing substantive to write), exit. Exit 0 on a successful pass. Do NOT transition the marker - the daemon transitions it to `done` after observing exit 0.
+
+## Omitted versus `/wrap` (explicit)
+
+| `/wrap` step | `/wrap-deferred` |
+|---|---|
+| no-active-Workers pre-flight | omitted (daemon already serialized) |
+| scaffold-migration pre-flight (CLAUDE.md->AGENTS.md, legacy `.claude/*` moves) | omitted; detected drift -> context.md "Watch Out For" bullet |
+| lock wait-loop + stale-lock prompt | omitted; daemon owns the lock (acquires before spawn, releases after child exits); on contention the daemon skips the drain tick (idle self-exit) - the child never handles lock contention |
+| draft Worker (Step 1) | omitted; conductor surveys inline |
+| Skeptic (Steps 2-3 draft review) | omitted |
+| Step 4 hand-authored on-disk Skeptic | omitted |
+| Part A context.md merge | KEPT (cites `wrap-context-format.md`) |
+| Part B Open-PR deferral / memory-pending.md | omitted; direct append-dedup to memory.md |
+| Part C Open-PR deferral / agents-md-pending.md | omitted; direct write to AGENTS.md |
+| Part D skill-candidate wrap-time signal | omitted; `--disallowedTools "Bash"` removes the Bash tool from the daemon child's context, so no `node` shell-out is possible. Daemon-completed sessions do not contribute the wrap-time skill-candidate signal. |
+| Part E compression | omitted |
+| `gh pr` open-PR enumeration | omitted |
+| Step 5 `/cleanup-worktrees` | omitted |
+| Step 6 terminal marker transition | omitted; daemon owns `done` |
+| drift-requires-input prompt | omitted; drift -> context.md "Watch Out For" bullet |
+
+---
+
 ### /wrap
 
 # /wrap — On-Demand Session Context Enrichment
@@ -14770,7 +16187,11 @@ Use when you want a richer context file than the auto-hook provides — e.g. bef
 
 The Stop hook auto-writes `<cwd>/.agentic/context.md` after every turn with raw session data. `/wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/init-project`: where `/init-project` scaffolds the AGENTS.md hierarchy, `/wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
 
-**Relationship to `wrap-ticket`.** `/wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/context.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `/implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/context.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, context.md) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `/wrap` MUST NOT run concurrently — both acquire `.agentic/wrap.lock`. If `/wrap` is invoked while `wrap-ticket` holds the lock, `/wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `/wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
+**Relationship to `wrap-ticket`.** `/wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/context.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `/implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/context.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, context.md) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `/wrap` MUST NOT run concurrently — both acquire `.agentic/wrap/lock`. If `/wrap` is invoked while `wrap-ticket` holds the lock, `/wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `/wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
+
+## Deferred background enrichment (daemon)
+
+Manual `/wrap` is synchronous: there is no in-session auto-enrichment protocol. Background completion of forgotten wraps is performed by the deferred-wrap daemon (Claude-only, opt-in via the `deferred_wrap_daemon` toggle in `.agentic/config.json`), which headlessly resumes each cleanly-ended session and runs the non-interactive `/wrap-deferred` command. The daemon is the sole consumer of the per-session marker staged in Step 0a; see `content/references/conductor-operating-rules.md` for the daemon drain protocol.
 
 ## Your job (main agent)
 
@@ -14815,18 +16236,18 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 
 **Pre-flight lock acquisition.** /wrap writes to several shared project-local files (context.md, memory.md, AGENTS.md, compression-state.json, rolling snapshots). Concurrent /wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:
 
-1. Ensure `<cwd>/.agentic/` exists (`mkdir -p <cwd>/.agentic`).
-2. Attempt atomic acquisition: `mkdir <cwd>/.agentic/wrap.lock` (atomic on POSIX - succeeds only if the directory did not exist).
-3. **If `mkdir` succeeds**, immediately write owner metadata: `<cwd>/.agentic/wrap.lock/owner` containing two lines - the current process PID and an ISO8601 UTC timestamp (e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`). Proceed.
-4. **If `mkdir` fails** (lock already held), attempt to read `<cwd>/.agentic/wrap.lock/owner` to get the owner PID and timestamp.
-   - **If the owner file cannot be read or parsed** (file missing, unreadable, or contains no valid ISO8601 timestamp): treat as stale. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap.lock` but its owner file could not be read or parsed. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap.lock`." Then abort. Do not proceed to any subsequent step.
-   - **If the timestamp is older than 30 minutes**: treat as potentially stale, but do NOT remove the lock automatically. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap.lock` (pid N, started at TIME) and is older than 30 minutes. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap.lock`." Then abort. Do not proceed to any subsequent step. Rationale: only the process that wrote the lock should remove it - auto-removal risks clobbering a live run if the 30-minute heuristic is wrong.
-   - **If the timestamp is less than 30 minutes old** (live lock): wait for the lock to be released. Tell the user once: "Another /wrap run is in progress in this project (pid N, started at TIME). Waiting for it to finish..." Then enter a wait loop: every 5 seconds check whether `<cwd>/.agentic/wrap.lock` still exists (e.g. `ls <cwd>/.agentic/wrap.lock`). When the directory disappears, retry `mkdir` acquisition (step 2). If that `mkdir` succeeds, proceed normally. If it fails (another session won the race), do NOT abort - resume polling and retry on the next disappearance. Continue the loop until either (a) `mkdir` succeeds, or (b) total elapsed wait time since entering the loop exceeds **20 minutes**. On the 20-minute cap, report: "Waited 20 minutes for /wrap lock at `<cwd>/.agentic/wrap.lock` (pid N, started at TIME) without acquiring it. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap.lock`." Then abort.
+1. Ensure `<cwd>/.agentic/wrap/` exists (`mkdir -p <cwd>/.agentic/wrap`).
+2. Attempt atomic acquisition: `mkdir <cwd>/.agentic/wrap/lock` (atomic on POSIX - succeeds only if the directory did not exist).
+3. **If `mkdir` succeeds**, immediately write owner metadata: `<cwd>/.agentic/wrap/lock/owner` containing two lines - the current process PID and an ISO8601 UTC timestamp (e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`). Proceed.
+4. **If `mkdir` fails** (lock already held), attempt to read `<cwd>/.agentic/wrap/lock/owner` to get the owner PID and timestamp.
+   - **If the owner file cannot be read or parsed** (file missing, unreadable, or contains no valid ISO8601 timestamp): treat as stale. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap/lock` but its owner file could not be read or parsed. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step.
+   - **If the timestamp is older than 30 minutes**: treat as potentially stale, but do NOT remove the lock automatically. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap/lock` (pid N, started at TIME) and is older than 30 minutes. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step. Rationale: only the process that wrote the lock should remove it - auto-removal risks clobbering a live run if the 30-minute heuristic is wrong.
+   - **If the timestamp is less than 30 minutes old** (live lock): wait for the lock to be released. Tell the user once: "Another /wrap run is in progress in this project (pid N, started at TIME). Waiting for it to finish..." Then enter a wait loop: every 5 seconds check whether `<cwd>/.agentic/wrap/lock` still exists (e.g. `ls <cwd>/.agentic/wrap/lock`). When the directory disappears, retry `mkdir` acquisition (step 2). If that `mkdir` succeeds, proceed normally. If it fails (another session won the race), do NOT abort - resume polling and retry on the next disappearance. Continue the loop until either (a) `mkdir` succeeds, or (b) total elapsed wait time since entering the loop exceeds **20 minutes**. On the 20-minute cap, report: "Waited 20 minutes for /wrap lock at `<cwd>/.agentic/wrap/lock` (pid N, started at TIME) without acquiring it. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort.
 5. Do not perform a PID liveness check (`ps -p`). PID reuse makes the check unreliable for Claude Code processes - the timestamp is the authoritative signal.
 
 The 30-minute staleness heuristic exists because a crashed or force-killed /wrap may leave the lock dir behind. The timestamp backstop is the reliable signal; PID checks are omitted because Claude Code process hierarchies make `ps -p` results unreliable.
 
-**Lock release is mandatory on every exit path.** The lock dir MUST be removed (`rm -rf <cwd>/.agentic/wrap.lock`) before /wrap returns control to the user, on ALL of:
+**Lock release is mandatory on every exit path.** The lock dir MUST be removed (run `agentic-wrap-release-lock` — the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`) before /wrap returns control to the user, on ALL of:
 - successful completion at Step 6;
 - escalation to the user at Step 3 (format re-invocation limit or contested finding);
 - compression failure or escalation at Part E;
@@ -14835,6 +16256,63 @@ The 30-minute staleness heuristic exists because a crashed or force-killed /wrap
 If /wrap aborts before the lock is acquired (e.g. at the active-Workers check above, or because a live or stale lock was detected and the command aborted without acquiring), no lock was acquired and no release is needed.
 
 **Pre-flight path check:** Confirm `<cwd>/.agentic/` exists or can be created. The /wrap skill now writes project-local under `<cwd>/.agentic/` instead of the legacy `~/.claude/projects/[hash]/` hashed directories. No disambiguation needed - one canonical location per project.
+
+## Deferred-enrichment data model
+
+This section is the single source of truth for the on-disk artifacts that drive the synchronous `/wrap` Step 0a staging and the deferred-wrap daemon. Every other unit (the Stop hook `hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the deferred-wrap daemon) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename) and umbrella-ignored by `.agentic/*`.
+
+**1. `.agentic/wrap/pending-<session_id>.json` (the per-session enrichment marker).** One marker per session, keyed by `session_id` in the filename so concurrent sessions never collide. Staged when a session has substantive un-wrapped work, so the daemon (or the next session in that project) completes enrichment idempotently. Schema:
+
+    {
+      "schema_version": 3,
+      "session_id": "<uuid of the session that staged the marker>",
+      "staged_at": "<ISO8601 UTC, immutable, FIFO key>",
+      "status": "pending | ready | in_progress | done | gave_up",
+      "claimed_by": "<pid/uuid of the claimant currently running enrichment, or null>",
+      "claimed_kind": "session | daemon | null",
+      "claimed_at": "<ISO8601 UTC of last claim, or null>",
+      "attempts": "<int, 0..3>",
+      "project_root": "<absolute cwd>",
+      "last_error": "<short string or null>"
+    }
+
+- `status` lifecycle: `pending` (staged on a Stop turn, not yet finalized) -> `ready` (finalized by a genuine terminal SessionEnd; the SOLE `pending -> ready` transition - there is NO stale-sweep) -> `in_progress` (claimed, enrichment running) -> `done` (completed; marker RETAINED as a `wrapped_at`-stamped tombstone that suppresses same-session re-staging and is reaped by the janitor after ttl) | `gave_up` (`attempts >= 3`; marker retained with a manual-`/wrap` notice). Only a `ready` marker is daemon-claimable; an open/idle session leaves its marker `pending` and is never auto-resumed.
+- Dropped vs schema_version 1/2: `branch` and `head_sha` (the daemon enriches in the main project dir, so git-state reflects the live tree; enrichment is conversation-driven, not snapshot-driven).
+- `claimed_kind` records who holds the claim: `session` (a manual `/wrap` Step 0a) or `daemon` (the background wrap daemon). Daemon-startup reclaim acts ONLY on `claimed_kind: "daemon"` markers (MAJOR-C).
+- `staged_at` is immutable and is the FIFO ordering key the daemon uses to drain `ready` markers oldest-first. `claimed_at` plus a staleness window are a wastefulness reducer, not a correctness invariant - they make a double-claim rare, never impossible; idempotency is what makes a double-run safe.
+- `attempts` increments at claim time, before enrichment begins, so a crash mid-enrichment still counts toward the give-up budget.
+
+**2. `.agentic/wrap/last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `/wrap` (sync or background enrichment) last successfully wrote `context.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).
+
+**3. `.agentic/wrap/deferred-activity.jsonl` (the spillover log).** Append-only JSONL, one record per Stop-hook (or OpenCode-idle) invocation that found `wrap/lock` held and therefore skipped its `context.md` write. Drained into the `context.md` activity block by the enrichment flow during its Part A write (atomic three-step drain, see Part A below). Record schema:
+
+    {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
+
+**Pinned header prefix (NORMATIVE).** Exactly one byte-exact prefix is the contract between writer and matcher:
+
+    # Session Context\n*Written by /wrap
+
+This is what `hooks/stop-context.js` and `.opencode/plugins/session-context.ts` test via `startsWith`, and what every `/wrap` Output-1 / merge write must emit as its first two lines. The on-disk header date is a UTC calendar date (`date -u +%Y-%m-%d`); the header STRING does NOT contain the "UTC" literal - it stays `*Written by /wrap on YYYY-MM-DD. ...` exactly as the Output-1 template (Step 1) reads. The matcher only tests the pinned prefix (which stops before the date), so the date format and the absence of the "UTC" literal are both compatible. The Part A merge rule (the "(merged context)" header rewrite) appends after the date and is outside the pinned prefix - it stays. The rolling-session-label merge (Part A) is preserved unchanged.
+
+**Step 0a - Stage the deferred-wrap safety-net** (runs BEFORE Step 0).
+
+`/wrap` is synchronous: it runs the body inline and returns control only after Step 6 completes. Step 0a stages a per-session marker that is consumed by the deferred-wrap DAEMON, not by any in-session pipeline - so that if THIS session is later force-killed or ends without finishing a manual `/wrap`, the daemon can complete enrichment headlessly. Staging is GATED: it runs ONLY on the Claude host with the daemon enabled and not inside a daemon run.
+
+**Claude-host + opt-in + non-daemon guard (MAJOR-1).** Wrap both the toggle read and the marker staging in this guard. Off-Claude (no `.agentic/wrap/claude-host` sentinel - the sentinel is written only by the Claude SessionStart hook and `.claude/install.sh`), toggle off, or inside a daemon run (`AGENTIC_WRAP_DAEMON=1`) -> stage NOTHING, and `/wrap` runs byte-identical to the classic synchronous wrap (no marker, no daemon involvement, exactly today's pre-feature behavior):
+
+    # Claude-host + opt-in + non-daemon guard. Off-Claude (no .agentic/wrap/claude-host sentinel),
+    # toggle off, or inside a daemon run -> stage nothing, /wrap runs byte-identical to today.
+    if [ -f "$cwd/.agentic/wrap/claude-host" ] && [ "$AGENTIC_WRAP_DAEMON" != "1" ] && <deferred_wrap_daemon toggle is true in .agentic/config.json>; then
+        <stage the per-session pending-<session_id>.json marker (per the schema below)>
+    fi
+
+When the guard passes, stage `<cwd>/.agentic/wrap/pending-<session_id>.json` (atomic tmp + rename) per the per-session schema_version 3 marker in the Deferred-enrichment data model section above, with:
+
+- `schema_version: 3`, `session_id: <this session_id>`, `staged_at: <now, ISO8601 UTC>`, `status: "pending"`, `claimed_by: null`, `claimed_kind: null`, `claimed_at: null`, `attempts: 0`, `project_root: <absolute cwd>`, `last_error: null`.
+
+The marker is keyed by `session_id` in its filename, so per-session markers never collide. If this session's own marker already exists with status `pending`, `ready`, or `in_progress`, do NOT overwrite it (MAJOR-3 `ready`-non-stageable). A marker with `status: gave_up`, or `done` WITHOUT a `wrapped_at` stamp, is not a completion tombstone; staging may proceed. A `done` marker WITH `wrapped_at` is a completion tombstone for THIS session and suppresses re-staging (the `last-wrap`-rollover guard). With the guard false (off-Claude, toggle-off, or under the daemon guard), `/wrap` stages no marker at all and behaves exactly as the classic synchronous wrap.
+
+**Step 0a does NOT write `.agentic/wrap/last-wrap`.** `last-wrap` is written only after a successful Part A `context.md` write (see Part A). Writing it here would suppress this very session's own recovery marker on the next Stop-hook fire.
 
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
 
@@ -14885,6 +16363,7 @@ Zero-substance procedure:
 - Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
 - Skip Steps 1-3 entirely (no Worker, no Skeptic)
 - Skip Step 4 Parts A, B, C entirely
+- Skip Part D (no session activity to extract skill-candidate signals from)
 - Skip Part E (nothing changed, nothing to compress)
 - Still run Step 5 (worktree cleanup) - that is always useful
 - Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
@@ -14899,9 +16378,10 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
 3. Proceed to Step 4 Part A with the inline draft.
 4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None).
-5. Skip Part E entirely (nothing changed, nothing to compress).
-6. Run Step 5 (worktree cleanup) as normal.
-7. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
+5. Run Part D (skill-candidate wrap-time signal) - the light path still ran a session worth extracting from.
+6. Skip Part E entirely (nothing changed, nothing to compress).
+7. Run Step 5 (worktree cleanup) as normal.
+8. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
 
 **Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
 
@@ -15075,40 +16555,17 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 **Part A — Write context.md**
 
-1. Use the Read tool to attempt to read the file at the output path computed above.
+The pinned header prefix, the spillover-drain procedure, the `.agentic/wrap/last-wrap` write contract, and the `context.md` rolling-session-label merge algorithm are defined in `content/references/wrap-context-format.md` (the shared normative home cited by both `/wrap` and `/wrap-deferred`). This Part A is the `/wrap`-specific wrapper around that shared algorithm; the algorithm itself is NOT restated here.
 
-2. **If the file does not exist** (Read returns a file-not-found error): write the new draft content directly to the output path. Return: "Wrote fresh context to [path] (no existing file)."
+Inside the Part A `context.md` write window (the whole-flow `wrap/lock` acquired at pre-flight is held throughout - see "Pre-flight lock acquisition" and the Step 6 release; Part A introduces no new lock window), run, in this exact order:
 
-3. **If the file exists but is empty, or its second line does not begin with `*Written by /wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file. Return: "Wrote fresh context to [path] (replaced non-/wrap file)."
+1. **Atomic spillover drain** - the 3-step rename-first procedure in `content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `.agentic/wrap/deferred-activity.jsonl` -> `.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
 
-4. **If the file exists and its second line begins with `*Written by /wrap`** (i.e. it was produced by a previous `/wrap` run): proceed to the merge step below.
+2. **Rolling-session-label merge write** of `.agentic/context.md` - the algorithm in `content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/wrap / merge branches, the duplicate-claim dedup, the 1-to-5 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by /wrap` (the matcher contract); no site parses the header date.
 
-Note: "second line" means the literal second line of the file. A `/wrap`-produced file always starts with `# Session Context` on line 1 and `*Written by /wrap on ...` on line 2.
+3. **Write `.agentic/wrap/last-wrap`** = this session's `session_id` (atomic) - per `content/references/wrap-context-format.md` §"`.agentic/wrap/last-wrap` write contract".
 
-**Merge step:**
-
-First, check how many session labels are already present in the existing file's Recent Focus section.
-
-- **Five labels present (`[Session A]` through `[Session E]`)**: apply a rolling-window merge. Discard the `[Session A]` content from Recent Focus, relabel `[Session B]` as `[Session A]`, `[Session C]` as `[Session B]`, `[Session D]` as `[Session C]`, `[Session E]` as `[Session D]`, and use the new draft as `[Session E]`. For all other sections (Current Task / Next Steps, Key File Paths, Watch Out For, Tools Used), treat the full existing content as the prior session and apply the standard merge rules below.
-
-- **Four labels present (`[Session A]` through `[Session D]`)**: label the new draft entry `[Session E]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
-
-- **Three labels present (`[Session A]`, `[Session B]`, `[Session C]`)**: label the new draft entry `[Session D]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
-
-- **Two labels present (`[Session A]` and `[Session B]`)**: label the new draft entry `[Session C]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
-
-- **Single unlabeled Recent Focus** (standard case - first merge): label the existing entry `[Session A]` and the new draft entry `[Session B]`, each on its own paragraph.
-
-**Merge rules (existing file = prior session(s), new draft = newest session):**
-
-- **Header line** (`*Written by /wrap...`): replace with a new line using today's date and the note "(merged context)". Keep the `*Project:` line from the new draft.
-- **Recent Focus**: apply the labeling logic above.
-- **Current Task / Next Steps**: combine all items from both. Remove exact duplicate lines. Keep all non-duplicate items.
-- **Key File Paths**: union both lists. Remove exact duplicate lines.
-- **Watch Out For**: union both lists. Remove exact duplicate lines. If one had "None" and the other has real entries, use only the real entries.
-- **Tools Used**: combine both comma-separated lists, split by comma, trim whitespace, deduplicate, re-join as a single comma-separated list.
-
-Write the merged result to disk. Return: "Merged context written to [path] (combined sessions)."
+The net behavior of Part A is unchanged by this extraction: the cited reference is semantically identical to the algorithm `/wrap` formerly inlined here (identical aside from the Result/Return label), pinned by the golden-file parity test (`hooks/tests/test-wrap-context-format-golden.js`).
 
 **Part B — Write memory.md**
 
@@ -15147,6 +16604,42 @@ For each file with non-deferred updates:
 6. Write the updated file to disk.
 
 Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
+
+**Part D — Skill-candidate wrap-time signal**
+
+Skip Part D on the **zero-substance path** (already skipped Steps 1-3; no session activity to extract from). Run Part D on the **light path** and the **standard path**. This step runs INSIDE the `wrap/lock` window already held from pre-flight. Soft-fail: any error in this step is silently swallowed; Part D failure NEVER breaks or delays the wrap.
+
+**Gate:** Read `.agentic/config.json`. If `skill_candidate_detection` is explicitly `false`, skip Part D entirely. Default (key absent or config missing) is `true` - proceed.
+
+**Extraction (inline LLM reasoning over the session already reflected on in Step 0):**
+
+Emit a JSON array of 0-5 entries identifying DISTINCT domains where you or the user repeatedly did manual work, or worked around the same friction, this session - the kind of recurring manual workflow that might warrant a reusable skill/command/preset/lint-rule. Exclude one-off actions. Output `[]` if nothing qualifies.
+
+Each entry shape:
+- `domain` (required): short lowercase-hyphenated slug naming the recurring workflow (e.g. `adapter-rebuild`, `skeptic-context-block`). Reuse an obvious existing slug if the same workflow has appeared before; exact-match merging is the helper's job, not yours.
+- `exampleNote` (required): one sentence describing the concrete instance observed this session.
+- `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
+
+Do NOT include `count`, `firstSeen`, `lastSeen`, or any tally fields - those are helper-assigned.
+
+**Write and invoke (Bash):**
+
+Write the extracted array to a temp file and call the deep-cluster helper. Use `$CLAUDE_CODE_SESSION_ID` as the session id; if it is unset or empty, skip the invocation entirely (soft no-op).
+
+```bash
+CLUSTER_TMP=$(mktemp /tmp/wrap-clusters-XXXXXX.json)
+cat > "$CLUSTER_TMP" << 'EOF'
+[...the extracted array...]
+EOF
+
+# Skip if no session id
+if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
+  node hooks/lib/skill-candidate-deep-cluster.js "$REPO_CWD" "$CLAUDE_CODE_SESSION_ID" "$CLUSTER_TMP" 2>/dev/null || true
+fi
+rm -f "$CLUSTER_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the absolute cwd of the project (the same value identified in Step 0). Any failure (non-zero exit, missing node, missing helper) is silently swallowed via `|| true`; the wrap continues normally.
 
 **Part E — Compress always-loaded memory files**
 
@@ -15223,11 +16716,15 @@ Otherwise skip that target silently.
 
 If the project is a git repository with a `/cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
 
-**Step 6 — Confirm completion.**
+**Step 6 — Terminal marker transition + confirm completion.**
 
-Release the pre-flight lock: `rm -rf <cwd>/.agentic/wrap.lock`. This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
+Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`). Also include the cleanup summary if Step 5 ran.
+**Terminal marker transition (transitions its OWN marker to a retained `done` tombstone on completion).** When Step 0a staged a per-session `.agentic/wrap/pending-<session_id>.json` marker (the daemon guard passed), this synchronous `/wrap` transitions its OWN marker to a retained `done` tombstone on completion so the daemon does not later re-wrap a session the user already wrapped manually. When the Step 0a guard was false (off-Claude, toggle-off, or under the daemon guard), no marker was staged and there is nothing to transition - skip this block entirely. Transition the marker ONLY at true completion:
+
+- **Full success** (context.md written + Part B/C applied + Part E settled, no escalation outstanding): set this session's marker `status: done` AND stamp `wrapped_at: <now ISO8601 UTC>` and RETAIN the marker (do NOT unlink it). The retained `done` tombstone prevents this same session being re-staged after `.agentic/wrap/last-wrap` rolls to a different session; the daemon janitor reaps it after `deferred_wrap_pending_ttl_days`. A partial or escalated run leaves the marker in its pre-Step-6 state so the daemon can complete it later.
+
+Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false). Also include the cleanup summary if Step 5 ran.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 

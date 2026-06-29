@@ -85,12 +85,7 @@ The Skeptic review layer enforces this: duplication and missed abstractions are 
 - **New projects (via `/init-project`):** set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit framework for Python)
 - **Existing projects without tooling:** run whatever checks are available and recommend setup to the user
 
-**Per-language strict defaults:**
-- **TypeScript/JS:** `strict: true` in tsconfig, ESLint `--max-warnings 0`, Vitest/Jest with 80% line coverage
-- **Python:** `mypy --strict` or pyright strict mode, `ruff` with recommended + strict rule selection, `pytest --strict-markers -x`
-- **Go:** `golangci-lint run --enable-all`
-- **Rust:** `deny(warnings, clippy::all, clippy::pedantic)` for applications; libraries use `warn(...)` in source and `-D warnings` in CI
-- **Next.js:** disable `devIndicators` in `next.config.ts`; restore `cursor: pointer` on buttons in `globals.css` (`@layer base { button, [role="button"] { cursor: pointer; } }`) - Tailwind preflight removes it
+Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults and §Browser Verification when implementing or modifying code.
 
 ## Package Management
 
@@ -99,16 +94,3 @@ The Skeptic review layer enforces this: duplication and missed abstractions are 
 - Never monkey-patch or work around bugs in an outdated package version; upgrade the package instead
 - When adding a new dependency, do not hardcode a version number - use the package manager's default latest resolution (e.g., `npm install pkg`, `pip install pkg`, `go get pkg@latest`)
 - If a version constraint already exists in the project, respect it - do not silently downgrade, but flag it to the user if it's causing a problem
-
-## Browser Verification
-
-`agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
-
-```bash
-agent-browser open <url>      # navigate
-agent-browser snapshot        # get page structure with element refs
-agent-browser click @e1       # click by ref
-agent-browser fill @e2 "text" # fill input by ref
-```
-
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior.

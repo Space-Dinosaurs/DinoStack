@@ -778,7 +778,7 @@ Also add `.agentic/` to the project's `.gitignore` if not already present.
 - `session_id`: `<ISO-date>-<4hex>`, e.g. `20260415-a3f2`
 - `task_id` per task: `<ticket_id>-<unit_slug>` (e.g. `ENG-42-auth-middleware`), or `<session_id>-<unit_slug>` for null-ticket projects
 
-**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
+**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
 
@@ -915,7 +915,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
-Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), and `branch_name` (the branch the worker will operate on).
+Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
 
 After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Write an update entry to `.agentic/tasks.jsonl` with these output fields. Status remains `in_progress` until Skeptic sign-off or final determination.
 
@@ -1106,7 +1106,7 @@ agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_k
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
 ```
-See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time.
+See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
 
 ```
 ## Prior iteration findings
@@ -2071,7 +2071,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
-**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap.lock` (atomic `mkdir`). The lock is shared with `/wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
+**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap/lock` (atomic `mkdir`). The lock is shared with `/wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
 
 - **If the lock is held by another session** (e.g., `/wrap` is running concurrently in another session): skip Phase 11b with the operator note: `"Phase 11b skipped: /wrap is running in another session."` Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
 - **If the lock is acquired:** spawn `wrap-ticket` with the inputs below. The conductor releases the lock on every exit path (success, timeout, soft-fail) before proceeding to Phase 12.
@@ -2098,7 +2098,27 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock is released before timeout.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Lock release: `rm -rf .agentic/wrap.lock` runs unconditionally on every Phase 11b exit path before advancing to Phase 12.
+Lock release: the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every Phase 11b exit path before advancing to Phase 12.
+
+**Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
+
+After releasing the lock and after wrap-ticket has returned (or been skipped), the conductor performs this step if ALL of the following hold:
+- wrap-ticket returned a valid JSON shape (not a timeout, not a non-JSON return).
+- `cluster_results` in the return is a non-empty array.
+- `skill_candidate_detection` is not `false` in `.agentic/config.json` (default true when absent or config missing).
+- `$CLAUDE_CODE_SESSION_ID` is set and non-empty.
+
+If any condition is not met, skip silently. This step is soft-fail and MUST NOT block or delay Phase 12 in any way.
+
+```bash
+# Conductor-side skill-candidate deep-cluster merge (post-return, soft-fail)
+CLUSTER_TMP=$(mktemp /tmp/wrap-ticket-clusters-XXXXXX.json 2>/dev/null) && \
+printf '%s' '<cluster_results JSON from wrap-ticket return>' > "$CLUSTER_TMP" && \
+node hooks/lib/skill-candidate-deep-cluster.js "$REPO_CWD" "$CLAUDE_CODE_SESSION_ID" "$CLUSTER_TMP" 2>/dev/null || true
+rm -f "$CLUSTER_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 

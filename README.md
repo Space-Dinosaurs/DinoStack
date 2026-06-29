@@ -10,6 +10,22 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 **Live docs:** https://docs.dinostack.ai/
 
+## Updating
+
+Run `agentic-update` from anywhere, no arguments.
+
+| Path | Command | When |
+|---|---|---|
+| Shell (recommended) | `agentic-update` | Default; from any directory, no TTY |
+| In-session | `/pull-and-install` | Inside Claude Code, any project |
+| TUI | `./update.sh` | Interactive adapter selection |
+| CI / scripts | `git pull && ./install-all.sh` | Non-interactive |
+| Repair drift | `agentic-doctor --fix` | Fix broken symlinks/hooks (e.g. after moving the repo) |
+
+Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
+
+Full details: [docs/updating.md](docs/updating.md).
+
 ## Getting started
 
 ### One-liner install (quickest)
@@ -105,6 +121,7 @@ The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gem
 ```
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
 bash .claude/install.sh --no-identity          # skip the developer-identity prompt
+bash .claude/install.sh --dry-run             # preview symlink + repo_dir changes; hook, build, and permission phases still execute
 ```
 
 **Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.
@@ -138,13 +155,30 @@ agentic-engineering: opt-out
 
 Matching is case-insensitive. A leading `- ` (markdown list) is allowed. If both markers appear, the one appearing first wins and a warning is printed.
 
-With the global mode set to `opt-out` (the default), a project without any marker still runs the methodology. With `opt-in` mode, a project must have the `opt-in` marker or the methodology stays dormant.
+The per-project marker only has effect in combination with the global activation mode set at install (the `--mode` flag). See [Installation modes](#installation-modes).
 
-## Updating
+- **Global `opt-out` (default):** every project is active unless it contains `agentic-engineering: opt-out`. Adding `opt-in` to a project has no effect - the project is already active.
+- **Global `opt-in`:** every project is dormant unless it contains `agentic-engineering: opt-in`. Adding `opt-out` to a project has no effect - the project is already dormant.
 
-Run `./update.sh` for an interactive TUI updater (arrow keys, space to toggle adapters). For non-interactive or CI use, run `git pull` first then `./install-all.sh`.
+## Project config
 
-Full details - manual update steps, clean-refresh procedure, and agent-driven update prompts: see [docs/updating.md](docs/updating.md).
+`.agentic/config.json` is seeded by `/init-project` and holds thirteen operator-tunable methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+
+- `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
+- `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
+- `model_profile` - enum (`default` | `budget`). `budget` routes eligible spawns to Tier 1 to reduce cost; never applies to security-auditor or mandated-Tier-3 Skeptics.
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes.
+- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls whether a missing required agent dependency warns-and-proceeds or halts the spawn.
+- `perceptual_diff_enabled` - boolean, default `false`. Opt-in Playwright screenshot diff against committed baselines; raises auto-Major on drift.
+- `theme_aware` - boolean, default `false`. Opt-in per-theme QA tuples; qa-engineer runs scenarios in both light and dark themes.
+- `storybook_enabled` - boolean, default `false`. Opt-in targeting of the Storybook iframe for `visual_conformance` and `accessibility` scenarios.
+- `motion_aware` - boolean, default `false`. Opt-in CDP reduced-motion checks per scenario; absent motion scenarios on UI-visible Elevated units become a Major finding.
+- `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/init-project`.
+- `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
+- `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/wrap` jobs; tuned by the `deferred_wrap_*` related keys.
+- `abdication_guard_enabled` - boolean, default `false`. Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
+
+Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see `content/rules/conventions.md` §Project Config.
 
 ## Adapters
 
@@ -165,6 +199,107 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
+## What's included
+
+**Rules** (3 files) - the core methodology:
+- Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
+- Code standards - tool discipline, quality gates, package management, browser verification
+- Conventions - writing style, project structure, session context, git workflow
+
+**Reference docs** (20 files) - detailed protocol specs loaded on trigger:
+- Skeptic protocol - adversarial review loop, findings classification, sign-off format
+- Subagent protocol - parallel spawning, worktree isolation, task decomposition
+- Agent team - roles, composed flows, decision rules, spawn requirements
+- Design goals - system design principles and intent
+- Role-model routing - Pi/oh-my-pi per-role model selection and antagonist reviewer diversity
+- Model discovery - Pi/oh-my-pi harness probe and per-role ranking heuristics
+- Multi-developer coordination - parallel sessions, branch and worktree hygiene
+- Regression test obligation - when a fix requires a regression test and what counts
+- Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
+- Cross-harness agent teams - `agentic-team` CLI, team.yml schema, cross-harness dispatch and collection
+
+**Agents** (17) - named specialist roles:
+adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
+
+**Commands** (19) - workflow shortcuts:
+agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
+
+**Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
+
+**Project config / overview layer** - the committed `.agentic/config.json` holds thirteen operator-tunable methodology toggles (full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
+
+## Identity and Telemetry
+
+`agentic-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
+
+### Registering a handle (global)
+
+The quickest path derives your handle from your GitHub login:
+
+```bash
+agentic-identity auto      # derives handle from `gh api user`, writes it provisional
+agentic-identity confirm   # strips the provisional flag and flushes buffered sessions
+```
+
+Or set a handle manually:
+
+```bash
+agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
+```
+
+Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes the buffer and starts writing attributed logs.
+
+Run `agentic-identity show` at any time to see your current identity.
+
+### Per-project override
+
+If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
+
+```bash
+agentic-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
+agentic-identity confirm --scope project          # confirm a provisional project identity
+```
+
+The project file is covered by the existing `.agentic/*` gitignore umbrella - it is per-developer and never committed. The global identity is unchanged.
+
+### Precedence
+
+When both files exist, the most-confirmed identity wins:
+
+**project-confirmed > global-confirmed > project-provisional > global-provisional > none**
+
+A provisional project file never suppresses a working confirmed-global handle. To see which handle is active in the current repo:
+
+```bash
+agentic-identity show --scope effective
+```
+
+### agentic-cost attribution
+
+`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
+
+## Repo structure
+
+```
+DinoStack/
+  .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
+  .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
+  .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
+  .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
+  .kimi/                Kimi Code CLI adapter (AGENTS.md, skill, commands, install/uninstall)
+  .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
+  .pi/                  Pi coding agent adapter (skill, prompts, install/uninstall)
+  .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
+  .hermes/               Hermes Agent adapter (skill, METHODOLOGY.md, install/uninstall)
+  .openclaw/            OpenClaw adapter (skill tree, METHODOLOGY.md, install/uninstall)
+  hooks/                Shared hook scripts
+  docs/                 Documentation and reference HTML
+  ADAPTERS.md           Guide for creating new tool adapters
+  CONTRIBUTING.md       How to contribute via pull requests
+  README.md             This file
+```
+
+
 ## Documentation
 
 - `~/DinoStack/docs/index.html` - visual reference document describing the full system architecture
@@ -174,7 +309,6 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - `~/DinoStack/docs/slides/agent-team-slides.html` - the agent team and how they compose
 - `~/DinoStack/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.agentic/qa.md` (legacy `.claude/qa.md` fallback) as project QA memory
 - `~/DinoStack/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / `.agentic/loop-state.json`
-- `~/DinoStack/docs/slides/skill-creator-slides.html` - how agents and skills are built and evaluated with the skill creator
 - `~/DinoStack/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/DinoStack/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/DinoStack/docs/slides/contributing-slides.html` - how to contribute to the repo

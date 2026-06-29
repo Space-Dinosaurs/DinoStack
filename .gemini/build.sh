@@ -306,6 +306,54 @@ for src in "$CONTENT/agents/"*.md; do
       if [[ "$line" == model:* ]] || [[ "$line" == "model: "* ]]; then
         continue
       fi
+      # Skip disallowedTools: lines (redundant in gemini-cli 0.47+; tools is an allowlist)
+      if [[ "$line" == disallowedTools:* ]] || [[ "$line" == "disallowedTools: "* ]]; then
+        continue
+      fi
+      # Transform tools: comma-string -> YAML flow array with gemini tool names
+      # gemini-cli 0.47 requires an array and only accepts its own tool name identifiers.
+      # Map Claude Code tool names to gemini equivalents:
+      #   Read  -> read_file        Glob -> glob        Grep -> grep_search
+      #   Bash  -> run_shell_command  Write -> write_file  Edit -> replace
+      #   Task  -> invoke_agent
+      if [[ "$line" == tools:* ]]; then
+        val="${line#tools:}"
+        val="${val# }"  # strip leading space
+        if [[ "$val" != "["* ]]; then
+          # Split on commas, trim whitespace, map names, build [item1, item2, ...] flow array
+          IFS=',' read -ra items <<< "$val"
+          arr="["
+          for item in "${items[@]}"; do
+            trimmed="${item#"${item%%[![:space:]]*}"}"  # ltrim
+            trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"  # rtrim
+            # Map Claude Code tool names -> gemini tool names
+            case "$trimmed" in
+              Read)  trimmed="read_file" ;;
+              Glob)  trimmed="glob" ;;
+              Grep)  trimmed="grep_search" ;;
+              Bash)  trimmed="run_shell_command" ;;
+              Write) trimmed="write_file" ;;
+              Edit)  trimmed="replace" ;;
+              Task)  trimmed="invoke_agent" ;;
+            esac
+            arr+="$trimmed, "
+          done
+          arr="${arr%, }]"  # remove trailing ", " and close
+          line="tools: $arr"
+        fi
+      fi
+      # Quote description: values to prevent YAML misparse of colon-space sequences
+      if [[ "$line" == description:* ]]; then
+        val="${line#description:}"
+        val="${val# }"  # strip leading space
+        # Only quote if not already double-quoted
+        if [[ "$val" != '"'* ]]; then
+          # Escape backslashes then double-quotes in value
+          val="${val//\\/\\\\}"
+          val="${val//\"/\\\"}"
+          line="description: \"$val\""
+        fi
+      fi
       # Track if kind: is already present
       if [[ "$line" == kind:* ]] || [[ "$line" == "kind: "* ]]; then
         has_kind=1

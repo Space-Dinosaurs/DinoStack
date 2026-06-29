@@ -268,19 +268,19 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 ## Escalation and round limits
 
 <style scoped>
-  ul { font-size: 0.8em; }
-  ul li { margin: 0.15em 0; }
-  p { font-size: 0.83em; margin: 0.2em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; }
+  ul { font-size: 0.78em; }
+  ul li { margin: 0.1em 0; }
+  p { font-size: 0.8em; margin: 0.15em 0; }
+  .callout { font-size: 0.78em; padding: 0.35em 1em; margin-top: 0.3em; }
 </style>
 
-- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes** before escalating to the human - regardless of which findings are in flight
-- **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate to the human with both positions
+- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes** before escalating to the human
+- **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
 - The primary agent tracks each finding by its text across all rounds
 
-**Loop-context override (inside `/implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** is enough to trigger convergence failure escalation. The loop already consumes iteration budget on each fix pass; waiting for a second re-raise wastes a pass on a finding the Engineer already failed to address. Outside a named loop, the 2-re-route rule is unchanged.
+**Loop-context override (inside `/implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.
 
 <div class="callout">
 The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
@@ -291,23 +291,22 @@ The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either
 ## The resolved issues preflight + findings_log
 
 <style scoped>
-  p { font-size: 0.84em; margin: 0.3em 0; }
-  pre { font-size: 0.71em; padding: 0.4em 0.8em; line-height: 1.3; margin: 0.3em 0 0.6em 0; }
-  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+  p { font-size: 0.77em; margin: 0.12em 0; }
+  pre { font-size: 0.65em; padding: 0.28em 0.6em; line-height: 1.22; margin: 0.12em 0 0.28em 0; }
+  .callout { font-size: 0.74em; padding: 0.28em 0.9em; margin-top: 0.2em; }
 </style>
 
 On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise already-fixed issues:
 
 ```
 The following issues were identified and resolved in prior rounds.
-Do not re-raise them unless you believe the resolution is genuinely
-insufficient:
+Do not re-raise them unless the resolution is genuinely insufficient:
 
 [C1: Missing auth check on /admin endpoint → Added middleware guard]
 [M1: No error handling on payment callback → Added try/catch with rollback]
 ```
 
-**Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator that tracks every finding across all iterations (`id`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`). When the Skeptic re-raises a previously-addressed finding, it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
+**Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator tracking every finding across all iterations (`id`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`). When the Skeptic re-raises a previously-addressed finding, it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
 
 **Auto-close rule:** when the Skeptic grants sign-off (zero new findings), ALL `findings_log` entries with `status: open` or `status: addressed` are automatically closed. The absence of re-raise is an implicit confirmation that all fixes were accepted.
 
@@ -317,18 +316,16 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 ---
 
-## Three new Skeptic obligations
+## Three new Skeptic obligations (1/2)
 
 <style scoped>
-  .columns-3 { gap: 1.2em; }
-  .columns-3 .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
-  .columns-3 .card strong { font-size: 1.05em; }
+  .columns { gap: 1.2em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns .card strong { font-size: 1.05em; }
   .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.4em; }
-  ul { font-size: 0.85em; }
-  ul li { margin: 0.15em 0; }
 </style>
 
-<div class="columns-3">
+<div class="columns">
 <div class="card">
 <strong>Module manifest check</strong><br/>
 On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file.<br/><br/>
@@ -339,15 +336,30 @@ Tiered: missing = <strong>Minor</strong> (non-blocking, hygiene); stale = <stron
 Before granting sign-off on any round where a Critical or Major finding was fixed: verify a regression test was added - a test that would have failed without the fix.<br/><br/>
 Missing test without a documented exception = <strong>Major</strong> finding.
 </div>
+</div>
+
+<div class="callout">
+These checks run alongside existing findings classification - not instead of it. Comprehension, regression, and observability gates layered on top of Critical/Major/Minor.
+</div>
+
+---
+
+## Three new Skeptic obligations (2/2)
+
+<style scoped>
+  .card { font-size: 0.84em; line-height: 1.4; padding: 0.9em 1.2em; max-width: 60%; }
+  .card strong { font-size: 1.05em; }
+  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.6em; }
+</style>
+
 <div class="card">
 <strong>Telemetry emit check</strong><br/>
 At every instrumented boundary (engineer/skeptic/qa spawn or Trivial-path direct edit): verify <code>.agentic/events.jsonl</code> received the matching <code>spawn_start</code>/<code>spawn_complete</code> or <code>conductor_direct</code> events.<br/><br/>
 Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/agentic-cost</code> dashboards accurate).
 </div>
-</div>
 
 <div class="callout">
-These checks are additions to the standard Skeptic pass - they run alongside the existing findings classification, not instead of it. Comprehension, regression, and observability gates layered on top of Critical/Major/Minor.
+All three obligations run alongside the standard Skeptic pass. Manifest enforcement catches comprehension drift; regression tests close the fix loop; telemetry keeps cost and calibration dashboards accurate.
 </div>
 
 ---
@@ -378,25 +390,40 @@ Cure: an <strong>audit-note Minor</strong> attesting the Skeptic re-read the dif
 
 ---
 
-## Calibration layer
+## Calibration layer (1/2)
 
 <style scoped>
-  ul { font-size: 0.82em; }
+  ul { font-size: 0.84em; }
   ul li { margin: 0.15em 0; }
-  p { font-size: 0.85em; margin: 0.3em 0; }
-  pre { font-size: 0.7em; padding: 0.4em 0.8em; line-height: 1.3; margin: 0.3em 0 0.6em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  p { font-size: 0.86em; margin: 0.25em 0; }
+  .callout { font-size: 0.81em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
 The audit-note Minor is the per-spawn defense against rubber-stamping. The **calibration layer** is the long-horizon backstop - it detects drift in aggregate over time without enlarging the per-spawn review surface.
 
 - **Findings counters in `events.jsonl`** - every Skeptic `spawn_complete` carries `findings_count`, `diff_lines`, `signed_off`, and `iteration` inside `data`. Conductor builds the merged JSON inline; subagents do not write to `.agentic/`.
 - **5% sampled meta-Skeptic** - deterministic bucket from `hash(task_id+iteration) % 100 < 5`. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits `meta_review_complete`.
-- **Surfacing** - Critical/Major divergence on a sampled spawn surfaces as one inline `META-DIVERGENCE:` line. Original sign-off remains binding; the notice is advisory. Surfacing fires both in-session (Phase 6 turn boundaries) and at session start (catches async returns from prior sessions). The sweep paginates via `.meta-divergence-last-sweep` timestamp tracker to avoid reading the full events file on every boot.
-- **Inspection CLI** - `agentic-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `agentic-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
 
 <div class="callout">
 Threat model: drift detection in a non-adversarial conductor relationship. Not a cheating-prevention mechanism - a compromised conductor can mis-emit. The target is operator self-deception over time, not adversarial spoofing.
+</div>
+
+---
+
+## Calibration layer (2/2)
+
+<style scoped>
+  ul { font-size: 0.84em; }
+  ul li { margin: 0.15em 0; }
+  p { font-size: 0.86em; margin: 0.25em 0; }
+  .callout { font-size: 0.81em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+- **Surfacing** - Critical/Major divergence on a sampled spawn surfaces as one inline `META-DIVERGENCE:` line. Original sign-off remains binding; the notice is advisory. Surfacing fires both in-session (Phase 6 turn boundaries) and at session start (catches async returns from prior sessions). The sweep paginates via `.meta-divergence-last-sweep` timestamp tracker.
+- **Inspection CLI** - `agentic-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `agentic-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
+
+<div class="callout">
+Per-spawn: audit-note Minor attests the Skeptic re-read the diff end-to-end. Long-horizon: calibration layer catches aggregate drift across sessions. Two layers, two timescales.
 </div>
 
 ---

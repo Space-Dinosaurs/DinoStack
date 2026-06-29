@@ -1,5 +1,6 @@
 ---
 name: learning-extractor
+model: sonnet
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
 tools: Read, Edit, Write
 ---

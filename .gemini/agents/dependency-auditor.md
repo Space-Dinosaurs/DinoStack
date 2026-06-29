@@ -1,8 +1,7 @@
 ---
 name: dependency-auditor
-description: Supply-chain review specialist. Spawn when the user says "audit our dependencies", "is this upgrade safe", "any CVEs in our lockfile", "check license compliance", "review this new dependency", "do we have vulnerable packages", or "check our supply chain". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job.
-tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Agent]
+description: "Supply-chain review specialist. Spawn when the user says \"audit our dependencies\", \"is this upgrade safe\", \"any CVEs in our lockfile\", \"check license compliance\", \"review this new dependency\", \"do we have vulnerable packages\", or \"check our supply chain\". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job."
+tools: [read_file, glob, grep_search, run_shell_command]
 kind: local
 ---
 

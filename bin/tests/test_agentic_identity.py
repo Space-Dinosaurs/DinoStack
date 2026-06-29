@@ -319,6 +319,185 @@ def test_global_scope_flush_unaffected():
         print("PASS test_global_scope_flush_unaffected")
 
 
+# ---------------------------------------------------------------------------
+# Tests (F-H): O(M+N) dedup regression suite (#268)
+# ---------------------------------------------------------------------------
+
+def test_dedup_skips_already_flushed_uuid():
+    """(F) pending file whose session_uuid is already in global log is skipped+unlinked."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        dev_id = "dedup-dev"
+        already_present_uuid = "uuid-already-in-log"
+
+        # Pre-populate global log with that uuid.
+        global_log = global_log_dir / f"{dev_id}.jsonl"
+        existing_line = json.dumps({
+            "session_uuid": already_present_uuid,
+            "developer_id": dev_id,
+            "phase": "session_end",
+            "event": "session_total",
+            "agent": None,
+            "task_id": None,
+        })
+        global_log.write_text(existing_line + "\n", encoding="utf-8")
+
+        # Write a pending file with the same uuid.
+        pending_record = {
+            "session_uuid": already_present_uuid,
+            "ts": "2026-06-10T00:00:00.000Z",
+            "project_slug": "my-proj",
+            "repo_root": "/repo/my-proj",
+            "branch": "main",
+            "data": {},
+        }
+        pending_path = _write_pending(pending_dir, pending_record)
+
+        count = flushPendingBuffer(dev_id)
+        assert count == 0, f"Expected 0 flushed (already deduped), got {count}"
+
+        # Pending file must be unlinked (dedup path removes it).
+        assert not pending_path.exists(), \
+            "Pending file with already-flushed uuid must be unlinked"
+
+        # Global log must still have exactly 1 line (no duplicate appended).
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 1, f"Global log must remain 1 line, got {len(lines)}"
+
+        print("PASS test_dedup_skips_already_flushed_uuid")
+
+
+def test_dedup_flushes_new_uuid_not_in_log():
+    """(G) pending file whose uuid is NOT in the global log is flushed normally."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        dev_id = "dedup-dev2"
+        existing_uuid = "uuid-existing"
+        new_uuid = "uuid-brand-new"
+
+        # Pre-populate global log with a DIFFERENT uuid.
+        global_log = global_log_dir / f"{dev_id}.jsonl"
+        existing_line = json.dumps({
+            "session_uuid": existing_uuid,
+            "developer_id": dev_id,
+            "phase": "session_end",
+            "event": "session_total",
+            "agent": None,
+            "task_id": None,
+        })
+        global_log.write_text(existing_line + "\n", encoding="utf-8")
+
+        # Write pending file with a new uuid.
+        pending_record = {
+            "session_uuid": new_uuid,
+            "ts": "2026-06-10T00:01:00.000Z",
+            "project_slug": "my-proj",
+            "repo_root": "/repo/my-proj",
+            "branch": "main",
+            "data": {},
+        }
+        pending_path = _write_pending(pending_dir, pending_record)
+
+        count = flushPendingBuffer(dev_id)
+        assert count == 1, f"Expected 1 flushed, got {count}"
+
+        assert not pending_path.exists(), "Flushed pending file must be unlinked"
+
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 2, f"Expected 2 lines in global log, got {len(lines)}"
+        uuids_in_log = {json.loads(l)["session_uuid"] for l in lines}
+        assert new_uuid in uuids_in_log, f"{new_uuid!r} must appear in global log"
+
+        print("PASS test_dedup_flushes_new_uuid_not_in_log")
+
+
+def test_dedup_missing_global_log_flushes_all():
+    """(H) missing global log (is_file() False) still flushes all pending files (fallback preserved)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        dev_id = "dedup-dev3"
+
+        # Do NOT create the global log -> is_file() returns False -> seen_uuids empty.
+        record1 = {
+            "session_uuid": "uuid-fallback-1",
+            "ts": "2026-06-10T00:00:00.000Z",
+            "project_slug": "proj",
+            "repo_root": "/repo/proj",
+            "branch": "main",
+            "data": {},
+        }
+        record2 = {
+            "session_uuid": "uuid-fallback-2",
+            "ts": "2026-06-10T00:01:00.000Z",
+            "project_slug": "proj",
+            "repo_root": "/repo/proj",
+            "branch": "main",
+            "data": {},
+        }
+        _write_pending(pending_dir, record1)
+        _write_pending(pending_dir, record2)
+
+        count = flushPendingBuffer(dev_id)
+        assert count == 2, f"Expected 2 flushed (no prior log), got {count}"
+
+        global_log = global_log_dir / f"{dev_id}.jsonl"
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 2, f"Expected 2 lines, got {len(lines)}"
+        uuids_in_log = {json.loads(l)["session_uuid"] for l in lines}
+        assert uuids_in_log == {"uuid-fallback-1", "uuid-fallback-2"}
+
+        print("PASS test_dedup_missing_global_log_flushes_all")
+
+
+def test_dedup_multi_pending_correct_across_several():
+    """(H2) multi-pending: already-flushed uuids skipped, new uuids flushed — all in one pass."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        dev_id = "dedup-dev4"
+        known_uuids = {"uuid-known-1", "uuid-known-2"}
+        new_uuids = {"uuid-new-1", "uuid-new-2"}
+
+        # Pre-populate global log with the known uuids.
+        global_log = global_log_dir / f"{dev_id}.jsonl"
+        lines_to_write = [
+            json.dumps({"session_uuid": u, "developer_id": dev_id,
+                        "phase": "session_end", "event": "session_total",
+                        "agent": None, "task_id": None})
+            for u in sorted(known_uuids)
+        ]
+        global_log.write_text("\n".join(lines_to_write) + "\n", encoding="utf-8")
+
+        # Write 4 pending files: 2 known (should be skipped), 2 new (should flush).
+        for u in known_uuids | new_uuids:
+            _write_pending(pending_dir, {
+                "session_uuid": u,
+                "ts": "2026-06-10T00:00:00.000Z",
+                "project_slug": "proj",
+                "repo_root": "/repo/proj",
+                "branch": "main",
+                "data": {},
+            })
+
+        count = flushPendingBuffer(dev_id)
+        assert count == 2, f"Expected 2 flushed (only new uuids), got {count}"
+
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 4, f"Expected 4 lines total (2 old + 2 new), got {len(lines)}"
+        uuids_in_log = {json.loads(l)["session_uuid"] for l in lines}
+        assert uuids_in_log == known_uuids | new_uuids, \
+            f"Unexpected uuids in log: {uuids_in_log}"
+
+        print("PASS test_dedup_multi_pending_correct_across_several")
+
+
 if __name__ == "__main__":
     test_flushed_line_canonical_shape()
     test_project_scope_flush_does_not_touch_other_repo_records()
@@ -326,4 +505,8 @@ if __name__ == "__main__":
     test_project_confirmed_beats_confirmed_global()
     test_no_repo_root_record_skipped_by_filter()
     test_global_scope_flush_unaffected()
+    test_dedup_skips_already_flushed_uuid()
+    test_dedup_flushes_new_uuid_not_in_log()
+    test_dedup_missing_global_log_flushes_all()
+    test_dedup_multi_pending_correct_across_several()
     print("All tests passed.")

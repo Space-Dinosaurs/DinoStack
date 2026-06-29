@@ -1,5 +1,6 @@
 ---
 name: investigator
+model: sonnet
 description: Codebase investigation agent. Spawn when you need to understand code before deciding how to change it - tracing data flow, mapping blast radius, understanding feature behavior without a stack trace, or exploring an unfamiliar area. Returns a structured investigation brief the conductor can hand directly to architect or engineer. Does NOT implement changes or write to disk.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]

@@ -46,4 +46,4 @@ agentic-identity show --scope effective
 
 ## agentic-cost attribution
 
-`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
+`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Per-developer session logs are committed to git via the Phase 8 telemetry commit when `commit_telemetry` is `true` (the default) and identity is confirmed, so a developer's telemetry becomes team-visible after merge and pull. `agentic-cost team` then aggregates any developer's session log that has landed on the current branch.

@@ -271,9 +271,9 @@ strict removes the Low-override carve-outs that other profiles rely on. More Ske
 ## How to set your profile
 
 <style scoped>
-  pre { font-size: 0.82em; background: #04070F; border-radius: 8px; padding: 0.8em 1.2em; margin: 0.4em 0; }
-  p { font-size: 0.85em; margin: 0.3em 0; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  pre { font-size: 0.6em; background: #04070F; border-radius: 8px; padding: 0.18em 0.6em; margin: 0.02em 0; }
+  p { font-size: 0.74em; margin: 0.02em 0; }
+  strong { font-size: 0.8em; }
 </style>
 
 **1. At install time**
@@ -281,27 +281,35 @@ strict removes the Low-override carve-outs that other profiles rely on. More Ske
 bash .claude/install.sh --profile=strict
 ```
 
-**2. Edit `~/.claude/agentic-engineering.json` directly**
+**2. Edit `agentic-engineering.json` directly**
 ```json
 { "mode": "opt-out", "profile": "strict" }
-```
-Or use the `preset` field (`lean` | `standard` | `strict`) - overrides `profile` when set:
-```json
-{ "mode": "opt-out", "preset": "strict" }
 ```
 
 **3. Per-project override in root `AGENTS.md`**
 ```
 agentic-engineering-profile: strict
 ```
-Or use `preset` (wins over `agentic-engineering-profile:` on collision):
+
+---
+
+## How to set your profile (cont.)
+
+<style scoped>
+  pre { font-size: 0.6em; background: #04070F; border-radius: 8px; padding: 0.22em 0.65em; margin: 0.06em 0; }
+  p { font-size: 0.74em; margin: 0.06em 0; }
+  strong { font-size: 0.8em; }
+</style>
+
+Or use `preset` to override `profile` (preset wins):
+```json
+{ "mode": "opt-out", "preset": "strict" }
+```
 ```
 agentic-engineering-preset: strict
 ```
 
-<div class="callout">
-Per-project preset wins over per-project profile. Preset resolves: lean->relaxed, standard->default, strict->strict. Set a global default that fits most of your work, then override in the projects that need tighter or looser gates.
-</div>
+Resolution: `lean` -> relaxed, `standard` -> default, `strict` -> strict. Set a global default in `agentic-engineering.json`, override per-project in `AGENTS.md`.
 
 ---
 

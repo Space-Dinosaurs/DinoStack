@@ -210,10 +210,10 @@ The conductor must not derive parallelization itself. The orchestration-planner'
 ## The fan-out execution model
 
 <style scoped>
-  pre { font-size: 0.68em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.5em 0; }
-  ul { font-size: 0.82em; }
-  ul li { margin: 0.15em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+  pre { font-size: 0.62em; padding: 0.3em 0.6em; line-height: 1.25; margin: 0.2em 0 0.4em 0; }
+  ul { font-size: 0.8em; }
+  ul li { margin: 0.1em 0; }
+  .callout { font-size: 0.76em; padding: 0.3em 0.9em; margin-top: 0.3em; }
 </style>
 
 ```
@@ -222,8 +222,8 @@ orchestration-planner returns N units
          ▼
 1. Conductor writes N pending entries to .agentic/tasks.jsonl
 2. Conductor creates N worktrees from BASE_BRANCH
-   git worktree add .worktrees/feature-unit1 -b feature-unit1 origin/main
-   git worktree add .worktrees/feature-unit2 -b feature-unit2 origin/main
+   git worktree add .agentic/worktrees/feature-unit1 -b feature-unit1 origin/$BASE_BRANCH
+   git worktree add .agentic/worktrees/feature-unit2 -b feature-unit2 origin/$BASE_BRANCH
 
 3. Conductor updates entries to in_progress, then spawns N engineers
    in a SINGLE MESSAGE (parallel)
@@ -247,10 +247,12 @@ Workers return their summaries in the normal return path. Conductor handles all 
 ## The SKEPTIC_STRATEGY decision
 
 <style scoped>
-  .columns { gap: 1.2em; margin-bottom: 0.6em; }
-  .columns .card { font-size: 0.82em; line-height: 1.5; padding: 1em 1.2em; }
-  .columns .card strong { font-size: 1.05em; }
-  .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.5em; }
+  .columns-3 { gap: 0.9em; margin-bottom: 0.5em; }
+  .columns-3 .card { font-size: 0.75em; line-height: 1.35; padding: 0.8em 0.9em; }
+  .columns-3 .card strong { font-size: 1.0em; }
+  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.4em; }
+  p { font-size: 0.82em; margin: 0.2em 0; }
+  blockquote { font-size: 0.8em; margin: 0.2em 0; padding-left: 0.8em; }
 </style>
 
 The planner classifies each parallel group and sets `skeptic_strategy`:
@@ -258,20 +260,20 @@ The planner classifies each parallel group and sets `skeptic_strategy`:
 <div class="columns-3">
 <div class="card">
 <strong>per-unit</strong><br/>
-Units are fully independent. Each gets its own Skeptic reviewing only that unit's diff. Per-unit Skeptics can themselves be spawned in parallel - non-overlapping diffs, no interference. Runs as part of each unit's P0 persistence loop inside its worktree.
+Units fully independent. Each gets its own Skeptic reviewing only that unit's diff. Per-unit Skeptics can be spawned in parallel - non-overlapping diffs, no interference. Runs inside each unit's P0 persistence loop.
 </div>
 <div class="card">
 <strong>integration</strong><br/>
-Units have shared interface contracts, shared data models, or cross-cutting concerns. Still implemented in parallel. But Skeptic review is deferred until all units are merged onto a scratch integration branch. One integration Skeptic reviews the combined diff. This IS the Phase 6 gate - no second Skeptic.
+Units share interface contracts, data models, or cross-cutting concerns. Still implemented in parallel, but Skeptic review is deferred until all units merge onto a scratch integration branch. One Skeptic reviews the combined diff. This IS Phase 6 - no second Skeptic.
 </div>
 <div class="card">
 <strong>multi-dimensional</strong><br/>
-High-stakes Elevated units (auth, payments, data migrations, crypto, secrets). Three reviewers fan out in one message on the same diff: correctness-Skeptic + security-auditor + perf-analyst. Conductor synthesizes all findings before opening any fix loop. Sign-off requires all three to clear.
+High-stakes units (auth, payments, migrations, crypto, secrets). Three reviewers in one message: correctness-Skeptic + security-auditor + perf-analyst. Conductor synthesizes all findings before any fix loop. All three must clear.
 </div>
 </div>
 
 **Independence heuristic** (from `subagent-protocol.md` Section 6):
-> "If a bug in unit A would only be detectable by examining unit B's implementation, or if unit A's correctness depends on assumptions about unit B's interface" - classify as interdependent.
+> "If a bug in unit A is detectable only by examining unit B's implementation" - classify as interdependent.
 
 <div class="callout">
 Stacked Skeptics on interdependent units produce false signal. One integration Skeptic sees the combined diff. The planner's classification is the source of truth.
@@ -426,19 +428,19 @@ The integration quality check catches failures invisible to individual worktrees
 ## Task-state coordination
 
 <style scoped>
-  h2 { font-size: 1.6em; margin-bottom: 0.3em; }
-  p { font-size: 0.85em; margin: 0.25em 0; }
-  pre { font-size: 0.6em; padding: 0.35em 0.7em; line-height: 1.25; margin: 0.25em 0 0.35em 0; }
-  table { font-size: 0.78em; margin: 0.3em 0; }
-  th, td { padding: 0.3em 0.6em; }
-  .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.35em; }
+  h2 { font-size: 1.5em; margin-bottom: 0.2em; }
+  p { font-size: 0.82em; margin: 0.15em 0; }
+  pre { font-size: 0.54em; padding: 0.25em 0.6em; line-height: 1.2; margin: 0.15em 0 0.25em 0; }
+  table { font-size: 0.74em; margin: 0.2em 0; }
+  th, td { padding: 0.25em 0.5em; }
+  .callout { font-size: 0.72em; padding: 0.3em 0.8em; margin-top: 0.25em; }
 </style>
 
 `.agentic/tasks.jsonl` is the durable fan-out coordination surface:
 
 ```jsonl
-{"task_id":"sess1-auth-middleware","unit_slug":"auth-middleware","status":"pending","branch_name":"feature-auth-unit1","worktree_path":".worktrees/feature-auth-unit1","inputs":{...}}
-{"task_id":"sess1-user-profile-api","unit_slug":"user-profile-api","status":"in_progress","branch_name":"feature-auth-unit2","worktree_path":".worktrees/feature-auth-unit2","inputs":{...}}
+{"task_id":"sess1-auth-middleware","unit_slug":"auth-middleware","status":"pending","branch_name":"feature-auth-unit1","worktree_path":".agentic/worktrees/feature-auth-unit1","inputs":{...}}
+{"task_id":"sess1-user-profile-api","unit_slug":"user-profile-api","status":"in_progress","branch_name":"feature-auth-unit2","worktree_path":".agentic/worktrees/feature-auth-unit2","inputs":{...}}
 ```
 
 **Entry lifecycle (conductor writes all):**

@@ -869,11 +869,12 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 22, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 28, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
   <a href="#signals"><span class="nav-dot" style="background: var(--gold);"></span> Is It Working?</a>
+  <a href="#updating"><span class="nav-dot" style="background: var(--cyan);"></span> Updating</a>
   <a href="#config"><span class="nav-dot" style="background: var(--cyan);"></span> Configuration</a>
   <a href="#protocols"><span class="nav-dot" style="background: var(--violet);"></span> Protocol Rules</a>
   <a href="#protocol-deep-dive"><span class="nav-dot" style="background: var(--violet);"></span> Protocol Deep Dive</a>
@@ -921,9 +922,9 @@
   <a class="deck-index-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">11</span> Parallel Fan-out</a>
   <a class="deck-index-link" href="slides/quality-assurance-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Quality Assurance</a>
   <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">13</span> Work Tracking</a>
-  <a class="deck-index-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Skill Creator</a>
-  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">15</span> Contributing</a>
-  <a class="deck-index-link" href="agentic-engineering-comparison.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">16</span> Ecosystem Comparison</a>
+  <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Contributing</a>
+  <span class="deck-index-label deck-index-label-docs">Docs</span>
+  <a class="deck-index-link" href="agentic-engineering-comparison.html" target="_blank" rel="noopener noreferrer">Ecosystem Comparison</a>
 </nav>
 
 <div class="diagram">
@@ -977,6 +978,49 @@
   </div>
 </div>
 
+<!-- ═══ UPDATING: Keep DinoStack current ═══ -->
+<div id="updating" class="section config-layer">
+  <div class="section-title"><h2>Updating</h2><h3>Keep DinoStack current with one command.</h3></div>
+  <p class="desc">Run <code>agentic-update</code> from any directory, no arguments. It pulls the latest <code>main</code>, rebuilds adapters only when something changed under <code>content/</code>, <code>hooks/</code>, <code>bin/</code>, or the build scripts, resets the version-check cache, and runs <code>agentic-doctor --fix</code> to repair drifted symlinks or hooks. No TTY required.</p>
+  <table style="width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 16px 0;">
+    <thead>
+      <tr style="border-bottom: 1px solid var(--border-subtle);">
+        <th style="text-align: left; padding: 10px 12px; color: var(--cyan); width: 22%;">Path</th>
+        <th style="text-align: left; padding: 10px 12px; color: var(--cyan); width: 42%;">Command</th>
+        <th style="text-align: left; padding: 10px 12px; color: var(--text-muted); width: 36%;">When</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">Shell <span style="color: var(--text-muted); font-size: 0.85em;">(recommended)</span></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-update</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Default; from any directory, no TTY</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">In-session</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>/pull-and-install</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Inside Claude Code, any project</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">TUI</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>./update.sh</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Interactive adapter selection</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">CI / scripts</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>git pull &amp;&amp; ./install-all.sh</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Non-interactive</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px 12px; vertical-align: top;">Repair drift</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-doctor --fix</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Fix broken symlinks/hooks (e.g. after moving the repo)</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="desc">Full details: <a href="updating.md">updating.md</a></p>
+</div>
+
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
 <div id="config" class="section config-layer">
   <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: AGENTS.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
@@ -1001,8 +1045,8 @@
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (agent-methodology.md, code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
-    <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), and Hermes (<code>.hermes/</code>) - the same methodology in each tool's native format.<br>
+    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
+    <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), Hermes (<code>.hermes/</code>), and OpenClaw (<code>.openclaw/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
@@ -1037,7 +1081,7 @@
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4>agent-methodology.md <span class="load-badge always">always loaded</span></h4>
+        <h4>METHODOLOGY.md <span class="load-badge always">always loaded</span></h4>
         <ul>
           <li>Delegation model: conductor delegates, never implements</li>
           <li>Risk classification: Low vs Elevated</li>
@@ -1084,6 +1128,8 @@
       <div class="node node-protocol">regression-test-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">qa-regression-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">doc-sync-obligation.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol"><a href="cross-harness-teams.md" target="_blank" rel="noopener">cross-harness-teams.md</a> <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol"><a href="role-model-routing.md" target="_blank" rel="noopener">role-model-routing.md</a> <span class="load-badge on-demand">on demand</span></div>
     </div>
     <p class="desc">Not auto-loaded. Read on-demand when protocols are triggered (e.g., Elevated risk declared, Skeptic review needed).</p>
   </div>
@@ -1193,10 +1239,11 @@
           <ul>
             <li><strong>Conductors declare Tier 1/2/3 at spawn time</strong> - routes lightweight tasks to faster models and critical reviews to max-capability models</li>
             <li><strong>Tier 1</strong> - cheap/fast (Haiku). Declare explicitly for shallow reads, existence checks, format-only tasks, and mechanical transformations</li>
-            <li><strong>Tier 2</strong> - default (session model, Sonnet-equivalent). No declaration needed. Most spawns land here</li>
-            <li><strong>Tier 3</strong> - max capability (Opus). Declare explicitly for security adversarial review, novel architecture design, full blast-radius analysis across an unknown codebase</li>
-            <li><strong>Declaration is documentation; the model param is enforcement</strong> - writing <code>Tier: 3</code> in the status block does not self-execute. The conductor must also pass <code>model: "opus"</code> in the <code>Agent</code> tool call. Declaration without the param produces Tier 2 behavior</li>
+            <li><strong>Tier 2</strong> - implementation default (Sonnet). Most spawns land here: engineer, investigator, qa-engineer, and other implementation roles</li>
+            <li><strong>Tier 3</strong> - review default (Opus). Skeptic and security-auditor default to Tier 3 via frontmatter; upgrade architect/engineer to Tier 3 for novel architecture or high-blast-radius units</li>
+            <li><strong>Tier is a required field</strong> - every Elevated spawn carries a <code>Tier:</code> line below <code>Risk:</code>. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; the param overrides for upgrades or budget-mode downgrades (never for mandated-Tier-3 Skeptics). Declaration without the tool-call param produces frontmatter-default behavior, not Tier 2</li>
             <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
+            <li><strong>Pi/oh-my-pi can resolve roles from <code>~/.agentic/role-models.yml</code></strong> - opt-in per-role model strings plus antagonist reviewer diversity for <code>skeptic</code> and <code>security-auditor</code>; if absent, Pi uses session defaults</li>
           </ul>
         </div>
       </div>
@@ -1353,7 +1400,7 @@
   <div style="margin-bottom: 8px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 12 agent roles, 5 composed flows, decision rules, and spawn instructions.</div>
+      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 17 named agents, 5 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
@@ -1574,8 +1621,8 @@
 
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
-  <div class="section-title" data-num="06"><h2>Skill Layer <a class="slide-link" href="slides/skill-creator-slides.html" target="_blank" rel="noopener noreferrer">slides: skill creator</a></h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships exactly 18 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
+  <div class="section-title" data-num="06"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 19 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1637,10 +1684,10 @@
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4>Persistence Hierarchy <span style="font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 12px; color: var(--text-muted);">(all at <code>~/.claude/projects/[hash]/</code>)</span></h4>
+        <h4>Persistence Hierarchy</h4>
         <ul>
-          <li><strong>MEMORY.md</strong> <span class="load-badge always">always loaded</span> - index of all memory files. Auto-injected into every conversation at startup. One-line pointers to individual memory files. Keep under 200 lines.</li>
-          <li><strong>context.md</strong> <span class="load-badge on-demand">on demand</span> - read at session start for continuity. Written by Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions.</li>
+          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and auto-injected into every conversation at startup. Stable architecture, key paths, and preferences with rationale.</li>
+          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
           <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
@@ -2023,9 +2070,7 @@
       "Bash(sudo rm*)",
       "Bash(dd if=*)",
       "Bash(shutdown*)",
-      "Bash(reboot*)",
-      "Bash(mkfs*)",
-      "Bash(chmod -R 777*)"
+      "Bash(reboot*)"
     ],
     "defaultMode": "bypassPermissions"
   }
@@ -2419,7 +2464,7 @@
         <tr><td><strong>Hooks</strong></td><td><code>~/.kimi/config.toml</code> <code>[[hooks]]</code> blocks - fully manual; the installer does not write this</td></tr>
         <tr><td><strong>Stop hook / context save</strong></td><td>Manual - script path must be set by the user in the hooks config</td></tr>
         <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
-        <tr><td><strong>Tier resolution</strong></td><td>Inherits the built-in sub-agent type - no tier-map lookup</td></tr>
+        <tr><td><strong>Tier resolution</strong></td><td>Inherits the built-in sub-agent type; optional <code>~/.agentic/role-models.yml</code> can map roles and antagonist reviewers to concrete model strings</td></tr>
       </tbody>
     </table>
     <div class="note" style="margin-top: 12px; border-left-color: var(--gold);">

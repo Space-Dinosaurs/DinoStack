@@ -1,7 +1,15 @@
 ---
 description: "Agentic engineering delegation model, risk classification, task decomposition, and worktree lifecycle. Core rules for when to act directly vs. spawn Workers and Skeptics."
-alwaysApply: true
+alwaysApply: false
 ---
+
+> **CURSOR ADAPTER - READ FIRST. These Cursor-specific directives OVERRIDE every conflicting delegation, spawn, Skeptic, worktree, and "MUST"-mandate instruction in the rest of this document whenever you are running inside Cursor.** Cursor has no Agent / Task / subagent / background-spawn tool, so the multi-agent model described below cannot execute and must not be simulated.
+>
+> - **You are conductor AND implementer.** Do the work yourself, inline. Never narrate what a "Worker" or "Skeptic" would do, and never spawn or pretend to spawn one.
+> - **Self-review replaces the Skeptic.** After implementing, re-read your own diff for logic errors, edge cases, and side effects before declaring done. That is the entire review step in Cursor.
+> - **Do not pre-load reference files.** Ignore "read on trigger" instructions unless the current task directly needs that file. Reading them all is the main cause of runaway context cost in Cursor.
+> - **Worktree / isolation / background steps are no-ops.** Any instruction involving git worktrees, `isolation: "worktree"`, `run_in_background`, or Agent-tool parameters does not apply in Cursor; skip it.
+> - **Risk classification still applies.** Classify the task (Trivial / Low / Elevated) and, for Elevated, do a deliberate inline self-review of the full diff before finishing.
 
 ## Activation preflight
 
@@ -31,46 +39,12 @@ Run this check once at the top of the first skill invocation in a session (and a
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
    - Any other combination (including `marker=none` with `mode=opt-out`, or `marker=opt-in` with `mode=opt-in`) - proceed with the methodology.
-5. **First-activation notice (one-time, per-project, TTY-only).** Triggered only when Step 4 resolved to active (any proceed branch). Otherwise skip this step entirely.
 
-   **TTY/QUIET gate.** If `os.environ.get("AGENTIC_QUIET") == "1"` OR `not sys.stdout.isatty()`, skip BOTH the notice print AND the sentinel write. Activation proceeds normally without producing the notice or creating the sentinel. This prevents fixture contamination in eval harness runs and unwanted output in CI/headless contexts.
+   On any proceed branch: immediately run Step 5 (first-activation notice) and Step 6 (scaffolding-sync); read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the full implementation.
 
-   **Sentinel write contract (race-safe; create-only).** Two parallel subagent activations on the same fresh project must produce exactly one notice and exactly one sentinel; the loser stays silent. The notice prints if and only if the create-only write succeeded.
+   *(Steps 5-6 are deferred to `content/references/activation-detail.md` as a deliberate forcing-read exception - the breadcrumb above ensures every active session reads them.)*
 
-   1. Compute path: `<project_root>/.agentic/.activated`.
-   2. Ensure `.agentic/` exists (`mkdir -p`); failures silently swallowed - do not crash.
-   3. Attempt **create-only** write (must fail if the file already exists):
-      - Python: `open(path, 'x')` (raises `FileExistsError` if present).
-      - Shell: write to `<path>.tmp.<pid>`, then `ln <tmp> <path>` (atomic, fails on EEXIST), unlink tmp.
-      - <!-- Race-safe pattern: O_EXCL / link() guarantees that only one of N concurrent racers wins the create; losers see EEXIST and stay silent. Do NOT replace with `if exists: ... else: write` - that pattern has a TOCTOU race. -->
-   4. **Print the notice if and only if the create succeeded.** On EEXIST (sentinel already present), skip the print silently. Losers in a race stay silent.
-   5. Filesystem errors other than `EEXIST` (read-only filesystem, permission denied, ENOSPC, etc.) are silently swallowed; the notice may re-print on the next session. Methodology must not crash.
-
-   **Sentinel body (exactly three lines, plain text):**
-   ```
-   # agentic-engineering: first-activation notice has been shown for this project.
-   # Deleting this file re-arms the notice only; it does not change activation state.
-   # To opt out, use /agentic-disable.
-   ```
-
-   **Notice text (verbatim, single line, printed to stdout when create succeeds):**
-   ```
-   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>, preset=<preset or 'none'>). Run /agentic-status to inspect, /agentic-disable to opt out.
-   ```
-   Values come from the resolver outputs of Steps 1-3. The literal JSON `null` for `preset` is rendered as the string `none`.
-
-6. **Scaffolding-sync check.** Runs only when Step 4 resolved to active. Silent-fail: any error swallowed; methodology proceeds.
-
-   a. Invoke `agentic-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
-   b. If status is "ok" (project version >= manifest version): no-op.
-   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/migrate-project --include-destructive` only).
-   d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/migrate-project --include-destructive`.
-
-7. **When no-opping, print one line and stop:**
-   `agentic-engineering: inactive in this project (mode=<mode>, marker=<marker or 'none'>). Add 'agentic-engineering: opt-in' to AGENTS.md to activate.`
-   Do not load rules. Do not spawn. Do not print anything else from this skill in this session.
-
-**Graceful defaults:** missing `~/.claude/agentic-engineering.json`, missing `AGENTS.md`/`CLAUDE.md`, malformed JSON, and permission errors all resolve to "mode=opt-out, marker=none, profile=default, preset=null" -> proceed with methodology active. This preserves behavior for users who installed before this feature existed.
+7. **When no-opping, print one line and stop:** *(Steps 5-6 deferred above)*
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -84,7 +58,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
 
-**Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step.
+**Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects a permission-seeking interrogative in the final assistant message and blocks the session stop, injecting a "proceed" directive; opt in per-project via `abdication_guard_enabled: true` in `.agentic/config.json`; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/brief.md` Section 1.
 
@@ -131,57 +105,15 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **AskUserQuestion precondition (no multiple-choice ballots).** Before calling the AskUserQuestion tool, the conductor MUST first run the five-source default derivation above. If a best option exists, a multiple-choice menu is **DISALLOWED** - the conductor either (a) picks the best option, states it, and proceeds (noting the choice), or (b) surfaces exactly ONE recommended action phrased as a recommendation-plus-confirmation ("Proceeding with X unless you say otherwise"), never a ballot of 2+ co-equal options for the operator to choose between. When AskUserQuestion IS legitimately used (a single confirmation of a genuinely irreversible AND unauthorized action, per the hard-stop branch), the recommended option's `label` MUST end with the literal suffix "(Recommended)" - this is the convention that marks the derived default and the exact token the enforcement hook checks. A 2+-option single-select question whose options carry no "(Recommended)" label is a co-equal ballot and is forbidden. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-askuserquestion-default.py`, wired by `.claude/install.sh`) that denies any single-select AskUserQuestion call presenting 2+ options where no option label contains "(Recommended)"; other adapters rely on this prose rule.
 
-**Exception (Open Questions) and Deferred defaults.** Artifacts produced by the architect (and by the conductor when it authors a Brief, Plan, or ADR) use two distinct sections with different semantics. Categorization is set at authoring time, not changed by the conductor at gate time.
-
-Use this table to bucket each parked choice:
-
-| Condition | Section |
-|---|---|
-| No derivable default OR irreversible OR load-bearing fork | **Open Questions** |
-| Reversible AND a default is derivable AND not a load-bearing fork | **Deferred defaults** |
-
-**Open Questions** items are a protocol-level blocker and are NOT resolvable by this protocol. Resolution paths: (a) re-spawn the architect to resolve or re-categorize, (b) ask the user the specific question directly, or (c) descope. Conductor-derived defaults do not close an Open Question.
-
-**Deferred defaults** items are reversible choices the author has already derived a default for. The author records each item with its derived default under a "Deferred defaults" subsection, noting "revisit at implementation if context changes." The conductor does not stop, does not ask the operator, and does not spawn any resolution agent for these items - it proceeds with the recorded defaults.
-
-The author derives the default first. If a default is derivable and the choice is reversible, it is authored as a Deferred default - the conductor never has to be asked. Only non-defaultable, irreversible, or load-bearing-fork items become Open Questions. When the conductor receives a plan whose "Open Questions" section contains an item that appears reversible or defaultable (a mis-bucketing), the correction path is to re-spawn the architect, not for the conductor to self-rebucket.
-
-**Worked example.** ADR-0008 (cloud multi-device, Proposed) ends with 8 parked choices, each with a conductor-derived recommendation, each reversible (a Proposed ADR commits no code), with no downstream worker pending. The ADR author lists all 8 under a "Default decisions (reversible; revisit at implementation)" subsection - the "Deferred defaults" analogue - records each derived default inline, and proceeds. None of the 8 ever enter the "Open Questions" section. The conductor is never gated. No ballot is presented to the operator.
+**Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
 
 **Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s BASE_BRANCH stop-and-ask when neither `develop` nor `development` exists.
 
-**Worker autonomy contract.** Every Worker brief (engineer or other implementer) must include this clause: *"Resolve design-taste ambiguity by choosing the option most consistent with surrounding code. Return BLOCKED only for hard blockers: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Do not return BLOCKED for style, naming, choice among libraries already in use in this project, or 'which of several reasonable approaches' questions - pick one, proceed, and note the choice in the return summary. Introducing a new runtime dependency or performing a major-version upgrade of an existing dependency is NOT within this contract - if the task requires either, return BLOCKED so the conductor can route through architect + dependency-auditor per the risk table."*
+**Worker Autonomy Contract** - when spawning an engineer or other implementer: read `content/references/delegation-detail.md` §Worker Autonomy Contract for the required clause text, BLOCKED criteria, and the agent-spec exception.
 
-**Exception (agent-spec-mandated human decisions).** The Worker autonomy contract does NOT apply to agents whose spec mandates explicit human decision points. When the agent's own spec mandates surfacing a decision to the human (e.g. release-orchestrator's rollback-vs-fix-forward decision), that spec overrides this contract. The Worker follows its spec and surfaces the decision as instructed.
+**Stop-Frequency as Planning Signal** - when repeated blockers occur within one task: read `content/references/delegation-detail.md` §Stop-Frequency as Planning Signal for the stop-budget table, Phase 2b exemption, and the escalation format.
 
-**Stop-frequency is a planning signal.** Repeated genuine blockers within a single task indicate the plan is under-specified, not that the conductor is being appropriately cautious. Continuing to ask piecemeal questions papers over the structural gap and burns operator attention. Track stops against task complexity:
-
-| Task shape | Max genuine stops before flagging the plan |
-|---|---|
-| Trivial or single-unit | 0 - one blocker means it was not well-scoped |
-| Single-unit Elevated | 1 |
-| Multi-unit plan (2-5 units) | 2 across the whole plan |
-| Large multi-unit plan (6+ units) | 3 across the whole plan |
-
-**Pre-architect planning-input scans are exempt from this budget.** The Phase 2b ambiguity scan in `/implement-ticket` surfaces clarifying questions before any agent is spawned — no architect, investigator, or engineer has run yet. This is structurally different from a mid-work stop: it is bounded to exactly one operator turn, has a proceed-with-defaults fallback, and produces no work that needs to be discarded if the operator redirects. Phase 2b does not count against the per-task stop budget for any task shape.
-
-When the threshold is exceeded, the conductor stops spawning Workers and surfaces a planning concern to the user instead of another piecemeal question. Format:
-
-*"I've hit N blockers on this task: [bullet list of each blocker and why]. This is past the threshold for a [task shape] task and suggests the plan needs revisiting before we continue. Options: (a) re-spawn architect with these gaps, (b) answer the genuine Open Questions upfront and resume (Deferred defaults in the plan do not count toward this budget and do not block), or (c) descope. Recommendation: [pick one]."*
-
-Then wait. Do NOT keep spawning Workers against an under-specified plan - that compounds the cost of the missing planning work and produces churn the user has to clean up later.
-
-**Common rationalizations to reject:**
-
-- "Looks simple" - not a Low signal
-- "Following the spirit, not the letter" - violating the letter is violating the spirit
-- "Only one file / few lines" - line count is not a risk signal
-- "I already reviewed it myself" - self-review is for Low risk only
-- "Moving fast, can skip this once" - speed is not a Low signal
-- "The Skeptic will catch any mistakes" - the Skeptic reviews Worker output; it does not excuse skipping risk classification or spawning a Worker
-- "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
-- "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
-- "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
+**Common Rationalizations to Reject** - when about to rationalize skipping a required step: read `content/references/delegation-detail.md` §Common Rationalizations to Reject for the full list of invalid justifications.
 
 **Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
 
@@ -222,32 +154,22 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 
 **Editing methodology files under `~/DinoStack/`.** Before editing any file under `content/**`, `.codex/skill/**`, build scripts, or hooks, the conductor MUST Read `content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `/update-agentic-engineering` instead of direct Edit/Write.
 
-**Investigator-before-Architect for unfamiliar territory.** When the task touches a codebase area the main session has not recently investigated - i.e., the "Unfamiliar codebase area" Elevated signal is present - the conductor must spawn the `investigator` agent first and pass its brief as input to the `architect` agent. The Architect consumes "what exists" from the Investigator and produces "what to build". This separates concerns: the Investigator maps the terrain and blast radius, the Architect makes design decisions on top of that map. The only exception is when the relevant files have been Read within the current conversation AND no substantive changes have been made to those files since they were read - i.e., the conductor has the current file contents in context as a direct tool-result, not a summary or recollection. "Relevant files" means the specific files the Architect would need to reason about the change, not the directory or the project generally. If this test is not met in full, spawn the Investigator - "I know this area" is not a valid skip reason, and neither is "I read something nearby". When in doubt, spawn the Investigator.
-
-**Investigator-before-Architect MANDATORY for shared-utility surfaces.** The "in-context file already read" exception above does NOT apply when the ticket's likely target is a shared utility, shared component, or shared type. Specifically: when the target file lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or any analogous shared-module directory convention used by the project, AND `grep`/`Glob` reveals 5 or more importers of the symbol(s) being changed, the Investigator step is mandatory regardless of whether the conductor has the file contents in context. The Investigator's output for this case MUST include a per-consumer impact table (see `content/agents/architect.md` "Per-consumer impact table" requirement) that the Architect then consumes verbatim. The conductor cannot skip the Investigator on shared-utility surfaces by self-assessing "I already know what this does" - in-context familiarity with the shared file itself does NOT imply familiarity with every call site. The 5-importer threshold is a mechanical signal: count importers with `grep -rn` before deciding; do not estimate. If the count is uncertain, default to spawning the Investigator (when in doubt, spawn).
-
-**Parallel Investigators feeding a single Architect.** When investigation spans multiple independent surfaces (e.g. backend, frontend, schema), the conductor MAY spawn multiple Investigators in a single message. Before doing so, Read `content/references/conductor-operating-rules.md` §Parallel Investigators for the merge-into-one-Architect rule and the single-Architect invariant.
+**Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
 
 **Investigator external-data claims require evidence.** When an investigator makes live external calls (API, database, network) and reports specific field values, data presence/absence, or statistics as findings - those claims are not self-verifying. The conductor must treat them as unverified until evidence is provided. Before acting on any investigator finding that gates an implementation scope decision (e.g. "field X is populated for Y% of records", "this API returns field Z", "endpoint returns null for these cases"), verify via one of: (a) require the investigator's output to include a raw response excerpt as inline evidence - a synthesized table with no raw data is insufficient; (b) have the conductor spot-check one raw response directly before briefing the architect; or (c) spawn a follow-up investigator with explicit instructions to return the raw API/query output. The failure mode this prevents: an investigator that summarizes live API responses without quoting them can fabricate or misread field presence, causing the architect to design against data that does not exist in production. "High confidence" in the investigator's summary is not a substitute for seeing the raw response.
 
 **Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
-
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 **wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
 
-**Learnings pipeline (two feeders, distinct triggers).** The learnings pipeline has two separate feeders with different trigger mechanisms:
-
-- **`learning-extractor`** - mechanically wired to `/implement-ticket` Phase 6 clean exit. Fires automatically on every ticketed Skeptic loop completion. The conductor does NOT spawn this manually; it is part of the Phase 6 sequence.
-- **`learnings-agent`** - conductor-discretionary background capture. The conductor spawns it ad-hoc the first time a learning-worthy event occurs in a session (Skeptic finding resolved, error->fix cycle, tool failure workaround, architectural decision, cross-component gotcha, user-called-out reusable pattern). No automatic phase trigger.
-
-For `learnings-agent` session-tracking semantics, see `content/references/conductor-operating-rules.md` §learnings-agent background capture.
+**Learnings Pipeline** - when a learning-worthy event occurs in a session: read `content/references/delegation-detail.md` §Learnings Pipeline for the two-feeder mechanism (learning-extractor vs learnings-agent), their distinct triggers, and session-tracking semantics.
 
 **Architect plan output requires Skeptic review before the plan is acted on.** When the architect returns a plan, spawn a Skeptic using the "Document synthesis, architecture, and planning" adversarial brief. Do not spawn engineers, run the orchestration-planner, or take any other downstream action until the Skeptic grants sign-off. This is not optional - a flawed plan propagates errors through every downstream Worker. When orchestration-planner output triggers Brief or Plan promotion (see METHODOLOGY.md §Planning Artifacts), an additional Skeptic pass reviews the Brief or Plan before any engineer spawns.
 
 **Open Questions are a hard gate.** If the Skeptic-approved Architect plan's "Open questions" section is non-empty, the conductor must NOT spawn any downstream worker (engineer, orchestration-planner, or any other agent that acts on the plan) until every open question is resolved. Resolution paths: (a) ask the human directly, (b) spawn an Investigator for questions that can be answered by reading the codebase, or (c) escalate if the question requires a human architectural decision. "Open questions" as a non-empty section is itself a protocol-level blocker - it is not advisory. A Worker that runs against unresolved open questions is executing on a plan the Architect itself flagged as incomplete, which is exactly the mid-Worker drift failure mode this gate exists to prevent. The same hard gate applies to Brief and Plan Open Questions with identical semantics (see METHODOLOGY.md §Planning Artifacts). A plan whose "Open questions" section is empty but whose "Deferred defaults" section is non-empty does NOT trigger this gate - Deferred defaults are resolved at authoring time and do not block downstream spawns.
 
-**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
+**Worker Preamble and Execution Contract Template** - when spawning an Elevated-risk engineer: read `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template for the full contract fields, verification mandate, and task_id field semantics.
 
 **Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
 
@@ -258,22 +180,9 @@ Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-s
 Preamble:
 *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
 
-Execution contract template:
-- outputs: [what artifact(s) the Worker must produce - e.g. "modified files committed to branch", "diff only", "summary report only"]
-- budget: [rough max tool-call count, or omit; advisory, not enforced]
-- tool_scope: [expected tool categories - e.g. "Read, Glob, Grep, Edit"; documentation only, does not override the harness-level Agent tool grants]
-- completion_conditions: [acceptance criteria verbatim from architect plan or ticket, plus any quality-gate pass requirements]
-- verification: [how this unit will be verified after it lands - existing test path that exercises it, new test the Worker must add, manual QA trigger pattern, or "self-evident review" if no test path is feasible]
-- output_paths: [specific file paths the Worker is expected to write or modify, or "conductor-directed" if paths emerge during implementation]
-- task_id: [unique task identifier for multi-unit correlation, or omit for single-unit]
-- brief_path: [path to the Brief governing this unit, or "n/a" if architect plan is the sole artifact]
-- plan_path: [path to the Plan directory governing this unit, or "n/a" if Brief-tier or below]
+**Cross-harness teams (opt-in).** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. Collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, config schema, self-containment guard, and per-harness dispatch table.
 
-When `brief_path` or `plan_path` is populated, the engineer reads it before starting. Success criteria, non-goals, and the verification gate supersede any informal interpretation of the ticket. If the engineer discovers a conflict between the Brief and the architect plan, it returns BLOCKED so the conductor can resolve.
-
-The `verification` field is **mandatory**. Its purpose is to force the conductor to specify *how the change will be verified before implementation begins*, not as a Skeptic afterthought. As coding gets cheaper, verification is the expensive thing, and the protocol reorganizes around verification rather than around shipping code. If the verification path is not knowable up front (truly novel surface, no existing tests, no feasible new test), state that explicitly as `"self-evident review"` and accept that the Skeptic and any QA gate are the only line of defense - do not leave the field blank.
-
-The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
+**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields and conductor consumption rules.
 
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
@@ -473,46 +382,9 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-### Project config (`.agentic/config.json`)
+The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
-The conductor reads `.agentic/config.json` to resolve eleven project-level orchestration toggles before classifying and spawning. The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
-
-- `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
-- `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
-- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`.
-- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
-- `capability_preflight_mode` - enum (`advisory | blocking`); default `blocking` as of P2 (all agent manifests are populated). The conductor reads this before every Agent spawn to decide whether missing required capabilities warn-and-proceed (`advisory`) or halt the spawn (`blocking`). Canonical reference: `content/references/capability-preflight.md`.
-- `perceptual_diff_enabled` - boolean, default `false`. Opt-in for the `perceptual_diff` QA scenario method; when `true`, qa-engineer runs Playwright `page.screenshot()` + pixelmatch comparison against committed baselines.
-- `theme_aware` - boolean, default `false`. Opt-in for per-theme QA tuples; when `true`, qa-engineer runs `visual_conformance` and `accessibility` scenarios in both light and dark themes and reports per-(scenario x viewport x theme) results. The conductor reads this toggle when inspecting `qa_criteria` to determine whether theme enforcement auto-Major rules apply.
-- `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer targets the Storybook iframe for isolated component verification. Requires Storybook 7+; init-project sets the related `storybook_url` config key when SB7+ is detected.
-- `motion_aware` - boolean, default `false`. Opt-in for the `motion` scenario method auto-Major Skeptic rule; when `true`, qa-engineer runs CDP-emulated reduced-motion checks per scenario.
-- `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios; `6` uses `?selectedKind=&selectedStory=` format. Set automatically by init-project.
-- `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits the per-developer session-log file (`.agentic/session-log/<developer_id>.jsonl`) as a separate commit on the PR branch, enabling cross-developer team visibility via `agentic-cost team` after pull. Set to `false` to opt out of telemetry commits on this project.
-
-#### Graph-derived risk signal
-
-When a fresh `GRAPH_REPORT.md` exists at the repo root, the conductor uses a Graphify knowledge graph during risk classification to detect high-blast-radius or non-obvious-coupling changes. It is presence-gated and escalate-only: it can raise a classification toward Elevated, never lower one.
-
-**Rationale.** Graphify writes `GRAPH_REPORT.md` at the repo root. Two of its computed sections name the symbols that carry the most architectural weight: God Nodes (highest-degree core abstractions) and Surprising Connections (cross-file couplings the author probably did not know about). A change touching one of those symbols is, by construction, the "Changes to shared utilities (single-file but high blast radius)" or "Logic with emergent/non-obvious cross-component interactions" Elevated signal - this mechanizes that judgment from an artifact the project already maintains.
-
-**Mechanism (when a fresh `GRAPH_REPORT.md` exists at the repo root).** Before classifying, the conductor checks freshness (below). If fresh, it reads `GRAPH_REPORT.md` and tests the change's target symbol(s) for membership, against the graphify v8 report format:
-- God Nodes: under the exact heading `## God Nodes (most connected - your core abstractions)`, each entry is `N. ` followed by a backtick-wrapped bare symbol label followed by ` - <degree> edges`. The match set is those bare labels.
-- Surprising Connections: under the exact heading `## Surprising Connections (you probably didn't know these)`, each entry's first line is `- ` followed by backtick-wrapped `<source>`, ` --<relation>--> `, backtick-wrapped `<target>`, then `  [<tag>]`. The match set is the bare `<source>` and `<target>` labels. The literal line `- None detected - all connections are within the same source files.` means no surprises.
-
-On a match, the conductor treats it as an additional Elevated signal and classifies the change Elevated (or higher if other signals apply). On no match, no effect - classify as today. When the target symbol is not yet known at classification time (for example a vague task before investigation), the signal does not fire; classify as today. The signal never downgrades a classification.
-
-Symbol matching is best-effort and bare-name-based (the report uses bare labels with no path qualification). Ambiguity (overloaded names, the same name in multiple files) is acceptable because the signal is escalate-only: over-firing toward Elevated only spawns a cheap extra Skeptic, while under-firing leaves today's behavior, so over-fire is the correct failure mode.
-
-**Freshness.** The conductor reads freshness from the same file as the signal (`GRAPH_REPORT.md`):
-- Primary (graph built in a git repo): under the exact heading `## Graph Freshness`, parse the line `- Built from commit: ` followed by a backtick-wrapped 8-character SHA. The graph is fresh only if that SHA equals the first 8 characters of `git rev-parse HEAD` AND the change's target file(s) have no uncommitted modifications (`git status --porcelain -- <target-paths>` is empty for those paths - a commit match alone misses uncommitted edits).
-- Fallback (no `## Graph Freshness` section, i.e. the graph was built outside a git repo): compare `GRAPH_REPORT.md`'s mtime against the newest target-source-file mtime; if any target source is newer, treat as stale. Fail safe to stale on any ambiguity.
-- On stale or undetermined: ignore the signal entirely - neither escalate nor downgrade - and classify exactly as today by human judgment.
-
-**Autonomous refresh.** The conductor keeps the graph fresh itself. At the point it is about to use the graph - before its own risk classification and before spawning the investigator - the conductor checks for an existing graph (`graphify-out/graph.json` or `GRAPH_REPORT.md`). If one exists and the staleness check above fails (built-commit not equal to HEAD, or uncommitted changes to the relevant files), the conductor runs `graphify update .` once from the repo root on its own checkout (honoring `GRAPHIFY_OUT` if set), then reads the refreshed report. This runs at most ONCE per session: after the first refresh the conductor treats the graph as fresh for the remainder of the session regardless of how many times staleness is later detected - it does not re-run `graphify update .` on every classification (in-session memory, the same once-per-session discipline as the cached base branch; no new state file). The conductor refreshes ONLY an existing graph this way: it NEVER autonomously runs a from-scratch `graphify .`, `graphify --watch`, or any rebuild or destructive path. If no graph exists at all, the conductor does NOT build one - it falls back to today's non-graph behavior. The conductor alone refreshes; the investigator and every other subagent keep their read-only lock and never run a mutating graphify subcommand. `graphify update .` is incremental and free for code-only deltas (tree-sitter AST, no LLM), but re-extracting changed docs, papers, or images costs LLM tokens, so on a mixed corpus an autonomous refresh may spend tokens; this is intrinsic to keeping an adopted graph fresh and has no opt-out toggle. If `graphify update .` fails (non-zero exit, binary error, or timeout), the conductor proceeds with the existing stale graph and notes the staleness; an update failure never blocks risk classification, and because the signal is escalate-only, using a stale graph is safe (it can only under-fire, never create a false downgrade).
-
-**Format coupling.** The pinned strings above are the graphify v8 report format. A future graphify heading change fails safe (no heading match means an empty match set and no escalation); if graphify changes the format, these strings need a follow-up sync.
-
-**GRAPHIFY_OUT.** The conductor reads the repo-root `GRAPH_REPORT.md` and, when refreshing, honors `GRAPHIFY_OUT` to locate the graph directory. A report relocated via `GRAPHIFY_OUT` is treated as "no report present" at the repo root - the signal does not fire and behavior is unchanged. Projects wanting the signal keep the report at the repo root.
+When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
 Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
 
@@ -522,10 +394,12 @@ Separately, the operator-owned product-intent layer `docs/overview/vision.md` + 
 
 ```
 Risk: Elevated - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review.
 ```
 ```
 Risk: Elevated + Cleanup - [specific signal]
+Tier: 2 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -544,40 +418,13 @@ Plan: docs/planning/<slug>/
 Applying adversarial review.
 ```
 
-### Tier declaration
-
-Conductors declare the model tier at spawn time to route lightweight tasks to lower-depth models and critical reviews to maximum-reasoning-depth models. Tier is declared in the same block as Risk, immediately below the Risk line.
-
-**Declaration format:**
-```
-Risk: Elevated - security adversarial brief
-Tier: 3  (max reasoning depth - security audit; Tier 3)
-Spawning security-auditor.
-```
-
-**Default:** Tier 2. When no tier is declared, the agent uses the Tier 2 model for the active harness. Most spawns are Tier 2 - omit the declaration entirely.
-
-**Model param mapping (Claude Code):**
-
-| Tier | Claude Code `model` param | Use when |
-|---|---|---|
-| 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
-| 2 | `"sonnet"` | Standard work - engineer, investigator, skeptic at normal depth |
-| 3 | `model: "opus"` | Security audits, novel architecture, complex blast-radius analysis |
-
-**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism.
-
-**When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
-
-**When to declare Tier 3:** task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Reserve Tier 3 for these cases and include a justification parenthetical.
-
-**Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
+Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
 
 ### Spawn presets (per-spawn capability bundles)
 
 **Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
 
-For the full tier guidance table (default tiers by agent role, upgrade cases, downgrade cases), see `docs/planning/p2-tier-routing.md`.
+For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
 
 ## QA Gate
 
@@ -671,31 +518,11 @@ For the full YAML schema, `required_when` predicate grammar, `auto_install` safe
 
 ## Cross-session loop resume
 
-Long-running `/implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`:
-
-- **Disk writes at every phase transition.** The conductor writes `.agentic/loop-state.json` (atomic: tmp+rename) at initialization and at every phase transition (Skeptic spawn, Skeptic return, Engineer spawn, Engineer return, QA spawn, QA return, quality gate steps). The `last_phase` and `last_phase_action` fields are the authoritative resume keys.
-
-- **Resume check on session start.** When `/implement-ticket` is invoked, it checks for `.agentic/loop-state.json` before reading AGENTS.md. If `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. See `/implement-ticket` Resume check section for the full protocol.
-
-- **Stop hook writes interrupted status.** The Stop hook writes `status: "interrupted"` to `.agentic/loop-state.json` on session exit if the file exists and `status == "active"`. Silent failure is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
-
-- **Resumable phases (automatic):** Phase 6/6b Skeptic/QA loop at iteration boundaries (committed Engineer output, clean branch); Phase 7 quality gate when engineer committed (`engineer_returned` / `rerun_pending`).
-
-- **Resumable with human confirmation:** Mid-Engineer (dirty branch) - conductor asks human to discard or commit the partial work.
-
-- **Restart required:** Phases 1-4 (cheap to re-run, no branch side effects). State file is not written until Phase 6 loop initialization.
-
-- **Full Skeptic re-run on interruption.** If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch (last_phase=skeptic, last_phase_action=spawned). Skeptic is read-only and idempotent.
-
-- **Brief/Plan paths recorded.** When a Brief or Plan governs the task, `brief_path`, `plan_path`, and `promotion_tier` (enum: `none`, `brief`, `plan`) are written to `.agentic/loop-state.json` at authoring time. On resume, the conductor re-reads the Brief/Plan before spawning the next worker. Mid-flight escalation from Trivial or single-unit Elevated to Brief or Plan tier authors a retroactive Brief before the next engineer spawn (the in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed). Brief-tier tasks auto-promote to Plan tier on the 3rd resume.
-
-- **File hygiene:** `.agentic/loop-state.json` must not be committed to git (gitignored). It is set to `status: "complete"` or deleted after the PR is opened.
-
-- **Batch-state coexistence.** When `/implement-ticket` is invoked with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor (which tickets are pending, in-progress, complete, blocked) alongside `loop-state.json`'s per-ticket phase cursor. Both files carry a `session_id` field written on every conductor write; every write applies a per-write gate that aborts (with an operator-visible warning) if the file's existing `session_id` belongs to a different session whose `last_updated` is within 10 min, OR if the existing `session_id` is null/absent (legacy state from a prior version is force-takeover-eligible). This prevents orphan-session corruption uniformly across both files. The Stop hook mirrors its `loop-state.json` interrupted-mark write to `batch-state.json` via the same best-effort silent-fail discipline. Single-ticket Trivial invocations never create `batch-state.json` and remain bit-for-bit unchanged. Only one batch per project root is supported; a second concurrent N≥2 invocation is refused at Phase 0a-pre. N=1 invocations against an active foreign batch warn but do not refuse.
+Long-running `/implement-ticket` loops survive via `.agentic/loop-state.json` written at every phase transition; read `content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when loop-state.json exists.
 
 ## Task-state file
 
-When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` (sole writer); read `content/references/task-state-file.md` §Task-state file for schema and protocol (incl author_model).
 
 ## Events log
 
@@ -711,15 +538,7 @@ When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the co
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-Additionally, the Stop hook writes a one-line per-session rollup to `.agentic/session-log/<developer_id>.jsonl` - a per-developer surface for session telemetry. Committed to git via the `.agentic/session-log/` gitignore carve-out; `/implement-ticket` Phase 8 commits it as a SEPARATE commit on the PR branch when `commit_telemetry: true` (default) and identity is confirmed. See `content/references/events-log.md` "Per-developer session log" for the schema.
-
-**Pending-buffer (pre-attribution staging).** When no confirmed identity exists at session exit - i.e., `agentic-identity init` has not yet been run - the Stop hook writes the session telemetry record to `~/.agentic/session-log/.pending/<session_uuid>.json` instead of a named per-developer log. This file is a staging area only: it is not an `events.jsonl` event type, it is not read by `agentic-cost`, and it carries no `developer_id` field. When the user later runs `agentic-identity confirm` or `agentic-identity init <handle>`, the identity layer flushes all pending records, stamps each with the confirmed handle, and appends them to the appropriate per-project and global session-log files as if they had been written at session time.
-
-**`session_uuid` on conductor-emitted events.** The conductor stamps `data.session_uuid` on every `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, and `tool_failure_workaround` emit. The value is the Claude Code harness session uuid obtained from `$CLAUDE_CODE_SESSION_ID`, which MUST equal the Stop hook's `payload.session_id`. This allows the Stop hook and session-scoped readers to filter precisely to one session. Absent on legacy lines; general readers treat absence as include for back-compat.
-
-**`tool_failure_workaround` event type.** Emitted by the conductor when it resolves a tool or command failure via retry or workaround. Schema: `{ event: "tool_failure_workaround", agent: null, data: { session_uuid, tool, domain_tag, note } }`. PII boundary identical to `conductor_direct` (no args, no output, no secrets; `note` is one sentence). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
-
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`.
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
@@ -750,8 +569,17 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 ## Protocol Details (read on trigger)
 
+**Activation detail (Steps 5-6)** - when Step 4 of the activation preflight resolves to active:
+Read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the sentinel write contract, TTY/QUIET gate, and `agentic-migrate` flow.
+
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
-See METHODOLOGY.md §Planning Artifacts for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
+See `content/sections/03-planning-artifacts.md` for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
+
+**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
+Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
+
+**Risk config and tiers** - when consulting config toggles, the graph-derived risk signal, or tier declaration detail:
+Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, and §Tier Declaration Detail.
 
 **Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
 Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
@@ -787,16 +615,28 @@ Read `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-ob
 Read `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
 
 **Capability preflight** - before every Agent spawn:
-See METHODOLOGY.md §Capability Preflight for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
+See `content/sections/06-capability-preflight.md` for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-See METHODOLOGY.md §QA Gate for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
+See `content/sections/05-qa-gate.md` for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
 
 **Events log schema** - full V1 telemetry event-type field shapes and operational notes:
-Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `conductor_direct`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in METHODOLOGY.md §Events log.
+Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.)
 
 **Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
-Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in METHODOLOGY.md §Worktree Lifecycle.
+Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in `content/sections/11-worktree-lifecycle.md`.
+
+**Cross-session loop resume** - when `/implement-ticket` loop state must be resumed:
+Read `content/references/cross-session-loop-resume.md` §Cross-session loop resume for disk-write discipline, resumable phases, Brief/Plan path recording, and batch-state coexistence.
+
+**Task-state file** - when managing multi-unit plan orchestration state:
+Read `content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, field-level merge algorithm, and `author_model` field semantics.
+
+**Code standards detail** - when implementing or modifying code in a specific language:
+Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults for TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs, and §Browser Verification for `agent-browser` usage patterns.
+
+**Conventions detail** - when consulting the intent layer, context economy, or external comment rules:
+Read `content/references/conventions-detail.md` §The Intent Layer for artifact list and Project Config toggle catalog, §Context Economy for context-window discipline, and §External Comment Discipline for PR/review comment rules.
 
 **Capture classification** - when deciding whether to write a learning entry at a mandatory trigger:
 Read `content/references/capture-classification.md` for the guardrail-first precedence chain, the two-gate MUST/SHOULD/SKIP table, and the per-trigger declaration format. Mandatory triggers and the `Capture:` block format are owned by `content/references/conductor-operating-rules.md §learnings-agent`.

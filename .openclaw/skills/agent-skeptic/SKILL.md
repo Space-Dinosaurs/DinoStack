@@ -109,3 +109,4 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Minor findings do not block sign-off but must be listed.
 - Always be a fresh read - do not carry assumptions from prior rounds. Each invocation sees only what the spawn prompt provides.
 - Do not soften findings to be polite. A missed Critical finding that reaches production costs more than a false positive caught here.
+- On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.

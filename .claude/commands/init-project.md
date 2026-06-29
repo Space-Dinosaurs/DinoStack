@@ -96,11 +96,12 @@ Capture the answer as INIT_PROFILE. Empty (Enter) = "keep current default": INIT
 = null, write NOTHING. Typing 'default' is also a no-op write (do not pin default
 explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE to that value.
 
-**0a-config. Three project settings that change how work gets done (additive; Enter keeps each default).**
+**0a-config. Four project settings that change how work gets done (additive; Enter keeps each default).**
 
-These map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
+Q1-Q3 map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
 captured into a variable substituted into that single seed write - there is no separate
-config write. Empty input keeps the documented default exactly.
+config write. Empty input keeps the documented default exactly. Q4 does not write to
+`config.json`; it gates Step 6g only.
 
 Q1 - Auto-merge on green CI?
 
@@ -135,6 +136,18 @@ Q3 - Diagnose failures with a debugger pass?
   > Press Enter to keep the default (No). Or type y to enable debugger-on-failure.
 
   Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
+
+Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
+
+  > On Pi, the workflow can run each role (architect, engineer, reviewer, ...) on a
+  > model you choose, and run the adversarial reviewer on a DIFFERENT model than the one
+  > that wrote the code - a true antagonist (e.g. an Opus author reviewed by GPT or GLM).
+  > Enabling this seeds an editable `~/.agentic/role-models.yml` you fill in with the
+  > models you have in Pi. Ignored on Claude/Codex/Gemini.
+  >
+  > Press Enter to skip (no routing file; Pi uses session defaults). Or type y to seed it.
+
+  Capture as INIT_ROLEMODELS. Enter / n / no -> skip. y / yes -> seed in Step 6g.
 
 Note: the other config keys (capability preflight, the QA-method toggles, Storybook,
 theme) are left at their safe defaults and detected automatically where relevant. They
@@ -249,7 +262,9 @@ Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / e
 
 **Idempotent mode trigger** — if `AGENTS.md` already exists and contains any of the standard sections (`## Tools`, `## Docs`, `## Conventions`, `## Linear`, or `## Tracker`), this is an **update run**, not a greenfield run. Switch to the update mode algorithm (Step 2a) instead of the normal create flow.
 
-**Greenfield mode** — if `AGENTS.md` does not exist, or exists but contains none of the standard sections, proceed with the normal create flow (Steps 3 onward).
+**Custom-file mode** — if `AGENTS.md` already exists but contains none of the standard AE sections, this is a **custom-file run**. The file was not created by /init-project and its content must be preserved unchanged. Proceed to Step 3 with custom-file mode active (see "If `AGENTS.md` exists" branch in Step 3).
+
+**Greenfield mode** — if `AGENTS.md` does not exist, proceed with the normal create flow (Steps 3 onward).
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
@@ -278,7 +293,7 @@ Missing (will be created):
   - backend/AGENTS.md
   - ...
 
-Already exists (will be left untouched or curated in place):
+Already exists (will be left untouched or additive-only):
   - .claude/settings.json
   - .gitignore
   - ...
@@ -288,7 +303,7 @@ Already exists (will be left untouched or curated in place):
 
 **`.claude/settings.local.json` - always skip silently if it exists.** Do not ask. Do not overwrite. **Exception:** if the file exists but lacks the `autoMemoryDirectory` key, Step 2a item 9 will perform a narrow idempotent merge to add that single field without touching any other keys. See Step 2a item 9. Remind the user: "`.claude/settings.local.json` already exists and was left untouched - it may contain real secrets. Add any new env keys manually."
 
-**`AGENTS.md` (root) - if it exists, curate in place.** Do not skip. Do not overwrite wholesale. Read it and reorganize it to conform to the target structure (under 45 lines). See Step 3 for the curation process.
+**`AGENTS.md` (root) - if it exists, leave all existing content untouched.** Apply only the additive managed-block update from Step 3. Never reorganize, compress, or rewrite to the template structure. See Step 3 for the managed-block procedure.
 
 **All other existing files - leave untouched.** Note them in the scan output. Do not ask. Do not overwrite.
 
@@ -452,53 +467,66 @@ On "y": apply all planned changes. On "n" or Enter: abort with "Update cancelled
 
 After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 through 11.
 
-### 3. Curate or create root `AGENTS.md`
+### 3. Create or update root `AGENTS.md`
 
-**If `AGENTS.md` does not exist:** create from scratch using the template below. No curation needed - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
+**If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
 
 **Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator pressed Enter) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
 
-**If `AGENTS.md` exists:** perform intelligent curation with Worker + Skeptic review:
+**If `AGENTS.md` exists:** use the additive managed-block approach. No Worker is spawned; no existing content is removed, reordered, or compressed. The only change to the file is the addition or refresh of a delimited managed block. All user-authored content outside that block is left untouched. This command does NOT write any entries to `MEMORY.md` on the custom-file path.
 
-**Main agent pre-work (inline, before spawning Worker):**
-Read the existing `AGENTS.md` and identify two groups of content:
+**Step 3 existing-file procedure (sub-steps in order):**
 
-- **Memory candidates** - content that belongs in `MEMORY.md`, not `AGENTS.md`: detailed rationale paragraphs, implementation details (code snippets, schema explanations), setup command sequences, decision alternatives considered, anything that reads as "what we learned" or "here is how it works" rather than "we decided X".
-- **Architecture content to keep** - content that belongs in `AGENTS.md`: resolved decisions expressed as brief bullets (1 sentence each), cross-cutting conventions, repo structure map, tools and their usage, docs structure.
+**3a. Decide whether a change is needed; back up only if so.** Run 3b, 3d-pre, and (when 3d-pre does not fire) 3c first to compute the would-be managed block. If a managed block already exists and the would-be block is byte-for-byte identical to it (idempotent re-run), make NO change - no backup, no write - and report "AGENTS.md: managed block already current - no changes made." Otherwise: obtain a UTC timestamp via `date -u +%Y%m%dT%H%M%SZ`, copy `AGENTS.md` to `AGENTS.md.bak-<timestamp>`, and append the line `AGENTS.md.bak-*` to `.gitignore` if that exact glob is not already present (additive; do not duplicate). Report "Backup created: AGENTS.md.bak-<timestamp>".
 
-**Spawn a background Worker** (labeled "AGENTS.md curation Worker") with:
-- The raw existing `AGENTS.md` content
-- The memory candidates identified above
-- The Step 1 answers (project name, description, tracks, tools)
-- The target `AGENTS.md` structure below
-- Instruction to produce two artifacts: (1) the curated `AGENTS.md` content conforming to the target structure, (2) `MEMORY.md` entries for each memory candidate using format `- **YYYY-MM-DD:** [what and why, one-two sentences]` with today's date
+**3b. Locate or prepare the managed block.** Use the exact markers (verbatim, copied from `.claude/install.sh`): begin `<!-- BEGIN managed-by-agentic-engineering -->`, end `<!-- END managed-by-agentic-engineering -->`. If absent: the block will be appended at end of file, preceded by one blank line. If present: it will be replaced from begin-marker through end-marker inclusive, via a non-greedy DOTALL match anchored on those exact strings (mirror the `re.sub` in `.claude/install.sh`).
 
-**Target `AGENTS.md` structure (under 45 lines):**
-- H1: project name
-- One-paragraph description
-- `## Activation` - always emitted; see the template below for the base block and conditional assembly. When curating an existing `AGENTS.md` that lacks this section, add it (preserving any active `agentic-engineering: opt-in` or `agentic-engineering-profile:` line already present by folding it into the section per the conditional-assembly rules). The explanatory HTML-comment lines inside the `## Activation` base block are guidance, not content - they do not count against the under-45-line budget.
-- `## Decisions` - resolved architecture decisions as brief bullets, no rationale paragraphs
-- Repo structure map listing each track with a one-line description (omit if no tracks)
-- `## Tools`
-- `## Linear` OR `## Tracker` (preserve whichever is present — do not drop during curation)
-- `## Docs`
-- `## Conventions`
-- `## Session start` (tool-agnostic session-agent scaffolding check; see template block below)
+**3d-pre. Guard - preserve a user-authored `## Activation` section.** Scan the file OUTSIDE the begin/end block range for a line beginning `## Activation`. If FOUND: do NOT emit a `## Activation` heading inside the managed block; leave the user's `## Activation` section and every marker line inside it completely untouched; the managed block will contain ONLY the profile helper (resolved per 3d); SKIP step 3c entirely; surface "Note: an existing ## Activation section was found and left as authored. The managed block adds only the resolver profile helper." If NOT FOUND: proceed to 3c.
 
-**Spawn a fresh Skeptic** after the Worker returns with this adversarial brief:
-> "Is the curated AGENTS.md under 45 lines? Does it have all required sections (H1, overview paragraph, Activation, Decisions, Tools, Docs, Conventions, Session start)? Is the `## Activation` section present with resolver-safe markers (commented unless an active opt-in / profile line was carried over), and free of contradictory duplicate markers (e.g. both an active profile line and a commented `default` helper)? Did any implementation detail or rationale paragraph remain that belongs in memory.md instead? Are the memory entries stable facts (not temporary task state)? Does the curated AGENTS.md preserve all architecture decisions from the original, just compressed to brief bullets?"
+**3c. Resolve the activation marker (only when 3d-pre did not fire).** Choose the activation state by this PRIORITY, highest first:
+  1. A bare active `agentic-engineering: opt-in` or `agentic-engineering: opt-out` line OUTSIDE the managed block -> MOVE it: remove that line from the file and use its value.
+  2. Else, an active (uncommented) `agentic-engineering:` marker already INSIDE the existing managed block -> preserve its value (re-emit the same active line on refresh).
+  3. Else, the Step 0a activation decision: if the operator explicitly chose opt-in for this project, use an active `agentic-engineering: opt-in` line (mirror the greenfield template's Step 0a handling).
+  4. Else, use the commented `<!-- agentic-engineering: opt-out -->` helper (inert default).
 
-Require sign-off format:
+**3d. Assemble the managed block.** Resolve the PROFILE line by the same priority: an active (uncommented) `agentic-engineering-profile:` line already inside the existing block is preserved; else INIT_PROFILE (relaxed/strict emit an active line; default/null emit the commented helper). Because both the activation (3c) and profile lines are reproduced from any existing active value, regeneration of an unchanged block is a FIXED POINT - a second run reproduces it byte-for-byte and 3a NO-OPs.
+
+When 3d-pre did NOT fire, the block contains a `## Activation` heading plus the resolved activation + profile lines, e.g. (base case: no active marker resolved, profile default):
+```markdown
+<!-- BEGIN managed-by-agentic-engineering -->
+## Activation
+<!--
+  agentic-engineering governs how work is done in this project.
+  Run /agentic-status to see the resolved mode, profile, and whether it is active here.
+
+  This project is ACTIVE by default. To turn it off for this project only,
+  uncomment the marker line just below this block.
+-->
+<!-- agentic-engineering: opt-out -->
+
+<!--
+  Optional review strictness: relaxed | default | strict.
+  Uncomment the line below to override the global setting for this project.
+-->
+<!-- agentic-engineering-profile: default -->
+<!-- END managed-by-agentic-engineering -->
 ```
-Reviewed: [file]
-Findings: Critical: N, Major: N, Minor: N - [brief descriptions, or "None"]
-Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
-No unresolved Critical or Major findings. Sign-off granted.
+If 3c resolved an ACTIVE marker (e.g. a preserved or moved `agentic-engineering: opt-out`/`opt-in`), emit that as an uncommented line in place of the commented helper (never both). Same for an active profile line.
+
+When 3d-pre DID fire, the block omits the `## Activation` heading and the activation line, containing only the profile helper (or active profile line), e.g.:
+```markdown
+<!-- BEGIN managed-by-agentic-engineering -->
+<!--
+  Optional review strictness: relaxed | default | strict.
+  Uncomment the line below to override the global setting for this project.
+-->
+<!-- agentic-engineering-profile: default -->
+<!-- END managed-by-agentic-engineering -->
 ```
 
-After sign-off: write the curated `AGENTS.md`, then merge the Worker's memory entries into `MEMORY.md` using semantic dedup - skip any entry already captured, supersede if updated, append if new. Before merging, check whether `MEMORY.md` exists. If it does not exist, create it with the stub header first (same content as Step 7), then merge. This ensures Step 8's guard ("if the file already exists, leave the stub header step") remains correct.
+**3e. Report.** On change: "AGENTS.md updated: added/refreshed the managed block. All prior content preserved. Backup at AGENTS.md.bak-<timestamp>." On no-op: "AGENTS.md: managed block already current - no changes made."
 
-**`AGENTS.md` template (use for new files, and as the structural target for curation):**
+**`AGENTS.md` template (use for new files):**
 - H1: project name
 - One-paragraph description. If no description was provided, use `<!-- TODO: Add one-paragraph description -->` as the placeholder.
 - `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that agentic-engineering governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
@@ -848,7 +876,16 @@ Seed with these documented defaults exactly:
   "storybook_enabled": false,
   "motion_aware": false,
   "storybook_version": 7,
-  "commit_telemetry": true
+  "commit_telemetry": true,
+  "deferred_wrap_daemon": false,
+  "deferred_wrap_idle_minutes": 15,
+  "deferred_wrap_heartbeat_seconds": 120,
+  "deferred_wrap_timeout_minutes": 10,
+  "deferred_wrap_inprogress_reclaim_minutes": 30,
+  "deferred_wrap_pending_ttl_days": 7,
+  "abdication_guard_enabled": false,
+  "skill_candidate_detection": true,
+  "skill_candidate_nudge": false
 }
 ```
 
@@ -865,6 +902,16 @@ Seed with these documented defaults exactly:
 - `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
+- `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
+- `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
+
+
+### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
+
+Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `agentic-engineering` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 
@@ -912,7 +959,7 @@ If `<cwd>/MEMORY.md` does not already exist, create it:
 <!-- Entry format: - **YYYY-MM-DD:** [what and why, one sentence] -->
 ```
 
-If the file already exists (e.g. because AGENTS.md curation in Step 3 merged entries into it), skip this step and proceed to Step 9.
+If the file already exists (e.g. because a prior run or Step 2a's CLAUDE.md migration already wrote it), skip this step and proceed to Step 9.
 
 ### 9. Create `.gitignore`
 
@@ -951,7 +998,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/context.md
 .agentic/memory/
 .agentic/memory.md
-.agentic/wrap.lock/
+.agentic/wrap/
 .agentic/preferences.json
 .agentic/compression-state.json
 .agentic/tracker-states.json
@@ -967,7 +1014,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 !.agentic/learnings.md
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap.lock/` (/wrap concurrency lock dir), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
 
 ### 10. Create `docs/` structure
 
@@ -1132,7 +1179,7 @@ No tracker setup needed. Skip this step.
 After all files are processed, print a short summary with three sections:
 
 **Created:** list every file that was newly written.
-**Curated:** list `AGENTS.md` if it was reorganized in place (with a note: "reorganized to target structure; extracted facts moved to MEMORY.md").
+**Updated:** note whether `AGENTS.md` was created fresh (new file, greenfield path) or had the managed `## Activation` block appended/refreshed (existing file - all prior content left untouched).
 **Skipped (already existed):** list every file that was left untouched and why (auto-skipped `.claude/settings.local.json`, or existing track `AGENTS.md`, or other existing files left untouched).
 
 **Config readout.** Print the resolved configuration in two blocks, then the pointers.
@@ -1151,6 +1198,7 @@ Project config (.agentic/config.json)
   model_profile: <value>            (default = right model per task; budget = cheaper tier)
   debugger_on_failure: <value>      (run a Debugger diagnosis before each fix on a gate failure)
   commit_telemetry: <value>         (commit session-log to PR branch at Phase 8; default true)
+  deferred_wrap_daemon: <value>     (out-of-session daemon picks up deferred /wrap jobs; default false)
   (other keys at defaults - see the file or /agentic-status to adjust)
 ```
 
@@ -1170,7 +1218,7 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 1. Update the `## Tools` section in root `AGENTS.md` as new CLI tools are added to the project over time
 2. Fill in the `## Conventions` section in root `AGENTS.md` as the project takes shape
 3. Grow each `[track]/AGENTS.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
-4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, and backfill missing config without destroying existing content.
+4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, backfill missing config, and (for custom non-AE files) refresh the managed `## Activation` block - all without destroying or rewriting any existing content.
 5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
 6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
 7. Update `.agentic/qa.md` with your staging URL once a staging environment is available - show only if `.agentic/qa.md` was created (and therefore web UI was not declined)

@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import itertools
 import json
 import os
 import re
@@ -62,8 +63,9 @@ import sys
 from pathlib import Path
 
 V1_FOOTER = (
-    "Note: V1 instruments engineer/skeptic/qa only; "
-    "architect/investigator/debugger spawns are not counted."
+    "Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; "
+    "conductor spawn_complete for /implement-ticket sessions). "
+    "Hook-spawn wall-time and tokens are unavailable (harness ceiling) and render as n/a."
 )
 
 EVENTS_PATH = Path(".agentic/events.jsonl")
@@ -127,28 +129,71 @@ def _filter_events(events: list[dict], filt) -> list[dict]:
 
 
 def _aggregate_by_agent(events: list[dict]) -> dict:
-    """Aggregate spawn_complete events by agent name. Returns
-    {agent: {spawns, tokens, wall_seconds, models}}."""
-    agg: dict = {}
+    """Aggregate spawn events by agent name.
+
+    For sessions with spawn_complete events (ticketed /implement-ticket path),
+    count spawn_complete events and skip any co-present hook spawn_start events
+    to avoid double-counting.  For sessions with NO spawn_complete events
+    (ad-hoc sessions), count hook-emitted spawn_start events whose
+    data.source == "hook" with wall_seconds=0 and tokens=0.
+
+    Returns {agent: {spawns, tokens, wall_seconds, models}}.
+    """
+    # Group events by session_uuid so we can apply the double-count guard.
+    # Events without a session_uuid get a synthetic per-event key to avoid
+    # collisions; they are each treated as their own isolated bucket.
+    _synthetic = itertools.count()
+
+    sessions: dict[str, list[dict]] = {}
     for ev in events:
-        if ev.get("event") != "spawn_complete":
-            continue
-        agent = ev.get("agent") or "(unknown)"
         data = ev.get("data") or {}
-        tokens = data.get("tokens") or {}
-        wall = float(data.get("wall_seconds") or 0)
-        model = data.get("model")
-        bucket = agg.setdefault(
-            agent,
-            {"spawns": 0, "tokens": _empty_tokens(),
-             "wall_seconds": 0.0, "models": {}},
+        uuid = data.get("session_uuid") or f"__nosession_{next(_synthetic)}__"
+        sessions.setdefault(uuid, []).append(ev)
+
+    agg: dict = {}
+    for _uuid, session_events in sessions.items():
+        has_complete = any(
+            e.get("event") == "spawn_complete" for e in session_events
         )
-        bucket["spawns"] += 1
-        _add_tokens(bucket["tokens"], tokens)
-        bucket["wall_seconds"] += wall
-        if model:
-            mb = bucket["models"].setdefault(model, _empty_tokens())
-            _add_tokens(mb, tokens)
+        for ev in session_events:
+            ev_type = ev.get("event")
+            data = ev.get("data") or {}
+
+            if ev_type == "spawn_complete":
+                # Ticketed path: always count.
+                agent = ev.get("agent") or "(unknown)"
+                tokens = data.get("tokens") or {}
+                wall = float(data.get("wall_seconds") or 0)
+                model = data.get("model")
+                bucket = agg.setdefault(
+                    agent,
+                    {"spawns": 0, "tokens": _empty_tokens(),
+                     "wall_seconds": 0.0, "models": {}},
+                )
+                bucket["spawns"] += 1
+                _add_tokens(bucket["tokens"], tokens)
+                bucket["wall_seconds"] += wall
+                if model:
+                    mb = bucket["models"].setdefault(model, _empty_tokens())
+                    _add_tokens(mb, tokens)
+
+            elif (
+                ev_type == "spawn_start"
+                and data.get("source") == "hook"
+                and not has_complete
+            ):
+                # Ad-hoc path: session has no spawn_complete events so use hook
+                # spawn_start as the spawn signal.  Tokens and wall_seconds are
+                # unavailable from the hook; record zeros so the renderer shows n/a.
+                agent = ev.get("agent") or "(unknown)"
+                bucket = agg.setdefault(
+                    agent,
+                    {"spawns": 0, "tokens": _empty_tokens(),
+                     "wall_seconds": 0.0, "models": {}},
+                )
+                bucket["spawns"] += 1
+                # tokens remain zero; wall_seconds remains 0.0
+
     return agg
 
 
@@ -266,19 +311,43 @@ def _render_table(
         for agent in sorted(agg.keys()):
             b = agg[agent]
             t = b["tokens"]
-            lines.append(
-                f"{agent:<12}{b['spawns']:>8}{t['input']:>10}"
-                f"{t['output']:>10}{t['cache_creation']:>11}"
-                f"{t['cache_read']:>11}{b['wall_seconds']:>10.1f}"
-            )
+            tok_sum = t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
+            # Render n/a for token columns when all tokens are zero (hook-spawn with
+            # unavailable token data). Wall-time also renders n/a when wall_seconds
+            # is 0 to stay consistent with the token treatment.
+            if tok_sum == 0:
+                wall_str = "n/a" if b["wall_seconds"] == 0.0 else f"{b['wall_seconds']:.1f}"
+                lines.append(
+                    f"{agent:<12}{b['spawns']:>8}{'n/a':>10}"
+                    f"{'n/a':>10}{'n/a':>11}"
+                    f"{'n/a':>11}{wall_str:>10}"
+                )
+            else:
+                lines.append(
+                    f"{agent:<12}{b['spawns']:>8}{t['input']:>10}"
+                    f"{t['output']:>10}{t['cache_creation']:>11}"
+                    f"{t['cache_read']:>11}{b['wall_seconds']:>10.1f}"
+                )
             _add_tokens(totals, t)
             total_wall += b["wall_seconds"]
             total_spawns += b["spawns"]
-        lines.append(
-            f"{'TOTAL':<12}{total_spawns:>8}{totals['input']:>10}"
-            f"{totals['output']:>10}{totals['cache_creation']:>11}"
-            f"{totals['cache_read']:>11}{total_wall:>10.1f}"
+        total_tok_sum = (
+            totals["input"] + totals["output"]
+            + totals["cache_creation"] + totals["cache_read"]
         )
+        if total_tok_sum == 0:
+            total_wall_str = "n/a" if total_wall == 0.0 else f"{total_wall:.1f}"
+            lines.append(
+                f"{'TOTAL':<12}{total_spawns:>8}{'n/a':>10}"
+                f"{'n/a':>10}{'n/a':>11}"
+                f"{'n/a':>11}{total_wall_str:>10}"
+            )
+        else:
+            lines.append(
+                f"{'TOTAL':<12}{total_spawns:>8}{totals['input']:>10}"
+                f"{totals['output']:>10}{totals['cache_creation']:>11}"
+                f"{totals['cache_read']:>11}{total_wall:>10.1f}"
+            )
         lines.append("")
         if pricing_error:
             lines.append(pricing_error)
