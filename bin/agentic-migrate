@@ -13,7 +13,8 @@
 #   0 = success / no-op
 #   1 = drift detected (check subcommand only)
 #   2 = manifest not found / parse error
-#   3 = partial apply (some rules errored)
+#   3 = partial apply (some rules errored; also raised when a manifest entry's
+#       path resolves outside project_root - path-traversal guard)
 
 from __future__ import annotations
 
@@ -462,9 +463,17 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 errored = True
 
         # --- file rules ---
+        resolved_root = project_root.resolve()
         for entry in manifest.get("files", []):
             try:
                 target = project_root / entry["path"]
+                if not target.resolve().is_relative_to(resolved_root):
+                    print(
+                        f"agentic-migrate: skipping out-of-root path: {entry['path']!r}",
+                        file=sys.stderr,
+                    )
+                    errored = True
+                    continue
                 if not target.exists():
                     seed_path = manifest_dir / entry["seed"]
                     if seed_path.is_file():
