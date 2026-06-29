@@ -574,12 +574,13 @@ upsert_hook(
     "SessionStart deferred-wrap hook",
 )
 
-# ---- PreToolUse orchestrator-singularity + tier hooks -----------------------
+# ---- PreToolUse background-spawn + orchestrator-singularity + tier hooks ----
 # NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool from
 # "Task" to "Agent". We wire BOTH matcher names so the hooks fire under either
 # CC version. The hooks themselves also guard on both names internally for
 # belt-and-suspenders coverage. Two PreToolUse blocks are created: one for
 # "Task" (legacy) and one for "Agent" (current), each containing both hooks.
+ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
 ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
 ENFORCE_TIER_CMD = f"python3 {repo_dir}/hooks/enforce-tier.py"
 
@@ -598,6 +599,13 @@ for spawn_matcher in ("Task", "Agent"):
         ptu_list.append(ptu_block)
 
     ptu_block.setdefault("hooks", [])
+
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-background-spawn.py",
+        {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) background-spawn enforcement hook",
+    )
 
     # Denies spawns issued from inside a subagent context (detected via the
     # top-level agent_id field). To disable: set AE_SINGULARITY_GUARD_DISABLE=1

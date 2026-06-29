@@ -92,28 +92,41 @@ cases = [
         }),
         "ALLOW",
     ),
-    # --- Regression tests: tool_name="Agent" (CC rename, was failing silently) ---
-    # Against the buggy guard (tool_name != "Task" -> sys.exit(0)), all of
-    # these would incorrectly ALLOW. After the fix they must enforce normally.
+    # --- tool_name="Agent" cases ---
+    # Agent spawns are NOT background-enforced by this hook. The Claude Code
+    # harness strips run_in_background from the Agent PreToolUse hook payload
+    # (verified by live payload capture: tool_input keys for Agent are exactly
+    # ['description', 'prompt', 'subagent_type'] - run_in_background is absent).
+    # Agent is background-by-default at the harness level; enforcing it here
+    # would brick every Agent spawn. Background enforcement applies to legacy
+    # Task only. Sentinel suppression still applies to Agent (tested in
+    # bin/tests/test_enforce_background_spawn.py).
     (
-        "Agent: run_in_background=true - ALLOW (regression: was silently ALLOW)",
-        json.dumps({"tool_name": "Agent", "tool_input": {"run_in_background": True}}),
+        "Agent: realistic harness payload (no run_in_background) - ALLOW",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "description": "Implement the feature",
+                "prompt": "...",
+                "subagent_type": "engineer",
+            },
+        }),
         "ALLOW",
     ),
     (
-        "Agent: run_in_background=false - DENY (regression: was silently ALLOW)",
+        "Agent: run_in_background=false - ALLOW (not enforced for Agent; harness strips this field)",
         json.dumps({"tool_name": "Agent", "tool_input": {"run_in_background": False}}),
-        "DENY",
+        "ALLOW",
     ),
     (
-        "Agent: run_in_background absent - DENY (regression: was silently ALLOW)",
+        "Agent: run_in_background absent - ALLOW (mirrors real harness payload shape)",
         json.dumps({"tool_name": "Agent", "tool_input": {}}),
-        "DENY",
+        "ALLOW",
     ),
     (
-        "Agent: run_in_background=null - DENY (regression: was silently ALLOW)",
-        json.dumps({"tool_name": "Agent", "tool_input": {"run_in_background": None}}),
-        "DENY",
+        "Agent: run_in_background=true - ALLOW (enforcement not required; bg is harness default)",
+        json.dumps({"tool_name": "Agent", "tool_input": {"run_in_background": True}}),
+        "ALLOW",
     ),
     (
         "Agent: foreground-exempt wrap-ticket - ALLOW",

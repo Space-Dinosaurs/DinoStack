@@ -69,7 +69,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, subagents are spawned via the `Agent` tool and run in the background by default - there is no foreground/background param to set and no harness-level gate to enforce, so this rule is upheld by conductor discipline, not by a hook. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
+**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness consumes `run_in_background` for its own async routing and strips it from the PreToolUse hook payload (confirmed by live payload capture: hook tool_input keys for an Agent spawn are exactly `['description', 'prompt', 'subagent_type']`). As a result, `hooks/enforce-background-spawn.py` does NOT enforce `run_in_background` on `Agent` - doing so would brick every Agent spawn. Background enforcement is applied to the legacy `Task` tool name only. The hook retains two active responsibilities: (a) `run_in_background` enforcement for the legacy `Task` tool, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated.
 
@@ -2148,13 +2148,13 @@ This relies on worker cooperation. It is defense-in-depth, not a hard fence.
 While the sentinel file `<workdir>/.agentic/teamrun/.active` exists, the
 conductor suppresses native `Task` spawns and OMC skill calls.
 
-**On Claude Code:** hook-enforced. The existing
-`hooks/enforce-background-spawn.py` hook (wired by `.claude/install.sh`, already
-intercepting `Task`) is extended with a branch: when `.active` exists and is
-live (conductor PID present + not dead, mtime < 2 h), the hook denies any
-`Task` call outright (not just non-background) and denies any Skill call whose
-`skill` argument starts with `oh-my-claudecode:`. The denial message instructs
-the conductor to dispatch via `agentic-team` instead.
+**On Claude Code:** hook-enforced. The `hooks/enforce-background-spawn.py` hook
+(wired by `.claude/install.sh`, PreToolUse matcher for both `Task` and `Agent`)
+contains a sentinel-suppression branch: when `.active` exists and is live
+(conductor PID present + not dead, mtime < 2 h), the hook denies any `Task` or
+`Agent` call outright and denies any Skill call whose `skill` argument starts
+with `oh-my-claudecode:`. The denial message instructs the conductor to dispatch
+via `agentic-team` instead.
 
 Stale-sentinel guard: the hook treats `.active` as expired when its recorded
 PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
@@ -2171,7 +2171,7 @@ binding prose contract, not a mechanically enforced hook. Per-harness status:
 
 | Harness | Enforcement status | Hook location (if it existed) |
 |---|---|---|
-| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` + OMC skill calls while `.active` is live) | Already deployed |
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` and `Agent` + OMC skill calls while `.active` is live) | Already deployed |
 | **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
 | **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
 | **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |
