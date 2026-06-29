@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Purpose: Rebuild all 10 adapters locally in the same order used by CI
+# Purpose: Rebuild all 11 adapters locally in the same order used by CI
 #          (adapter-sync.yml). Provides a single local entrypoint so
 #          engineers don't have to invoke ten build.sh scripts by hand.
 #
@@ -10,7 +10,7 @@
 # Upstream deps: .claude/build.sh, .cursor/build.sh, .codex/build.sh,
 #                .gemini/build.sh, .kimi/build.sh, .opencode/build.sh,
 #                .omp/build.sh, .pi/build.sh, .hermes/build.sh,
-#                .openclaw/build.sh; bash; coreutils.
+#                .openclaw/build.sh, .copilot/build.sh; bash; coreutils.
 #
 # Downstream consumers: local developer workflows; mirrors .github/workflows/adapter-sync.yml.
 #
@@ -36,6 +36,7 @@ ADAPTERS=(
   .pi
   .hermes
   .openclaw
+  .copilot
 )
 
 for adapter in "${ADAPTERS[@]}"; do

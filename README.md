@@ -100,7 +100,7 @@ cd DinoStack
 bash .claude/install.sh
 ```
 
-For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw), see the install instructions in each adapter's README.
+For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw, VS Code Copilot), see the install instructions in each adapter's README.
 
 ## Installation modes
 
@@ -116,7 +116,7 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gemini`, `.opencode`, `.pi`, `.omp`, `.kimi`, `.hermes`, and `.openclaw`) - the config file is shared across adapters:
+The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gemini`, `.opencode`, `.pi`, `.omp`, `.kimi`, `.hermes`, `.openclaw`, and `.copilot`) - the config file is shared across adapters:
 
 ```
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
@@ -196,6 +196,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | Pi (oh-my-pi) | `.omp/` | See [.omp/README.md](.omp/README.md) |
 | Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
 | OpenClaw | `.openclaw/` | See [.openclaw/README.md](.openclaw/README.md) |
+| VS Code Copilot | `.copilot/` | See [.copilot/README.md](.copilot/README.md) |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
@@ -292,6 +293,7 @@ DinoStack/
   .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
   .hermes/               Hermes Agent adapter (skill, METHODOLOGY.md, install/uninstall)
   .openclaw/            OpenClaw adapter (skill tree, METHODOLOGY.md, install/uninstall)
+  .copilot/             VS Code Copilot adapter (build.sh, references, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
   ADAPTERS.md           Guide for creating new tool adapters
