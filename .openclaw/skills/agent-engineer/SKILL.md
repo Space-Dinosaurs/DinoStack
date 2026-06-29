@@ -43,7 +43,7 @@ Your spawn prompt will contain:
 
 When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract block, the engineer includes `task_id` in its return summary so the conductor can correlate the result with the task entry. The engineer does NOT write to `.agentic/tasks.jsonl` - the conductor handles all task-state writes.
 
-**Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
+**Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
 
 **HUD file writes (Phase 2 fan-out only).** When spawned as a parallel fan-out Worker with a `worker_id` field in the execution contract, the engineer writes phase transition updates to `.agentic/hud/<worker-id>.json` before each major action (before spawning sub-agents, at loop phase transitions, at completion). The HUD file write accompanies `[loop: ...]` breadcrumb emissions - both happen at the same event. Engineers spawned without a `worker_id` (single-unit, non-fan-out contexts) do not write HUD files. The `worker_id` is provided in the spawn prompt alongside `task_id`.
 
@@ -69,6 +69,7 @@ After every implementation:
 - Run available lint and typecheck commands. Fix any errors introduced by your changes. Do not introduce new warnings.
 - Run tests if a test command exists. All must pass. If a pre-existing test is broken by your change and the break is intentional (e.g., updating behavior), note it explicitly.
 - For new code: ensure it is exercised by the build (imported, registered, wired up). Dead code is a common mistake.
+- **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route, run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only. When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
 - Before reporting, run all verification commands one final time in the same message and paste their actual output. Do not rely on checks run earlier in the session.
 
 ## Output format
@@ -95,6 +96,7 @@ quality_gate_results:
   lint: pass | fail | not_run
   typecheck: pass | fail | not_run
   test: pass | fail | not_run
+  smoke_test: pass | fail | skipped | not_run   # skipped = no runtime path (state which: pure-backend-library | config-only | type-only-refactor | docs-only); not_run on a runtime-capable change is a Skeptic finding
   raw_output: |
     <truncated to 4000 chars; tail-wins on truncation>
 commit_sha: <full 40-char SHA, or null if no commit was made>
@@ -126,11 +128,12 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
     },
     "quality_gate_results": {
       "type": "object",
-      "required": ["lint", "typecheck", "test", "raw_output"],
+      "required": ["lint", "typecheck", "test", "smoke_test", "raw_output"],
       "properties": {
         "lint": { "enum": ["pass", "fail", "not_run"] },
         "typecheck": { "enum": ["pass", "fail", "not_run"] },
         "test": { "enum": ["pass", "fail", "not_run"] },
+        "smoke_test": { "enum": ["pass", "fail", "skipped", "not_run"] },
         "raw_output": { "type": "string", "maxLength": 4000 }
       }
     },
@@ -145,7 +148,7 @@ After the structured block, return a plain-text summary covering:
 
 - **What was changed** - files modified or created, and what each change does
 - **Why** - brief rationale for any non-obvious decisions made during implementation
-- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`.
+- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`. Report the runtime smoke test as `smoke_test: pass|fail|skipped` (state the skip reason when skipped).
 - **Out of scope** - anything the prompt implied but you deliberately did not do, and why
 - **Blockers or open questions** - anything that needs human input or a follow-up decision
 
