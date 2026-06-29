@@ -200,7 +200,7 @@ Preamble:
 
 **Cross-harness teams (opt-in).** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. Collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, config schema, self-containment guard, and per-harness dispatch table.
 
-**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields and conductor consumption rules.
+**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
 
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
@@ -1789,6 +1789,29 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 `user-pattern`. The `learnings-agent` maps each type to LRN or KNW - see
 `content/agents/learnings-agent.md` for the full mapping table.
 
+### Routing hop for `learnings_candidate[]` (new input source)
+
+When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-5 sweep:
+
+1. Run guardrail-first classification (steps a, b, c from capture-classification.md).
+2. If `Capture: MUST`:
+   a. If `kind == "workaround"`, also emit the `tool_failure_workaround` event with all four canonical fields:
+
+      ```bash
+      agentic-emit tool_failure_workaround - - \
+        '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<tool/command named in fact if identifiable, else the entry domain_tag>","domain_tag":"<entry domain_tag>","note":"<entry fact>"}'
+      ```
+
+      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `agentic-cost` does not miscount.
+   b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
+3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
+
+**Relation to triggers 1-5.** `learnings_candidate[]` is a new INPUT SOURCE for the existing trigger machinery, not a 7th trigger. `kind: workaround` is a new input path for trigger 3; `kind: dead-end`/`gotcha` map to `cross-component-gotcha`; `kind: decision` is a new input path for trigger 5. Trigger 1 (investigator/debugger root cause) is NOT replaced - the conductor still evaluates the root cause under trigger 1 independently, and the `learnings_candidate[]` section on those agents' returns carries incidental discoveries only, never the root cause itself.
+
+**Trivial-path engineers.** A Trivial engineer skips Skeptic and wrap-ticket, but the conductor still reads its return. `learnings_candidate[]` entries that pass `Capture: MUST` are still routed to `learnings-agent`. The lightweight Trivial posture (no Skeptic, no brief) is otherwise preserved.
+
+**Cap discipline.** Workers emit at most 5 entries. If a malformed return carries more, the conductor processes the first 5 and logs a warning.
+
 This is additive - `/wrap` still handles AGENTS.md updates, rolling session labels,
 compression, and full session wrap. If learnings-agent fails, the conductor warns
 and proceeds (soft-fail).
@@ -2427,7 +2450,7 @@ The `task_id` field is included for Elevated multi-unit spawns only (when `.agen
 
 ## Digest-Return Discipline
 
-**Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, and not-done list - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. See `content/references/digest-return-pattern.md` for the required digest fields and conductor consumption rules.
+**Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, not-done list, and the optional `learnings_candidate[]` field - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. When `learnings_candidate[]` is non-empty, the conductor routes each entry through the guardrail-first gate (capture-classification.md) before forwarding `Capture: MUST` entries to `learnings-agent`; see `content/references/conductor-operating-rules.md` §learnings-agent for the routing algorithm. See `content/references/digest-return-pattern.md` for the full digest field list and conductor consumption rules.
 
 ---
 
@@ -2573,7 +2596,11 @@ A loop-running spawn returns a structured digest. Required fields:
 - **Residual risk** - any known open issue, assumption, or concern that did not block the terminal status but could matter downstream.
 - **Not-done list** - explicit list of scope items not completed, or "none" if all scope was addressed.
 
-The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
+Optional field (default empty; cap 5 entries per return):
+
+- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. Each entry carries `kind` (`workaround` | `dead-end` | `gotcha` | `decision`), `domain_tag`, `fact` (1-2 sentences on what was discovered), and `why` (why a cold future agent would re-derive it). This is the ONLY channel for worker-internal discovery; the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost.
+
+The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, learnings_candidate, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
 
 ## Conductor consumption
 
@@ -6447,6 +6474,9 @@ Use this exact structure:
 
 ### Confidence
 [High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce"]
+
+### Learnings candidates
+[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels
@@ -6467,6 +6497,7 @@ Use this exact structure:
 - When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Do not keep testing hypotheses after 3 eliminations without fresh evidence. Continuing to guess without new information does not converge on a root cause - it produces a list of things that aren't wrong. Stop, set Confidence to Low, and begin the Fix brief with the exact sentence: "Insufficient evidence to write a fix brief." Describe what was found and eliminated, and identify what specific information would close the diagnosis.
 - The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.
+- Populate the "Learnings candidates" section for incidental discoveries encountered during diagnosis - tool workarounds, expensive dead-ends, cross-component gotchas. Do not put the root-cause finding there (that is Trigger 1 on the mandatory capture gate). Cap at 5 entries.
 
 ---
 
@@ -6816,6 +6847,11 @@ commit_sha: <full 40-char SHA, or null if no commit was made>
 branch_name: <string, or null>
 pr_description_body: |
   <markdown body suitable for the PR; conductor may wrap with title/footer>
+learnings_candidate:     # optional; default []; cap 5 entries; omit when empty
+  - kind: workaround | dead-end | gotcha | decision
+    domain_tag: <slug>
+    fact: <1-2 sentences: what was discovered>
+    why: <why a cold future agent would re-derive this>
 ```
 
 JSON-Schema fragment (informative; the conductor uses this to validate):
@@ -6851,7 +6887,22 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
     },
     "commit_sha": { "type": ["string", "null"] },
     "branch_name": { "type": ["string", "null"] },
-    "pr_description_body": { "type": "string" }
+    "pr_description_body": { "type": "string" },
+    "learnings_candidate": {
+      "type": "array",
+      "maxItems": 5,
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["kind", "domain_tag", "fact", "why"],
+        "properties": {
+          "kind":       { "enum": ["workaround", "dead-end", "gotcha", "decision"] },
+          "domain_tag": { "type": "string" },
+          "fact":       { "type": "string" },
+          "why":        { "type": "string" }
+        }
+      }
+    }
   }
 }
 ```
@@ -6883,6 +6934,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
+- **Populate `learnings_candidate` for internal discoveries.** When you work around a tool/command failure, hit a dead-end that cost non-trivial effort, discover a cross-component gotcha, or make a local design decision not captured in the task spec, add an entry to `learnings_candidate[]` (cap 5). Omit it (or leave it `[]`) when nothing was discovered worth surfacing. The conductor routes these through the guardrail-first gate before forwarding to `learnings-agent`; you do not pre-filter.
 
 ## Front-end discipline
 
@@ -7005,6 +7057,9 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 
 ### Confidence
 [High / Medium / Low] - [brief reason: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X"]
+
+### Learnings candidates
+[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels

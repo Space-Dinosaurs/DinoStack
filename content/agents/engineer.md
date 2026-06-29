@@ -105,6 +105,11 @@ commit_sha: <full 40-char SHA, or null if no commit was made>
 branch_name: <string, or null>
 pr_description_body: |
   <markdown body suitable for the PR; conductor may wrap with title/footer>
+learnings_candidate:     # optional; default []; cap 5 entries; omit when empty
+  - kind: workaround | dead-end | gotcha | decision
+    domain_tag: <slug>
+    fact: <1-2 sentences: what was discovered>
+    why: <why a cold future agent would re-derive this>
 ```
 
 JSON-Schema fragment (informative; the conductor uses this to validate):
@@ -140,7 +145,22 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
     },
     "commit_sha": { "type": ["string", "null"] },
     "branch_name": { "type": ["string", "null"] },
-    "pr_description_body": { "type": "string" }
+    "pr_description_body": { "type": "string" },
+    "learnings_candidate": {
+      "type": "array",
+      "maxItems": 5,
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["kind", "domain_tag", "fact", "why"],
+        "properties": {
+          "kind":       { "enum": ["workaround", "dead-end", "gotcha", "decision"] },
+          "domain_tag": { "type": "string" },
+          "fact":       { "type": "string" },
+          "why":        { "type": "string" }
+        }
+      }
+    }
   }
 }
 ```
@@ -172,6 +192,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
+- **Populate `learnings_candidate` for internal discoveries.** When you work around a tool/command failure, hit a dead-end that cost non-trivial effort, discover a cross-component gotcha, or make a local design decision not captured in the task spec, add an entry to `learnings_candidate[]` (cap 5). Omit it (or leave it `[]`) when nothing was discovered worth surfacing. The conductor routes these through the guardrail-first gate before forwarding to `learnings-agent`; you do not pre-filter.
 
 ## Front-end discipline
 
