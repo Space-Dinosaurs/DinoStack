@@ -155,10 +155,13 @@ Set the mode in `.agentic/config.json`:
 ```
 
 Valid values: `advisory` and `blocking`. Any missing or unrecognized value
-falls back to `blocking`. The default at initial setup is `advisory` - a
-deliberate choice to let you onboard agents incrementally without breaking
-existing workflows. Once every agent you use has a populated manifest, flipping
-to `blocking` is a one-line config change.
+falls back to `blocking`. The default is `blocking` as of P2, because all
+shipped AE agent manifests are now populated. In `blocking` mode the conductor
+refuses a spawn when a required declared dependency is still missing after the
+auto-install attempt. `advisory` mode (warn and proceed) is opt-in - set
+`capability_preflight_mode: advisory` in `.agentic/config.json` if you are
+still populating manifests on custom agents and do not want spawns blocked in
+the interim.
 
 ## What preflight output looks like
 
@@ -171,8 +174,9 @@ qa-engineer preflight: blocking
   optional missing: agent-browser -- install: npm install -g agent-browser
 ```
 
-When all checks pass, nothing is emitted - a clean preflight produces no
-output.
+The exact format is illustrative - runtime output formatting may differ
+slightly. When all checks pass, nothing is emitted - a clean preflight produces
+no output.
 
 ## Cache
 
