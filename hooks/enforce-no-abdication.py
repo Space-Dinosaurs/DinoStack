@@ -92,7 +92,7 @@ COUNTER_FILENAME = ".abdication-guard-fire-count"
 # Tier 1 (positive): permission-seeking phrases. Word-boundary anchored to
 # avoid partial matches. Case-insensitive.
 _PERMISSION_PHRASES = re.compile(
-    r'\b(?:'
+    r"\b(?:"
     r"want me to"
     r"|should i"
     r"|shall i"
@@ -102,7 +102,7 @@ _PERMISSION_PHRASES = re.compile(
     r"|ready (?:for me )?to proceed"
     r"|should i go ahead"
     r"|want me to go ahead"
-    r')\b',
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -116,44 +116,44 @@ _PERMISSION_PHRASES = re.compile(
 #   (c) correct surface-and-proceed markers ("(recommended)", "proceeding
 #       with", "unless you say otherwise") - already-compliant behavior.
 _NEGATIVE_GATE_PATTERNS = re.compile(
-    r'(?:'
+    r"(?:"
     # --- (a) destructive / irreversible ---
-    r'\bdestructive\b'
-    r'|\birreversible\b'
-    r'|\bforce push\b'
-    r'|\bforce-push\b'
-    r'|\bdelete\b'
-    r'|\bdrop table\b'
-    r'|\bschema migration\b'
-    r'|\bproduction deploy\b'
-    r'|\bpermanently (?:remove|delete)\b'
-    r'|\bpermanently\b'
-    r'|\bcan(?:not|\'t|not) be undone\b'
-    r'|\bno undo\b'
-    r'|\bunrecoverable\b'
-    r'|\bdata loss\b'
-    r'|\bwipe\b'
-    r'|\boverwrite\b'
+    r"\bdestructive\b"
+    r"|\birreversible\b"
+    r"|\bforce push\b"
+    r"|\bforce-push\b"
+    r"|\bdelete\b"
+    r"|\bdrop table\b"
+    r"|\bschema migration\b"
+    r"|\bproduction deploy\b"
+    r"|\bpermanently (?:remove|delete)\b"
+    r"|\bpermanently\b"
+    r"|\bcan(?:not|\'t|not) be undone\b"
+    r"|\bno undo\b"
+    r"|\bunrecoverable\b"
+    r"|\bdata loss\b"
+    r"|\bwipe\b"
+    r"|\boverwrite\b"
     # --- (b) cannot-derive / credential / target-selection ---
-    r'|\bcannot derive\b'
-    r'|\bmissing credential\b'
-    r'|\bapi key\b'
-    r'|\bwhich environment\b'
-    r'|\bwhich workspace\b'
-    r'|\bmerge to main\b'
+    r"|\bcannot derive\b"
+    r"|\bmissing credential\b"
+    r"|\bapi key\b"
+    r"|\bwhich environment\b"
+    r"|\bwhich workspace\b"
+    r"|\bmerge to main\b"
     # --- (b cont.) product-judgment / design-fork signals ---
-    r'|\bwhich direction\b'
-    r'|\bwhich approach\b'
-    r'|\bwhich option\b'
-    r'|\bwhich of these\b'
-    r'|\bchanges the (?:data model|schema|api|contract)\b'
-    r'|\bload-bearing\b'
-    r'|\bdesign (?:decision|fork|choice)\b'
+    r"|\bwhich direction\b"
+    r"|\bwhich approach\b"
+    r"|\bwhich option\b"
+    r"|\bwhich of these\b"
+    r"|\bchanges the (?:data model|schema|api|contract)\b"
+    r"|\bload-bearing\b"
+    r"|\bdesign (?:decision|fork|choice)\b"
     # --- (c) correct surface-and-proceed markers ---
-    r'|\(recommended\)'
-    r'|proceeding with'
-    r'|unless you say otherwise'
-    r')',
+    r"|\(recommended\)"
+    r"|proceeding with"
+    r"|unless you say otherwise"
+    r")",
     re.IGNORECASE,
 )
 
@@ -190,6 +190,7 @@ def _is_abdication(text: str) -> bool:
 # ---------------------------------------------------------------------------
 # Counter file helpers
 # ---------------------------------------------------------------------------
+
 
 def _counter_path(cwd: str) -> str:
     return os.path.join(cwd, ".agentic", COUNTER_FILENAME)
@@ -243,6 +244,7 @@ def _reset_counter(cwd: str, current_user_msg_count: int) -> None:
 # Transcript helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_genuine_user_turn(obj: dict) -> bool:
     """Return True only for a GENUINE human turn line in a CC transcript.
 
@@ -277,10 +279,7 @@ def _is_genuine_user_turn(obj: dict) -> bool:
     #   - a list of blocks, any of which has type=="tool_result"
     #   - (defensively) a single dict block with type=="tool_result"
     if isinstance(content, list):
-        has_tool_result = any(
-            isinstance(b, dict) and b.get("type") == "tool_result"
-            for b in content
-        )
+        has_tool_result = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
         if has_tool_result:
             return False
         # Genuine turn requires at least one real text block with text.
@@ -376,6 +375,7 @@ def _last_assistant_text_from_transcript(transcript_path: str) -> str:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     try:

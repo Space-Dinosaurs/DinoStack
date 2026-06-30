@@ -100,24 +100,28 @@ def main() -> None:
         if not deny:
             sys.exit(0)
 
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    "AskUserQuestion blocked: a single-select question presents 2+ "
-                    "options with no recommended default. Per METHODOLOGY.md "
-                    "§Delegation (AskUserQuestion precondition), a multiple-choice "
-                    "ballot is disallowed when a best option is derivable. Derive "
-                    "the best option from the five default sources, then EITHER "
-                    "proceed with it directly (no AskUserQuestion call) OR re-issue "
-                    "with exactly one option whose label ends in \"(Recommended)\" "
-                    "and proceed-unless-told-otherwise framing. Genuinely "
-                    "irreversible AND unauthorized confirmations are exempt - mark "
-                    "the recommended option's label \"(Recommended)\" to pass."
-                )
-            }
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            "AskUserQuestion blocked: a single-select question presents 2+ "
+                            "options with no recommended default. Per METHODOLOGY.md "
+                            "§Delegation (AskUserQuestion precondition), a multiple-choice "
+                            "ballot is disallowed when a best option is derivable. Derive "
+                            "the best option from the five default sources, then EITHER "
+                            "proceed with it directly (no AskUserQuestion call) OR re-issue "
+                            'with exactly one option whose label ends in "(Recommended)" '
+                            "and proceed-unless-told-otherwise framing. Genuinely "
+                            "irreversible AND unauthorized confirmations are exempt - mark "
+                            'the recommended option\'s label "(Recommended)" to pass.'
+                        ),
+                    }
+                }
+            )
+        )
         sys.exit(0)
 
     except Exception:

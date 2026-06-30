@@ -18,11 +18,11 @@
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
  *             Claude Code Stop hook. Internal helpers: writeLoopState(cwd),
- *             writeBatchState(cwd, sessionId), scanSessionAggregate(eventsPath, sessionId),
- *             writeSessionTotal(cwd, sessionId), computeSessionTotals(cwd, sessionId),
- *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId),
+ *             writeBatchState(cwd, sessionId), scanSessionAggregate(eventsPath, sessionId[, cachedRaw]),
+ *             writeSessionTotal(cwd, sessionId[, cachedRaw]), computeSessionTotals(cwd, sessionId[, cachedRaw]),
+ *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId[, cachedRaw]),
  *             writeSessionLogGlobal(identity, sessionId, data),
- *             writePendingBuffer(cwd, sessionId),
+ *             writePendingBuffer(cwd, sessionId[, cachedRaw]),
  *             appendIdentityNudgeToContextMd(repoRoot),
  *             appendCaptureGapNoticeToContextMd(cwd, residualOnly),
  *             wrapLockHeld(cwd) (thin alias to wrap-marker lib),
@@ -178,7 +178,12 @@
  * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout)
  *              plus one git diff subprocess call for the capture-gap backstop
  *              (5 s timeout, soft-fail). Synchronous I/O throughout; runs as a
- *              short-lived CLI process.
+ *              short-lived CLI process. events.jsonl is read ONCE at the top of
+ *              run() and the raw string is threaded to all consumers
+ *              (scanSessionAggregate, computeSessionTotals, writeSessionTotal,
+ *              writeSessionLog, writePendingBuffer, detectCaptureGap) so no
+ *              consumer re-reads the file. On large projects (5-10 MB events
+ *              files) this eliminates 3-4 redundant full-file reads per exit.
  */
 
 /**
@@ -285,6 +290,8 @@ function flushHealth(cwd) {
   let tmp;
   try {
     if (!cwd) return;
+    const resolvedCwd = path.resolve(cwd);
+    if (resolvedCwd !== cwd) return; // traversal component - skip silently
     healthPath = path.join(cwd, '.agentic', '.telemetry-health.json');
     tmp = healthPath + '.tmp.' + process.pid;
 
@@ -487,12 +494,25 @@ function writeBatchState(cwd, sessionId) {
  *
  * @param {string} eventsPath - Absolute path to events.jsonl.
  * @param {string|null} sessionId - Current session uuid (null = include all).
+ * @param {string|null} [cachedRaw] - Pre-read file contents from run()'s single
+ *   read. When provided (non-undefined), the file is NOT re-read; null means the
+ *   file was absent or unreadable at read time and this function returns null
+ *   immediately. When omitted (undefined), falls back to reading eventsPath
+ *   directly for back-compat with callers that do not thread the cache.
  * @returns {{wall_seconds: number, tokens: object, spawn_count: number,
  *            by_agent: object}|null}
  */
-function scanSessionAggregate(eventsPath, sessionId) {
-  if (!fs.existsSync(eventsPath)) return null;
-  const raw = fs.readFileSync(eventsPath, 'utf8');
+function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
+  let raw;
+  if (cachedRaw !== undefined) {
+    // Caller threaded the cached read: null means absent/unreadable.
+    if (cachedRaw === null) return null;
+    raw = cachedRaw;
+  } else {
+    // Back-compat: no cache provided, read the file directly.
+    if (!fs.existsSync(eventsPath)) return null;
+    try { raw = fs.readFileSync(eventsPath, 'utf8'); } catch (_) { return null; }
+  }
   if (!raw.trim()) return null;
 
   const lines = raw.split('\n');
@@ -580,8 +600,11 @@ function scanSessionAggregate(eventsPath, sessionId) {
  *
  * @param {string} cwd - Verified project directory.
  * @param {string|null} sessionId - Current session uuid from the Stop payload.
+ * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
+ *   single read. When provided (non-undefined), no additional file read occurs.
+ *   null means file was absent/unreadable; undefined triggers back-compat read.
  */
-function writeSessionTotal(cwd, sessionId) {
+function writeSessionTotal(cwd, sessionId, cachedRaw) {
   try {
     const agenticDir = path.join(cwd, '.agentic');
     const eventsPath = path.join(agenticDir, 'events.jsonl');
@@ -590,7 +613,7 @@ function writeSessionTotal(cwd, sessionId) {
     fs.mkdirSync(agenticDir, { recursive: true });
     // Bootstrap: when no qualifying events exist, write a zero-aggregate
     // session_total so events.jsonl is ALWAYS created on every session exit.
-    const agg = scanSessionAggregate(eventsPath, sessionId) || {
+    const agg = scanSessionAggregate(eventsPath, sessionId, cachedRaw) || {
       wall_seconds: 0,
       tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
       spawn_count: 0,
@@ -731,12 +754,15 @@ function appendIdentityNudgeToContextMd(repoRoot) {
  *
  * @param {string} cwd - Verified project directory.
  * @param {string|null} sessionId - Current session uuid.
+ * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
+ *   single read. When provided (non-undefined), no additional file read occurs.
+ *   null means file was absent/unreadable; undefined triggers back-compat read.
  * @returns {{wall_seconds: number, tokens: object, spawn_count: number, by_agent: object}|null}
  */
-function computeSessionTotals(cwd, sessionId) {
+function computeSessionTotals(cwd, sessionId, cachedRaw) {
   try {
     const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
-    const agg = scanSessionAggregate(eventsPath, sessionId);
+    const agg = scanSessionAggregate(eventsPath, sessionId, cachedRaw);
     if (!agg) return null;
 
     // Re-shape by_agent: flatten 4-band tokens to a single tokens_total for the
@@ -770,8 +796,11 @@ function computeSessionTotals(cwd, sessionId) {
  * @param {string} cwd - Verified project directory.
  * @param {{developer_id: string}} identity - Identity from getIdentity().
  * @param {string|null} sessionId - Current session uuid.
+ * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
+ *   single read. When provided (non-undefined), no additional file read occurs.
+ *   null means file was absent/unreadable; undefined triggers back-compat read.
  */
-function writeSessionLog(cwd, identity, sessionId) {
+function writeSessionLog(cwd, identity, sessionId, cachedRaw) {
   try {
     // Resolve project slug and branch best-effort
     const projectSlug = path.basename(cwd);
@@ -785,7 +814,7 @@ function writeSessionLog(cwd, identity, sessionId) {
       // Not a git repo or detached HEAD - leave branch as empty string
     }
 
-    const totals = computeSessionTotals(cwd, sessionId);
+    const totals = computeSessionTotals(cwd, sessionId, cachedRaw);
     const data = totals || {
       wall_seconds: 0,
       tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
@@ -889,8 +918,11 @@ function generateUuid() {
  *
  * @param {string} cwd - Verified project directory.
  * @param {string|null} sessionId - Current session uuid (uuid v4 generated if null).
+ * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
+ *   single read. When provided (non-undefined), no additional file read occurs.
+ *   null means file was absent/unreadable; undefined triggers back-compat read.
  */
-function writePendingBuffer(cwd, sessionId) {
+function writePendingBuffer(cwd, sessionId, cachedRaw) {
   let pendingTmpFile = null;
   try {
     const pendingDir = path.join(os.homedir(), '.agentic', 'session-log', '.pending');
@@ -924,7 +956,7 @@ function writePendingBuffer(cwd, sessionId) {
     }
 
     // Compute telemetry
-    const totals = computeSessionTotals(cwd, sessionId);
+    const totals = computeSessionTotals(cwd, sessionId, cachedRaw);
     const data = totals || {
       wall_seconds: 0,
       tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
@@ -1153,6 +1185,20 @@ function run() {
     ? payload.session_id.trim()
     : null;
 
+  // --- 3b-pre. Single events.jsonl read for the entire run() ---
+  // All consumers (writeSessionTotal, computeSessionTotals, writeSessionLog,
+  // writePendingBuffer, detectCaptureGap) receive this string instead of
+  // re-reading the file. null = file absent or unreadable (consumers treat it
+  // identically to a missing file). This eliminates 3-4 redundant full reads
+  // per session exit on large events files (#267).
+  const eventsPath = cwd ? path.join(cwd, '.agentic', 'events.jsonl') : null;
+  let cachedEventsRaw = null;
+  if (eventsPath) {
+    try {
+      if (fs.existsSync(eventsPath)) cachedEventsRaw = fs.readFileSync(eventsPath, 'utf8');
+    } catch (_) { /* silent - stays null, consumers treat null as absent */ }
+  }
+
   // --- 3b. Touch this session's heartbeat (per-turn liveness signal) ---
   // Pure wastefulness defense: the daemon defers claiming a `ready` marker whose
   // session still emits turns. Local fs only (no git/network); no-op under the
@@ -1378,15 +1424,15 @@ ${toolsLine}
       // so per-ticket inner state is marked first, then outer batch envelope).
       writeBatchState(cwd, sessionId);
       // Write session_total to events.jsonl on this exit path too.
-      writeSessionTotal(cwd, sessionId);
+      writeSessionTotal(cwd, sessionId, cachedEventsRaw);
       // Three-branch identity gate (independent of all other paths).
       try {
         const identity = getIdentity(cwd);
         if (identity && !identity.provisional) {
           // Confirmed identity: per-project write + global mirror
-          writeSessionLog(cwd, identity, sessionId);
+          writeSessionLog(cwd, identity, sessionId, cachedEventsRaw);
           // Build shared metadata for global mirror
-          const totals = computeSessionTotals(cwd, sessionId);
+          const totals = computeSessionTotals(cwd, sessionId, cachedEventsRaw);
           const globalData = Object.assign(
             {
               wall_seconds: 0,
@@ -1405,7 +1451,7 @@ ${toolsLine}
           writeSessionLogGlobal(identity, sessionId, globalData);
         } else {
           // Provisional or no identity: pending buffer
-          writePendingBuffer(cwd, sessionId);
+          writePendingBuffer(cwd, sessionId, cachedEventsRaw);
           // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
           // The identity nudge is a context.md writer; defer it while a /wrap
           // holds the lock so the locked Part-A merge is not clobbered. The
@@ -1432,7 +1478,7 @@ ${toolsLine}
       }
       // Capture-gap backstop on wrap-coexistence exit path.
       try {
-        const gap = detectCaptureGap(cwd, sessionId);
+        const gap = detectCaptureGap(cwd, sessionId, cachedEventsRaw);
         if (gap.shouldNudge) {
           appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
         }
@@ -1477,7 +1523,7 @@ ${toolsLine}
 
   // --- 12. Append session_total event to .agentic/events.jsonl if present ---
   // Independent best-effort write; any failure swallowed.
-  writeSessionTotal(cwd, sessionId);
+  writeSessionTotal(cwd, sessionId, cachedEventsRaw);
 
   // --- 13. Three-branch identity gate: session log, global mirror, or pending buffer ---
   // Independent best-effort write; any failure swallowed. Never blocks exit.
@@ -1485,9 +1531,9 @@ ${toolsLine}
     const identity = getIdentity(cwd);
     if (identity && !identity.provisional) {
       // Confirmed identity: per-project write + global mirror
-      writeSessionLog(cwd, identity, sessionId);
+      writeSessionLog(cwd, identity, sessionId, cachedEventsRaw);
       // Build shared metadata for global mirror
-      const totals = computeSessionTotals(cwd, sessionId);
+      const totals = computeSessionTotals(cwd, sessionId, cachedEventsRaw);
       const globalData = Object.assign(
         {
           wall_seconds: 0,
@@ -1506,7 +1552,7 @@ ${toolsLine}
       writeSessionLogGlobal(identity, sessionId, globalData);
     } else {
       // Provisional or no identity: pending buffer
-      writePendingBuffer(cwd, sessionId);
+      writePendingBuffer(cwd, sessionId, cachedEventsRaw);
       // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
       // Defer the identity nudge (a context.md writer) while a /wrap holds the
       // lock; the sentinel is consumed atomically with the nudge, so skipping
@@ -1537,7 +1583,7 @@ ${toolsLine}
   // Detects learning-worthy sessions with no captured learnings and appends a
   // nudge to context.md. Silent failure; never blocks exit.
   try {
-    const gap = detectCaptureGap(cwd, sessionId);
+    const gap = detectCaptureGap(cwd, sessionId, cachedEventsRaw);
     if (gap.shouldNudge) {
       appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
     }

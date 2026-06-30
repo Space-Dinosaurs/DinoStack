@@ -38,6 +38,7 @@ _profile_behavior_block = _mod._profile_behavior_block
 _role_models_status_block = _mod._role_models_status_block
 _telemetry_health_block = _mod._telemetry_health_block
 _how_to_adjust_block = _mod._how_to_adjust_block
+_telemetry_health_line = _mod._telemetry_health_line
 main = _mod.main
 
 _EXPECTED_VARS = ("PI_HARNESS", "OMP_HARNESS", "OH_MY_PI_HARNESS", "AGENTIC_HARNESS")
@@ -684,6 +685,126 @@ def test_main_reflects_config(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "opt-in" in out
     assert "relaxed" in out
+
+
+# ---------------------------------------------------------------------------
+# _telemetry_health_line
+# ---------------------------------------------------------------------------
+
+def test_telemetry_health_line_absent_file(tmp_path):
+    result = _telemetry_health_line(tmp_path / "no-such-file.json")
+    assert result == "telemetry-health: OK"
+
+
+def test_telemetry_health_line_all_zeros(tmp_path):
+    p = tmp_path / ".telemetry-health.json"
+    p.write_text(json.dumps({
+        "targets": {
+            "loop-state.json": {"failures": 0, "last_success": "2026-01-01T00:00:00Z"},
+            "events.jsonl": {"failures": 0},
+        },
+        "updated_at": "2026-01-01T00:00:00Z",
+    }), encoding="utf-8")
+    result = _telemetry_health_line(p)
+    assert result == "telemetry-health: OK"
+
+
+def test_telemetry_health_line_with_failures(tmp_path):
+    p = tmp_path / ".telemetry-health.json"
+    p.write_text(json.dumps({
+        "targets": {
+            "loop-state.json": {
+                "failures": 3,
+                "last_error": "ENOSPC",
+                "last_error_ts": "2026-06-01T12:00:00Z",
+            },
+            "events.jsonl": {"failures": 0},
+        },
+        "updated_at": "2026-06-01T12:00:00Z",
+    }), encoding="utf-8")
+    result = _telemetry_health_line(p)
+    assert "3 write failure(s)" in result
+    assert "1 target(s)" in result
+    assert "loop-state.json" in result
+    assert "ENOSPC" in result
+    assert "telemetry-health:" in result
+
+
+def test_telemetry_health_line_multiple_failing_targets(tmp_path):
+    p = tmp_path / ".telemetry-health.json"
+    p.write_text(json.dumps({
+        "targets": {
+            "loop-state.json": {
+                "failures": 2,
+                "last_error": "ENOSPC",
+                "last_error_ts": "2026-06-01T10:00:00Z",
+            },
+            "batch-state.json": {
+                "failures": 1,
+                "last_error": "EPERM",
+                "last_error_ts": "2026-06-01T11:00:00Z",
+            },
+        },
+        "updated_at": "2026-06-01T11:00:00Z",
+    }), encoding="utf-8")
+    result = _telemetry_health_line(p)
+    assert "3 write failure(s)" in result
+    assert "2 target(s)" in result
+    # Most-recently-failed target appears
+    assert "batch-state.json" in result
+    assert "EPERM" in result
+
+
+def test_telemetry_health_line_malformed_json(tmp_path):
+    p = tmp_path / ".telemetry-health.json"
+    p.write_text("{not valid json", encoding="utf-8")
+    result = _telemetry_health_line(p)
+    assert "OK" in result
+
+
+def test_telemetry_health_line_default_path_absent(monkeypatch, tmp_path):
+    # When TELEMETRY_HEALTH_PATH points at a non-existent file, default path -> OK.
+    monkeypatch.setattr(_mod, "TELEMETRY_HEALTH_PATH", tmp_path / "no-health.json")
+    result = _telemetry_health_line()
+    assert result == "telemetry-health: OK"
+
+
+def test_main_output_contains_telemetry_health_line(monkeypatch, tmp_path, capsys):
+    _clear_harness_env(monkeypatch)
+    monkeypatch.setattr(_mod, "CONFIG_PATH", tmp_path / "no-config.json")
+    monkeypatch.setattr(_mod, "SENTINEL_PATH", tmp_path / ".activated")
+    monkeypatch.setattr(_mod, "TELEMETRY_HEALTH_PATH", tmp_path / "no-health.json")
+    monkeypatch.setattr(_mod, "ROLE_MODELS_GLOBAL_PATH", tmp_path / "no-global.yml")
+    monkeypatch.setattr(_mod, "ROLE_MODELS_PROJECT_PATH", tmp_path / "no-project.yml")
+    monkeypatch.chdir(tmp_path)
+    main([])
+    out = capsys.readouterr().out
+    assert "telemetry-health:" in out
+
+
+def test_main_output_shows_failures(monkeypatch, tmp_path, capsys):
+    _clear_harness_env(monkeypatch)
+    health = tmp_path / ".telemetry-health.json"
+    health.write_text(json.dumps({
+        "targets": {
+            "events.jsonl": {
+                "failures": 5,
+                "last_error": "ENOSPC: disk full",
+                "last_error_ts": "2026-06-01T09:00:00Z",
+            },
+        },
+        "updated_at": "2026-06-01T09:00:00Z",
+    }), encoding="utf-8")
+    monkeypatch.setattr(_mod, "CONFIG_PATH", tmp_path / "no-config.json")
+    monkeypatch.setattr(_mod, "SENTINEL_PATH", tmp_path / ".activated")
+    monkeypatch.setattr(_mod, "TELEMETRY_HEALTH_PATH", health)
+    monkeypatch.setattr(_mod, "ROLE_MODELS_GLOBAL_PATH", tmp_path / "no-global.yml")
+    monkeypatch.setattr(_mod, "ROLE_MODELS_PROJECT_PATH", tmp_path / "no-project.yml")
+    monkeypatch.chdir(tmp_path)
+    main([])
+    out = capsys.readouterr().out
+    assert "5 write failure(s)" in out
+    assert "events.jsonl" in out
 
 
 # ---------------------------------------------------------------------------
