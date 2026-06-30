@@ -35,13 +35,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
+import sys as _sys
+
 _LIB_PATH = Path(__file__).parent / "_lib.py"
-_loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
-_spec = _ilu.spec_from_loader("_lib", _loader)
-_lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
-_loader.exec_module(_lib_mod)
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
 atomic_write = _lib_mod.atomic_write
-del _ilm, _ilu, _loader, _spec, _lib_mod
+del _sys, _ilm, _ilu, _lib_mod
 
 # ---------------------------------------------------------------------------
 # Manifest resolution

@@ -81,13 +81,18 @@ import importlib.util as _ilu
 import importlib.machinery as _ilm
 
 _LIB_PATH = Path(__file__).parent / "_lib.py"
-_loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
-_spec = _ilu.spec_from_loader("_lib", _loader)
-_lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
-_loader.exec_module(_lib_mod)
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
 acquire_exclusive_lock = _lib_mod.acquire_exclusive_lock
 atomic_write = _lib_mod.atomic_write
-del _sys, _ilu, _ilm, _loader, _spec, _lib_mod
+del _sys, _ilu, _ilm, _lib_mod
 
 IDENTITY_PATH = Path(os.path.expanduser("~/.agentic/identity.yml"))
 PENDING_DIR = Path(os.path.expanduser("~/.agentic/session-log/.pending"))
@@ -206,15 +211,9 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
     FLUSH_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     FLUSH_LOCK_PATH.touch(exist_ok=True)
 
-    try:
-        ctx = acquire_exclusive_lock(FLUSH_LOCK_PATH, timeout=30.0)
-    except OSError as exc:
-        print(f"agentic-identity confirm: cannot open lock file: {exc}", file=sys.stderr)
-        return 0
-
     flushed = 0
     try:
-        with ctx:
+        with acquire_exclusive_lock(FLUSH_LOCK_PATH, timeout=30.0):
             pending_pattern = str(PENDING_DIR / "*.json")
             pending_files = sorted(glob.glob(pending_pattern))
 
@@ -344,12 +343,11 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
                         pass
                     flushed += 1
 
+    except OSError as exc:
+        print(f"agentic-identity confirm: cannot open lock file: {exc}", file=sys.stderr)
+        return 0
     except RuntimeError:
-        # acquire_exclusive_lock raises RuntimeError on timeout.
-        print(
-            "agentic-identity confirm: lock timeout after 30s; retry.",
-            file=sys.stderr,
-        )
+        print("agentic-identity confirm: lock timeout after 30s; retry.", file=sys.stderr)
         return 0
 
     if flushed > 0:
