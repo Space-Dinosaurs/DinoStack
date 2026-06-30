@@ -8291,7 +8291,7 @@ agent-browser close --all 2>/dev/null || true   # close every agent-browser sess
 kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 ```
 
-The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the snippet above handles it.
+The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it.
 
 **Applying project knowledge:**
 
@@ -8312,6 +8312,8 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 - `motion` entries: operator-declared route and element list that overrides the scenario's `route` and `elements` fields when both are present. Format: `motion: /route [selector,selector,...]` or `motion: /route auto`
 
 ## Workflow
+
+> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional.
 
 ### 1. Pre-flight
 
