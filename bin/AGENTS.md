@@ -1,6 +1,6 @@
 # bin/
 
-Thirteen CLI entry points (11 Python, 1 Bash, 1 Node) that the agentic-engineering
+Fourteen CLI entry points (11 Python, 1 Bash, 2 Node) that the agentic-engineering
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
@@ -23,12 +23,13 @@ module-group map, not a duplicate of those manifests.
 | `agentic-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
 | `agentic-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
 | `agentic-update` | Python | Non-interactive updater: fetch origin, rebuild adapters, reset version-check cache, run `agentic-doctor --fix`. |
+| `agentic-wrap-acquire-lock` | Node | Poll-wait (background) for the /wrap directory lock, exiting when acquired or after a 20-minute timeout; never removes a lock. |
 | `agentic-wrap-release-lock` | Node | Release the `/wrap` directory lock (`.agentic/wrap/lock`) safely where `rm -rf` is permission-denied. |
 
 ## Upstream dependencies
 
 - Python 3 stdlib only - no third-party installs required for any Python binary.
-- `agentic-wrap-release-lock` requires Node; loads `hooks/lib/wrap-marker.js` via `__dirname`-relative path (not `cwd`).
+- `agentic-wrap-acquire-lock` and `agentic-wrap-release-lock` require Node; both load `hooks/lib/wrap-marker.js` via `__dirname`-relative path (not `cwd`).
 - `agentic-emit` shells out to `python3` and `date` for safe JSON assembly.
 - `agentic-cost` soft-depends on `pyyaml` for `~/.agentic/pricing.yml`; absent = token-only output.
 - `agentic-update` shells out to `git` and `bash <adapter>/install.sh`.
