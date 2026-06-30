@@ -167,7 +167,7 @@ Before writing any entry, run the three-step check from
 ### Spawning learnings-agent
 
 When `Capture: MUST` is declared, the conductor spawns `learnings-agent` in the
-background with `run_in_background: true`. Before spawning, check
+background (the harness default). Before spawning, check
 `.agentic/learnings-agent.session`; if present and its `session_id` matches the
 current session, the agent is already active - send the event message to the running
 agent rather than re-spawning. When `Capture: MUST` is declared, the conductor writes

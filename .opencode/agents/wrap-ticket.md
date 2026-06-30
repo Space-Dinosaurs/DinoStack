@@ -27,7 +27,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
-              No external libraries; only Read/Glob/Grep/Edit/Write tools.
+              No external libraries; only Read/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
                       return, prints operator_summary to the user, reads

@@ -3,20 +3,25 @@
 Regression tests for hooks/enforce-background-spawn.py - Unit 5b additions.
 
 Test groups:
-  1. test_task_denied_when_sentinel_live              - sentinel present+live -> Task denied.
-  2. test_task_allowed_when_sentinel_absent           - no sentinel -> background Task allowed.
-  3. test_task_allowed_when_sentinel_pid_dead         - sentinel with dead PID -> allowed.
-  4. test_task_allowed_when_sentinel_mtime_stale      - sentinel mtime > 2h -> allowed.
-  5. test_omc_skill_denied_when_sentinel_live         - oh-my-claudecode:* Skill denied.
-  6. test_normal_skill_allowed_when_sentinel_live     - non-OMC Skill always allowed.
-  7. test_foreground_task_denied_no_sentinel          - existing behavior: no bg flag denied.
-  8. test_background_task_allowed_no_sentinel         - existing: run_in_background=True ok.
-  9. test_foreground_exempt_allowed_no_sentinel       - wrap-ticket foreground exempt intact.
- 10. test_malformed_stdin_failopen                    - bad JSON -> exit 0 (fail-open).
- 11. test_sentinel_corrupt_failopen                   - unreadable sentinel -> allowed.
- 12. test_wrap_ticket_allowed_when_sentinel_live      - MAJOR-1: wrap-ticket bypasses sentinel.
- 13. test_omc_skill_field_name_skill_key              - MAJOR-2: "skill" key triggers deny.
- 14. test_skill_absent_field_failopen                 - MAJOR-2: absent skill field -> allow.
+  1. test_task_denied_when_sentinel_live                        - sentinel present+live -> Task denied.
+  2. test_task_allowed_when_sentinel_absent                     - no sentinel -> background Task allowed.
+  3. test_task_allowed_when_sentinel_pid_dead                   - sentinel with dead PID -> allowed.
+  4. test_task_allowed_when_sentinel_mtime_stale                - sentinel mtime > 2h -> allowed.
+  5. test_omc_skill_denied_when_sentinel_live                   - oh-my-claudecode:* Skill denied.
+  6. test_normal_skill_allowed_when_sentinel_live               - non-OMC Skill always allowed.
+  7. test_foreground_task_denied_no_sentinel                    - existing behavior: no bg flag denied.
+  8. test_background_task_allowed_no_sentinel                   - existing: run_in_background=True ok.
+  9. test_foreground_exempt_allowed_no_sentinel                 - wrap-ticket foreground exempt intact.
+ 10. test_malformed_stdin_failopen                              - bad JSON -> exit 0 (fail-open).
+ 11. test_sentinel_corrupt_failopen                             - unreadable sentinel -> allowed.
+ 12. test_wrap_ticket_allowed_when_sentinel_live                - MAJOR-1: wrap-ticket bypasses sentinel.
+ 13. test_wrap_ticket_allowed_when_sentinel_live_agent_tool     - MAJOR-1: same under tool_name=Agent.
+ 14. test_omc_skill_field_name_skill_key                        - MAJOR-2: "skill" key triggers deny.
+ 15. test_skill_absent_field_failopen                           - MAJOR-2: absent skill field -> allow.
+ 16. test_agent_allowed_without_run_in_background               - Agent w/o run_in_background -> ALLOWED (harness strips it).
+ 17. test_agent_denied_outright_when_sentinel_live_not_skill_detection - sentinel-live Agent -> denied via team-run path.
+ 18. test_omc_skill_denied_when_sentinel_live_agent_rename      - sentinel-live Skill oh-my-claudecode: -> denied.
+ 19. test_no_reap_string_in_any_deny_reason                     - sentinel deny reason contains no '--reap'.
 
 Run with: python3 -m pytest bin/tests/test_enforce_background_spawn.py -x
        or: python3 bin/tests/test_enforce_background_spawn.py
@@ -412,24 +417,34 @@ def test_sentinel_is_live_stale_mtime():
 # Tests: PR #256 merge - Task/Agent rename UNION + reap-string removal
 # ---------------------------------------------------------------------------
 
-def test_agent_denied_when_no_run_in_background():
-    """PR256 (a): tool_name='Agent' with no run_in_background -> denied.
+def test_agent_allowed_without_run_in_background():
+    """Corrected (was PR256 (a)): Agent spawn without run_in_background -> ALLOWED.
 
-    origin/main renamed the spawn tool Task -> Agent. The background-enforcement
-    path must guard on Agent too, and the deny reason must name 'Agent'.
+    The Claude Code harness strips run_in_background from the Agent PreToolUse
+    hook payload before the hook fires. Live payload capture confirmed that
+    tool_input keys for an Agent spawn are exactly ['description', 'prompt',
+    'subagent_type'] - run_in_background is absent. Enforcing it would deny
+    every Agent spawn. The hook's background enforcement applies to the legacy
+    'Task' tool name only; Agent is background-by-default at the harness level.
+
+    This test uses the realistic harness payload shape (no run_in_background).
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         payload = {
             "tool_name": "Agent",
             "cwd": tmpdir,
-            "tool_input": {"subagent_type": "engineer"},
+            "tool_input": {
+                "description": "Implement the feature",
+                "prompt": "...",
+                "subagent_type": "engineer",
+            },
         }
         rc, parsed = _run_hook(payload)
         assert rc == 0
-        assert _is_denied(parsed), f"Expected deny for Agent without bg flag, got: {parsed}"
-        reason = _deny_reason(parsed)
-        assert "run_in_background" in reason
-        assert "Agent spawn blocked" in reason, f"deny reason must name Agent: {reason}"
+        assert not _is_denied(parsed), (
+            f"Agent without run_in_background must be ALLOWED (harness strips "
+            f"run_in_background from Agent hook payload); got: {parsed}"
+        )
 
 
 def test_agent_denied_outright_when_sentinel_live_not_skill_detection():

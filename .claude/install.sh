@@ -670,9 +670,10 @@ for spawn_matcher in ("Task", "Agent"):
     )
 
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
+ptu_list = hooks.setdefault("PreToolUse", [])
 ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
 
-# Find or create a SEPARATE matcher "AskUserQuestion" block (not the Task block).
+# Find or create a matcher "AskUserQuestion" block.
 ptu_auq = None
 for block in ptu_list:
     if block.get("matcher") == "AskUserQuestion":

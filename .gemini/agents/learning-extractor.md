@@ -1,7 +1,7 @@
 ---
 name: learning-extractor
 description: "Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files."
-tools: [read_file, glob, replace, write_file]
+tools: [read_file, replace, write_file]
 kind: local
 ---
 
@@ -27,7 +27,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             learning_ids[], skipped_reason, operator_summary. All IDs in
             learning_ids[] carry the LRN- prefix.
 
-Upstream deps: None (no external libraries; only Read/Glob/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/templates/.agentic/learnings.md (canonical LRN schema).
 
 Downstream consumers: wrap-ticket at Phase 11b (reads .agentic/learnings.md

@@ -26,7 +26,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             learning_ids[], skipped_reason, operator_summary. All IDs in
             learning_ids[] carry the LRN- prefix.
 
-Upstream deps: None (no external libraries; only Read/Glob/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/templates/.agentic/learnings.md (canonical LRN schema).
 
 Downstream consumers: wrap-ticket at Phase 11b (reads .agentic/learnings.md

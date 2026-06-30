@@ -869,7 +869,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 29, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jun 30, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -1097,7 +1097,7 @@
       <div class="rel-card">
         <h4>code-standards.md <span class="load-badge always">always loaded</span></h4>
         <ul>
-          <li>Tool discipline (Read/Glob/Grep over bash)</li>
+          <li>Tool discipline (Read primary; Glob/Grep preferred when available, Bash fallback)</li>
           <li>Agent-ergonomic tool selection (token-efficient output, CLI over MCP when cheaper, measure before adopting)</li>
           <li>Quality gates: lint, typecheck, test</li>
           <li>Per-language strict defaults</li>
@@ -1352,7 +1352,7 @@
             <li><strong>Rule 1 - Always background.</strong> Most critical rule. Foreground blocks the conductor entirely. All delegated work runs in background.</li>
             <li><strong>Rule 2 - Parallel by default.</strong> Independent tasks spawn simultaneously. "Can I start B before A finishes?"</li>
             <li><strong>Rule 3 - Spawn threshold.</strong> Elevated risk &rarr; spawn. Low risk &rarr; direct action. When in doubt, Elevated.</li>
-            <li><strong>Rule 4 - Agent type discipline.</strong> Wrong type silently degrades. Bash agents can't spawn subagents or do file work.</li>
+            <li><strong>Rule 4 - Agent type discipline:</strong> spawn an agent type that exists. No subagent can spawn subagents (a platform property of every subagent). Low-risk shell/git is conductor-direct - there is no shell-only agent type.</li>
             <li><strong>Rule 5 - Skeptic Protocol orchestrated by main agent.</strong> Architect plans must receive Skeptic review before acting on them.</li>
             <li><strong>Rule 6 - Check in, don't disappear.</strong> Status updates immediately after spawning. Proactive reporting when tasks complete.</li>
             <li><strong>Rule 7 - Direct actions permitted.</strong> Reads, git status, screenshots, memory answers, synthesizing returned results.</li>
@@ -1383,7 +1383,7 @@
           <ul>
             <li>Foreground blocking (most critical violation)</li>
             <li>Sequential when parallel is possible</li>
-            <li>Bash agents for implementation tasks</li>
+            <li>Treating risky shell/git as conductor-direct to dodge review</li>
             <li>Main agent doing implementation work</li>
             <li>"Looks simple" rationalization</li>
             <li>Softening adversarial briefs</li>

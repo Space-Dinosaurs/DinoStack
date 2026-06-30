@@ -3,7 +3,7 @@ name: security-auditor
 model: opus
 description: Specialized security reviewer. Spawn when a deep, threat-model-driven security audit is needed on code changes. Applies OWASP Top 10 and CWE-category analysis systematically, assumes a capable attacker, and produces a structured findings report with severity ratings, specific code locations, and remediation guidance. The spawn prompt provides the files or code to audit, the security domain, and any known prior mitigations.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -17,7 +17,7 @@ capabilities:
       install_hint: "pip install semgrep"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -50,7 +50,7 @@ Your spawn prompt will contain:
    - **Data handling:** sensitive data in logs or error messages, insecure storage (plaintext secrets, unencrypted PII), missing encryption in transit
    - **Dependencies:** known CVEs in direct dependencies - check package.json, requirements.txt, go.mod, Gemfile, or equivalent for version numbers and flag anything obviously outdated or known-vulnerable
 
-4. For each check, use Grep and Bash actively. Search for patterns:
+4. For each check, use Grep and Bash actively (Grep when available, otherwise Bash `rg`/`grep`). Search for patterns:
    - Raw SQL string concatenation or interpolation
    - `eval()`, `exec()`, `os.system()`, `subprocess` with shell=True, `child_process.exec`
    - Unvalidated user input passed to filesystem, network, or shell operations

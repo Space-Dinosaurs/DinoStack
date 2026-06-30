@@ -26,7 +26,7 @@ Background tasks free the main agent immediately. The main agent gives the user 
 
 **Independent tasks spawn simultaneously in a single message, not sequentially.**
 
-When decomposing a request into multiple subtasks, if tasks A, B, and C are independent — meaning B does not depend on A's output and C does not depend on B's output — spawn all three in the same message as separate Task invocations. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
+When decomposing a request into multiple subtasks, if tasks A, B, and C are independent - meaning B does not depend on A's output and C does not depend on B's output - spawn all three in the same message as separate `Agent` tool calls. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
@@ -49,16 +49,16 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 | Task type | Agent type to spawn |
 |---|---|
 | Code implementation, file changes, synthesis | `general-purpose` Worker |
-| Pure shell operations, no subagent spawning needed | `bash` agent |
+| Pure shell / git operations, low-risk | Conductor-direct (Bash tool) - no shell-only agent type exists |
 | Codebase exploration, reading many files | `general-purpose` Worker |
 | Web research, doc reading, analysis | `general-purpose` Worker |
 | Multi-step investigation with possible follow-up | `general-purpose` Worker |
 
-**Critical constraint:** Bash agents cannot spawn subagents — they do not have access to the Task tool. For implementation tasks that will go through Skeptic review, always use a general-purpose Worker. Bash agents lack the file and code tools needed to do substantive implementation work. Using a Bash agent for implementation tasks silently degrades output quality rather than failing explicitly.
+**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent. For implementation tasks that will go through Skeptic review, use a `general-purpose` Worker (or the appropriate named agent). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
 
 **When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
 
-**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Task` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Task` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; and qa-engineer's `.agentic/qa.md` append uses Bash redirection, not `Write`, so the deny does not affect it.)
+**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; and qa-engineer's `.agentic/qa.md` append uses Bash redirection, not `Write`, so the deny does not affect it.)
 
 ### Rule 5 — The Skeptic Protocol is orchestrated by the main agent
 
@@ -167,7 +167,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Two-question structure:** First, determine whether to delegate (consult the table below). Second, determine whether to background (apply the background rule). These are independent questions evaluated in sequence.
 
-**Background rule (evaluated after the delegation decision, mandatory for all delegated work):** All delegated tasks run with `run_in_background: true`. Foreground is permitted only for direct-action cases (Rule 7). This applies to every row below that results in "Spawn subagent." Background is not a row at the bottom of the table — it is a mandatory modifier on all delegated work.
+**Background rule (evaluated after the delegation decision, mandatory for all delegated work):** All delegated tasks run in the background (the harness default for `Agent` spawns). Foreground is permitted only for direct-action cases (Rule 7). This applies to every row below that results in "Spawn subagent." Background is not a row at the bottom of the table - it is a mandatory modifier on all delegated work.
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
@@ -215,10 +215,10 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Task involves code or file changes | `general-purpose` Worker (Skeptic Protocol applies) |
 | Task may require spawning further subagents | `general-purpose` Worker |
 | Task involves synthesis, planning, research | `general-purpose` Worker |
-| Task is pure shell with no side-effect ambiguity and no subagent spawning possible | `bash` agent |
+| Task is low-risk pure shell / git, no delegation needed | Conductor-direct (Bash tool) - no shell-only agent type exists |
 | Multi-file codebase exploration | `general-purpose` Worker |
 
-**Never assign a task to a Bash agent if the task involves code changes, file synthesis, or substantive implementation work.** Bash agents lack the file and code tools needed for this work. For any implementation task that will go through Skeptic review, use a general-purpose Worker.
+**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to `general-purpose` or the appropriate named agent, never treat it as "just a shell command" to escape review.
 
 ---
 
@@ -282,36 +282,36 @@ At no point in this sequence does the main agent become an implementer. All step
 
 ### The rule
 
-When spawning two or more agents that will write to the same git repository simultaneously, always pass `isolation: "worktree"` in the Task tool call.
+When spawning two or more agents that will write to the same git repository simultaneously, always pass `isolation: "worktree"` in the `Agent` tool call.
 
 ### Why
 
-Git's working tree is shared state. When two agents run concurrently in the same directory and either agent runs `git checkout` or `git checkout -b`, it moves the working tree to a different branch — overwriting whatever the other agent has staged or modified. The second agent then reads, modifies, or commits files from the wrong branch. This is not a recoverable situation mid-run; the working tree state is silently corrupted.
+Git's working tree is shared state. When two agents run concurrently in the same directory and either agent runs `git checkout` or `git checkout -b`, it moves the working tree to a different branch - overwriting whatever the other agent has staged or modified. The second agent then reads, modifies, or commits files from the wrong branch. This is not a recoverable situation mid-run; the working tree state is silently corrupted.
 
 Worktree isolation gives each agent its own copy of the repo at a separate filesystem path on its own branch. The agents do not share a working directory, so concurrent checkouts cannot interfere.
 
 ### How
 
-Pass `isolation: "worktree"` in the Task tool call when spawning parallel agents:
+Pass `isolation: "worktree"` in the `Agent` tool call when spawning parallel agents:
 
 ```
-Task(
+Agent(
   prompt="...",
   isolation="worktree"
 )
 ```
 
-The Task tool creates a temporary git worktree for the agent to work in — an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
+The `Agent` tool creates a temporary git worktree for the agent to work in - an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
 
 ### Nested repo caveat
 
-`isolation: "worktree"` requires Claude Code to be running inside the correct git repo root. If the project directory is nested inside a parent git repo, the Task tool may walk up the directory tree and resolve to the parent repo instead — causing worktree creation to fail even though the project directory has its own `.git`.
+`isolation: "worktree"` requires Claude Code to be running inside the correct git repo root. If the project directory is nested inside a parent git repo, the `Agent` tool may walk up the directory tree and resolve to the parent repo instead - causing worktree creation to fail even though the project directory has its own `.git`.
 
 **Symptom:** `isolation: "worktree"` fails with "Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured" even though Claude Code is launched from within the project directory.
 
 **Diagnosis:** Run `git rev-parse --show-toplevel` from the project directory and from the parent. If both return different roots, the parent repo is interfering.
 
-**Fix:** Add the project directory to the parent repo's `.gitignore`. This makes git (and the Task tool) treat the project as an independent repo rather than a subdirectory of the parent.
+**Fix:** Add the project directory to the parent repo's `.gitignore`. This makes git (and the `Agent` tool) treat the project as an independent repo rather than a subdirectory of the parent.
 
 ```bash
 # Example: authentic8/ nested inside ~/
@@ -350,11 +350,11 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 ## 8. Anti-Patterns
 
-**Foreground blocking** — The most critical anti-pattern. Spawning a subagent without `run_in_background: true` for any delegated task. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
+**Foreground blocking** - The most critical anti-pattern. Spawning delegated work on the foreground/synchronous path when it should run in the background. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
 
 **Sequential when parallel is possible** — Spawning subagent B after waiting for subagent A when B does not depend on A's output. Multiplies elapsed time unnecessarily.
 
-**Bash agents for implementation tasks** — Assigning a Bash agent to any task involving code, file changes, or synthesis. Bash agents lack file and code tools needed for substantive implementation, and cannot spawn subagents for follow-up. The failure is silent degradation, not an explicit error.
+**Treating risky shell/git as conductor-direct to dodge review** - Running a shell or git operation that carries Elevated risk signals (writes to shared state, irreversible ops, multi-file effects) directly in the conductor instead of delegating to a Worker with Skeptic review. Low-risk shell/git is correctly conductor-direct; the anti-pattern is using "it's just a shell command" to escape the risk table. There is no shell-only agent type to misuse - the failure mode is now under-reviewing direct execution, not mis-routing to a degraded agent.
 
 **Main agent doing implementation work** — The main agent writing code, editing multiple files, or running multi-step investigations inline rather than delegating. Violates the conductor principle and bypasses The Skeptic Protocol review gate.
 

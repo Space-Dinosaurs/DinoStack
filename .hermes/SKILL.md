@@ -69,7 +69,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in background, give the user a status update, and wait for completion notification. On Claude Code this rule is enforced by a `PreToolUse` hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that denies any `Task` spawn lacking `run_in_background: true` (except documented foreground-exempt agents like `wrap-ticket`, which must block on `wrap/lock` before Phase 12 cleanup proceeds) and feeds the reason back so the conductor re-issues the call correctly; other adapters rely on the prose rule until equivalent enforcement lands.
+**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness consumes `run_in_background` for its own async routing and strips it from the PreToolUse hook payload (confirmed by live payload capture: hook tool_input keys for an Agent spawn are exactly `['description', 'prompt', 'subagent_type']`). As a result, `hooks/enforce-background-spawn.py` does NOT enforce `run_in_background` on `Agent` - doing so would brick every Agent spawn. Background enforcement is applied to the legacy `Task` tool name only. The hook retains two active responsibilities: (a) `run_in_background` enforcement for the legacy `Task` tool, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated.
 
@@ -189,8 +189,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Use `bash` agents only for pure shell operations. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Task` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
-
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 **wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
 
 **Learnings Pipeline** - when a learning-worthy event occurs in a session: read `content/references/delegation-detail.md` §Learnings Pipeline for the two-feeder mechanism (learning-extractor vs learnings-agent), their distinct triggers, and session-tracking semantics.
@@ -697,14 +696,14 @@ Do not rely on training knowledge for library-specific details when Context7 is 
 
 ## Tool Discipline
 
-**Never use Bash to read files, list directories, or search content.** Use the dedicated tools - they don't trigger permission prompts and give better output:
-- Read files: `Read` tool (never `cat`, `head`, `tail`, `sed`)
-- List/find files: `Glob` tool (never `ls`, `find`)
-- Search content: `Grep` tool (never `grep`, `rg`)
+**Prefer the dedicated tools for reads, listing, and search when they are available; use Bash as the sanctioned fallback when they are not.** `Read` is always present and is the primary tool for reading file contents - always prefer it over `cat`/`head`/`tail`/`sed`. For listing and searching, prefer `Glob` and `Grep` when the harness exposes them - they avoid permission prompts and give cleaner output:
+- Read files: `Read` tool (always available; never `cat`, `head`, `tail`, `sed`).
+- List/find files: `Glob` tool when available; otherwise Bash `find` (or `rg --files`).
+- Search content: `Grep` tool when available; otherwise Bash `rg` (preferred) or `grep`.
 
-Reserve `Bash` exclusively for: builds, installs, git operations, network calls, process management, and anything no dedicated tool covers.
+Reserve `Bash` for: builds, installs, git operations, network calls, process management, listing/searching when `Glob`/`Grep` are unavailable, and anything no dedicated tool covers.
 
-Exception: `sg` (AST-grep) for structural symbol-level searches is run via Bash - no dedicated harness tool wraps it. Check availability with `which sg 2>/dev/null` before use.
+`sg` (AST-grep) for structural symbol-level searches is always run via Bash - no dedicated harness tool wraps it. This is independent of the `Glob`/`Grep` availability question above: Bash-based search is sanctioned generally (via `rg`/`grep`/`find`), and `sg` is the specific tool for structural AST queries. Check availability with `which sg 2>/dev/null` before use.
 
 **Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
 
@@ -736,7 +735,7 @@ Key tools and their uses:
 
 **Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
 
-**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Grep`/`Glob` discipline above.
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Glob`/`Grep` tool-discipline above.
 
 ## Module Manifests
 
@@ -1785,7 +1784,7 @@ Before writing any entry, run the three-step check from
 ### Spawning learnings-agent
 
 When `Capture: MUST` is declared, the conductor spawns `learnings-agent` in the
-background with `run_in_background: true`. Before spawning, check
+background (the harness default). Before spawning, check
 `.agentic/learnings-agent.session`; if present and its `session_id` matches the
 current session, the agent is already active - send the event message to the running
 agent rather than re-spawning. When `Capture: MUST` is declared, the conductor writes
@@ -2186,13 +2185,13 @@ This relies on worker cooperation. It is defense-in-depth, not a hard fence.
 While the sentinel file `<workdir>/.agentic/teamrun/.active` exists, the
 conductor suppresses native `Task` spawns and OMC skill calls.
 
-**On Claude Code:** hook-enforced. The existing
-`hooks/enforce-background-spawn.py` hook (wired by `.claude/install.sh`, already
-intercepting `Task`) is extended with a branch: when `.active` exists and is
-live (conductor PID present + not dead, mtime < 2 h), the hook denies any
-`Task` call outright (not just non-background) and denies any Skill call whose
-`skill` argument starts with `oh-my-claudecode:`. The denial message instructs
-the conductor to dispatch via `agentic-team` instead.
+**On Claude Code:** hook-enforced. The `hooks/enforce-background-spawn.py` hook
+(wired by `.claude/install.sh`, PreToolUse matcher for both `Task` and `Agent`)
+contains a sentinel-suppression branch: when `.active` exists and is live
+(conductor PID present + not dead, mtime < 2 h), the hook denies any `Task` or
+`Agent` call outright and denies any Skill call whose `skill` argument starts
+with `oh-my-claudecode:`. The denial message instructs the conductor to dispatch
+via `agentic-team` instead.
 
 Stale-sentinel guard: the hook treats `.active` as expired when its recorded
 PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
@@ -2209,7 +2208,7 @@ binding prose contract, not a mechanically enforced hook. Per-harness status:
 
 | Harness | Enforcement status | Hook location (if it existed) |
 |---|---|---|
-| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` + OMC skill calls while `.active` is live) | Already deployed |
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` and `Agent` + OMC skill calls while `.active` is live) | Already deployed |
 | **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
 | **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
 | **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |
@@ -2751,8 +2750,8 @@ Performance: Standard.
 
 (Cost & latency observability; see `bin/agentic-emit`, `bin/agentic-parse-subagent-usage`, `bin/agentic-cost`.)
 
-- `spawn_start`: emitted by the conductor immediately before a Task tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, `agent_id: null` (Claude Code assigns the agent id after the Task returns), and `session_uuid` (see below).
-- `spawn_complete`: emitted by the conductor immediately after a Task tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), `status`, and `session_uuid` (see below).
+- `spawn_start`: emitted by the conductor immediately before an `Agent` tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, `agent_id: null` (Claude Code assigns the agent id after the `Agent` spawn returns), and `session_uuid` (see below).
+- `spawn_complete`: emitted by the conductor immediately after an `Agent` tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), `status`, and `session_uuid` (see below).
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
 - `conductor_direct`: **[DEPRECATED - no longer emitted; hook-emitted `spawn_start` (data.source:"hook") now provides ad-hoc spawn telemetry]** _(Historical reference only.)_ Was emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carried `wall_seconds`, a `note`, and `session_uuid`; tokens were zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
@@ -3974,7 +3973,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 ## 2. The Core Loop
 
-**Architecture note:** Workers cannot spawn subagents — the Task tool is available only to the main (primary) session agent. This means the Skeptic loop is orchestrated by the main agent, not the Worker. Workers implement and return; the main agent handles review.
+**Architecture note:** Workers cannot spawn subagents - the spawn (`Agent`) tool is available only to the main (primary) session agent. This means the Skeptic loop is orchestrated by the main agent, not the Worker. Workers implement and return; the main agent handles review.
 
 ### Step-by-step
 
@@ -4792,7 +4791,7 @@ Background tasks free the main agent immediately. The main agent gives the user 
 
 **Independent tasks spawn simultaneously in a single message, not sequentially.**
 
-When decomposing a request into multiple subtasks, if tasks A, B, and C are independent — meaning B does not depend on A's output and C does not depend on B's output — spawn all three in the same message as separate Task invocations. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
+When decomposing a request into multiple subtasks, if tasks A, B, and C are independent - meaning B does not depend on A's output and C does not depend on B's output - spawn all three in the same message as separate `Agent` tool calls. Sequential spawning of independent tasks wastes elapsed time proportional to the number of tasks.
 
 The main agent should be actively looking for parallelism: "Can I start B before A finishes? Can C run while A and B are both running?" If the answer is yes, they run in parallel.
 
@@ -4815,16 +4814,16 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 | Task type | Agent type to spawn |
 |---|---|
 | Code implementation, file changes, synthesis | `general-purpose` Worker |
-| Pure shell operations, no subagent spawning needed | `bash` agent |
+| Pure shell / git operations, low-risk | Conductor-direct (Bash tool) - no shell-only agent type exists |
 | Codebase exploration, reading many files | `general-purpose` Worker |
 | Web research, doc reading, analysis | `general-purpose` Worker |
 | Multi-step investigation with possible follow-up | `general-purpose` Worker |
 
-**Critical constraint:** Bash agents cannot spawn subagents — they do not have access to the Task tool. For implementation tasks that will go through Skeptic review, always use a general-purpose Worker. Bash agents lack the file and code tools needed to do substantive implementation work. Using a Bash agent for implementation tasks silently degrades output quality rather than failing explicitly.
+**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent. For implementation tasks that will go through Skeptic review, use a `general-purpose` Worker (or the appropriate named agent). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
 
 **When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
 
-**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Task` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Task` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; and qa-engineer's `.agentic/qa.md` append uses Bash redirection, not `Write`, so the deny does not affect it.)
+**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; and qa-engineer's `.agentic/qa.md` append uses Bash redirection, not `Write`, so the deny does not affect it.)
 
 ### Rule 5 — The Skeptic Protocol is orchestrated by the main agent
 
@@ -4933,7 +4932,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Two-question structure:** First, determine whether to delegate (consult the table below). Second, determine whether to background (apply the background rule). These are independent questions evaluated in sequence.
 
-**Background rule (evaluated after the delegation decision, mandatory for all delegated work):** All delegated tasks run with `run_in_background: true`. Foreground is permitted only for direct-action cases (Rule 7). This applies to every row below that results in "Spawn subagent." Background is not a row at the bottom of the table — it is a mandatory modifier on all delegated work.
+**Background rule (evaluated after the delegation decision, mandatory for all delegated work):** All delegated tasks run in the background (the harness default for `Agent` spawns). Foreground is permitted only for direct-action cases (Rule 7). This applies to every row below that results in "Spawn subagent." Background is not a row at the bottom of the table - it is a mandatory modifier on all delegated work.
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
@@ -4981,10 +4980,10 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Task involves code or file changes | `general-purpose` Worker (Skeptic Protocol applies) |
 | Task may require spawning further subagents | `general-purpose` Worker |
 | Task involves synthesis, planning, research | `general-purpose` Worker |
-| Task is pure shell with no side-effect ambiguity and no subagent spawning possible | `bash` agent |
+| Task is low-risk pure shell / git, no delegation needed | Conductor-direct (Bash tool) - no shell-only agent type exists |
 | Multi-file codebase exploration | `general-purpose` Worker |
 
-**Never assign a task to a Bash agent if the task involves code changes, file synthesis, or substantive implementation work.** Bash agents lack the file and code tools needed for this work. For any implementation task that will go through Skeptic review, use a general-purpose Worker.
+**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to `general-purpose` or the appropriate named agent, never treat it as "just a shell command" to escape review.
 
 ---
 
@@ -5048,36 +5047,36 @@ At no point in this sequence does the main agent become an implementer. All step
 
 ### The rule
 
-When spawning two or more agents that will write to the same git repository simultaneously, always pass `isolation: "worktree"` in the Task tool call.
+When spawning two or more agents that will write to the same git repository simultaneously, always pass `isolation: "worktree"` in the `Agent` tool call.
 
 ### Why
 
-Git's working tree is shared state. When two agents run concurrently in the same directory and either agent runs `git checkout` or `git checkout -b`, it moves the working tree to a different branch — overwriting whatever the other agent has staged or modified. The second agent then reads, modifies, or commits files from the wrong branch. This is not a recoverable situation mid-run; the working tree state is silently corrupted.
+Git's working tree is shared state. When two agents run concurrently in the same directory and either agent runs `git checkout` or `git checkout -b`, it moves the working tree to a different branch - overwriting whatever the other agent has staged or modified. The second agent then reads, modifies, or commits files from the wrong branch. This is not a recoverable situation mid-run; the working tree state is silently corrupted.
 
 Worktree isolation gives each agent its own copy of the repo at a separate filesystem path on its own branch. The agents do not share a working directory, so concurrent checkouts cannot interfere.
 
 ### How
 
-Pass `isolation: "worktree"` in the Task tool call when spawning parallel agents:
+Pass `isolation: "worktree"` in the `Agent` tool call when spawning parallel agents:
 
 ```
-Task(
+Agent(
   prompt="...",
   isolation="worktree"
 )
 ```
 
-The Task tool creates a temporary git worktree for the agent to work in — an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
+The `Agent` tool creates a temporary git worktree for the agent to work in - an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
 
 ### Nested repo caveat
 
-`isolation: "worktree"` requires Claude Code to be running inside the correct git repo root. If the project directory is nested inside a parent git repo, the Task tool may walk up the directory tree and resolve to the parent repo instead — causing worktree creation to fail even though the project directory has its own `.git`.
+`isolation: "worktree"` requires Claude Code to be running inside the correct git repo root. If the project directory is nested inside a parent git repo, the `Agent` tool may walk up the directory tree and resolve to the parent repo instead - causing worktree creation to fail even though the project directory has its own `.git`.
 
 **Symptom:** `isolation: "worktree"` fails with "Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured" even though Claude Code is launched from within the project directory.
 
 **Diagnosis:** Run `git rev-parse --show-toplevel` from the project directory and from the parent. If both return different roots, the parent repo is interfering.
 
-**Fix:** Add the project directory to the parent repo's `.gitignore`. This makes git (and the Task tool) treat the project as an independent repo rather than a subdirectory of the parent.
+**Fix:** Add the project directory to the parent repo's `.gitignore`. This makes git (and the `Agent` tool) treat the project as an independent repo rather than a subdirectory of the parent.
 
 ```bash
 # Example: authentic8/ nested inside ~/
@@ -5116,11 +5115,11 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 ## 8. Anti-Patterns
 
-**Foreground blocking** — The most critical anti-pattern. Spawning a subagent without `run_in_background: true` for any delegated task. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
+**Foreground blocking** - The most critical anti-pattern. Spawning delegated work on the foreground/synchronous path when it should run in the background. Blocks the main agent entirely for the duration. Foreground is reserved only for direct-action cases (Rule 7). There is no justification for foreground on any delegated work.
 
 **Sequential when parallel is possible** — Spawning subagent B after waiting for subagent A when B does not depend on A's output. Multiplies elapsed time unnecessarily.
 
-**Bash agents for implementation tasks** — Assigning a Bash agent to any task involving code, file changes, or synthesis. Bash agents lack file and code tools needed for substantive implementation, and cannot spawn subagents for follow-up. The failure is silent degradation, not an explicit error.
+**Treating risky shell/git as conductor-direct to dodge review** - Running a shell or git operation that carries Elevated risk signals (writes to shared state, irreversible ops, multi-file effects) directly in the conductor instead of delegating to a Worker with Skeptic review. Low-risk shell/git is correctly conductor-direct; the anti-pattern is using "it's just a shell command" to escape the risk table. There is no shell-only agent type to misuse - the failure mode is now under-reviewing direct execution, not mis-routing to a degraded agent.
 
 **Main agent doing implementation work** — The main agent writing code, editing multiple files, or running multi-step investigations inline rather than delegating. Violates the conductor principle and bypasses The Skeptic Protocol review gate.
 
@@ -5634,9 +5633,9 @@ name: adr-drift-detector
 model: sonnet
 description: Audits codebase compliance against Architecture Decision Records (ADRs). Invoke when the user mentions ADR compliance, architecture drift, "does code match ADRs", architectural audit, or wants to verify decisions are being followed. Automatically finds ADRs, extracts decisions, searches code for evidence, and produces a structured drift report.
 tools: Read, Bash, Grep, Glob
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 You are an ADR drift detector. Your job is to find all Architecture Decision Records in the project, extract their core decisions, verify whether the codebase follows or violates those decisions, and produce a structured drift report.
 
 Output goes to stdout only. Never write files.
@@ -6146,7 +6145,7 @@ name: architect
 model: sonnet
 description: Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -6158,7 +6157,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are an Architect - a pre-implementation design agent whose job is to produce a precise technical plan before anyone writes a line of code. Your value is in making the right design decisions early: surfacing ambiguities, naming the correct approach, and laying out a plan concrete enough that a Worker can execute it without guessing.
@@ -6180,7 +6179,7 @@ Your spawn prompt will contain:
 ## Exploration process
 
 1. Read the task description carefully. List any ambiguities or unstated assumptions before exploring.
-2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively.
+2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively when available; otherwise use Bash `rg`/`grep`/`find` for the same purpose.
 3. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
 4. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
 5. Write the technical plan using the output format below.
@@ -6232,7 +6231,7 @@ Required columns (non-visual variant - API surface, behavioral contract, or type
 | `consumer_file:line` | `passes_relevant_arg?` | `uses_compensating_pattern?` | `current_behavior` | `new_behavior` |
 |---|---|---|---|---|
 
-Use Grep/Glob to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
+Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
 
 **Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
@@ -6409,7 +6408,7 @@ name: debugger
 model: sonnet
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -6426,7 +6425,7 @@ capabilities:
       install_hint: "configure Context7 MCP server in .claude/settings.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are a Debugger - a root cause analysis agent whose job is to find exactly what is wrong and why, not to fix it. Your value is in accurate diagnosis. A good diagnosis is short, specific, and points exactly at what is broken and why. Resist the urge to guess - gather evidence first. Resist the urge to fix - that is the Worker's job.
@@ -6443,7 +6442,7 @@ Your spawn prompt will contain:
 
 ### Phase 1: Root Cause Investigation
 
-Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep if `sg` is not installed.
+Read the error completely - do not skim. Extract: the error message, the exact failing location (file, line, function), and any relevant context (environment, inputs, timing). Reproduce the failure consistently before doing anything else. Check recent changes via `git log` and `git diff` to see what changed near the failure point. In multi-component systems, instrument at boundaries to isolate which component is misbehaving. When tracing call sites or symbol usages, run `which sg 2>/dev/null` to check for AST-grep; if present, prefer `sg --pattern 'symbol($$$)' --lang <lang> .` via Bash over text-based Grep (`$$$` matches any argument list; `sg` is a Bash exception - no dedicated harness tool wraps structural AST search). Fall back to Grep (or Bash `rg`/`grep` when Grep is unavailable) if `sg` is not installed.
 
 ### Phase 2: Look up library docs
 
@@ -6523,7 +6522,7 @@ name: dependency-auditor
 model: sonnet
 description: Supply-chain review specialist. Spawn when the user says "audit our dependencies", "is this upgrade safe", "any CVEs in our lockfile", "check license compliance", "review this new dependency", "do we have vulnerable packages", or "check our supply chain". Triages lockfiles, runs ecosystem vulnerability tools, flags license risks, assesses maintenance signals, and produces a structured findings report for engineer to execute. Does NOT audit application code for OWASP patterns - that is security-auditor's job.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -6544,7 +6543,7 @@ capabilities:
       check: "command -v cargo"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are a Dependency Auditor - a supply-chain review specialist. Your job is adversarial: assume a capable attacker has published a malicious patch version of a widely-used package, that a maintainer has been compromised, or that a new dependency added last week is a typosquat. You do not assume good faith from the registry.
@@ -6977,7 +6976,7 @@ name: investigator
 model: sonnet
 description: Codebase investigation agent. Spawn when you need to understand code before deciding how to change it - tracing data flow, mapping blast radius, understanding feature behavior without a stack trace, or exploring an unfamiliar area. Returns a structured investigation brief the conductor can hand directly to architect or engineer. Does NOT implement changes or write to disk.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -6992,7 +6991,7 @@ capabilities:
       install_hint: "pip install graphifyy && graphify install, then build the graph: graphify . (produces graphify-out/graph.json). Optional - investigator falls back to grep -rn when absent."
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are an Investigator - a read-only codebase analysis agent whose job is to understand code deeply and return a structured brief the conductor can hand to an architect or engineer. You do not implement changes, write files, or make decisions about what should be done. Your value is in building accurate understanding and transmitting it clearly.
@@ -7012,7 +7011,7 @@ Your spawn prompt will contain:
 
 1. **Parse the question.** What specifically needs to be understood? What decision will the conductor make from your output? Knowing the downstream use shapes what depth and breadth you need.
 
-2. **Map the terrain.** Use Glob and Grep to orient quickly: find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep as normal.
+2. **Map the terrain.** Use Glob and Grep to orient quickly when available (otherwise use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable) as normal.
 
 3. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
 
@@ -7108,7 +7107,7 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 name: learning-extractor
 model: sonnet
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
-tools: Read, Glob, Edit, Write
+tools: Read, Edit, Write
 ---
 <!--
 Purpose: Extracts durable fix-pattern LRN learnings from resolved Skeptic
@@ -7130,7 +7129,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             learning_ids[], skipped_reason, operator_summary. All IDs in
             learning_ids[] carry the LRN- prefix.
 
-Upstream deps: None (no external libraries; only Read/Glob/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/templates/.agentic/learnings.md (canonical LRN schema).
 
 Downstream consumers: wrap-ticket at Phase 11b (reads .agentic/learnings.md
@@ -7300,7 +7299,7 @@ The only file you may write is:
 name: learnings-agent
 model: sonnet
 description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
-tools: Read, Glob, Grep, Edit, Write
+tools: Read, Edit, Write
 ---
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
 
@@ -7319,7 +7318,7 @@ Public API: Message-based. The conductor sends brief messages to the running
             entries and returns a JSON acknowledgment with learning_ids[] that
             may contain LRN- or KNW- prefixed IDs.
 
-Upstream deps: None (no external libraries; only Read/Glob/Grep/Edit/Write tools).
+Upstream deps: None (no external libraries; only Read/Edit/Write tools).
                content/references/capture-classification.md (classification
                table; the conductor applies guardrail-first before spawning).
                content/templates/.agentic/learnings.md (canonical schema for
@@ -7554,7 +7553,7 @@ name: orchestration-planner
 model: sonnet
 description: Agent team composition planner. Spawn when you have a complex goal or task and need to determine the optimal combination of agents, their sequencing, handoff points, and parallelization strategy before executing. Use when the right agent team is not obvious, when multiple phases are involved, when a high-level requirement needs decomposing into a concrete execution plan, or when you want to avoid costly mid-task reclassification. Returns a structured orchestration plan the conductor can execute directly. Does not implement anything - planning only.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -7563,7 +7562,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are an Orchestration Planner - a planning agent whose job is to analyze a goal or set of requirements and produce a structured agent execution plan. Your output is a concrete, sequenced plan the conductor can follow: which agents to spawn, in what order, with what inputs, and where adversarial review is needed.
@@ -7770,7 +7769,7 @@ name: perf-analyst
 model: sonnet
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -7788,7 +7787,7 @@ capabilities:
       install_hint: "see k6 install docs at https://k6.io/docs/get-started/installation/"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are a Performance Analyst - a read-only measurement agent whose job is to find where time or memory is actually spent, not where someone thinks it is spent. Your value is in measured evidence. A good perf finding cites numbers: latency in milliseconds, memory in bytes, query count, iteration count, flame graph hotspot with percentage. A finding without a measurement is a guess and must be labeled as such.
@@ -8187,7 +8186,7 @@ name: qa-engineer
 model: sonnet
 description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -8224,7 +8223,7 @@ capabilities:
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are a QA Engineer - the runtime verifier. Your job is to confirm that code changes actually work when running, not just that they compile or pass static review. You are the final gate before merge.
@@ -9373,7 +9372,7 @@ name: security-auditor
 model: opus
 description: Specialized security reviewer. Spawn when a deep, threat-model-driven security audit is needed on code changes. Applies OWASP Top 10 and CWE-category analysis systematically, assumes a capable attacker, and produces a structured findings report with severity ratings, specific code locations, and remediation guidance. The spawn prompt provides the files or code to audit, the security domain, and any known prior mitigations.
 tools: Read, Glob, Grep, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -9387,7 +9386,7 @@ capabilities:
       install_hint: "pip install semgrep"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are a Security Auditor. Your job is not general code review - it is adversarial threat modeling applied to a specific domain. You assume the attacker has read the code, controls their inputs, can send concurrent requests, has access to timing information, and is motivated to escalate privileges or exfiltrate data. You do not assume good faith from any external input.
@@ -9417,7 +9416,7 @@ Your spawn prompt will contain:
    - **Data handling:** sensitive data in logs or error messages, insecure storage (plaintext secrets, unencrypted PII), missing encryption in transit
    - **Dependencies:** known CVEs in direct dependencies - check package.json, requirements.txt, go.mod, Gemfile, or equivalent for version numbers and flag anything obviously outdated or known-vulnerable
 
-4. For each check, use Grep and Bash actively. Search for patterns:
+4. For each check, use Grep and Bash actively (Grep when available, otherwise Bash `rg`/`grep`). Search for patterns:
    - Raw SQL string concatenation or interpolation
    - `eval()`, `exec()`, `os.system()`, `subprocess` with shell=True, `child_process.exec`
    - Unvalidated user input passed to filesystem, network, or shell operations
@@ -9494,7 +9493,7 @@ name: skeptic
 model: opus
 description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a "## Global-context inputs" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format.
 tools: Read, Grep, Glob, Bash
-disallowedTools: [Edit, Write, Task]
+disallowedTools: [Edit, Write, Agent]
 ---
 
 ```yaml
@@ -9503,7 +9502,7 @@ capabilities:
   optional: []
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Task` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 ## Role
 
 You are a Skeptic - an adversarial reviewer whose job is to find what could go wrong, not confirm what looks right. Assume the Worker made mistakes. Your value is in what you catch, not in what you approve.
@@ -9613,7 +9612,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 name: wrap-ticket
 model: sonnet
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
-tools: Read, Glob, Grep, Edit, Write
+tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out for the exact write-permission boundaries, file ownership rules, and soft-fail discipline. The carve-out lists every file you are authorized to write and every file you are forbidden from touching. Operating outside that boundary is a protocol violation.
@@ -9637,7 +9636,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
-              No external libraries; only Read/Glob/Grep/Edit/Write tools.
+              No external libraries; only Read/Edit/Write tools.
 
 Downstream consumers: /implement-ticket Phase 11b (the conductor reads the JSON
                       return, prints operator_summary to the user, reads
@@ -10945,7 +10944,7 @@ Runs after intent capture, before the gray-area menu.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
-**`docs/planning/`:** Glob `*.md` at top level only (NOT subdirectories). Use filenames
+**`docs/planning/`:** Glob `*.md` at top level only (or Bash `find docs/planning -maxdepth 1 -name '*.md'` when Glob is unavailable), NOT subdirectories. Use filenames
 only (directory listing). Match by slug-name keyword similarity (substring match).
 Read AT MOST the first 20 lines of the top 3 closest-matching files.
 If no matches, skip reads entirely.
@@ -12395,10 +12394,10 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`.
 
-**Telemetry emit (V1):** Bracket the Skeptic Task tool call with:
+**Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
 agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'"}'
-# ... Task tool call ...
+# ... Agent tool call ...
 # After return, parse subagent transcript for tokens/wall_seconds:
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
@@ -12494,7 +12493,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 - The branch name and repo path
 - Instruction to run `$QUALITY_CMD` before finishing
 
-**Telemetry emit (V1):** Bracket the Engineer Task tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
+**Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
@@ -12612,7 +12611,7 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
-**Telemetry emit (V1):** Bracket the QA Task tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+**Telemetry emit (V1):** Bracket the QA `Agent` tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
 ```
 ## Prior QA failures
@@ -12654,7 +12653,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the Task call with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
@@ -14763,7 +14762,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 ## Your job (main agent)
 
-**Immediately** spawn a background `general-purpose` Worker (`run_in_background: true`). Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
+**Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
 **Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (auto-injected by Claude Code at startup). Pass this path to the Worker as `$MEMORY_PATH`.
 
@@ -15641,7 +15640,7 @@ You drive the loop. Do not implement the task yourself.
 
 ## Step 1 - Spawn the Worker
 
-Spawn a **background general-purpose Task** (`run_in_background: true`) with this prompt (fill in bracketed sections):
+Spawn a **background general-purpose subagent via the `Agent` tool** with this prompt (fill in bracketed sections):
 
 ---
 You are a Worker agent. Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
@@ -15661,7 +15660,7 @@ Implement the task fully. Return your complete output. If your output is large, 
 
 ## Step 2 - Spawn the Skeptic
 
-When the Worker returns, spawn a **background general-purpose Task** (`run_in_background: true`) using the `skeptic` agent with this prompt (fill in bracketed sections):
+When the Worker returns, spawn a **background general-purpose subagent via the `Agent` tool** using the `skeptic` agent with this prompt (fill in bracketed sections):
 
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
@@ -15695,7 +15694,7 @@ If Critical or Major findings remain: proceed to Step 4.
 
 ## Step 4 - Route findings to a Worker
 
-Spawn a **background general-purpose Task** (`run_in_background: true`) with:
+Spawn a **background general-purpose subagent via the `Agent` tool** with:
 
 - The original task
 - The Skeptic's findings (verbatim)

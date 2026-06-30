@@ -208,13 +208,13 @@ This relies on worker cooperation. It is defense-in-depth, not a hard fence.
 While the sentinel file `<workdir>/.agentic/teamrun/.active` exists, the
 conductor suppresses native `Task` spawns and OMC skill calls.
 
-**On Claude Code:** hook-enforced. The existing
-`hooks/enforce-background-spawn.py` hook (wired by `.claude/install.sh`, already
-intercepting `Task`) is extended with a branch: when `.active` exists and is
-live (conductor PID present + not dead, mtime < 2 h), the hook denies any
-`Task` call outright (not just non-background) and denies any Skill call whose
-`skill` argument starts with `oh-my-claudecode:`. The denial message instructs
-the conductor to dispatch via `agentic-team` instead.
+**On Claude Code:** hook-enforced. The `hooks/enforce-background-spawn.py` hook
+(wired by `.claude/install.sh`, PreToolUse matcher for both `Task` and `Agent`)
+contains a sentinel-suppression branch: when `.active` exists and is live
+(conductor PID present + not dead, mtime < 2 h), the hook denies any `Task` or
+`Agent` call outright and denies any Skill call whose `skill` argument starts
+with `oh-my-claudecode:`. The denial message instructs the conductor to dispatch
+via `agentic-team` instead.
 
 Stale-sentinel guard: the hook treats `.active` as expired when its recorded
 PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
@@ -231,7 +231,7 @@ binding prose contract, not a mechanically enforced hook. Per-harness status:
 
 | Harness | Enforcement status | Hook location (if it existed) |
 |---|---|---|
-| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` + OMC skill calls while `.active` is live) | Already deployed |
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` and `Agent` + OMC skill calls while `.active` is live) | Already deployed |
 | **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
 | **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
 | **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |

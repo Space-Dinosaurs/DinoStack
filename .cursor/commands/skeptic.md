@@ -14,7 +14,7 @@ You drive the loop. Do not implement the task yourself.
 
 ## Step 1 - Spawn the Worker
 
-Spawn a **background general-purpose Task** (`run_in_background: true`) with this prompt (fill in bracketed sections):
+Spawn a **background general-purpose subagent via the `Agent` tool** with this prompt (fill in bracketed sections):
 
 ---
 You are a Worker agent. Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
@@ -34,7 +34,7 @@ Implement the task fully. Return your complete output. If your output is large, 
 
 ## Step 2 - Spawn the Skeptic
 
-When the Worker returns, spawn a **background general-purpose Task** (`run_in_background: true`) using the `skeptic` agent with this prompt (fill in bracketed sections):
+When the Worker returns, spawn a **background general-purpose subagent via the `Agent` tool** using the `skeptic` agent with this prompt (fill in bracketed sections):
 
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
@@ -68,7 +68,7 @@ If Critical or Major findings remain: proceed to Step 4.
 
 ## Step 4 - Route findings to a Worker
 
-Spawn a **background general-purpose Task** (`run_in_background: true`) with:
+Spawn a **background general-purpose subagent via the `Agent` tool** with:
 
 - The original task
 - The Skeptic's findings (verbatim)

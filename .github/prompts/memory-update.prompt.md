@@ -9,7 +9,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 ## Your job (main agent)
 
-**Immediately** spawn a background `general-purpose` Worker (`run_in_background: true`). Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
+**Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
 **Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (auto-injected by Claude Code at startup). Pass this path to the Worker as `$MEMORY_PATH`.
 

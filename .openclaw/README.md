@@ -85,18 +85,6 @@ OpenClaw keys skill identity by the `name:` frontmatter field. The adapter makes
 
 **The `agent-` prefix** on agent skill names (both dir and `name:` frontmatter) avoids collisions where a command and an agent share a name (e.g. `skeptic` is both a command and an agent spec; OpenClaw would merge them without the prefix).
 
-## Hooks enforcement gap (REQUIRED READING)
-
-**OpenClaw markdown hooks fire on lifecycle and command events only. They cannot deny tool calls.**
-
-The Claude Code adapter uses a `PreToolUse`-deny hook (`hooks/enforce-background-spawn.py`) that intercepts every `Task` spawn and rejects any that lack `run_in_background: true`. This is a runtime safety net: it enforces the conductor's background-spawn discipline at the harness level, not just in prose.
-
-**OpenClaw has no equivalent.** Markdown-defined hooks in OpenClaw trigger on lifecycle events (session start, session end, before command, after command) but cannot intercept or deny individual tool calls mid-execution. There is no `PreToolUse` or equivalent hook type.
-
-**Consequence:** The background-spawn enforcement is prose-only in the OpenClaw adapter. The `METHODOLOGY.md` embedded in the `agentic-engineering` skill describes the rule, but the harness will not block a foreground spawn if the model makes one.
-
-**Mitigation:** If you rely on the runtime enforcement gate, use the Claude Code adapter alongside OpenClaw for workloads where that gate matters. The prose rule in the skill is still enforced by model compliance - it just lacks a harness-level backstop.
-
 ## Rebuild after content changes
 
 ```bash
