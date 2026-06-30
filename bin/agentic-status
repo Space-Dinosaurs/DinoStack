@@ -10,16 +10,21 @@ Purpose: Read-only inspection of the agentic-engineering activation
 
 Public API: agentic-status
             Prints a fixed-format multi-line report (status lines with
-            provenance, a profile-behavior explainer, and a how-to-adjust
-            block). No subcommands, no flags. Always exits 0.
+            provenance, a profile-behavior explainer, a telemetry-health
+            summary line, and a how-to-adjust block). No subcommands, no
+            flags. Always exits 0.
             _profile_behavior_block(profile) and _how_to_adjust_block(resolved)
             are the single rendering surface for the explainer text and are
             reused by callers (e.g. init-project shells out to this binary).
+            _telemetry_health_line(health_path) reads .agentic/.telemetry-health.json
+            and returns a one-line OK/failure summary; fail-open (returns OK
+            on any read or parse error).
 
 Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, re).
                Reads ~/.claude/agentic-engineering.json, the project
                root AGENTS.md (resolved through CLAUDE.md @AGENTS.md
-               import if present), and .agentic/.activated.
+               import if present), .agentic/.activated, and
+               .agentic/.telemetry-health.json (fail-open; absent = OK).
 
 Downstream consumers: content/commands/agentic-status.md (command
                       spec); developers running the command
@@ -46,6 +51,7 @@ from pathlib import Path
 
 CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
 SENTINEL_PATH = Path(".agentic/.activated")
+TELEMETRY_HEALTH_PATH = Path(".agentic/.telemetry-health.json")
 ROLE_MODELS_GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
 ROLE_MODELS_PROJECT_PATH = Path(".agentic/role-models.yml")
 HEALTH_FILE_PATH = Path(".agentic/.telemetry-health.json")
@@ -406,6 +412,62 @@ def _telemetry_health_block() -> list[str]:
     return lines
 
 
+# ANSI escape sequence stripper for exception text rendered by _telemetry_health_line.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+
+
+def _telemetry_health_line(health_path: Path | None = None) -> str:
+    """Return a one-line telemetry-health summary for the current project.
+
+    Reads .agentic/.telemetry-health.json (or the provided path override).
+    Returns 'telemetry-health: OK' when the file is absent or all failure
+    counters are zero. When failures exist, returns a summary of the form:
+      'telemetry-health: N write failures across M targets; last error <target>: <msg> at <ts>'
+    Fail-open: any read or parse error returns 'telemetry-health: OK (unreadable)'.
+
+    Args:
+        health_path: Path to .telemetry-health.json; defaults to TELEMETRY_HEALTH_PATH.
+    """
+    p = health_path if health_path is not None else TELEMETRY_HEALTH_PATH
+    if not p.is_file():
+        return "telemetry-health: OK"
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return "telemetry-health: OK (unreadable)"
+        targets = data.get("targets", {})
+        if not isinstance(targets, dict):
+            return "telemetry-health: OK (unreadable)"
+
+        total_failures = 0
+        failing_targets: list[tuple[str, int, str, str]] = []  # (target, count, msg, ts)
+        for target, info in targets.items():
+            if not isinstance(info, dict):
+                continue
+            count = int(info.get("failures", 0) or 0)
+            if count > 0:
+                total_failures += count
+                last_msg = str(info.get("last_error", ""))
+                safe_msg = _ANSI.sub("", last_msg)[:200]
+                ts = str(info.get("last_error_ts", ""))
+                failing_targets.append((target, count, safe_msg, ts))
+
+        if total_failures == 0:
+            return "telemetry-health: OK"
+
+        # Report most-recently-failed target for the one-line summary.
+        failing_targets.sort(key=lambda x: x[3], reverse=True)
+        last_target, _, last_msg, last_ts = failing_targets[0]
+        n_targets = len(failing_targets)
+        return (
+            f"telemetry-health: {total_failures} write failure(s) across "
+            f"{n_targets} target(s); last error {last_target}: {last_msg} at {last_ts}"
+        )
+    except Exception:
+        return "telemetry-health: OK (unreadable)"
+
+
 def _how_to_adjust_block(resolved: dict) -> list[str]:
     """Return the 'How to adjust' explainer lines.
 
@@ -456,6 +518,7 @@ def main(_argv: list[str]) -> int:
     out.append(f"  marker: {res['marker']}")
     out.append(f"  active: {active_display} ({res['active_reason']})")
     out.append(f"  sentinel: {SENTINEL_PATH} ({sentinel_status})")
+    out.append(f"  {_telemetry_health_line()}")
     out.extend(_role_models_status_block())
     out.extend(_telemetry_health_block())
     out.append("")

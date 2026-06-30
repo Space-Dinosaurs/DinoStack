@@ -290,6 +290,8 @@ function flushHealth(cwd) {
   let tmp;
   try {
     if (!cwd) return;
+    const resolvedCwd = path.resolve(cwd);
+    if (resolvedCwd !== cwd) return; // traversal component - skip silently
     healthPath = path.join(cwd, '.agentic', '.telemetry-health.json');
     tmp = healthPath + '.tmp.' + process.pid;
 
