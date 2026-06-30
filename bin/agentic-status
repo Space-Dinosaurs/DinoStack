@@ -48,6 +48,7 @@ CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
 SENTINEL_PATH = Path(".agentic/.activated")
 ROLE_MODELS_GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
 ROLE_MODELS_PROJECT_PATH = Path(".agentic/role-models.yml")
+HEALTH_FILE_PATH = Path(".agentic/.telemetry-health.json")
 
 PRESET_TABLE = {
     "lean": "relaxed",
@@ -349,6 +350,62 @@ def _role_models_status_block() -> list[str]:
     return lines
 
 
+def _telemetry_health_block() -> list[str]:
+    """Return telemetry-health status lines from .agentic/.telemetry-health.json.
+
+    Absent or unreadable file -> return [] (section omitted silently).
+    Tri-state per target via ISO8601 lexicographic string compare:
+      - failures == 0                                         -> OK
+      - failures > 0 AND last_success present AND
+        last_success > last_error_ts                          -> RECOVERED
+      - otherwise (failures > 0, currently failing)          -> FAILING
+    """
+    if not HEALTH_FILE_PATH.is_file():
+        return []
+    try:
+        data = json.loads(HEALTH_FILE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    targets = data.get("targets")
+    if not isinstance(targets, dict) or not targets:
+        return []
+
+    lines: list[str] = [""]
+    lines.append("Telemetry health")
+    updated_at = data.get("updated_at") or "unknown"
+    lines.append(f"  last updated: {updated_at}")
+
+    for target, info in sorted(targets.items()):
+        if not isinstance(info, dict):
+            continue
+        failures = info.get("failures") or 0
+        last_success = info.get("last_success") or ""
+        last_error = info.get("last_error") or ""
+        last_error_ts = info.get("last_error_ts") or ""
+
+        if failures == 0:
+            status = "OK"
+            lines.append(f"  {target}: {status}  (last_success: {last_success or 'none'})")
+        elif failures > 0 and last_success and last_success > last_error_ts:
+            status = "RECOVERED"
+            lines.append(
+                f"  {target}: {status} ({failures} failure(s))  "
+                f"(last_success: {last_success}, last_failure: {last_error_ts})"
+            )
+        else:
+            status = f"FAILING ({failures} failure(s))"
+            detail = f"last_failure: {last_error_ts}"
+            if last_error:
+                detail += f", error: {last_error}"
+            if last_success:
+                detail += f", last_success: {last_success}"
+            lines.append(f"  {target}: {status}  ({detail})")
+
+    return lines
+
+
 def _how_to_adjust_block(resolved: dict) -> list[str]:
     """Return the 'How to adjust' explainer lines.
 
@@ -400,6 +457,7 @@ def main(_argv: list[str]) -> int:
     out.append(f"  active: {active_display} ({res['active_reason']})")
     out.append(f"  sentinel: {SENTINEL_PATH} ({sentinel_status})")
     out.extend(_role_models_status_block())
+    out.extend(_telemetry_health_block())
     out.append("")
     out.append("What this means")
     active_sentence = (
