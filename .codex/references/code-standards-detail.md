@@ -47,6 +47,7 @@ agent-browser open <url>      # navigate
 agent-browser snapshot        # get page structure with element refs
 agent-browser click @e1       # click by ref
 agent-browser fill @e2 "text" # fill input by ref
+agent-browser close           # close the session when done (close --all closes every session)
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior.
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
