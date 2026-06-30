@@ -75,9 +75,21 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
 
+**Pre-spawn checklist - ticket-offer gate:** Before spawning the FIRST implementer (architect, engineer, or orchestration-planner) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects a permission-seeking interrogative in the final assistant message and blocks the session stop, injecting a "proceed" directive; opt in per-project via `abdication_guard_enabled: true` in `.agentic/config.json`; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/brief.md` Section 1.
+
+**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn its first implementer (architect, engineer, or orchestration-planner) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper) before proceeding.
+
+**`ticket_driven` resolution (CRITICAL):** an explicit `ticket_driven` value in `.agentic/config.json` always wins. When the key is ABSENT: `TRACKER != none` -> effective `offer`; `TRACKER == none` -> effective `off`. This makes "tracker connected => offer by default" true with zero migration - no config change needed on existing projects with a connected tracker.
+
+- **`offer` mode (surface-and-proceed):** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` If no STOP arrives in one turn: invoke the Create Helper. On CREATE_STATUS=created: route via `/implement-ticket <CREATED_TICKET_ID>`. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc.
+
+- **`require` mode (hard gate):** do not spawn any implementer before a ticket exists. Invoke the Create Helper immediately. On created: route to `/implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
+
+**Exemptions:** existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/implement-ticket <ID>`) skip the gate entirely. `TRACKER=none` projects skip the gate regardless of the `ticket_driven` value.
 
 Stop and ask the user ONLY when:
 1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
@@ -400,7 +412,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve sixteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
@@ -1892,7 +1904,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Fifteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Sixteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -1909,6 +1921,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking the user permission to proceed with an obvious non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in `content/sections/02-delegation.md`. Precision-biased classifier (false-negative over false-positive). Two loop-guard layers: `stop_hook_active` flag (primary) and a consecutive-block counter cap (backstop for CC bug #54360). Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. Default `false` because this ships in the open-source methodology; individual projects opt in.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns (clustered by `domain_tag` / `Domain`) and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). Layer 3 (`/skill-candidates` command) is also gated on this toggle. When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking on this project.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. `skill_candidate_nudge` alone (with `skill_candidate_detection: false`) has no effect. Default `false` (matches `deferred_wrap_daemon` opt-in precedent).
+- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when the key is absent from `.agentic/config.json`, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - this makes "tracker connected => offer by default" true with zero migration. An explicit value always wins. `offer`: surface-and-proceed - conductor announces ticket creation and proceeds unless the operator replies STOP within one turn. `require`: hard gate - no implementer spawns before a ticket exists; creation failure surfaces and waits for operator resolution. `off`: gate disabled; no ticket creation attempt. Existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/implement-ticket <ID>`) and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 
@@ -3549,7 +3562,7 @@ A test that passes even without the fix does not count. The Worker should confir
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         fifteen-toggle project config catalog (behavioral toggles only);
+         sixteen-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
@@ -3585,7 +3598,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve sixteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -3602,6 +3615,7 @@ The conductor reads `.agentic/config.json` to resolve fifteen project-level orch
 - `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking permission for a non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in §Delegation. Default `false`; individual projects opt in. See `content/rules/conventions.md` §Project Config for full semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking entirely.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
+- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when absent, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - explicit value always wins. `offer`: surface-and-proceed before first-implementer spawn; operator can reply STOP to skip. `require`: hard gate - no implementer spawns before a ticket exists; create failure surfaces and waits. `off`: gate disabled. Existing-ticket arrivals and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 
 #### Graph-derived risk signal
 
@@ -10818,12 +10832,19 @@ Write `status: iterating` during revision rounds.
    git add docs/planning/<slug>.md
    git commit -m "docs(brief): add <slug> brief"
    ```
-4. Surface-and-proceed:
+4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); then:
+   - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
+   - **`require` mode:** invoke the Tracker Create Helper immediately (no skip path).
+   - On CREATE_STATUS=created: hand off to `/implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly (skip steps 5-6).
+   - On CREATE_STATUS=failed: emit the failure line; in `offer` mode proceed ad-hoc (architect spawn, step 6); in `require` mode STOP and wait for operator resolution.
+   - On CREATE_STATUS=skipped (`offer` mode): emit the skip line and proceed ad-hoc (architect spawn, step 6).
+   - On CREATE_STATUS=skipped (`require` mode): surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for operator.
+5. When no ticket was created (ad-hoc path only): surface-and-proceed:
    > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
    > brief_path - reply STOP to halt or refine the Brief first."
-5. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
-6. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
-7. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
+6. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
+7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
+8. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.
 
 ---
@@ -11487,6 +11508,35 @@ When the conductor reaches a writeback boundary:
 **Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. No block.
 
 For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block below — the brief is unchanged except for the addition of `target_state` and `forward_only_guard` parameters.
+
+---
+
+## Tracker Create Helper
+
+Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `/implement-ticket`. Called by the ticket-offer gate (cross-ref `content/sections/02-delegation.md` §Ticket-offer gate).
+
+**Invocation contract:**
+
+Caller supplies:
+- `TICKET_TITLE` - one-line summary of the work
+- `TICKET_BODY` - markdown description; include Problem + Acceptance Criteria when known
+- `TICKET_TYPE` - `feature` | `bug` | `task`
+
+Helper returns:
+- `CREATED_TICKET_ID` - e.g. DS-42; empty string on failure
+- `CREATED_TICKET_URL` - empty string on failure
+- `CREATE_STATUS` - `created` | `skipped` | `failed`
+- `CREATE_ERROR` - error message string, or null on success
+
+**Branch on TRACKER:**
+
+- **`TRACKER == linear`**: call `mcp__linear__save_issue` with NO `id` field (save_issue creates when no id is supplied - this matches the repo's existing Linear convention; do NOT use a `createIssue` tool, it does not exist). Pass `title`=TICKET_TITLE, `description`=TICKET_BODY, and the Linear team. IMPORTANT team-source note: the `## Linear` section's `Team:` field resolves to `TICKET_PREFIX` (a prefix string like "DS"), but save_issue needs the Linear team key/id - if only a prefix is available, resolve the actual team via the Linear team-list tool. Do NOT invent a `## Linear Team` heading; use the existing `## Linear` `Team:` resolution that the rest of this command uses. On success read `issue.identifier` -> CREATED_TICKET_ID, `issue.url` -> CREATED_TICKET_URL, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed, CREATE_ERROR=\<msg\>.
+
+- **`TRACKER == jira`**: call `mcp__mcp-atlassian__jira_create_issue` (naming-consistent with the existing `mcp__mcp-atlassian__jira_*` family used elsewhere in this file). Pass `project_key`=TICKET_PREFIX, `summary`=TICKET_TITLE, `description`=TICKET_BODY, `issue_type` mapped from TICKET_TYPE (feature -> "Story", bug -> "Bug", task -> "Task"; omit to accept project default if uncertain). On success read the returned issue key -> CREATED_TICKET_ID, construct CREATED_TICKET_URL as `<JIRA_BASE_URL>/browse/<CREATED_TICKET_ID>`, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed.
+
+- **`TRACKER` has no built-in create branch (forward-looking fall-through)**: CREATE_STATUS=skipped. Emit one operator line: `ticket_driven: create not supported for this tracker - proceeding ad-hoc.` Do NOT run any shell command from `.agentic/phase0-classifiers.yml` as a create operation - the classifier contract is read-only; creation is a write operation outside that contract. This branch is the extension point for trackers not yet integrated: adding a new tracker means adding a create branch above; until then it falls through here. Adding a project-local classifier does NOT constitute a create integration.
+
+**LOUD failure (NOT silent):** on CREATE_STATUS=failed, emit an operator-visible line mirroring the Writeback Helper's failure line format: `tracker-create: '<TICKET_TITLE>' FAILED: <CREATE_ERROR>`. Do not block the caller; the caller (the gate) decides: offer mode proceeds ad-hoc AFTER emitting the warning; require mode surfaces and waits.
 
 ---
 
@@ -14291,11 +14341,12 @@ Seed with these documented defaults exactly:
   "deferred_wrap_pending_ttl_days": 7,
   "abdication_guard_enabled": false,
   "skill_candidate_detection": true,
-  "skill_candidate_nudge": false
+  "skill_candidate_nudge": false,
+  "ticket_driven": "offer"
 }
 ```
 
-**Substitute the up-front dialogue answers into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE, `model_profile` <- INIT_MODELPROFILE, `debugger_on_failure` <- INIT_DEBUGGER. When a variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
+**Substitute values into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE (from dialogue), `model_profile` <- INIT_MODELPROFILE (from dialogue), `debugger_on_failure` <- INIT_DEBUGGER (from dialogue), `ticket_driven` <- derived from Step 1 tracker detection: `"offer"` when a tracker was confirmed in Step 1; `"off"` otherwise (not a dialogue answer - the user is not asked directly; it follows from whether a tracker was confirmed). When a dialogue variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
 
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
@@ -14313,6 +14364,7 @@ Seed with these documented defaults exactly:
 - `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)

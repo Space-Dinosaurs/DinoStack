@@ -162,7 +162,7 @@ The per-project marker only has effect in combination with the global activation
 
 ## Project config
 
-`.agentic/config.json` is seeded by `/init-project` and holds thirteen operator-tunable methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+`.agentic/config.json` is seeded by `/init-project` and holds sixteen methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
@@ -177,6 +177,9 @@ The per-project marker only has effect in combination with the global activation
 - `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/wrap` jobs; tuned by the `deferred_wrap_*` related keys.
 - `abdication_guard_enabled` - boolean, default `false`. Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector; when `true`, the Stop hook surfaces recurring friction patterns as skill candidates at session start.
+- `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in in-session nudge; fires when a domain crosses the candidate threshold during the current session (requires `skill_candidate_detection: true`).
+- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, `off` when `TRACKER == none`.
 
 Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see `content/rules/conventions.md` §Project Config.
 
@@ -227,7 +230,7 @@ agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pri
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
-**Project config / overview layer** - the committed `.agentic/config.json` holds thirteen operator-tunable methodology toggles (full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
+**Project config / overview layer** - the committed `.agentic/config.json` holds sixteen methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Identity and Telemetry
 
