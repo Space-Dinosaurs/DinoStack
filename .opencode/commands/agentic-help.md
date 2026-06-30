@@ -23,10 +23,12 @@ command reads no files and depends on no environment state.
 ## Output
 
 A fixed reference block: the command inventory grouped under "Inspect &
-configure", "Plan & build", "Maintain & curate", and "Audit & improve the
-methodology", followed by a "Usage patterns" section covering how to inspect
-current config, deliberately invoke the skill when it is disabled or in
-opt-in mode, change the workflow strictness, and turn the skill off.
+configure", "Plan & build" (includes `/brief`, `/implement-ticket`,
+`/ticket-triage`, `/init-project`, `/skeptic`), "Maintain & curate", and
+"Audit & improve the methodology", followed by a "Usage patterns" section
+covering how to inspect current config, deliberately invoke the skill when
+it is disabled or in opt-in mode, change the workflow strictness, and turn
+the skill off.
 
 ## Exit code
 
