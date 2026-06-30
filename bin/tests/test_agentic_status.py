@@ -699,7 +699,7 @@ def test_telemetry_health_line_absent_file(tmp_path):
 def test_telemetry_health_line_all_zeros(tmp_path):
     p = tmp_path / ".telemetry-health.json"
     p.write_text(json.dumps({
-        "writes": {
+        "targets": {
             "loop-state.json": {"failures": 0, "last_success": "2026-01-01T00:00:00Z"},
             "events.jsonl": {"failures": 0},
         },
@@ -712,7 +712,7 @@ def test_telemetry_health_line_all_zeros(tmp_path):
 def test_telemetry_health_line_with_failures(tmp_path):
     p = tmp_path / ".telemetry-health.json"
     p.write_text(json.dumps({
-        "writes": {
+        "targets": {
             "loop-state.json": {
                 "failures": 3,
                 "last_error": "ENOSPC",
@@ -733,7 +733,7 @@ def test_telemetry_health_line_with_failures(tmp_path):
 def test_telemetry_health_line_multiple_failing_targets(tmp_path):
     p = tmp_path / ".telemetry-health.json"
     p.write_text(json.dumps({
-        "writes": {
+        "targets": {
             "loop-state.json": {
                 "failures": 2,
                 "last_error": "ENOSPC",
@@ -786,7 +786,7 @@ def test_main_output_shows_failures(monkeypatch, tmp_path, capsys):
     _clear_harness_env(monkeypatch)
     health = tmp_path / ".telemetry-health.json"
     health.write_text(json.dumps({
-        "writes": {
+        "targets": {
             "events.jsonl": {
                 "failures": 5,
                 "last_error": "ENOSPC: disk full",

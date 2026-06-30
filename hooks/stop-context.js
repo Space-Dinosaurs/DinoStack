@@ -606,9 +606,19 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
  */
 function writeSessionTotal(cwd, sessionId, cachedRaw) {
   try {
-    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
-    const agg = scanSessionAggregate(eventsPath, sessionId, cachedRaw);
-    if (!agg) return;
+    const agenticDir = path.join(cwd, '.agentic');
+    const eventsPath = path.join(agenticDir, 'events.jsonl');
+    // Ensure .agentic/ exists so the append below always works, even in
+    // ad-hoc sessions where no other hook has created the directory yet.
+    fs.mkdirSync(agenticDir, { recursive: true });
+    // Bootstrap: when no qualifying events exist, write a zero-aggregate
+    // session_total so events.jsonl is ALWAYS created on every session exit.
+    const agg = scanSessionAggregate(eventsPath, sessionId, cachedRaw) || {
+      wall_seconds: 0,
+      tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+      spawn_count: 0,
+      by_agent: {},
+    };
 
     const totalLine = JSON.stringify({
       ts: new Date().toISOString(),

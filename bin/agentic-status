@@ -436,13 +436,13 @@ def _telemetry_health_line(health_path: Path | None = None) -> str:
             data = json.load(fh)
         if not isinstance(data, dict):
             return "telemetry-health: OK (unreadable)"
-        writes = data.get("writes", {})
-        if not isinstance(writes, dict):
+        targets = data.get("targets", {})
+        if not isinstance(targets, dict):
             return "telemetry-health: OK (unreadable)"
 
         total_failures = 0
         failing_targets: list[tuple[str, int, str, str]] = []  # (target, count, msg, ts)
-        for target, info in writes.items():
+        for target, info in targets.items():
             if not isinstance(info, dict):
                 continue
             count = int(info.get("failures", 0) or 0)
