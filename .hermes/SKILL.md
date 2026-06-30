@@ -1607,9 +1607,10 @@ agent-browser open <url>      # navigate
 agent-browser snapshot        # get page structure with element refs
 agent-browser click @e1       # click by ref
 agent-browser fill @e2 "text" # fill input by ref
+agent-browser close           # close the session when done (close --all closes every session)
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior.
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
 
 ---
 
@@ -8284,7 +8285,14 @@ for i in $(seq 1 30); do nc -z localhost <port> && break; sleep 1; done
 
 If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server failed to start. Check /tmp/qa_devserver.log."
 
-After QA completes, kill the dev server: `kill $(lsof -ti:<port>) 2>/dev/null || true`
+**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run:
+
+```bash
+agent-browser close --all 2>/dev/null || true   # close every agent-browser session
+kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
+```
+
+The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the snippet above handles it.
 
 **Applying project knowledge:**
 
