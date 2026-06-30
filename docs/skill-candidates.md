@@ -15,7 +15,7 @@ Upstream deps: content/commands/skill-candidates.md (command spec and entry form
                (session-start notice logic and pagination);
                hooks/lib/skill-candidate-deep-cluster.js (the cluster merge helper).
 
-Downstream consumers: docs site root index; doc-sync-obligation cross-references.
+Downstream consumers: docs site root index.
 
 Failure modes: Stale if entry format, detection threshold, or /skill-candidates
                command behavior changes. Update alongside content/commands/skill-candidates.md.
@@ -55,7 +55,8 @@ the >= 3 occurrence threshold. Merging is additive: `Count`, `First seen`, and
 **What triggers promotion:**
 A domain reaches >= 3 occurrences across sessions (from `tool_failure_workaround`
 events in `.agentic/events.jsonl`, `.agentic/learnings.md` entries, and the
-wrap-time LLM extraction signal).
+wrap-time LLM extraction signal): in practice the wrap-time extraction is the
+active source; the `events.jsonl` path stays dormant until those events are emitted.
 
 **Gating:**
 Detection is on by default. Set `skill_candidate_detection: false` in
@@ -126,7 +127,7 @@ If the file is absent:
 ```
 No skill candidates detected yet.
 
-The detector runs at session end (Stop hook) and writes candidates here
+The detector runs at the end of each `/wrap` call and writes candidates here
 when a domain tag accumulates >= 3 occurrences. Check back after a few
 more sessions, or verify that skill_candidate_detection is true in
 .agentic/config.json.
@@ -154,7 +155,8 @@ OPEN (already surfaced)
 DISMISSED
   (none)
 
-To create a skill for an open item: run /skill-creator <domain>
+To create a skill for an open item: create a skill for the domain manually,
+  or use your usual skill-authoring flow
 To dismiss a candidate: edit .agentic/skill-candidates.md and change
   **Status:** open  to  **Status:** dismissed
 ```
@@ -162,8 +164,9 @@ To dismiss a candidate: edit .agentic/skill-candidates.md and change
 ## Acting on a candidate
 
 **Create a skill.**
-Run `/skill-creator <domain>` with the domain slug. The skill-creator reads the
-candidate entry and builds a reusable skill artifact for that domain.
+Create a skill for the domain manually, or use your usual skill-authoring flow.
+The candidate entry in `.agentic/skill-candidates.md` includes the domain slug,
+suggested artifact type, and a concrete example to guide authoring.
 
 **Dismiss a candidate.**
 Open `.agentic/skill-candidates.md` and change the entry's `**Status:**` field
