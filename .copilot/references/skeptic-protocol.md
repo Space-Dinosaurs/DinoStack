@@ -121,7 +121,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 ## 2. The Core Loop
 
-**Architecture note:** Workers cannot spawn subagents — the Task tool is available only to the main (primary) session agent. This means the Skeptic loop is orchestrated by the main agent, not the Worker. Workers implement and return; the main agent handles review.
+**Architecture note:** Workers cannot spawn subagents - the spawn (`Agent`) tool is available only to the main (primary) session agent. This means the Skeptic loop is orchestrated by the main agent, not the Worker. Workers implement and return; the main agent handles review.
 
 ### Step-by-step
 
