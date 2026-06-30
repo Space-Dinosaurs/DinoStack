@@ -1,0 +1,1234 @@
+---
+description: "Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, and gitignore."
+---
+# /init-project
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+>
+> Additional activation behavior for this command: see Step 0 "Global activation mode" below.
+
+Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, and gitignore.
+
+<!-- Risk-tier note: this command performs discovery, confirmation, and scaffolding only. It does not emit or classify risk-tier vocabulary (Trivial, Low, Elevated). No Trivial-tier addition is needed here. -->
+
+
+## Steps
+
+### 0. Run discovery
+
+**0a. Global activation mode** — read this before any other discovery work.
+
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `METHODOLOGY.md`.
+
+- **If `mode=opt-in`**: prompt the user before doing any scaffolding:
+
+  > "agentic-engineering is installed in opt-in mode. Activate it for this project? [Y/n]"
+
+  Accept `y` / `yes` / `1` / empty (Enter) as **yes**. Accept `n` / `no` / `2` as **no**.
+
+  - On **yes**: the scaffolded `AGENTS.md` `## Activation` section (always emitted by Step 3) carries the active `agentic-engineering: opt-in` line at the top of the section - this is the "opt-in activation case" of the section's conditional assembly (see the Step 3 template). Do not add a second bare `agentic-engineering: opt-in` line elsewhere; the `## Activation` section is the single source of placement truth.
+
+  - The profile line is handled by the same `## Activation` section per its profile sub-block: an active `agentic-engineering-profile: <relaxed|strict>` line is woven in only when INIT_PROFILE (captured in the 0a-profile dialogue) is `relaxed` or `strict`, the user explicitly requests a profile during Step 1, or a global non-default profile is set in `~/.claude/agentic-engineering.json`. If INIT_PROFILE is null/`default` and the user does not mention a profile, the section emits the commented profile helper instead of an active line (the global default applies).
+
+  - On **no**: stop `/init-project` here. Print: "Skipped - no scaffolding written. Rerun `/init-project` to activate later, or set `--mode=opt-out` via a reinstall." Exit.
+
+- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use agentic-engineering by default. To disable it in this project, uncomment the pre-staged `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment)."
+
+- **If the config file is missing or malformed**: treat as `mode=opt-out` and proceed without prompting (back-compat with pre-feature installs).
+
+This step runs before Step 0 discovery below because an opt-in decline should short-circuit the entire command.
+
+**Up-front configuration (additive; Enter keeps today's defaults at every step).**
+
+Before scaffolding, walk through a short set of questions that explain how this
+project will be configured and let you change the few settings that most affect how
+work gets done. Each question has a plain-English explanation, the options, and an
+"Enter to keep the current default" line. Pressing Enter through all of them lands
+you on exactly the standard defaults - nothing is written that you do not choose.
+
+**0a-mode. How this project activates (explanation; reconciles with the 0a prompt above).**
+
+The resolved global mode was determined in 0a from `~/.claude/agentic-engineering.json`.
+Explain it in plain English; do NOT add a second prompt and do NOT write the global
+config file from here.
+
+- If global mode = opt-out (the default): print, as information only (no prompt):
+
+  > This project will use agentic-engineering automatically (global mode is "opt-out":
+  > active everywhere unless a project opts out). To turn it OFF for THIS project only,
+  > uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of
+  > AGENTS.md (the scaffolding writes that section with the marker pre-staged as a comment).
+  > To change the GLOBAL default for all projects, run `/agentic-disable --global` (this
+  > command will not change global settings for you).
+
+  Write no marker line here - the `## Activation` section emitted by Step 3 already carries
+  the commented opt-out marker (inert until uncommented). The Step 12 reminder carries the
+  same pointer.
+
+- If global mode = opt-in: print this explanation IMMEDIATELY BEFORE the existing 0a
+  "[Y/n]" activation prompt (do not duplicate that prompt - it stays as the single mode
+  decision):
+
+  > Global mode is "opt-in": agentic-engineering activates only in projects that
+  > explicitly opt in. The next question asks whether to opt THIS project in (it writes
+  > `agentic-engineering: opt-in` to AGENTS.md if you say yes). To change the global
+  > default instead, run `/agentic-disable --global` after setup.
+
+  Then proceed to the existing 0a `[Y/n]` prompt unchanged.
+
+**0a-profile. Risk profile (additive; Enter keeps current defaults).**
+
+Explain and offer the risk profile. This controls how much independent review each
+change gets. Present:
+
+  > How strict should the review workflow be in this project? This sets the risk profile.
+  >
+  >   relaxed - Single-file behavioral edits and small UI-only changes run directly with a
+  >             self-check. Lighter review, faster iteration. Good for solo/early projects.
+  >   default - Single-file behavioral edits run directly; multi-file, new-file, shared, or
+  >             risky changes get a Worker + independent Skeptic. (This is the default.)
+  >   strict  - The broadest review coverage: even UI-copy tweaks, renames, and wording fixes
+  >             get Worker + Skeptic. Use when correctness matters most.
+  >
+  > Press Enter to keep the current default (no project override - the global setting applies).
+  > Or type relaxed / default / strict.
+
+Capture the answer as INIT_PROFILE. Empty (Enter) = "keep current default": INIT_PROFILE
+= null, write NOTHING. Typing 'default' is also a no-op write (do not pin default
+explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE to that value.
+
+**0a-config. Four project settings that change how work gets done (additive; Enter keeps each default).**
+
+Q1-Q3 map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
+captured into a variable substituted into that single seed write - there is no separate
+config write. Empty input keeps the documented default exactly. Q4 does not write to
+`config.json`; it gates Step 6g only.
+
+Q1 - Auto-merge on green CI?
+
+  > After a pull request's CI checks all pass and no reviewer has requested changes,
+  > should the workflow squash-merge it automatically? "No" keeps the usual flow where a
+  > human merges (draft -> CI -> ready -> review -> you merge). "Yes" merges for you the
+  > moment CI is green and the PR is ready.
+  >
+  > Press Enter to keep the default (No). Or type y to enable auto-merge.
+
+  Capture as INIT_AUTOMERGE. Enter / n / no -> false (default). y / yes -> true.
+
+Q2 - Model profile for spawned agents: default or budget?
+
+  > When the workflow spawns helper agents (architects, engineers, reviewers), "default"
+  > picks the right-capability model per task. "budget" routes eligible spawns to a
+  > cheaper, faster tier to cut cost - at some capability cost on harder tasks. Security
+  > reviews always use the strongest model regardless of this setting.
+  >
+  > Press Enter to keep the default ("default"). Or type budget.
+
+  Capture as INIT_MODELPROFILE. Enter / default -> "default". budget -> "budget". Any
+  other input: re-prompt once, then fall back to "default".
+
+Q3 - Diagnose failures with a debugger pass?
+
+  > When an automated quality gate fails (a test or check breaks during an Elevated-risk
+  > change), should the workflow run a focused Debugger diagnosis before each fix attempt?
+  > "Yes" tends to produce better-targeted fixes at the cost of an extra step per failure.
+  > "No" goes straight to the fix attempt (today's behavior).
+  >
+  > Press Enter to keep the default (No). Or type y to enable debugger-on-failure.
+
+  Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
+
+Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
+
+  > On Pi, the workflow can run each role (architect, engineer, reviewer, ...) on a
+  > model you choose, and run the adversarial reviewer on a DIFFERENT model than the one
+  > that wrote the code - a true antagonist (e.g. an Opus author reviewed by GPT or GLM).
+  > Enabling this seeds an editable `~/.agentic/role-models.yml` you fill in with the
+  > models you have in Pi. Ignored on Claude/Codex/Gemini.
+  >
+  > Press Enter to skip (no routing file; Pi uses session defaults). Or type y to seed it.
+
+  Capture as INIT_ROLEMODELS. Enter / n / no -> skip. y / yes -> seed in Step 6g.
+
+Note: the other config keys (capability preflight, the QA-method toggles, Storybook,
+theme) are left at their safe defaults and detected automatically where relevant. They
+live in `.agentic/config.json` and are explained by `/agentic-status` (How to adjust) and
+re-runnable via `/init-project`. They are intentionally not asked here to keep setup short.
+
+**0b. Project discovery** — once activation is resolved, silently scan the project to derive as many configuration values as possible.
+
+**Project name** — check in order: `package.json` `.name` (strip leading `@scope/`); `pyproject.toml` `[project] name`; `Cargo.toml` `[package] name`; `go.mod` module path last segment; `build.gradle`/`settings.gradle` `rootProject.name`; git remote origin URL last path segment (strip `.git`); current directory basename. First match wins. Steps 1–5 = high confidence; steps 6–7 = low confidence (annotate as "(inferred)").
+
+**Description** — check in order: `package.json` `.description`; `pyproject.toml` `[project] description`; first non-title, non-badge paragraph of `README.md`. First match wins.
+
+**Tracks** — two passes: (1) check for `apps/`, `packages/`, `services/`, `libs/` at repo root; a subdirectory under these is a track if it contains its own `package.json`, `pyproject.toml`, `go.mod`, or `Cargo.toml`; (2) scan top-level subdirectories (excluding `.git`, `.claude`, `node_modules`, `dist`, `build`, `.next`, `coverage`, `__pycache__`, `.venv`, `venv`) for their own manifest file. Deduplicate. 0 candidates = no signal (omit). 1 candidate = low confidence (annotate). 2+ candidates = high confidence.
+
+**Database CLI** — scan `package.json` deps, `requirements.txt`/`pyproject.toml` deps, `Cargo.toml`, `go.mod`. Match in order: `@prisma/client` or `schema.prisma` → recommend `prisma`; `pg`/`pg-promise`/`psycopg2`/`psycopg`/`asyncpg` → recommend `psql`; `mongoose`/`mongodb`/`pymongo`/`motor` → recommend `mongosh`; `mysql2`/`pymysql`/`aiomysql` → recommend `mysql`; `better-sqlite3`/`sqlite3`/`aiosqlite` → recommend `sqlite3`. No match = no signal (omit). Multiple database matches = list both and ask user to confirm in the confirmation step.
+
+**Web UI** — scan `package.json` deps and scripts. Match in order: `next` dep + `dev` script → Next.js (default port 3000); `@remix-run/react` or `@remix-run/node` → Remix (port 3000); `react-scripts` → CRA (port 3000); `vite` dep + `dev` script (check `vite.config.ts`/`vite.config.js` for `server.port`; default 5173) → Vite; `@vue/cli-service` → Vue CLI (port 8080); `svelte` + `vite` → SvelteKit (port 5173); `astro` → Astro (port 4321). Package manager: prefer `pnpm` if `pnpm-lock.yaml` exists, `yarn` if `yarn.lock`, `bun` if `bun.lock`/`bun.lockb`, else `npm`. No match = no signal (omit). Compose dev command as `[package-manager] run dev` (or `[pm] dev` for bun).
+
+**Tracker** — check in order: (1) if `## Tracker` or `## Linear` already exists in `AGENTS.md` → tracker is already configured, stop tracker detection, annotate as "(already configured)"; (2) check `~/.claude.json` `mcpServers` for keys `linear` or `mcp-atlassian`; (3) scan `git log --oneline -50` for ticket patterns `[A-Z][A-Z0-9]{1,9}-\d+` — if a prefix appears 3+ times, flag as a signal; (4) check for `.linear/` directory. Signals: Linear MCP entry or `.linear/` dir = Linear signal; `mcp-atlassian` entry = Jira signal; commit patterns alone = low confidence. No signals = no prompt (leave tracker unconfigured).
+
+**GitHub CLI** — run `which gh`. If present, treat as a high-confidence signal and include the `gh` line in `## Tools` automatically. If absent, omit.
+
+**Release signals** — scan for any of: `release` or `deploy` scripts in `package.json`; `CHANGELOG.md` at repo root; `vercel.json`; `Dockerfile`; `.github/workflows/` files matching `release*.yml` or `deploy*.yml`; `fly.toml`; `railway.toml`. If any are found, note as a release signal and record the detected type (e.g. "vercel.json", "GitHub Actions release workflow", "Dockerfile"). No match = no signal (omit from Step 1).
+
+**Benchmark signals** — scan for: `bench` or `benchmark` or `profile` scripts in `package.json`; a `benches/` or `benchmarks/` directory at repo root; `k6` config files; `vitest bench` invocations in scripts; `pytest-benchmark` in `requirements.txt`/`pyproject.toml`. If any are found, note as a perf signal and record the detected type (e.g. "vitest bench scripts in package.json", "benchmarks/ directory"). No match = no signal (omit from Step 1).
+
+**Dep-audit command** — derived from the package manager already detected in the Web UI pass. Map: `pnpm-lock.yaml` → `pnpm audit`; `yarn.lock` → `yarn audit`; `package-lock.json` or npm detected → `npm audit`; `requirements.txt`/`pyproject.toml` (poetry or pip) → `pip-audit`; `Cargo.lock` → `cargo audit`; `go.sum` → `govulncheck`. No lockfile detected = no signal (omit). This is a pure derivation from existing package manager detection — no extra scan needed.
+
+**Auto-memory directory** - memory lives at `<cwd>/.agentic/memory/`. This is project-local (not under the sensitive `.claude/` path) and not platform-hashed. `/init-project` writes this path as `autoMemoryDirectory` in Step 7. Note: `autoMemoryDirectory` is **ignored** if set in the checked-in `.claude/settings.json` for security - it must be written to `.claude/settings.local.json` (the gitignored user-local file). Only Claude Code honors this setting; Codex/Cursor/Gemini adapters do not consume it.
+
+### 1. Present discovery results
+
+Present the results of Step 0 in a single message:
+
+```
+Discovery complete. Here's what I found:
+
+  Project name:  [value]         ([source, e.g. "from package.json"])
+  Description:   [value]         ([source])
+  Tracks:        [list]          ([e.g. "detected as monorepo — apps/"])
+  Database CLI:  [value]         ([e.g. "detected @prisma/client"])
+  Web UI:        [command, port] ([e.g. "detected Next.js"])
+  GitHub CLI:    gh               (detected on PATH)
+  Tracker:       [value]         ([e.g. "from AGENTS.md ## Linear" or "detected in ~/.claude.json"])
+  Release:       [detected type]  ([e.g. "vercel.json", "GitHub Actions release workflow"])
+  Benchmarks:    [detected type]  ([e.g. "vitest bench scripts in package.json"])
+  Dep audit:     [command]        ([e.g. "npm audit", derived from package manager])
+  Auto-memory:   [selected path]  ([e.g. "selected from 3 existing dirs - most recent" or "greenfield - new dir will be created"])
+
+Fields not shown were not detected and are optional — you can add them now or later.
+
+Press Enter to accept all, or tell me what to change (e.g. "project name is widgetco", "no web UI", "no gh", "use Jira").
+```
+
+Show only fields where a value was found. Omit fields with no detection. Annotate low-confidence values with "(inferred — verify)".
+
+**Override grammar** — the user may correct any field in free-form. Recognized patterns:
+- "project name is X" → override project name
+- "description is X" → override description
+- "tracks are X, Y" / "add track Z" / "remove track Z" → update track list
+- "database is X" / "use X for database" → override database CLI
+- "no web UI" / "skip web UI" → clear web UI
+- "no gh" / "skip gh" → remove gh from Tools
+- "use Linear" / "set up Linear" / "use Jira" / "set up Jira" / "no tracker" → set tracker
+- "port is N" → override detected port
+- "no release" / "skip release" → clear release signal (suppresses `.agentic/deploy.md` creation)
+- "no benchmarks" / "skip benchmarks" → clear benchmark signal
+- "no dep audit" / "skip dep audit" → clear dep-audit derivation
+- "no auto-memory" / "skip auto-memory pin" → clear autoMemoryDirectory signal (suppresses the Step 7 write and the Step 2a idempotent update)
+
+### Principle: Negative answers are sticky
+
+**Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or empty Enter) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 7, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
+
+Declinable features enumerated (each must be honored in every downstream step): project name (not declinable — required), description, tracks, database CLI, web UI, `gh`, tracker (Linear / Jira / neither), release, benchmarks, dep audit, **auto-memory pin** (new — declined via "no auto-memory" / "skip auto-memory pin"; suppresses Step 2a item 9, Step 7's `autoMemoryDirectory` write, and Step 12 reminder 12).
+
+When adding a new declinable feature to Step 1, extend the override grammar above AND wire the decline signal through every downstream step that prompts about or acts on that feature.
+
+Corrections patch in-memory state; they do not re-run discovery. After corrections, echo only the changed lines: "Updated: [field] → [value]. Anything else, or press Enter to continue."
+
+**Exit conditions:** empty input (Enter), "done", or "accept" → proceed with current state.
+
+**If tracker signals were found** but tracker is not already configured, prompt before the confirmation block ends. Accept numeric shortcuts in addition to named answers so the user can answer any tracker prompt with a digit.
+
+- **Linear only** → "Set up Linear tracker? [y/N]"
+  - Accept as **yes**: `y`, `yes`, `1`
+  - Accept as **no**: `n`, `no`, `2`, empty (Enter)
+- **Jira only** → "Set up Jira tracker? [y/N]"
+  - Accept as **yes**: `y`, `yes`, `1`
+  - Accept as **no**: `n`, `no`, `2`, empty (Enter)
+- **Both detected** → present a numbered list:
+
+  ```
+  I detected signals for both Linear and Jira. Which tracker does this project use?
+    1. Linear
+    2. Jira
+    3. Neither (skip tracker setup)
+
+  Answer with a number, name, or "neither" / "none" / "skip".
+  ```
+
+  Accept:
+  - **Linear**: `1`, `linear`
+  - **Jira**: `2`, `jira`
+  - **Neither / skip**: `3`, `neither`, `none`, `skip`, `n`, `no`, empty (Enter)
+
+Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / empty answer to any of the above prompts records tracker = **declined** in the in-memory state (per the "Negative answers are sticky" principle). Declined tracker suppresses Step 2a Linear migration prompts, Step 11 tracker setup, and the Step 12 Linear QA assignee reminder.
+
+**Required fields** — project name is required. If it was not discovered and the user does not provide it in the override step, ask once more: "A project name is required. What should I call this project?" If still not provided, stop and ask the user to re-run `/init-project` with a name ready.
+
+### 2. File scan and mode detection
+
+**Idempotent mode trigger** — if `AGENTS.md` already exists and contains any of the standard sections (`## Tools`, `## Docs`, `## Conventions`, `## Linear`, or `## Tracker`), this is an **update run**, not a greenfield run. Switch to the update mode algorithm (Step 2a) instead of the normal create flow.
+
+**Custom-file mode** — if `AGENTS.md` already exists but contains none of the standard AE sections, this is a **custom-file run**. The file was not created by /init-project and its content must be preserved unchanged. Proceed to Step 3 with custom-file mode active (see "If `AGENTS.md` exists" branch in Step 3).
+
+**Greenfield mode** — if `AGENTS.md` does not exist, proceed with the normal create flow (Steps 3 onward).
+
+Before writing any files, check which files already exist. The full set of files this command would create:
+
+- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a one-line `CLAUDE.md` containing `@AGENTS.md`.
+- `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
+- `.claude/settings.json`
+- `.claude/settings.local.json`
+- `.agentic/qa.md` (only if web UI confirmed in Step 1)
+- `tests/visual-baselines/.gitkeep` (only if web UI confirmed in Step 1)
+- `.agentic/deploy.md` (only if release signals detected in Step 0)
+- `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
+- `.agentic/learnings.md` — durable fix-pattern learnings from resolved Skeptic findings; always created (committed, not gitignored)
+- `.agentic/qa-regressions.md` — curated cross-ticket index of QA-found behavioral regressions; always created with header and `## Entries` heading only; only-if-absent / never-overwrite (committed, not gitignored)
+- `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
+- `.agentic/config.json` - committed (NOT gitignored) project-level methodology toggles; always created with documented defaults so the conductor has a stable file to read
+- `glossary.md` (root) - the project's Ubiquitous Language; seeded with a header and TODO bullet so the team and agents have a place to record domain terms
+- `MEMORY.md` (root) - canonical durable-facts store, auto-injected by Claude Code at startup; `/init-project` seeds it with a stub if absent
+- `.gitignore`
+- `docs/overview/vision.md`, `docs/overview/requirements.md`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
+
+**Report findings in two groups:**
+
+```
+Missing (will be created):
+  - AGENTS.md
+  - backend/AGENTS.md
+  - ...
+
+Already exists (will be left untouched or additive-only):
+  - .claude/settings.json
+  - .gitignore
+  - ...
+```
+
+**Handle each file as follows - no user prompts, proceed automatically:**
+
+**`.claude/settings.local.json` - always skip silently if it exists.** Do not ask. Do not overwrite. **Exception:** if the file exists but lacks the `autoMemoryDirectory` key, Step 2a item 9 will perform a narrow idempotent merge to add that single field without touching any other keys. See Step 2a item 9. Remind the user: "`.claude/settings.local.json` already exists and was left untouched - it may contain real secrets. Add any new env keys manually."
+
+**`AGENTS.md` (root) - if it exists, leave all existing content untouched.** Apply only the additive managed-block update from Step 3. Never reorganize, compress, or rewrite to the template structure. See Step 3 for the managed-block procedure.
+
+**All other existing files - leave untouched.** Note them in the scan output. Do not ask. Do not overwrite.
+
+**`.gitignore` safety check** - regardless of whether `.gitignore` is new or existing: check whether it already contains `.claude/settings.local.json`. If not, append the following two lines:
+
+```
+# Claude Code - local settings contain secrets
+.claude/settings.local.json
+```
+
+This check is unconditional - run it whether `.gitignore` was just created or was already present.
+
+### 2a. Update mode algorithm
+
+This step runs only when Step 2 detects an existing configured `AGENTS.md` (update run).
+
+**Compute the diff** — compare current `AGENTS.md` and adjacent files against what Step 1 discovery + confirmation implies:
+
+0. **Pre-AGENTS.md migration (CLAUDE.md only)** — runs BEFORE item 1 below. Detect pre-AGENTS.md layout via both:
+   - Root `AGENTS.md` is absent, AND
+   - Root `CLAUDE.md` exists and contains more than the single-line pointer `@AGENTS.md` (i.e. has real content — prose, sections, or instructions beyond the pointer).
+
+   If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just `@AGENTS.md`, or neither exists), skip item 0 entirely and proceed to item 1.
+
+   **Main agent pre-work (inline, before spawning Worker):** read the existing root `CLAUDE.md` and classify its content into three buckets:
+   - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is agentic-engineering's canonical project-instructions surface.
+   - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
+   - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
+
+   **Spawn Worker** (labeled "CLAUDE.md split Worker") with:
+   - The raw existing root `CLAUDE.md` content.
+   - The three-bucket classification above, with the main agent's pre-classification notes.
+   - The target `AGENTS.md` structure (from Step 3 template).
+   - Instruction to produce three artifacts:
+     1. **Proposed `AGENTS.md`** — the agentic-engineering canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
+     2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the single-line `@AGENTS.md` pointer.
+     3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
+
+   **Spawn Skeptic** (fresh, background) with the Worker's three artifacts and this adversarial brief verbatim:
+
+   > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
+
+   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted.`
+
+   **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
+
+   ```
+   Pre-AGENTS.md migration detected. Proposed split of root CLAUDE.md:
+
+   ─── Proposed AGENTS.md (NEW) ───────────────────────────────
+   [Worker's proposed AGENTS.md content]
+
+   ─── Residual CLAUDE.md (AFTER) ─────────────────────────────
+   [Worker's residual CLAUDE.md content, OR "(empty — will be replaced with single-line `@AGENTS.md` pointer)"]
+
+   ─── MEMORY.md additions (APPEND) ───────────────────────────
+   [Worker's MEMORY.md entries]
+
+   Accept this split? [y/N/edit]
+   ```
+
+   Accept:
+   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the single-line pointer `@AGENTS.md` instead. Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **Enter alone does NOT apply** - this is a destructive three-way write; require an explicit `y`.
+   - `n` / `no` / `2` / empty (Enter): abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) — instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /init-project later, or run the greenfield creation flow manually." and exit the command.
+   - `edit` / `e`: prompt for a free-form correction nudge ("What should change? One or two sentences."), then re-spawn the Worker with the original CLAUDE.md plus the user's nudge, re-spawn a fresh Skeptic, and present the revised three-way split. **Iteration cap: 3.** After 3 `edit` iterations, fall back to: "Three edit iterations reached. The split still needs manual review. Aborting /init-project; edit CLAUDE.md and AGENTS.md manually, then re-run /init-project." and exit.
+
+   After a `y`-accepted split completes, proceed to item 1 below. The downstream items now operate against the newly-written `AGENTS.md`.
+
+1. **Legacy `## Linear` migration** — if `## Linear` exists but is missing `Workspace:` or `QA assignee ID:` fields:
+   - **First, check Step 1 tracker state.** If the user declined tracker in Step 1 (`no tracker` / "neither" / "skip" / Enter on the tracker prompt), do NOT prompt for Linear workspace slug, QA assignee UUID, or any other Linear field. Instead, ask ONCE - framed as contradiction resolution, not as a follow-up about whether to set up Linear:
+
+     > "I see a `## Linear` section in AGENTS.md but you declined tracker setup in Step 1. Remove the `## Linear` section? [y/N]"
+
+     Accept `y` / `yes` / `1` as yes (plan removal of `## Linear`). Accept `n` / `no` / `2` / empty as no (leave `## Linear` as-is; do not migrate, do not prompt for any field). Either way, do not ask anything else about Linear in this run.
+   - **Otherwise** (user accepted or confirmed Linear, or tracker is unspecified and there was no Step 1 decline):
+     - Attempt to derive `Workspace`: scan git remote origin URL and last 50 commit messages for `linear.app/<slug>/` URL patterns. Use the slug if found.
+     - Attempt to derive `QA assignee ID`: check for any UUID-shaped value already in the section.
+     - Prompt only for values that could not be derived: "What is your Linear workspace slug?" and/or "What is the Linear QA assignee UUID? (optional — press Enter to skip)".
+     - Rewrite `## Linear` in place using the new canonical shape (see Step 11a for shape). Preserve `Projects:` if present. Preserve the old `Default assignee:` name as a comment line if it existed and differs from any new UUID.
+
+2. **Tracker mutual exclusion** — Linear and Jira are mutually exclusive:
+   - If user confirmed Jira during Step 1 and `## Linear` exists: plan to remove `## Linear` and write `## Tracker` (Jira shape).
+   - If user confirmed Linear and `## Tracker` (Jira) exists: plan to remove `## Tracker` and write `## Linear` (Linear shape).
+   - If the user **declined** tracker in Step 1 and either `## Linear` or `## Tracker` exists: handle the same way as the legacy migration in case 1 above — ask ONCE as a contradiction-resolution prompt ("I see `## [Linear|Tracker]` in AGENTS.md but you declined tracker setup in Step 1. Remove the section? [y/N]"). If yes, plan removal. If no, leave the section untouched. Do not prompt for any tracker field.
+   - If no tracker change: leave existing section untouched.
+
+3. **`## Tools` backfill** — for each new CLI tool discovered in Step 0 that is not already present in `## Tools`: plan to append it. Never touch existing entries. Match on CLI name (e.g. `psql`, `mongosh`, `gh`). If a dep-audit command was derived in Step 0 and no dep-audit entry exists in `## Tools`: plan to append it (e.g. `- Dependency audit: use \`npm audit --json\` for vulnerability scans`). **Honor Step 1 declines in backfill:** if the user declined `gh` (`no gh` / `skip gh`), do not append a `gh` entry even if `gh` was detected on PATH. If the user declined dep audit (`no dep audit` / `skip dep audit`), do not append a dep-audit entry even if a command was derived.
+
+4. **Missing sections** — if `## Docs` or `## Conventions` is absent: plan to add them (same content as greenfield template).
+
+5. **`docs/` directories** — plan to create any missing subdirectories.
+
+6. **`.agentic/qa.md`** — if web UI was confirmed **and the user did not decline web UI in Step 1** (`no web UI` / `skip web UI`) and file does not exist (checked via resolver: `.agentic/qa.md` OR legacy `.claude/qa.md`): plan to create it at `.agentic/qa.md`. Also plan to create `tests/visual-baselines/.gitkeep` if it does not exist. If the user declined web UI, do not create either file and do not prompt for port or command.
+
+7. **`.agentic/deploy.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist (checked via resolver: `.agentic/deploy.md` OR legacy `.claude/deploy.md`): plan to create it at `.agentic/deploy.md` using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
+
+8. **`.agentic/learnings.md`** — if the file does not exist: plan to create it at `.agentic/learnings.md` with the following stub:
+
+   ```markdown
+   # Learnings
+
+   > Auto-generated by learning-extractor at Phase 6 clean exit. Each entry is a
+   > durable fix-pattern extracted from a resolved Skeptic finding. Append-only.
+   > Committed — project-level knowledge shared across operators.
+   ```
+
+   Always created (unconditional). This file is committed, not gitignored.
+
+8a. **`.agentic/qa-regressions.md`** — if the file does not exist (resolver check: neither `.agentic/qa-regressions.md` nor legacy `.claude/qa-regressions.md`): plan to create it at `.agentic/qa-regressions.md` with the following stub (header and `## Entries` heading, no entries):
+
+   ```markdown
+   # QA Regressions
+
+   Curated index of QA-found behavioral regressions. Architects read this when authoring qa_criteria.scenarios[] on any ticket touching a listed surface.
+
+   ## Entries
+   ```
+
+   Always created (unconditional). Only-if-absent / never-overwrite discipline. This file is committed, not gitignored. See `content/references/qa-regression-obligation.md` for the canonical entry schema and dedupe rules.
+
+9. **Auto-memory directory** — if the user declined auto-memory in Step 1 (`no auto-memory` / `skip auto-memory pin`): skip entirely. If `.claude/settings.local.json` already has `autoMemoryDirectory` set (to any value): leave it alone (idempotent — user's existing preference wins, even if it differs from the Step 0 selection). If the file exists but lacks the `autoMemoryDirectory` key: plan to merge it in using the selected path from Step 0 (do not overwrite other keys in the file). If the file does not exist: Step 7 handles creation with the key present. If auto-memory was declined but the key is already set on disk: leave it (do not remove — user's existing preference wins).
+
+10. **`.agentic/preferences.json`** — if the file does not exist: plan to create it with `{}` as content.
+
+10a. **`.agentic/config.json`** — if the file does not exist: plan to create it with the documented defaults (see Step 6f). Never overwrite an existing `.agentic/config.json` — it is operator-tunable and the user's existing values win.
+
+11. **Legacy path migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`, `learnings.md`, `qa-regressions.md`:
+    - **Both paths exist** (e.g. `.claude/findings.md` AND `.agentic/findings.md` both on disk): refuse to migrate. Emit a **Major warning** in the diff preview block listing each conflicting pair: `WARNING (Major): both .claude/<name>.md and .agentic/<name>.md exist for <name>. Cannot decide which is canonical. Resolve manually (remove or merge one) before re-running /init-project.` Do NOT proceed to apply any changes — block the "Proceed? [y/N]" confirmation until the conflict is resolved.
+    - **Only legacy `.claude/<name>.md` exists**: plan to migrate via `git mv .claude/<name>.md .agentic/<name>.md`. Before planning the `git mv`, run `git status --porcelain` to verify the working tree is clean of staged or unstaged changes. If dirty, block with: `Cannot migrate legacy .claude/ config while the working tree is dirty. Commit or stash first, then re-run /init-project.` Do NOT stash or commit on behalf of the user.
+    - **Only `.agentic/<name>.md` exists** (the normal post-migration state): no action needed.
+    - **Neither exists**: no action for this step (creation of the file, if applicable, is handled by items 6-8 above).
+    **Per-track coverage:** apply the same four rules to every per-track path (`<track>/.claude/qa.md` and `<track>/.claude/deploy.md`) for every track detected in Step 0. A project may have a mix of migrated and legacy per-track paths; each is evaluated independently.
+    List each planned `git mv` in the diff preview under a `Legacy migration:` heading so the user sees the moves before confirming.
+
+**Present the diff:**
+
+```
+Here's what I'd update:
+
+  AGENTS.md:
+    - Migrate ## Linear to new shape (Workspace: [value], QA assignee ID: [value or "not set"])
+    - Append to ## Tools: [new entry]
+
+  .agentic/qa.md:
+    - Create (not found, web UI detected as [framework] on port [N])
+
+  .agentic/deploy.md:
+    - Create (not found, release signal detected: [type])
+
+  docs/research/:
+    - Create .gitkeep (directory missing)
+
+No changes needed for: .gitignore, .claude/settings.json, [track] AGENTS.md files.
+
+Proceed? [y/N]
+```
+
+On "y": apply all planned changes. On "n" or Enter: abort with "Update cancelled. No files were modified."
+
+**Never destroy existing content.** All changes are additive or migrate-in-place. The `## Decisions` and `## Conventions` content in `AGENTS.md` is never overwritten — sections are only added if absent.
+
+After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 through 11.
+
+### 3. Create or update root `AGENTS.md`
+
+**If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
+
+**Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator pressed Enter) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
+
+**If `AGENTS.md` exists:** use the additive managed-block approach. No Worker is spawned; no existing content is removed, reordered, or compressed. The only change to the file is the addition or refresh of a delimited managed block. All user-authored content outside that block is left untouched. This command does NOT write any entries to `MEMORY.md` on the custom-file path.
+
+**Step 3 existing-file procedure (sub-steps in order):**
+
+**3a. Decide whether a change is needed; back up only if so.** Run 3b, 3d-pre, and (when 3d-pre does not fire) 3c first to compute the would-be managed block. If a managed block already exists and the would-be block is byte-for-byte identical to it (idempotent re-run), make NO change - no backup, no write - and report "AGENTS.md: managed block already current - no changes made." Otherwise: obtain a UTC timestamp via `date -u +%Y%m%dT%H%M%SZ`, copy `AGENTS.md` to `AGENTS.md.bak-<timestamp>`, and append the line `AGENTS.md.bak-*` to `.gitignore` if that exact glob is not already present (additive; do not duplicate). Report "Backup created: AGENTS.md.bak-<timestamp>".
+
+**3b. Locate or prepare the managed block.** Use the exact markers (verbatim, copied from `.claude/install.sh`): begin `<!-- BEGIN managed-by-agentic-engineering -->`, end `<!-- END managed-by-agentic-engineering -->`. If absent: the block will be appended at end of file, preceded by one blank line. If present: it will be replaced from begin-marker through end-marker inclusive, via a non-greedy DOTALL match anchored on those exact strings (mirror the `re.sub` in `.claude/install.sh`).
+
+**3d-pre. Guard - preserve a user-authored `## Activation` section.** Scan the file OUTSIDE the begin/end block range for a line beginning `## Activation`. If FOUND: do NOT emit a `## Activation` heading inside the managed block; leave the user's `## Activation` section and every marker line inside it completely untouched; the managed block will contain ONLY the profile helper (resolved per 3d); SKIP step 3c entirely; surface "Note: an existing ## Activation section was found and left as authored. The managed block adds only the resolver profile helper." If NOT FOUND: proceed to 3c.
+
+**3c. Resolve the activation marker (only when 3d-pre did not fire).** Choose the activation state by this PRIORITY, highest first:
+  1. A bare active `agentic-engineering: opt-in` or `agentic-engineering: opt-out` line OUTSIDE the managed block -> MOVE it: remove that line from the file and use its value.
+  2. Else, an active (uncommented) `agentic-engineering:` marker already INSIDE the existing managed block -> preserve its value (re-emit the same active line on refresh).
+  3. Else, the Step 0a activation decision: if the operator explicitly chose opt-in for this project, use an active `agentic-engineering: opt-in` line (mirror the greenfield template's Step 0a handling).
+  4. Else, use the commented `<!-- agentic-engineering: opt-out -->` helper (inert default).
+
+**3d. Assemble the managed block.** Resolve the PROFILE line by the same priority: an active (uncommented) `agentic-engineering-profile:` line already inside the existing block is preserved; else INIT_PROFILE (relaxed/strict emit an active line; default/null emit the commented helper). Because both the activation (3c) and profile lines are reproduced from any existing active value, regeneration of an unchanged block is a FIXED POINT - a second run reproduces it byte-for-byte and 3a NO-OPs.
+
+When 3d-pre did NOT fire, the block contains a `## Activation` heading plus the resolved activation + profile lines, e.g. (base case: no active marker resolved, profile default):
+```markdown
+<!-- BEGIN managed-by-agentic-engineering -->
+## Activation
+<!--
+  agentic-engineering governs how work is done in this project.
+  Run /agentic-status to see the resolved mode, profile, and whether it is active here.
+
+  This project is ACTIVE by default. To turn it off for this project only,
+  uncomment the marker line just below this block.
+-->
+<!-- agentic-engineering: opt-out -->
+
+<!--
+  Optional review strictness: relaxed | default | strict.
+  Uncomment the line below to override the global setting for this project.
+-->
+<!-- agentic-engineering-profile: default -->
+<!-- END managed-by-agentic-engineering -->
+```
+If 3c resolved an ACTIVE marker (e.g. a preserved or moved `agentic-engineering: opt-out`/`opt-in`), emit that as an uncommented line in place of the commented helper (never both). Same for an active profile line.
+
+When 3d-pre DID fire, the block omits the `## Activation` heading and the activation line, containing only the profile helper (or active profile line), e.g.:
+```markdown
+<!-- BEGIN managed-by-agentic-engineering -->
+<!--
+  Optional review strictness: relaxed | default | strict.
+  Uncomment the line below to override the global setting for this project.
+-->
+<!-- agentic-engineering-profile: default -->
+<!-- END managed-by-agentic-engineering -->
+```
+
+**3e. Report.** On change: "AGENTS.md updated: added/refreshed the managed block. All prior content preserved. Backup at AGENTS.md.bak-<timestamp>." On no-op: "AGENTS.md: managed block already current - no changes made."
+
+**`AGENTS.md` template (use for new files):**
+- H1: project name
+- One-paragraph description. If no description was provided, use `<!-- TODO: Add one-paragraph description -->` as the placeholder.
+- `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that agentic-engineering governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
+
+  **Base block (emitted verbatim in the common case - global mode `opt-out`, no project profile override):**
+  ```markdown
+  ## Activation
+  <!--
+    agentic-engineering governs how work is done in this project.
+    Run /agentic-status to see the resolved mode, profile, and whether it is active here.
+
+    This project is ACTIVE by default. To turn it off for this project only,
+    uncomment the marker line just below this block.
+  -->
+  <!-- agentic-engineering: opt-out -->
+
+  <!--
+    Optional review strictness: relaxed | default | strict.
+    Uncomment the line below to override the global setting for this project.
+  -->
+  <!-- agentic-engineering-profile: default -->
+  ```
+
+  **Conditional assembly** - the section is always emitted, but two facts can change which lines are active vs. commented. Resolve both before writing:
+
+  1. **Opt-in activation case** (global mode `opt-in` AND the user said yes in Step 0a). The section leads with an *active* (uncommented) `agentic-engineering: opt-in` line at the top, above the explanatory comments. Reword the first comment block so it reads correctly for an opted-in project (it is no longer "ACTIVE by default"). KEEP the commented opt-out helper - it documents the reverse toggle. Emit:
+     ```markdown
+     ## Activation
+     agentic-engineering: opt-in
+     <!--
+       agentic-engineering governs how work is done in this project.
+       Run /agentic-status to see the resolved mode, profile, and whether it is active here.
+
+       This project is opted in (global mode is opt-in). To turn it off for this
+       project only, remove the opt-in line above, or uncomment the marker line below.
+     -->
+     <!-- agentic-engineering: opt-out -->
+     ```
+     Follow it with the same profile sub-block described in rule 2.
+
+  2. **Profile sub-block** (governs the profile lines in BOTH the base and opt-in cases):
+     - If `INIT_PROFILE` is null (operator pressed Enter, or typed `default`): emit the commented profile helper from the base block verbatim (the `<!-- agentic-engineering-profile: default -->` line and its explanatory comment). The global profile applies; nothing is pinned.
+     - If `INIT_PROFILE` is `relaxed` or `strict`: emit an *active* (uncommented) `agentic-engineering-profile: <value>` line in place of the commented helper, and DO NOT also emit the commented `<!-- agentic-engineering-profile: default -->` helper (that would contradict the active line). Keep the short explanatory comment that introduces the profile line, but reword it so it does not reference a `default` value that is no longer chosen, e.g.:
+       ```markdown
+       <!--
+         Review strictness for this project (relaxed | default | strict).
+         Change the value below or remove the line to fall back to the global setting.
+       -->
+       agentic-engineering-profile: strict
+       ```
+
+  **Resolver safety (do not break this).** The activation marker scan (`content/sections/01-activation-preflight.md`, marker-scan step) is a case-insensitive whole-line match that tolerates only leading/trailing whitespace and an optional `- ` list prefix. A line wrapped in `<!-- ... -->` does NOT match (the `<!-- ` prefix and ` -->` suffix are not whitespace), so commented marker lines are inert until the operator uncomments them. Only the *active* (uncommented) lines emitted by the conditional assembly above are resolver-visible.
+
+  **HTML-comment gotcha (do not introduce).** An HTML comment body cannot contain the literal two-hyphen sequence or the comment terminator - either ends the comment early. None of the comment prose above uses it; preserve that property if you reword any comment.
+- `## Decisions` - resolved architecture decisions as brief bullets - fill in as the project takes shape. Use a single TODO bullet placeholder if no decisions are known yet. Label it clearly: "Resolved architecture decisions as brief bullets - fill in as the project takes shape."
+- Repo structure map listing each track directory with a one-line description (omit if no tracks were named)
+- Note: "Each track directory has its own `AGENTS.md` with deeper context." (omit if no tracks were named)
+- `## Tools` section - document the CLI tools confirmed in Step 1:
+  ```markdown
+  ## Tools
+  - GitHub operations: use `gh` CLI - do not use GitHub MCP
+  - [Database CLI if applicable, e.g.: Database operations: use `psql` with `$DB_URL`]
+  - [Dep audit if applicable - use the command derived in Step 0 from the detected package manager: `npm audit --json` for npm, `pnpm audit --json` for pnpm, `yarn audit --json` for yarn, `pip-audit` for pip/poetry, `cargo audit` for cargo, `govulncheck ./...` for go. Do NOT hardcode `npm audit` for non-npm projects.]
+  ```
+  Include the `gh` line only if `gh` was detected or confirmed **and not declined** in Step 1 (`no gh` / `skip gh`); include the database line only if a DB CLI was specified; include the dep-audit line only if a dep-audit command was derived in Step 0 **and not declined** in Step 1 (`no dep audit` / `skip dep audit`), and use the exact command derived there.
+- `## Docs` section:
+  ```markdown
+  ## Docs
+  - `docs/planning/` - pre-implementation design artifacts
+  - `docs/research/` - research notes and reference material
+  - `docs/technical/` - implementation specs and architecture
+  - `docs/overview/` - high-level summaries and onboarding docs
+  ```
+  Always include this section.
+- `## Conventions` - include the glossary line as a fixed bullet, plus a single TODO bullet placeholder; filled in as the project evolves.
+  ```markdown
+  ## Conventions
+  - **Glossary** - see `glossary.md` for the project's domain terms (Ubiquitous Language).
+  - <!-- TODO: Add project conventions as they emerge -->
+  ```
+- `## PR Workflow` section - optional reviewer assignment fallback (commented out by default; CODEOWNERS takes precedence when present):
+  ```markdown
+  ## PR Workflow
+  # Uncomment and fill in Reviewers: only if you have NO CODEOWNERS file and want
+  # automatic reviewer assignment when /implement-ticket marks a PR ready for review.
+  # CODEOWNERS (at .github/CODEOWNERS, docs/CODEOWNERS, or repo root) takes precedence.
+  # Reviewers: github-user-1, github-user-2
+  ```
+  Always include this section (commented out). It is a no-op until the operator explicitly uncomments it.
+- `## Session start` section - tool-agnostic instruction for the session agent to verify scaffolding on the first interaction of each new session:
+  ```markdown
+  ## Session start
+  - On the first interaction of a new session, silently check that `/init-project` scaffolding exists. Check each item only if its precondition holds:
+    - Root `AGENTS.md` has required sections (`## Tools`, `## Docs`, `## Conventions`, `## Session start`) - always check.
+    - `.claude/settings.json` - always check.
+    - `docs/{planning,research,technical,overview}/` - always check.
+    - `docs/overview/vision.md` and `docs/overview/requirements.md` - always check.
+    - Seeded `MEMORY.md` at `<cwd>/MEMORY.md` - always check.
+    - `.agentic/qa.md` (or legacy `.claude/qa.md`) - only if this project has a web UI.
+    - `.agentic/deploy.md` (or legacy `.claude/deploy.md`) - only if release signals apply to this project.
+    - `.agentic/tracking.md` (or legacy `.claude/tracking.md`) - only if a tracker was confirmed during `/init-project`.
+    - `.agentic/learnings.md` - always check.
+    - `docs/overview/_proposed/outcome-rubric.md` - only if product-discovery was run and a rubric was staged (check for the file's existence and the staged-proposal banner; if present, remind the operator to copy the rubric into the Brief before engineering starts).
+  - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.agentic/qa.md`, `[track]/.agentic/deploy.md`) are out of scope for this session-start check - do not flag them.
+  - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6c creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
+  - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
+  - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or Enter defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
+  ```
+
+Keep it under 45 lines.
+
+If the project shows parallel fan-out signals (3 or more distinct modules or tracks, complex orchestration history in git log, or prior multi-unit plans visible in docs/planning/), add a note in the scaffolded root AGENTS.md under `## Conventions`: "`.agentic/tasks.jsonl` is the task coordination surface for multi-unit orchestration plans."
+
+### 4. Create subdirectory `AGENTS.md` files
+
+If the user provided no tracks (skipped, said "none", or "not yet"), skip this step entirely.
+
+For each track the user named, **only create `[track]/AGENTS.md` if it does not already exist** - never overwrite an existing track `AGENTS.md`. For missing ones, create with:
+- H1: `[Project Name] - [Track Name]`
+- `## Stack` section with a TODO bullet
+- `## Key Conventions` section with a TODO bullet
+- A brief note: "Fill this in as the track is built out."
+
+These are intentionally sparse stubs - they grow with the code.
+
+### 5. Create `.claude/settings.json`
+
+Only create if it does not already exist. Content:
+
+```json
+{}
+```
+
+MCP servers are not added by default - prefer CLI tools (`gh`, `psql`, etc.). Only add MCP blocks if there is a specific reason.
+
+### 6. Create `.agentic/qa.md`
+
+Only create if the user confirmed a web UI in Step 1 AND the user did not decline web UI in Step 1 (`no web UI` / `skip web UI`). Only create if the file does not already exist at either `.agentic/qa.md` (preferred) or the legacy `.claude/qa.md` (back-compat). Writers always write to `.agentic/qa.md`. If web UI was declined, skip this step entirely — do not prompt for port, command, or staging URL.
+
+Fill in `command` and `port` from the Step 1 confirmation results. If discovery populated these values and the user confirmed them, use those values directly. Use `TODO` placeholders only for values that were neither discovered nor provided.
+
+Content template:
+
+```markdown
+# QA Config
+
+## Dev server
+command: [command from Step 1, or TODO]
+port: [port from Step 1, or TODO]
+
+## URLs
+local: http://localhost:[port from Step 1, or TODO]
+staging: <!-- optional: add staging/preview URL here -->
+
+## Preferences
+prefer: local
+
+## Viewport canonical sizes
+# mobile:  375x667
+# tablet:  768x1024
+# desktop: 1440x900
+# Override per-scenario by setting `viewport: [mobile, tablet, desktop]` in a scenario block.
+# Scenarios default to `[desktop]` when no viewport is declared.
+
+## Visual baselines
+# Perceptual diff baselines are stored at:
+#   tests/visual-baselines/<scenario-id>/<viewport>.png
+# First run with perceptual_diff_enabled: true saves baselines and returns INCONCLUSIVE.
+# Subsequent runs compare against saved baselines using Playwright toHaveScreenshot.
+# Commit baselines to source control after reviewing them.
+
+## Accessibility
+# qa-engineer runs axe-core at WCAG AA level by default for `accessibility` method scenarios.
+# Default axe tags: [wcag2a, wcag2aa]
+# To enforce AAA: set wcag_level: AAA in the scenario (adds wcag2aaa to axe tags).
+# To override axe tags directly: set axe_tags: [wcag2a, wcag2aa] in the scenario.
+# For capability requirements (axe-core/playwright install): see content/references/capability-preflight.md
+```
+
+The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
+
+**Multi-track projects.** If two or more tracks have detected web UIs (distinct ports / dev scripts), create a per-track qa.md at `<track>/.agentic/qa.md` for EACH track with its own command/port/URL, AND create a root `.agentic/qa.md` that is an index listing the tracks with pointers. Example root:
+
+```markdown
+# QA Config (Multi-track Index)
+
+This project has multiple web UIs. Per-track qa.md files:
+- admin/.agentic/qa.md - admin panel (port 4322)
+- dashboard/.agentic/qa.md - ops dashboard (port 4321)
+- verify/.agentic/qa.md - public verify page (port 4324)
+
+qa-engineer: pick the track based on which one the diff touches.
+```
+
+When `qa-engineer` runs, it reads the root first (resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). If the root is an index, it picks the track matching the diff's file paths and reads that track's qa.md for command/port/URLs. **Per-track resolver also applies during the back-compat window**: `<track>/.agentic/qa.md` preferred, `<track>/.claude/qa.md` fallback. Step 2a item 11 plans `git mv` for per-track legacy paths on each update run.
+
+**Visual baseline directory.** When web UI is confirmed, also create `tests/visual-baselines/.gitkeep` so the baseline directory exists before the first `perceptual_diff` run. Only create if the file does not already exist. This gives Playwright a committed home to write baseline PNGs into on first run; operators review and commit baselines afterward.
+
+### 6a. Create `.agentic/deploy.md`
+
+Only create if release signals were detected in Step 0 AND the user has not suppressed the signal ("no release") AND the file does not already exist at either `.agentic/deploy.md` (preferred) or the legacy `.claude/deploy.md` (back-compat). Writers always write to `.agentic/deploy.md`.
+
+Fill in the `command` from the detected release type where possible. Use `TODO` for values that were not detected or confirmed.
+
+Content template:
+
+```markdown
+# Deploy Config
+
+## Environments
+production: [detected deploy command, e.g. "vercel --prod --yes", or TODO]
+staging: <!-- optional: add staging deploy command -->
+
+## Version scheme
+[semver | calver | date-based | TODO]
+
+## Changelog
+path: CHANGELOG.md  <!-- or detected path -->
+
+## Rollback
+command: [TODO - fill in once known]
+notes: <!-- e.g. "Vercel: redeploy previous deployment from dashboard" -->
+
+## Preferences
+prefer: production
+```
+
+The `release-orchestrator` agent reads this file the same way `qa-engineer` reads `qa.md` — it uses these values as defaults for target environment, deploy command, and rollback procedure. Fill in `staging` if the project has a staging environment. Update `command` once the exact deploy command is confirmed.
+
+**Multi-track projects.** If two or more tracks have distinct deploy targets (e.g. Vercel for one, Railway for another, EAS for mobile), create a per-track deploy.md at `<track>/.agentic/deploy.md` for EACH track that deploys, AND create a root `.agentic/deploy.md` that is an index listing the tracks with pointers. Same index/pointer pattern as qa.md above. `release-orchestrator` follows the same resolution: root first via resolver (`.agentic/` preferred, `.claude/` fallback); if index, pick the track matching the diff. **Per-track resolver also applies during the back-compat window**: `<track>/.agentic/deploy.md` preferred, `<track>/.claude/deploy.md` fallback. Step 2a item 11 plans `git mv` for per-track legacy paths on each update run.
+
+### 6b. Create `.agentic/tracking.md`
+
+Always create when a tracker was confirmed in Step 1 (Linear or Jira). Only create if the file does not already exist at either `.agentic/tracking.md` (preferred) or the legacy `.claude/tracking.md` (back-compat). Writers always write to `.agentic/tracking.md`.
+
+This is the operational ticket-tracking surface used by the `orchestration-planner` agent and any command that routes work against tickets. It is separate from the tracker metadata in `AGENTS.md` (which declares team/workspace/project). `tracking.md` is where active work, sprint notes, ticket-status conventions, and any project-specific ticket-flow instructions live.
+
+Content template (Linear):
+
+```markdown
+# Tracking
+
+<!-- Read by orchestration-planner and any command that coordinates work against tickets. -->
+<!-- Declared team/workspace/project lives in AGENTS.md ## Linear; this file is for active work flow. -->
+
+## Conventions
+- Branch prefix: `[TEAM]-<id>-<description>` (e.g. `FRM-12-fix-login`)
+- Ticket lifecycle: Backlog -> Ready -> In Progress -> In Review -> QA -> Done
+- QA assignee: see `AGENTS.md ## Linear QA assignee ID`
+
+## Active work
+<!-- Rolling list of in-flight tickets (optional). Keep short; sprint-scoped. -->
+
+## Commands
+<!-- Project-specific lc (linearctl) invocations or policy overrides. -->
+```
+
+Content template (Jira):
+
+```markdown
+# Tracking
+
+<!-- Read by orchestration-planner and any command that coordinates work against tickets. -->
+<!-- Declared project key / base URL lives in AGENTS.md ## Tracker; this file is for active work flow. -->
+
+## Conventions
+- Branch prefix: `[PROJECT]-<id>-<description>` (e.g. `PROJ-42-add-auth`)
+- Ticket lifecycle: <state names from your Jira workflow>
+- QA transition: see `AGENTS.md ## Tracker JIRA_QA_TRANSITION`
+
+## Active work
+<!-- Rolling list of in-flight tickets (optional). -->
+
+## Commands
+<!-- Project-specific atlassian-mcp calls or policy overrides. -->
+```
+
+Read by the `orchestration-planner` agent at plan time (step 7 of its brief). A missing `tracking.md` is non-fatal - the planner falls back to AGENTS.md's tracker section for basic metadata.
+
+**Track-level tracking.md is rare** - only create if the project genuinely has teams split across tracks with different Linear teams or Jira projects per track. Default is root-only.
+
+### 6c. Create `.agentic/preferences.json`
+
+Always create. No signal required - the session-start scaffolding check declared in the root `AGENTS.md` template needs a tool-agnostic place to persist its "never prompt again" preference. Only create if the file does not already exist.
+
+Seed with an empty object:
+
+```json
+{}
+```
+
+This is a tool-agnostic, gitignored preferences file read by session agents (the `.agentic/` directory is already gitignored by the block appended in Step 9, so no separate gitignore entry is needed). Currently it holds `skipScaffoldingCheck` (set to `true` when the user answers `never` to the session-start scaffolding prompt). Future session-level preferences may be added to this file.
+
+Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer - each developer's "never prompt again" preference is local to their checkout and does not leak to collaborators.
+
+**Write semantics for the `never` answer.** When the session agent writes `skipScaffoldingCheck`, it must read-modify-write: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, and write the merged object back. Do not clobber other keys.
+
+### 6d. Seed `~/.agentic/presets.yml` (spawn preset library)
+
+If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `agentic-engineering` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
+
+Resolution order at spawn time (per `content/references/spawn-presets.md`): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
+
+This step is global (writes outside the project tree). It is idempotent - the file is created on the first `/init-project` invocation on a machine, and subsequent invocations are no-ops. The example library defines `engineer:default`, `engineer:tight-bug`, `skeptic:standard`, `skeptic:plan-review`, `skeptic:security`, and `architect:default`.
+
+Do NOT seed a project-local `.agentic/presets.yml` during init - leave that to the user to author when they want to override a preset for this specific project.
+
+### 6e. Create `glossary.md` (Ubiquitous Language)
+
+Always create at the project root. Only create if the file does not already exist.
+
+This file holds the project's **Ubiquitous Language** - the domain terms the team and agents use to describe the system. Keeping a glossary lets humans and LLM agents work from a shared, intent-revealing vocabulary; it reduces synonym drift (where the same concept gains three names across code, docs, and prompts) and is part of the project's intent layer (see `content/rules/conventions.md`).
+
+Seed with this content:
+
+```markdown
+# Glossary
+
+The Ubiquitous Language for this project - the domain terms the team and any LLM agents working in this repo use to describe the system. Keep this list current as the domain evolves; agents prefer existing terms over inventing synonyms.
+
+<!-- Format: each entry is a term followed by a one-to-two sentence definition. -->
+<!-- Group related terms under H2 headings as the glossary grows. -->
+
+- **TODO** - replace with the project's first domain term and definition.
+```
+
+The root `AGENTS.md` template (Step 3) already includes the glossary bullet under `## Conventions` so agents discover it on session start - no additional edit is needed here.
+
+If the glossary is declined or not relevant for the project, the user can delete the file later; this scaffolding step does not prompt - presence of an empty glossary is harmless and signals "this project may grow one."
+
+### 6f. Create `.agentic/config.json`
+
+Always create. No signal required - the conductor reads this file to resolve project-level methodology toggles, and `content/rules/conventions.md` and `content/sections/04-risk-classification.md` both document it as "seeded with defaults by `/init-project`". Only create if the file does not already exist - **never overwrite** an existing `.agentic/config.json` (it is operator-tunable; the user's existing values win, same "only if absent / never overwrite" discipline as `.agentic/qa.md`, `.agentic/deploy.md`, `.agentic/preferences.json`, and the Step 10a `docs/overview/*` templates).
+
+Seed with these documented defaults exactly:
+
+```json
+{
+  "scaffolding_version": 1,
+  "debugger_on_failure": false,
+  "qa_default_skip": null,
+  "model_profile": "default",
+  "auto_merge_on_ci_green": false,
+  "capability_preflight_mode": "blocking",
+  "perceptual_diff_enabled": false,
+  "theme_aware": false,
+  "storybook_enabled": false,
+  "motion_aware": false,
+  "storybook_version": 7,
+  "commit_telemetry": true,
+  "deferred_wrap_daemon": false,
+  "deferred_wrap_idle_minutes": 15,
+  "deferred_wrap_heartbeat_seconds": 120,
+  "deferred_wrap_timeout_minutes": 10,
+  "deferred_wrap_inprogress_reclaim_minutes": 30,
+  "deferred_wrap_pending_ttl_days": 7,
+  "abdication_guard_enabled": false,
+  "skill_candidate_detection": true,
+  "skill_candidate_nudge": false,
+  "ticket_driven": "offer"
+}
+```
+
+**Substitute values into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE (from dialogue), `model_profile` <- INIT_MODELPROFILE (from dialogue), `debugger_on_failure` <- INIT_DEBUGGER (from dialogue), `ticket_driven` <- derived from Step 1 tracker detection: `"offer"` when a tracker was confirmed in Step 1; `"off"` otherwise (not a dialogue answer - the user is not asked directly; it follows from whether a tracker was confirmed). When a dialogue variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
+
+- `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
+- `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
+- `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
+- `capability_preflight_mode` - enum (`advisory` | `blocking`), default `"blocking"`. See `content/rules/conventions.md` §Project Config for semantics.
+- `perceptual_diff_enabled` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
+- `theme_aware` - boolean, default `false`. Opt-in for per-theme QA tuples on `visual_conformance` and `accessibility` scenarios. See `content/rules/conventions.md` §Project Config for semantics.
+- `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` on `visual_conformance` and `accessibility` scenarios; requires Storybook 7+. Init-project detects the installed version and configures `storybook_url` when SB7+ is present. See `content/rules/conventions.md` §Project Config for semantics.
+- `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
+- `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
+- `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
+- `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
+- `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
+
+
+### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
+
+Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `agentic-engineering` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
+
+**Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
+
+Read `package.json` (if present) and scan all dependency fields (`dependencies`, `devDependencies`, `peerDependencies`) for Storybook framework adapter packages in this exact precedence order: `@storybook/react`, `@storybook/vue`, `@storybook/vue3`, `@storybook/angular`, `@storybook/svelte`, `@storybook/web-components`, `@storybook/html`, `@storybook/core`. Take the FIRST one found; its semver value determines the Storybook version.
+
+- **Framework adapter found, version `>= 7.0.0`**: write `"storybook_version": 7` and `"storybook_url": "http://localhost:6006"` into `.agentic/config.json` alongside the other keys, and emit info: "Storybook 7+ detected; set `storybook_enabled: true` in `.agentic/config.json` to enable story scenarios." Leave `storybook_enabled: false` in the seed (operator opts in explicitly).
+- **Framework adapter found, version `< 7.0.0`**: write `"storybook_version": 6` and `"storybook_url": "http://localhost:6006"` into `.agentic/config.json`. Emit info: "Storybook 6 detected; storybook_url set. Enable storybook scenarios via storybook_enabled: true in .agentic/config.json." Leave `storybook_enabled: false` in the seed (operator opts in explicitly).
+- **No framework adapter found, but other `@storybook/*` packages present** (e.g. only `@storybook/addon-*`): do NOT write `storybook_url`. Emit warning: "Storybook framework adapter not detected; storybook scenarios disabled." Leave `storybook_enabled: false`.
+- **No `@storybook/*` packages at all**: silent - no warning, no `storybook_url` key added.
+
+Mixed-version installs (framework adapter on SB7+ with legacy addon packages on SB6) are supported - the framework adapter version is authoritative.
+
+This file is committed (NOT gitignored) - the `.agentic/` umbrella ignore carves it out via `!.agentic/config.json` in `.gitignore` (added in Step 9) so the project's methodology toggles are portable and travel with the repo, the same way `qa.md` and `deploy.md` do. It is optional and graceful: if absent, every toggle takes its default and nothing breaks - seeding it here just gives the conductor a stable file to read and the operator a discoverable place to tune.
+
+### 7. Create `.claude/settings.local.json`
+
+Only create this file if it does not already exist (enforced in Step 2 - skip if it exists).
+
+```json
+{
+  "autoMemoryDirectory": "<cwd>/.agentic/memory",
+  "env": {}
+}
+```
+
+The path is the project-local `.agentic/memory/` directory (absolute path preferred for portability). Claude Code honors this setting to pin the session's auto-memory directory to a known path regardless of which subdirectory you launch from. **Schema caveat:** `autoMemoryDirectory` is ignored if set in the checked-in `.claude/settings.json` for security - it MUST live in `.claude/settings.local.json` (user-local, gitignored). Only Claude Code consumes this field; Codex/Cursor/Gemini adapters ignore it.
+
+**If the user declined auto-memory in Step 1** (`no auto-memory` / `skip auto-memory pin`): omit the `autoMemoryDirectory` field entirely — write just `{"env": {}}`.
+
+**Merge rule for update mode** (Step 2a): if `.claude/settings.local.json` already exists, merge `autoMemoryDirectory` into it only if the key is not already set. Never overwrite an existing `autoMemoryDirectory` value — the user's existing preference wins. Preserve all other keys in the file (`env`, `LINEAR_API_KEY`, etc.).
+
+Add any project-specific env vars here (e.g. database connection strings, API keys).
+
+### 8. Seed `MEMORY.md`
+
+The canonical MEMORY.md lives at `<cwd>/MEMORY.md` (repo root) and is auto-injected by Claude Code at startup. This is the conductor-managed, human-reviewed durable-facts store. It is distinct from `.agentic/memory.md`, which is `/wrap`-internal rolling scratch (gitignored, not auto-injected).
+
+If `<cwd>/MEMORY.md` does not already exist, create it:
+
+```
+# Memory
+
+<!-- Stable facts about this project: architecture, key paths, decisions and their rationale. -->
+<!-- Use /memory-update to add entries. Update in place - do not accumulate stale entries. -->
+<!-- Entry format: - **YYYY-MM-DD:** [what and why, one sentence] -->
+```
+
+If the file already exists (e.g. because a prior run or Step 2a's CLAUDE.md migration already wrote it), skip this step and proceed to Step 9.
+
+### 9. Create `.gitignore`
+
+If `.gitignore` does not exist, create it. Include at minimum:
+```
+# Claude Code - local settings contain secrets
+.claude/settings.local.json
+
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env*.local
+
+# OS
+.DS_Store
+```
+
+Add any framework-specific entries if the stack is already known (e.g. `.next/` for Next.js, `dist/` for Vite, `out/` for general builds).
+
+If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
+
+Regardless of whether `.gitignore` is new or existing: check whether the targeted `.agentic/` runtime-artifact block below is present. If not, append it. If `.gitignore` does not exist, the entry above creates it - ensure this block is included in the new file's contents.
+
+```
+# Agentic engineering runtime artifacts (must not be committed).
+# The .agentic/ directory holds BOTH runtime artifacts (runtime-only, gitignored)
+# AND tool-agnostic config files (qa.md, deploy.md, tracking.md)
+# that ARE checked in. The entries below ignore only the runtime artifacts.
+.agentic/loop-state.json
+.agentic/hud/
+.agentic/tasks.jsonl
+.agentic/events.jsonl
+.agentic/context.md
+.agentic/memory/
+.agentic/memory.md
+.agentic/wrap/
+.agentic/preferences.json
+.agentic/compression-state.json
+.agentic/tracker-states.json
+# tracker-states.json is an intentionally-ignored runtime cache (24h TTL,
+# machine-local; stale on fresh checkout is acceptable - Phase 2c refetches).
+# Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
+# .agentic/tracking.md, .agentic/learnings.md - these are tool-agnostic agent
+# config and fix-pattern knowledge that belong in source control.
+# .agentic/session-log/ IS tracked (committed via Phase 8 telemetry commits).
+# The negation carve-outs below keep these tracked even if a project later
+# adds a broad .agentic/* umbrella ignore (e.g. via agentic-migrate).
+!.agentic/session-log/
+!.agentic/learnings.md
+```
+
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
+
+### 10. Create `docs/` structure
+
+Create the following empty directories with a `.gitkeep` (only for directories that do not already exist):
+```
+docs/
+  technical/
+  planning/
+  research/
+```
+
+The `docs/overview/` directory is seeded in Step 10a below with template files rather than a bare `.gitkeep`.
+
+### Step 10a - Seed docs/overview/ onboarding templates
+
+Create `docs/overview/vision.md` and `docs/overview/requirements.md` only if they do not already exist (never overwrite - these are operator-owned).
+
+`docs/overview/vision.md` template:
+```markdown
+# Vision
+
+<!-- What is this product and why does it exist? Who does it serve? What outcome does it deliver? -->
+<!-- Keep this to one screen. Write in narrative form. -->
+
+## Purpose
+
+TODO: describe the product's core purpose in 1-3 sentences.
+
+## Target Users
+
+TODO: who uses this and what problem does it solve for them?
+
+## Success Looks Like
+
+TODO: what does a successful outcome look like for users?
+```
+
+`docs/overview/requirements.md` template:
+```markdown
+# Requirements
+
+<!-- Scoped functional and non-functional requirements. -->
+<!-- Use bullet statements. Mark optional items with "(nice to have)". -->
+
+## Functional Requirements
+
+- TODO: list what the system must do
+
+## Non-Functional Requirements
+
+- TODO: performance, reliability, security, compliance constraints
+
+## Out of Scope
+
+- TODO: explicit exclusions to prevent scope creep
+```
+
+These files are operator-owned and committed. Architect and Investigator read them when present.
+
+To draft this intent layer instead of writing it by hand, spawn the `product-discovery` agent. It facilitates discovery - frames the problem, names the users (including the counterparty), runs an attributed market scan, and synthesizes a proposed `vision.md` and `requirements.md`. It stages those drafts to `docs/overview/_proposed/` and never writes the canonical `docs/overview/` files; you review, edit, and promote them when they match your intent.
+
+### 11. Set up tracker
+
+Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
+
+**11a. Linear setup** (run if tracker = Linear)
+
+Check if `linearctl` is installed: `which lc`. If not installed:
+
+```bash
+npm install -g linearctl
+```
+
+If the user provided a Linear API key in Step 1, authenticate:
+
+```bash
+lc init --api-key [LINEAR_API_KEY]
+```
+
+Store the key in `.claude/settings.local.json` under `"env"`:
+
+```json
+{
+  "env": {
+    "LINEAR_API_KEY": "[key from Step 1]"
+  }
+}
+```
+
+If `.claude/settings.local.json` already exists, merge `LINEAR_API_KEY` into the existing `"env"` object — do not overwrite other keys.
+
+If `lc` was already installed, run `lc doctor` to verify the connection. If it fails and the user provided a key, re-init with `lc init --api-key`.
+
+**Add `## Linear` section to `AGENTS.md`** (canonical shape):
+
+```markdown
+## Linear
+- Team: [team key, e.g. FRM]
+- Workspace: [workspace slug, e.g. acme]
+- QA assignee ID: [Linear user UUID — optional, omit line if not provided]
+- Branch prefix: Include issue ID (e.g., `feature/[TEAM]-12-description`)
+- Projects: [comma-separated project names, or omit this line if none provided]
+# Optional workflow-state name overrides (defaults shown; uncomment to override):
+# State In Progress: In Progress
+# State In Review: In Review
+# State QA: Testing
+# State Blocked: Blocked
+# State Done: Done
+```
+
+Place after `## Tools`. Prompt for: team key (required), workspace slug (required), QA assignee UUID (optional — "press Enter to skip"). If the user did not provide project names, omit the `Projects:` line.
+
+Run `lc doctor` to confirm the connection. If it fails, add a reminder to the summary with the manual steps.
+
+**11b. Jira setup** (run if tracker = Jira)
+
+Jira credentials go in `~/.claude.json` under `mcpServers.mcp-atlassian.env` — NOT in `.claude/settings.local.json`. Print the following instructions for the user to complete manually:
+
+```
+Jira credentials must be added to ~/.claude.json manually.
+
+Find or create the mcp-atlassian entry under mcpServers and add to its env block:
+
+  For Jira Cloud:
+    "JIRA_URL": "https://yourcompany.atlassian.net"
+    "JIRA_USERNAME": "your@email.com"
+    "JIRA_API_TOKEN": "your-api-token"
+
+  For Jira Server/Data Center:
+    "JIRA_URL": "https://jira.yourcompany.com"
+    "JIRA_PERSONAL_TOKEN": "your-personal-access-token"
+
+Get a Cloud API token at: https://id.atlassian.com/manage-profile/security/api-tokens
+Find your Atlassian account ID at: https://[your-instance].atlassian.net/rest/api/3/myself
+```
+
+**Add `## Tracker` section to `AGENTS.md`** (canonical shape):
+
+```markdown
+## Tracker
+TRACKER: jira
+TICKET_PREFIX: [project key, e.g. PROJ]
+JIRA_BASE_URL: [e.g. https://acme.atlassian.net]
+JIRA_QA_ASSIGNEE_ACCOUNT_ID: [Atlassian account ID — optional, omit line if not provided]
+JIRA_QA_TRANSITION: [transition name — optional, omit line if not provided]
+# Optional workflow-state name overrides (defaults shown; uncomment to override):
+# JIRA_STATE_IN_PROGRESS: In Progress
+# JIRA_STATE_IN_REVIEW: In Review
+# JIRA_STATE_QA: QA
+# JIRA_STATE_BLOCKED: Blocked
+# JIRA_STATE_DONE: Done
+```
+
+Place after `## Tools`. Prompt for: TICKET_PREFIX (required), JIRA_BASE_URL (required), JIRA_QA_ASSIGNEE_ACCOUNT_ID (optional), JIRA_QA_TRANSITION (optional). **Do not use a default value for `JIRA_QA_TRANSITION`** — if the user does not provide one, omit the line entirely. `/implement-ticket` Phase 11 will skip the transition step when absent rather than guessing a transition name.
+
+**11c. None**
+
+No tracker setup needed. Skip this step.
+
+### 12. Summary
+
+After all files are processed, print a short summary with three sections:
+
+**Created:** list every file that was newly written.
+**Updated:** note whether `AGENTS.md` was created fresh (new file, greenfield path) or had the managed `## Activation` block appended/refreshed (existing file - all prior content left untouched).
+**Skipped (already existed):** list every file that was left untouched and why (auto-skipped `.claude/settings.local.json`, or existing track `AGENTS.md`, or other existing files left untouched).
+
+**Config readout.** Print the resolved configuration in two blocks, then the pointers.
+
+Block 1 - activation state (reuse the binary; do NOT re-derive resolution):
+  Resolve `agentic-status` from PATH first, then the adapter `bin/` install dir; if
+  neither resolves, skip Block 1 SILENTLY (do not error). When resolvable, run it and
+  echo its full output verbatim.
+
+Block 2 - project config toggles (read directly from the just-written file; separate
+data agentic-status does not own). Read `.agentic/config.json` and print:
+
+```
+Project config (.agentic/config.json)
+  auto_merge_on_ci_green: <value>   (auto-merge PRs once CI is green)
+  model_profile: <value>            (default = right model per task; budget = cheaper tier)
+  debugger_on_failure: <value>      (run a Debugger diagnosis before each fix on a gate failure)
+  commit_telemetry: <value>         (commit session-log to PR branch at Phase 8; default true)
+  deferred_wrap_daemon: <value>     (out-of-session daemon picks up deferred /wrap jobs; default false)
+  (other keys at defaults - see the file or /agentic-status to adjust)
+```
+
+  If `.agentic/config.json` is absent, print "Project config: using built-in defaults (no .agentic/config.json)."
+
+Pointers:
+```
+----
+Your project is set up. To understand or change any of this later:
+  /agentic-status   - see the resolved activation config, what it means, and how to adjust it
+  /agentic-help     - the full list of commands
+Project toggles live in .agentic/config.json; re-run /init-project or edit that file to change them.
+----
+```
+
+Then remind the user to (**omit any reminder for a feature the user declined in Step 1**, per "Negative answers are sticky"):
+1. Update the `## Tools` section in root `AGENTS.md` as new CLI tools are added to the project over time
+2. Fill in the `## Conventions` section in root `AGENTS.md` as the project takes shape
+3. Grow each `[track]/AGENTS.md` alongside the code - add commands, schema, flows, and gotchas as they emerge (omit this reminder if no tracks were created)
+4. Stable project facts (architecture decisions, key paths, rationale) go in `MEMORY.md` via `/memory-update` — not in `AGENTS.md`. On re-run, `/init-project` will auto-detect new tools, migrate legacy `## Linear` sections, backfill missing config, and (for custom non-AE files) refresh the managed `## Activation` block - all without destroying or rewriting any existing content.
+5. Add any project-specific env vars to `.claude/settings.local.json` under `"env"` (e.g. database connection strings, API keys) - omit this reminder if `.claude/settings.local.json` was skipped
+6. Confirm `gh` is installed and update the `## Tools` section in root `AGENTS.md` to add `- GitHub operations: use \`gh\` CLI - do not use GitHub MCP` - show only if `gh` was not detected and not confirmed in Step 1 AND `gh` was not declined in Step 1 (`no gh` / `skip gh`)
+7. Update `.agentic/qa.md` with your staging URL once a staging environment is available - show only if `.agentic/qa.md` was created (and therefore web UI was not declined)
+8. *(If `.agentic/deploy.md` was created — i.e. release signals detected and release was not declined)* Fill in the deploy command and rollback procedure in `.agentic/deploy.md`. The `release-orchestrator` agent uses this file the way `qa-engineer` uses `qa.md`. Update the `command` field once the exact deploy command is confirmed.
+9. `/init-project` no longer auto-creates `.agentic/findings.md`. Pattern-promotion logic was removed; only the regression-test obligation for fixed Skeptic findings remains, and that is enforced inline by the Worker and Skeptic - no project-local file is needed. Existing `findings.md` files (legacy or migrated) are left untouched; they remain in source control if checked in, but no agent reads or writes them anymore.
+10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
+11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/init-project`.
+12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
+13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context.
+14. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/agentic-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/init-project` to change them. Run `/agentic-help` for the full command list.

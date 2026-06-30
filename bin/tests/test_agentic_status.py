@@ -36,6 +36,7 @@ _scan_agents_md = _mod._scan_agents_md
 _resolve = _mod._resolve
 _profile_behavior_block = _mod._profile_behavior_block
 _role_models_status_block = _mod._role_models_status_block
+_telemetry_health_block = _mod._telemetry_health_block
 _how_to_adjust_block = _mod._how_to_adjust_block
 main = _mod.main
 
@@ -505,6 +506,139 @@ def test_how_to_adjust_block_no_marker_path_key():
     lines = _how_to_adjust_block({})
     joined = "\n".join(lines)
     assert "AGENTS.md" in joined
+
+
+# ---------------------------------------------------------------------------
+# _telemetry_health_block
+# ---------------------------------------------------------------------------
+
+def _write_health_file(tmp_path: Path, data: dict) -> Path:
+    """Write .agentic/.telemetry-health.json and return its Path."""
+    agentic = tmp_path / ".agentic"
+    agentic.mkdir(parents=True, exist_ok=True)
+    p = agentic / ".telemetry-health.json"
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return p
+
+
+def test_telemetry_health_block_absent_file(monkeypatch, tmp_path):
+    """Absent health file -> empty list (section omitted silently)."""
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", tmp_path / "no-such-file.json")
+    result = _telemetry_health_block()
+    assert result == []
+
+
+def test_telemetry_health_block_malformed_json(monkeypatch, tmp_path):
+    """Malformed JSON -> empty list."""
+    p = tmp_path / ".telemetry-health.json"
+    p.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    result = _telemetry_health_block()
+    assert result == []
+
+
+def test_telemetry_health_block_ok_entry(monkeypatch, tmp_path):
+    """failures == 0 -> OK status."""
+    data = {
+        "updated_at": "2026-01-01T12:00:00Z",
+        "targets": {
+            "writeSessionLog": {
+                "failures": 0,
+                "last_success": "2026-01-01T12:00:00Z",
+                "last_error": None,
+                "last_error_ts": None,
+            }
+        },
+    }
+    p = _write_health_file(tmp_path, data)
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    result = _telemetry_health_block()
+    joined = "\n".join(result)
+    assert "Telemetry health" in joined
+    assert "writeSessionLog" in joined
+    assert "OK" in joined
+
+
+def test_telemetry_health_block_failing_entry(monkeypatch, tmp_path):
+    """failures > 0 and no recovery -> FAILING status."""
+    data = {
+        "updated_at": "2026-01-01T12:00:00Z",
+        "targets": {
+            "writeLoopState": {
+                "failures": 3,
+                "last_success": None,
+                "last_error": "ENOSPC: no space left on device",
+                "last_error_ts": "2026-01-01T11:59:00Z",
+            }
+        },
+    }
+    p = _write_health_file(tmp_path, data)
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    result = _telemetry_health_block()
+    joined = "\n".join(result)
+    assert "FAILING" in joined
+    assert "3 failure(s)" in joined
+    assert "ENOSPC" in joined
+
+
+def test_telemetry_health_block_recovered_entry(monkeypatch, tmp_path):
+    """failures > 0 AND last_success > last_error_ts -> RECOVERED status."""
+    data = {
+        "updated_at": "2026-01-01T12:00:00Z",
+        "targets": {
+            "writeContextMd": {
+                "failures": 1,
+                "last_success": "2026-01-01T12:00:00Z",  # later than error
+                "last_error": "EACCES: permission denied",
+                "last_error_ts": "2026-01-01T11:00:00Z",
+            }
+        },
+    }
+    p = _write_health_file(tmp_path, data)
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    result = _telemetry_health_block()
+    joined = "\n".join(result)
+    assert "RECOVERED" in joined
+    assert "1 failure(s)" in joined
+    # Both timestamps rendered.
+    assert "2026-01-01T12:00:00Z" in joined
+    assert "2026-01-01T11:00:00Z" in joined
+
+
+def test_telemetry_health_block_empty_targets(monkeypatch, tmp_path):
+    """Empty targets dict -> empty list (section omitted)."""
+    data = {"updated_at": "2026-01-01T12:00:00Z", "targets": {}}
+    p = _write_health_file(tmp_path, data)
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    result = _telemetry_health_block()
+    assert result == []
+
+
+def test_main_output_contains_telemetry_health(monkeypatch, tmp_path, capsys):
+    """main() includes 'Telemetry health' when health file is present."""
+    _clear_harness_env(monkeypatch)
+    monkeypatch.setattr(_mod, "CONFIG_PATH", tmp_path / "no-config.json")
+    monkeypatch.setattr(_mod, "SENTINEL_PATH", tmp_path / ".activated")
+    monkeypatch.setattr(_mod, "ROLE_MODELS_GLOBAL_PATH", tmp_path / "no-global.yml")
+    monkeypatch.setattr(_mod, "ROLE_MODELS_PROJECT_PATH", tmp_path / "no-project.yml")
+    data = {
+        "updated_at": "2026-01-01T12:00:00Z",
+        "targets": {
+            "writeSessionTotal": {
+                "failures": 0,
+                "last_success": "2026-01-01T12:00:00Z",
+                "last_error": None,
+                "last_error_ts": None,
+            }
+        },
+    }
+    p = _write_health_file(tmp_path, data)
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    monkeypatch.chdir(tmp_path)
+    rc = main([])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Telemetry health" in out
 
 
 # ---------------------------------------------------------------------------

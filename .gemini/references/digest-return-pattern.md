@@ -17,7 +17,11 @@ A loop-running spawn returns a structured digest. Required fields:
 - **Residual risk** - any known open issue, assumption, or concern that did not block the terminal status but could matter downstream.
 - **Not-done list** - explicit list of scope items not completed, or "none" if all scope was addressed.
 
-The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
+Optional field (default empty; cap 5 entries per return):
+
+- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. Each entry carries `kind` (`workaround` | `dead-end` | `gotcha` | `decision`), `domain_tag`, `fact` (1-2 sentences on what was discovered), and `why` (why a cold future agent would re-derive it). This is the ONLY channel for worker-internal discovery; the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost.
+
+The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, learnings_candidate, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
 
 ## Conductor consumption
 
