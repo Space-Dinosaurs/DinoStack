@@ -41,6 +41,7 @@ Inspect & configure
 Plan & build
   /brief                       Interactive planning dialogue that produces a Brief artifact before architects and engineers are spawned. /brief --from <path> extracts a Brief from an existing PRD.
   /implement-ticket            Drive a ticket from spec to a merged PR through the full risk-classified workflow (architect, skeptic, engineer, QA gate).
+  /ticket-triage               Triage a set of tickets: analyse dependencies, distribute across parallel lanes, emit paste-ready /implement-ticket kickoff prompts. Plan-only; no code edits, no tracker writes.
   /init-project                Scaffold a project: AGENTS.md hierarchy, CLI config, gitignore, .agentic/ seeds. Asks up front how you want work done.
   /skeptic                     Run the adversarial review loop on a diff or artifact (findings classified Critical/Major/Minor).
 
