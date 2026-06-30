@@ -10,14 +10,15 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 # ---------------------------------------------------------------------------
 
 # Only run when bin/ or hooks/ Python/JS files are staged.
-STAGED_PY=$(git diff --cached --name-only | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-' | grep -v '/tests/' | grep -v '/lib/' || true)
+# Extension-less Python CLIs in bin/ match ^bin/agentic-[a-z-]+$ (e.g. bin/agentic-cost).
+STAGED_PY=$(git diff --cached --name-only | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-[a-z-]+$' | grep -v '/tests/' | grep -v '/lib/' || true)
 STAGED_JS=$(git diff --cached --name-only | grep -E '^hooks/.*\.js$' | grep -v '/tests/' | grep -v '\.test\.js$' || true)
 
-# ruff lint (Python CLIs + hooks)
+# ruff lint (Python CLIs + hooks) - scoped to staged files only.
 if [ -n "$STAGED_PY" ]; then
   if command -v ruff >/dev/null 2>&1; then
-    echo "[pre-commit] Running ruff check on bin/ hooks/..."
-    if ! ruff check bin/ hooks/ 2>&1; then
+    echo "[pre-commit] Running ruff check on staged Python files..."
+    if ! ruff check $STAGED_PY 2>&1; then
       echo "[pre-commit] ruff check failed - commit blocked."
       exit 1
     fi
@@ -30,11 +31,15 @@ fi
 # mypy type-check (Python CLIs + hooks)
 if [ -n "$STAGED_PY" ]; then
   if command -v mypy >/dev/null 2>&1; then
-    echo "[pre-commit] Running mypy on bin/ hooks/..."
+    echo "[pre-commit] Running mypy on staged Python files..."
+    # PROMINENT: this list must be updated when adding a new extension-less
+    # Python CLI to bin/. Only bin/agentic-* files with a python3 shebang are
+    # eligible (e.g. bin/agentic-emit is bash and must NOT be added).
     MYPY_PY_ARGS=(
-      bin/agentic-calibrate bin/agentic-cost bin/agentic-disable bin/agentic-doctor
-      bin/agentic-help bin/agentic-identity bin/agentic-memory bin/agentic-migrate
-      bin/agentic-parse-subagent-usage bin/agentic-status bin/agentic-update
+      bin/agentic-calibrate bin/agentic-configure bin/agentic-cost bin/agentic-disable
+      bin/agentic-doctor bin/agentic-help bin/agentic-identity bin/agentic-memory
+      bin/agentic-migrate bin/agentic-models bin/agentic-parse-subagent-usage
+      bin/agentic-status bin/agentic-team bin/agentic-update
       hooks/enforce-askuserquestion-default.py hooks/enforce-background-spawn.py
       hooks/enforce-no-abdication.py hooks/enforce-orchestrator-singularity.py
     )
