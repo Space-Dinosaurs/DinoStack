@@ -27,12 +27,23 @@ Upstream deps: content/commands/implement-ticket.md Phase 0 (input normalizer,
                (mcp__linear__get_issue); content/references/trigger-catalog.md
                (yolo-guard, §d).
 
-Downstream consumers: operator-invoked only. Output artifact is
+Downstream consumers: operator-invoked only (standalone) OR /implement-ticket
+                      Phase 0a (integration path - algorithm reused by reference,
+                      no copy). Output artifact (standalone path only) is
                       docs/planning/triage-<YYYYMMDD>-<4hex>.md (gitignored by
                       convention; gitignore status is project-dependent in
-                      consumer repos). Kickoff prompts in the artifact are inputs for the
-                      conductor on the operator's next /implement-ticket session;
-                      they do not bypass risk classification or Skeptic review.
+                      consumer repos). Kickoff prompts in the artifact are inputs
+                      for the conductor on the operator's next /implement-ticket
+                      session; they do not bypass risk classification or Skeptic
+                      review.
+
+Output description: triage_result {lanes[], deferred[], in_progress_excluded[],
+                    functional_duplicates[], conflict_warnings[], heuristic_only}
+                    where functional_duplicates[] contains
+                    {ticket_ids: [A, B], summary: "<one-sentence why same work>"}
+                    entries (empty array when none). Level-1-only / HEURISTIC_ONLY
+                    runs skip functional-duplicate detection (no ticket content
+                    read at Level 1).
 
 Failure modes: soft-fail per ticket throughout; fetch failures treated as
                independent tickets, not as aborts. Single-ticket degenerate
@@ -127,15 +138,24 @@ From the `blocks` / `is-blocked-by` link fields, build a directed acyclic graph 
 
 ## Phase 2b: Conflict-surface analysis
 
-**Level 1 (always, conductor-direct):** for each pair of tickets, check for shared `components[]` or `labels[]`. Mark any overlapping pair as in the same conflict group.
+**Level 1 (always, conductor-direct):** for each pair of tickets, check for shared `components[]` or `labels[]`. Mark any overlapping pair as in the same conflict group. Functional-duplicate detection is NOT performed at Level 1 (no ticket content is read).
 
 **Level 2 (when `!HEURISTIC_ONLY` and `len(entries) <= 20`):** spawn one background investigator over all tickets. The investigator reads only:
 - root `AGENTS.md` and any track-level `AGENTS.md` for tracks whose names appear in ticket titles/descriptions.
 - A top-level directory listing of the repo.
+- The title and description of each ticket in the set.
 
-The investigator returns `{ticket_id -> affected_areas[]}`. Two tickets conflict if their `affected_areas[]` overlap OR they share a Level 1 conflict group.
+The investigator brief MUST include the following two tasks:
 
-**HEURISTIC_ONLY stamp:** when `HEURISTIC_ONLY=true`, Phase 2b runs Level 1 only. The artifact header is stamped: "Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investigator pass skipped)."
+1. **Conflict analysis.** Return `{ticket_id -> affected_areas[]}`. Two tickets conflict if their `affected_areas[]` overlap OR they share a Level 1 conflict group.
+
+2. **Functional-duplicate detection.** For every pair of DISTINCT tickets in the set, assess whether a reasonable engineer would implement them with exactly the same change. The bar is strict: related-but-distinct work (e.g. add-login vs add-logout, two separate bug fixes in the same file) is NOT a duplicate. A duplicate pair is only flagged when the descriptions define the same functional requirement such that a single implementation resolves both. Return `functional_duplicates: [{ticket_ids: [A, B], summary: "<one-sentence explanation of why the same change resolves both>"}]` (empty array when none).
+
+The investigator output contract is `{ticket_id -> affected_areas[], functional_duplicates[{ticket_ids, summary}]}`.
+
+**Conductor handling:** store `functional_duplicates[]` from the investigator output into `triage_result.functional_duplicates[]`. Surface this in Phase 4a artifact and, on the /implement-ticket integration path, in Phase 0a step 2.
+
+**HEURISTIC_ONLY stamp:** when `HEURISTIC_ONLY=true`, Phase 2b runs Level 1 only. The artifact header is stamped: "Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investigator pass skipped). Functional-duplicate detection was also skipped."
 
 `[phase: ticket-triage | phase=conflict]`
 
@@ -222,6 +242,19 @@ Parallel-safe grouping is heuristic - based on ticket metadata and directory-lev
 analysis, not file-level diffing. Verify before running lanes truly concurrently;
 each /implement-ticket session's own Skeptic chain still catches collisions at
 merge time.
+
+## Functional duplicate warnings
+
+<!-- Only present when functional_duplicates[] is non-empty (Level 2 investigator ran).
+     List each pair and its one-sentence rationale. Omit this section entirely when
+     the array is empty or when HEURISTIC_ONLY=true (investigator was skipped). -->
+
+| Pair | Why same work |
+|------|---------------|
+| A + B | Both implement the same email validation rule in the same form handler |
+
+Consider deferring one ticket of each pair or merging them into a single ticket before
+running /implement-ticket. Running both risks a merge conflict or duplicated effort.
 
 ## Deferred tickets
 
