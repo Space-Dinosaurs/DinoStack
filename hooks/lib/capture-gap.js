@@ -13,8 +13,10 @@
  *          PostToolUse(Task) nudge share one implementation.
  *
  * Public API (CommonJS, all exported on module.exports):
- *   detectCaptureGap(cwd, sessionId)
+ *   detectCaptureGap(cwd, sessionId[, cachedEventsRaw])
  *     -> { shouldNudge: boolean, residualOnly: boolean, lastEventTs: string|null }
+ *     cachedEventsRaw: pre-read events.jsonl string (null=absent/unreadable,
+ *     undefined=back-compat file read). See param JSDoc on detectCaptureGap.
  *   GUARDRAIL_PATTERNS - RegExp[] of guardrail-file basename patterns.
  *   _tokenize(str) -> string[] - domain-proximity tokenizer.
  *
@@ -114,9 +116,15 @@ function _tokenize(str) {
  *
  * @param {string} cwd - Project root (absolute, already validated by caller).
  * @param {string|null} sessionId - Stop / PostToolUse payload session_id (harness uuid).
+ * @param {string|null} [cachedEventsRaw] - Pre-read events.jsonl contents from
+ *   run()'s single read. When provided (non-undefined), the file is NOT re-read;
+ *   null means the file was absent or unreadable at read time (treated same as
+ *   missing file: function returns no-nudge immediately). When omitted (undefined),
+ *   falls back to reading eventsPath directly for back-compat with callers that
+ *   do not thread the cache (e.g. the PostToolUse hook).
  * @returns {{ shouldNudge: boolean, residualOnly: boolean, lastEventTs: string|null }}
  */
-function detectCaptureGap(cwd, sessionId) {
+function detectCaptureGap(cwd, sessionId, cachedEventsRaw) {
   try {
     if (!sessionId) return { shouldNudge: false, residualOnly: false, lastEventTs: null };
 
@@ -133,11 +141,18 @@ function detectCaptureGap(cwd, sessionId) {
     } catch (_) { /* silent */ }
 
     let rawEvents = '';
-    try {
-      if (fs.existsSync(eventsPath)) {
-        rawEvents = fs.readFileSync(eventsPath, 'utf8');
-      }
-    } catch (_) { return { shouldNudge: false, residualOnly: false, lastEventTs: null }; }
+    if (cachedEventsRaw !== undefined) {
+      // Caller threaded the cached read: null means absent/unreadable.
+      if (cachedEventsRaw === null) return { shouldNudge: false, residualOnly: false, lastEventTs: null };
+      rawEvents = cachedEventsRaw;
+    } else {
+      // Back-compat: no cache provided, read the file directly.
+      try {
+        if (fs.existsSync(eventsPath)) {
+          rawEvents = fs.readFileSync(eventsPath, 'utf8');
+        }
+      } catch (_) { return { shouldNudge: false, residualOnly: false, lastEventTs: null }; }
+    }
 
     const eventLines = rawEvents.split('\n');
     // On cold start (no cursor), cap to the last 100 lines.
