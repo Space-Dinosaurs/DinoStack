@@ -5,10 +5,11 @@
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (20 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (30 files as of 2026-06-29; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
+- Delegation detail - worker autonomy contract, stop-frequency signal, investigator-before-architect rules
 - Design goals - system design principles and intent
 - Multi-developer coordination - parallel sessions, branch and worktree hygiene
 - Regression test obligation - when a fix requires a regression test and what counts
@@ -21,17 +22,26 @@
 - Planning artifacts - Brief/Plan templates, promotion mechanics, product-intent layer
 - QA gate - concurrent QA flow, INCONCLUSIVE classification, dev-server boot pattern
 - QA regression obligation - regression-test obligation after a QA FAIL
+- Risk config and tiers - config toggle catalog, graph-derived signal, tier declaration detail
 - Spawn presets - per-spawn capability bundles and resolution rules
 - Trigger catalog - manual/scheduled/action-triggered loops and the yolo-guard
 - Worktree lifecycle - isolation vs feature worktrees and cleanup command blocks
 - Wrap context format - canonical schema for the /wrap session-context block
 - Digest-return pattern - conductor stays context-lean; workers return a structured digest, not the transcript
+- Activation detail - first-activation notice and scaffolding-sync check (Steps 5-6)
+- Code standards detail - per-language strict defaults and browser verification patterns
+- Conventions detail - intent layer, context economy, external comment discipline
+- Cross-harness teams - dispatching workers to non-Claude harnesses, self-containment guard
+- Cross-session loop resume - disk-write discipline, resumable phases, batch-state coexistence
+- Model discovery - model routing and role-model assignment
+- Role models - default model assignments by agent role
+- Task state file - multi-unit plan orchestration state schema and protocol
 
 **Agents** (17) - named specialist roles:
 adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
 
-**Commands** (19) - workflow shortcuts:
-agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
+**Commands** (22) - workflow shortcuts:
+agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, configure-team, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, skill-candidates, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap, wrap-deferred
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
