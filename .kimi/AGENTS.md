@@ -55,9 +55,21 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
 
+**Pre-spawn checklist - ticket-offer gate:** Before spawning the FIRST implementer (architect, engineer, or orchestration-planner) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects a permission-seeking interrogative in the final assistant message and blocks the session stop, injecting a "proceed" directive; opt in per-project via `abdication_guard_enabled: true` in `.agentic/config.json`; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/brief.md` Section 1.
+
+**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn its first implementer (architect, engineer, or orchestration-planner) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper) before proceeding.
+
+**`ticket_driven` resolution (CRITICAL):** an explicit `ticket_driven` value in `.agentic/config.json` always wins. When the key is ABSENT: `TRACKER != none` -> effective `offer`; `TRACKER == none` -> effective `off`. This makes "tracker connected => offer by default" true with zero migration - no config change needed on existing projects with a connected tracker.
+
+- **`offer` mode (surface-and-proceed):** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` If no STOP arrives in one turn: invoke the Create Helper. On CREATE_STATUS=created: route via `/implement-ticket <CREATED_TICKET_ID>`. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc.
+
+- **`require` mode (hard gate):** do not spawn any implementer before a ticket exists. Invoke the Create Helper immediately. On created: route to `/implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
+
+**Exemptions:** existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/implement-ticket <ID>`) skip the gate entirely. `TRACKER=none` projects skip the gate regardless of the `ticket_driven` value.
 
 Stop and ask the user ONLY when:
 1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
@@ -179,7 +191,7 @@ Preamble:
 
 **Cross-harness teams (opt-in).** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. Collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, config schema, self-containment guard, and per-harness dispatch table.
 
-**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields and conductor consumption rules.
+**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
 
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
@@ -379,7 +391,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve sixteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 

@@ -294,6 +294,57 @@ console.log('\n[5] No orphan .tmp files: loop-state atomic write leaves no .tmp 
 }
 
 // ---------------------------------------------------------------------------
+// Sub-test 6: M3 — health file written on full hook run (integration)
+// ---------------------------------------------------------------------------
+console.log('\n[6] M3 integration: health file written and valid after full hook run');
+{
+  // Full run with STUB_IDENTITY and a spawn_complete event.
+  // Asserts: (a) hook exits 0, (b) .telemetry-health.json exists and is valid
+  // JSON, (c) targets.writeSessionLogGlobal present with failures === 0 and
+  // populated last_success — proves recordHealth fired and flushHealth ran at
+  // the real exit with cwd in scope.
+  const { tmpDir, fakeHome, projectDir, agenticDir, identityDir } = makeTmp('ae-stop-t6-');
+
+  fs.writeFileSync(path.join(identityDir, 'identity.yml'), STUB_IDENTITY, { mode: 0o600 });
+  fs.writeFileSync(path.join(agenticDir, 'events.jsonl'), STUB_EVENT + '\n');
+
+  try {
+    runHook(projectDir, fakeHome, 'test-session-uuid');
+  } catch (err) {
+    console.error('  FAIL: hook execution threw:', err.message);
+    cleanup(tmpDir);
+    process.exit(1);
+  }
+
+  const healthPath = path.join(agenticDir, '.telemetry-health.json');
+  assert(fs.existsSync(healthPath), '.telemetry-health.json exists after full hook run');
+  if (fs.existsSync(healthPath)) {
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(healthPath, 'utf8'));
+      assert(true, '.telemetry-health.json is valid JSON');
+    } catch (e) {
+      assert(false, `.telemetry-health.json is valid JSON (parse error: ${e.message})`);
+      parsed = null;
+    }
+    if (parsed) {
+      assert(parsed.targets && typeof parsed.targets === 'object',
+        'targets object present in health file');
+      // writeSessionLogGlobal fires on the confirmed-identity path (STUB_IDENTITY).
+      const wslg = parsed.targets && parsed.targets.writeSessionLogGlobal;
+      assert(wslg !== undefined, 'targets.writeSessionLogGlobal present');
+      if (wslg !== undefined) {
+        assert(wslg.failures === 0,
+          `writeSessionLogGlobal.failures === 0 (got: ${wslg.failures})`);
+        assert(typeof wslg.last_success === 'string' && wslg.last_success.length > 0,
+          `writeSessionLogGlobal.last_success populated (got: ${wslg.last_success})`);
+      }
+    }
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed.`);

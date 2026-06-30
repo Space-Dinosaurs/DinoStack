@@ -75,9 +75,21 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
 
+**Pre-spawn checklist - ticket-offer gate:** Before spawning the FIRST implementer (architect, engineer, or orchestration-planner) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects a permission-seeking interrogative in the final assistant message and blocks the session stop, injecting a "proceed" directive; opt in per-project via `abdication_guard_enabled: true` in `.agentic/config.json`; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/brief.md` Section 1.
+
+**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn its first implementer (architect, engineer, or orchestration-planner) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper) before proceeding.
+
+**`ticket_driven` resolution (CRITICAL):** an explicit `ticket_driven` value in `.agentic/config.json` always wins. When the key is ABSENT: `TRACKER != none` -> effective `offer`; `TRACKER == none` -> effective `off`. This makes "tracker connected => offer by default" true with zero migration - no config change needed on existing projects with a connected tracker.
+
+- **`offer` mode (surface-and-proceed):** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` If no STOP arrives in one turn: invoke the Create Helper. On CREATE_STATUS=created: route via `/implement-ticket <CREATED_TICKET_ID>`. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc.
+
+- **`require` mode (hard gate):** do not spawn any implementer before a ticket exists. Invoke the Create Helper immediately. On created: route to `/implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
+
+**Exemptions:** existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/implement-ticket <ID>`) skip the gate entirely. `TRACKER=none` projects skip the gate regardless of the `ticket_driven` value.
 
 Stop and ask the user ONLY when:
 1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
@@ -199,7 +211,7 @@ Preamble:
 
 **Cross-harness teams (opt-in).** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. Collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, config schema, self-containment guard, and per-harness dispatch table.
 
-**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields and conductor consumption rules.
+**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
 
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
@@ -399,7 +411,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve sixteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
@@ -1594,9 +1606,10 @@ agent-browser open <url>      # navigate
 agent-browser snapshot        # get page structure with element refs
 agent-browser click @e1       # click by ref
 agent-browser fill @e2 "text" # fill input by ref
+agent-browser close           # close the session when done (close --all closes every session)
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior.
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
 
 ---
 
@@ -1788,6 +1801,29 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 `user-pattern`. The `learnings-agent` maps each type to LRN or KNW - see
 `content/agents/learnings-agent.md` for the full mapping table.
 
+### Routing hop for `learnings_candidate[]` (new input source)
+
+When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-5 sweep:
+
+1. Run guardrail-first classification (steps a, b, c from capture-classification.md).
+2. If `Capture: MUST`:
+   a. If `kind == "workaround"`, also emit the `tool_failure_workaround` event with all four canonical fields:
+
+      ```bash
+      agentic-emit tool_failure_workaround - - \
+        '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<tool/command named in fact if identifiable, else the entry domain_tag>","domain_tag":"<entry domain_tag>","note":"<entry fact>"}'
+      ```
+
+      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `agentic-cost` does not miscount.
+   b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
+3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
+
+**Relation to triggers 1-5.** `learnings_candidate[]` is a new INPUT SOURCE for the existing trigger machinery, not a 7th trigger. `kind: workaround` is a new input path for trigger 3; `kind: dead-end`/`gotcha` map to `cross-component-gotcha`; `kind: decision` is a new input path for trigger 5. Trigger 1 (investigator/debugger root cause) is NOT replaced - the conductor still evaluates the root cause under trigger 1 independently, and the `learnings_candidate[]` section on those agents' returns carries incidental discoveries only, never the root cause itself.
+
+**Trivial-path engineers.** A Trivial engineer skips Skeptic and wrap-ticket, but the conductor still reads its return. `learnings_candidate[]` entries that pass `Capture: MUST` are still routed to `learnings-agent`. The lightweight Trivial posture (no Skeptic, no brief) is otherwise preserved.
+
+**Cap discipline.** Workers emit at most 5 entries. If a malformed return carries more, the conductor processes the first 5 and logs a warning.
+
 This is additive - `/wrap` still handles AGENTS.md updates, rolling session labels,
 compression, and full session wrap. If learnings-agent fails, the conductor warns
 and proceeds (soft-fail).
@@ -1867,7 +1903,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Fifteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/init-project`. Sixteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -1884,6 +1920,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking the user permission to proceed with an obvious non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in `content/sections/02-delegation.md`. Precision-biased classifier (false-negative over false-positive). Two loop-guard layers: `stop_hook_active` flag (primary) and a consecutive-block counter cap (backstop for CC bug #54360). Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. Default `false` because this ships in the open-source methodology; individual projects opt in.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns (clustered by `domain_tag` / `Domain`) and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). Layer 3 (`/skill-candidates` command) is also gated on this toggle. When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking on this project.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. `skill_candidate_nudge` alone (with `skill_candidate_detection: false`) has no effect. Default `false` (matches `deferred_wrap_daemon` opt-in precedent).
+- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when the key is absent from `.agentic/config.json`, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - this makes "tracker connected => offer by default" true with zero migration. An explicit value always wins. `offer`: surface-and-proceed - conductor announces ticket creation and proceeds unless the operator replies STOP within one turn. `require`: hard gate - no implementer spawns before a ticket exists; creation failure surfaces and waits for operator resolution. `off`: gate disabled; no ticket creation attempt. Existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/implement-ticket <ID>`) and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 
@@ -2426,7 +2463,7 @@ The `task_id` field is included for Elevated multi-unit spawns only (when `.agen
 
 ## Digest-Return Discipline
 
-**Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, and not-done list - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. See `content/references/digest-return-pattern.md` for the required digest fields and conductor consumption rules.
+**Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, not-done list, and the optional `learnings_candidate[]` field - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. When `learnings_candidate[]` is non-empty, the conductor routes each entry through the guardrail-first gate (capture-classification.md) before forwarding `Capture: MUST` entries to `learnings-agent`; see `content/references/conductor-operating-rules.md` §learnings-agent for the routing algorithm. See `content/references/digest-return-pattern.md` for the full digest field list and conductor consumption rules.
 
 ---
 
@@ -2572,7 +2609,11 @@ A loop-running spawn returns a structured digest. Required fields:
 - **Residual risk** - any known open issue, assumption, or concern that did not block the terminal status but could matter downstream.
 - **Not-done list** - explicit list of scope items not completed, or "none" if all scope was addressed.
 
-The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
+Optional field (default empty; cap 5 entries per return):
+
+- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. Each entry carries `kind` (`workaround` | `dead-end` | `gotcha` | `decision`), `domain_tag`, `fact` (1-2 sentences on what was discovered), and `why` (why a cold future agent would re-derive it). This is the ONLY channel for worker-internal discovery; the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost.
+
+The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, learnings_candidate, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
 
 ## Conductor consumption
 
@@ -3520,7 +3561,7 @@ A test that passes even without the fix does not count. The Worker should confir
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         fifteen-toggle project config catalog (behavioral toggles only);
+         sixteen-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
@@ -3556,7 +3597,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve fifteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve sixteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -3573,6 +3614,7 @@ The conductor reads `.agentic/config.json` to resolve fifteen project-level orch
 - `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking permission for a non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in §Delegation. Default `false`; individual projects opt in. See `content/rules/conventions.md` §Project Config for full semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking entirely.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
+- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when absent, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - explicit value always wins. `offer`: surface-and-proceed before first-implementer spawn; operator can reply STOP to skip. `require`: hard gate - no implementer spawns before a ticket exists; create failure surfaces and waits. `off`: gate disabled. Existing-ticket arrivals and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 
 #### Graph-derived risk signal
 
@@ -6446,6 +6488,9 @@ Use this exact structure:
 
 ### Confidence
 [High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce"]
+
+### Learnings candidates
+[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels
@@ -6466,6 +6511,7 @@ Use this exact structure:
 - When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Do not keep testing hypotheses after 3 eliminations without fresh evidence. Continuing to guess without new information does not converge on a root cause - it produces a list of things that aren't wrong. Stop, set Confidence to Low, and begin the Fix brief with the exact sentence: "Insufficient evidence to write a fix brief." Describe what was found and eliminated, and identify what specific information would close the diagnosis.
 - The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.
+- Populate the "Learnings candidates" section for incidental discoveries encountered during diagnosis - tool workarounds, expensive dead-ends, cross-component gotchas. Do not put the root-cause finding there (that is Trigger 1 on the mandatory capture gate). Cap at 5 entries.
 
 ---
 
@@ -6757,7 +6803,7 @@ Your spawn prompt will contain:
 
 When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract block, the engineer includes `task_id` in its return summary so the conductor can correlate the result with the task entry. The engineer does NOT write to `.agentic/tasks.jsonl` - the conductor handles all task-state writes.
 
-**Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
+**Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
 
 **HUD file writes (Phase 2 fan-out only).** When spawned as a parallel fan-out Worker with a `worker_id` field in the execution contract, the engineer writes phase transition updates to `.agentic/hud/<worker-id>.json` before each major action (before spawning sub-agents, at loop phase transitions, at completion). The HUD file write accompanies `[loop: ...]` breadcrumb emissions - both happen at the same event. Engineers spawned without a `worker_id` (single-unit, non-fan-out contexts) do not write HUD files. The `worker_id` is provided in the spawn prompt alongside `task_id`.
 
@@ -6783,6 +6829,7 @@ After every implementation:
 - Run available lint and typecheck commands. Fix any errors introduced by your changes. Do not introduce new warnings.
 - Run tests if a test command exists. All must pass. If a pre-existing test is broken by your change and the break is intentional (e.g., updating behavior), note it explicitly.
 - For new code: ensure it is exercised by the build (imported, registered, wired up). Dead code is a common mistake.
+- **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route, run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only (note: `dep-bump-no-runtime-change` is a valid `qa_skip` enum but is intentionally excluded from the smoke skip list, because a dependency bump can still affect a runtime path worth catching here). When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
 - Before reporting, run all verification commands one final time in the same message and paste their actual output. Do not rely on checks run earlier in the session.
 
 ## Output format
@@ -6809,12 +6856,18 @@ quality_gate_results:
   lint: pass | fail | not_run
   typecheck: pass | fail | not_run
   test: pass | fail | not_run
+  smoke_test: pass | fail | skipped | not_run   # skipped = no runtime path (state which: pure-backend-library | config-only | type-only-refactor | docs-only); not_run on a runtime-capable change is a Skeptic finding
   raw_output: |
     <truncated to 4000 chars; tail-wins on truncation>
 commit_sha: <full 40-char SHA, or null if no commit was made>
 branch_name: <string, or null>
 pr_description_body: |
   <markdown body suitable for the PR; conductor may wrap with title/footer>
+learnings_candidate:     # optional; default []; cap 5 entries; omit when empty
+  - kind: workaround | dead-end | gotcha | decision
+    domain_tag: <slug>
+    fact: <1-2 sentences: what was discovered>
+    why: <why a cold future agent would re-derive this>
 ```
 
 JSON-Schema fragment (informative; the conductor uses this to validate):
@@ -6840,17 +6893,33 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
     },
     "quality_gate_results": {
       "type": "object",
-      "required": ["lint", "typecheck", "test", "raw_output"],
+      "required": ["lint", "typecheck", "test", "smoke_test", "raw_output"],
       "properties": {
         "lint": { "enum": ["pass", "fail", "not_run"] },
         "typecheck": { "enum": ["pass", "fail", "not_run"] },
         "test": { "enum": ["pass", "fail", "not_run"] },
+        "smoke_test": { "enum": ["pass", "fail", "skipped", "not_run"] },
         "raw_output": { "type": "string", "maxLength": 4000 }
       }
     },
     "commit_sha": { "type": ["string", "null"] },
     "branch_name": { "type": ["string", "null"] },
-    "pr_description_body": { "type": "string" }
+    "pr_description_body": { "type": "string" },
+    "learnings_candidate": {
+      "type": "array",
+      "maxItems": 5,
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["kind", "domain_tag", "fact", "why"],
+        "properties": {
+          "kind":       { "enum": ["workaround", "dead-end", "gotcha", "decision"] },
+          "domain_tag": { "type": "string" },
+          "fact":       { "type": "string" },
+          "why":        { "type": "string" }
+        }
+      }
+    }
   }
 }
 ```
@@ -6859,7 +6928,7 @@ After the structured block, return a plain-text summary covering:
 
 - **What was changed** - files modified or created, and what each change does
 - **Why** - brief rationale for any non-obvious decisions made during implementation
-- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`.
+- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`. Report the runtime smoke test as `smoke_test: pass|fail|skipped` (state the skip reason when skipped).
 - **Out of scope** - anything the prompt implied but you deliberately did not do, and why
 - **Blockers or open questions** - anything that needs human input or a follow-up decision
 
@@ -6882,6 +6951,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
+- **Populate `learnings_candidate` for internal discoveries.** When you work around a tool/command failure, hit a dead-end that cost non-trivial effort, discover a cross-component gotcha, or make a local design decision not captured in the task spec, add an entry to `learnings_candidate[]` (cap 5). Omit it (or leave it `[]`) when nothing was discovered worth surfacing. The conductor routes these through the guardrail-first gate before forwarding to `learnings-agent`; you do not pre-filter.
 
 ## Front-end discipline
 
@@ -7004,6 +7074,9 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 
 ### Confidence
 [High / Medium / Low] - [brief reason: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X"]
+
+### Learnings candidates
+[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels
@@ -8211,7 +8284,14 @@ for i in $(seq 1 30); do nc -z localhost <port> && break; sleep 1; done
 
 If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server failed to start. Check /tmp/qa_devserver.log."
 
-After QA completes, kill the dev server: `kill $(lsof -ti:<port>) 2>/dev/null || true`
+**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run:
+
+```bash
+agent-browser close --all 2>/dev/null || true   # close every agent-browser session
+kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
+```
+
+The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the snippet above handles it.
 
 **Applying project knowledge:**
 
@@ -9477,8 +9557,9 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. Apply tiered classification: a **missing** manifest is a **Minor finding** (does not block sign-off); a **stale** manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics) is a **Major finding** (blocks sign-off absent a compelling documented reason to defer); a stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path is a **Critical finding**. List every manifest issue in the findings so the author can address it.
 9. **Regression test check** - if this is a fix round (the spawn prompt identifies Critical or Major findings that were addressed), verify each fixed finding has a corresponding regression test, or a documented reason why one is not possible. A missing test without explanation is a **Major** finding: `Missing regression test for [finding title] — a test that would have caught this failure mode is required before sign-off.`
 10. **Doc-sync check** - a **standing check** applied every round (not fix-round-only). Apply the trigger predicate from `content/references/doc-sync-obligation.md` to the diff: ask whether any sentence, count, or list in README.md, CONTRIBUTING.md, or content/SKILL.md (or an affected `content/sections`/`content/references` cross-reference) becomes false or incomplete because of this diff. Not tripped -> no finding. Tripped and correctly updated -> no finding. Tripped and missing/incomplete -> classify per the tiered model: **Minor** (non-misleading omission, no stated count wrong), **Major** (a count/list/path/convention/behavior assertion now stale or false), **Critical** (a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system). Uncertainty is not an exemption - grep the docs for the changed identifier or count and resolve.
-11. Check the resolved issues preflight - do not re-raise resolved findings unless the resolution is genuinely insufficient.
-12. Write your findings using the sign-off format below.
+11. **Smoke-test gate check** - when reviewing an Elevated engineer return, check `quality_gate_results.smoke_test`. If the value is `not_run` and the diff has a runtime path (i.e. the change is not one of the documented skip reasons: pure-backend-library, config-only, type-only-refactor, docs-only), that is a **Major** finding. `skipped` with a stated valid reason from that list is acceptable.
+12. Check the resolved issues preflight - do not re-raise resolved findings unless the resolution is genuinely insufficient.
+13. Write your findings using the sign-off format below.
 
 ## Sign-off format
 
@@ -10111,10 +10192,12 @@ command reads no files and depends on no environment state.
 ## Output
 
 A fixed reference block: the command inventory grouped under "Inspect &
-configure", "Plan & build", "Maintain & curate", and "Audit & improve the
-methodology", followed by a "Usage patterns" section covering how to inspect
-current config, deliberately invoke the skill when it is disabled or in
-opt-in mode, change the workflow strictness, and turn the skill off.
+configure", "Plan & build" (includes `/brief`, `/implement-ticket`,
+`/ticket-triage`, `/init-project`, `/skeptic`), "Maintain & curate", and
+"Audit & improve the methodology", followed by a "Usage patterns" section
+covering how to inspect current config, deliberately invoke the skill when
+it is disabled or in opt-in mode, change the workflow strictness, and turn
+the skill off.
 
 ## Exit code
 
@@ -10750,12 +10833,19 @@ Write `status: iterating` during revision rounds.
    git add docs/planning/<slug>.md
    git commit -m "docs(brief): add <slug> brief"
    ```
-4. Surface-and-proceed:
+4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); then:
+   - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
+   - **`require` mode:** invoke the Tracker Create Helper immediately (no skip path).
+   - On CREATE_STATUS=created: hand off to `/implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly (skip steps 5-6).
+   - On CREATE_STATUS=failed: emit the failure line; in `offer` mode proceed ad-hoc (architect spawn, step 6); in `require` mode STOP and wait for operator resolution.
+   - On CREATE_STATUS=skipped (`offer` mode): emit the skip line and proceed ad-hoc (architect spawn, step 6).
+   - On CREATE_STATUS=skipped (`require` mode): surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for operator.
+5. When no ticket was created (ad-hoc path only): surface-and-proceed:
    > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
    > brief_path - reply STOP to halt or refine the Brief first."
-5. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
-6. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
-7. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
+6. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
+7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
+8. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.
 
 ---
@@ -11260,7 +11350,7 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
 - `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | null` — these three values match the three Phase 12a triggers.
 - `wallclock_started_at`: set once at Phase 0a init; preserved across resume. The wallclock cap is per-batch lifetime, not per-session.
 - `wallclock_cap_min`: integer minutes. Default `90`. Overridable via env `AGENTIC_BATCH_MAX_WALLCLOCK_MIN`.
-- `tickets[]`: planner-derived; `status` per-ticket is `pending | in_progress | complete | blocked | skipped_already_merged`.
+- `tickets[]`: triage-derived executable cursor; contains only lane-assigned tickets (deferred and in-progress-excluded tickets are not included). `status` per-ticket is `pending | in_progress | complete | blocked | skipped_already_merged`.
 - `replan_log[]`: append-only audit log. Each entry: `{ts, action, ticket_id, detail}`. Actions include `drop_merged`, `investigator_rerun`, `re_sequence`. Preserved by Contract B.
 
 ---
@@ -11422,6 +11512,35 @@ For full details of the Phase 11 writeback subagent brief shape, see the Phase 1
 
 ---
 
+## Tracker Create Helper
+
+Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `/implement-ticket`. Called by the ticket-offer gate (cross-ref `content/sections/02-delegation.md` §Ticket-offer gate).
+
+**Invocation contract:**
+
+Caller supplies:
+- `TICKET_TITLE` - one-line summary of the work
+- `TICKET_BODY` - markdown description; include Problem + Acceptance Criteria when known
+- `TICKET_TYPE` - `feature` | `bug` | `task`
+
+Helper returns:
+- `CREATED_TICKET_ID` - e.g. DS-42; empty string on failure
+- `CREATED_TICKET_URL` - empty string on failure
+- `CREATE_STATUS` - `created` | `skipped` | `failed`
+- `CREATE_ERROR` - error message string, or null on success
+
+**Branch on TRACKER:**
+
+- **`TRACKER == linear`**: call `mcp__linear__save_issue` with NO `id` field (save_issue creates when no id is supplied - this matches the repo's existing Linear convention; do NOT use a `createIssue` tool, it does not exist). Pass `title`=TICKET_TITLE, `description`=TICKET_BODY, and the Linear team. IMPORTANT team-source note: the `## Linear` section's `Team:` field resolves to `TICKET_PREFIX` (a prefix string like "DS"), but save_issue needs the Linear team key/id - if only a prefix is available, resolve the actual team via the Linear team-list tool. Do NOT invent a `## Linear Team` heading; use the existing `## Linear` `Team:` resolution that the rest of this command uses. On success read `issue.identifier` -> CREATED_TICKET_ID, `issue.url` -> CREATED_TICKET_URL, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed, CREATE_ERROR=\<msg\>.
+
+- **`TRACKER == jira`**: call `mcp__mcp-atlassian__jira_create_issue` (naming-consistent with the existing `mcp__mcp-atlassian__jira_*` family used elsewhere in this file). Pass `project_key`=TICKET_PREFIX, `summary`=TICKET_TITLE, `description`=TICKET_BODY, `issue_type` mapped from TICKET_TYPE (feature -> "Story", bug -> "Bug", task -> "Task"; omit to accept project default if uncertain). On success read the returned issue key -> CREATED_TICKET_ID, construct CREATED_TICKET_URL as `<JIRA_BASE_URL>/browse/<CREATED_TICKET_ID>`, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed.
+
+- **`TRACKER` has no built-in create branch (forward-looking fall-through)**: CREATE_STATUS=skipped. Emit one operator line: `ticket_driven: create not supported for this tracker - proceeding ad-hoc.` Do NOT run any shell command from `.agentic/phase0-classifiers.yml` as a create operation - the classifier contract is read-only; creation is a write operation outside that contract. This branch is the extension point for trackers not yet integrated: adding a new tracker means adding a create branch above; until then it falls through here. Adding a project-local classifier does NOT constitute a create integration.
+
+**LOUD failure (NOT silent):** on CREATE_STATUS=failed, emit an operator-visible line mirroring the Writeback Helper's failure line format: `tracker-create: '<TICKET_TITLE>' FAILED: <CREATE_ERROR>`. Do not block the caller; the caller (the gate) decides: offer mode proceeds ad-hoc AFTER emitting the warning; require mode surfaces and waits.
+
+---
+
 ## Phase 0: Input normalization
 
 > Run this phase BEFORE Phase 0a-pre. Output is the in-memory `normalized_input` structure consumed by every later phase. No disk side-effects.
@@ -11572,10 +11691,13 @@ classifiers:
 | Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
 | Inconsistent pair (`batch-state.json` says `active`, `loop-state.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. |
 
-**Move ordering hazard (resume case).** On resume, `batch-state.json.tickets[]` is the authoritative ticket cursor and supersedes any Phase 0 output produced in the resuming session. If the operator re-supplied input that does not match the on-disk `tickets[]`, Phase 0a-pre MUST surface a warning before falling through:
+**Move ordering hazard (resume case).** On resume, `batch-state.json.tickets[]` is the authoritative ticket cursor and supersedes any Phase 0 output produced in the resuming session. If the operator re-supplied input, compare Phase 0 entries[] against on-disk tickets[]:
+
+- **SUBSET match (all tickets[] IDs are present in entries[], but entries[] has extras):** this is NOT a hazard. The extras were deferred or excluded at original triage time. Note: extras beyond the original deferred set that were not part of the original input are not auto-added on resume - surface them to the operator or run them separately; they are never mis-run. Proceed silently with `batch-state.json.tickets[]` as the cursor.
+- **GENUINE divergence (tickets[] contains IDs NOT present in entries[]):** surface the warning below.
 
 ```
-WARNING: resumed batch tickets[] = [<list>] do not match this invocation's Phase 0 entries[] = [<list>].
+WARNING: resumed batch tickets[] = [<list>] contain ticket IDs not present in this invocation's Phase 0 entries[] = [<list>].
 The on-disk batch state takes precedence on resume. Continue resuming the prior batch, or abandon resume and use the new input?
 (continue-resume / abandon-resume-and-use-new-input)
 ```
@@ -11588,7 +11710,7 @@ On `continue-resume`: discard Phase 0 output, use `batch-state.json.tickets[]`. 
 
 1. `git fetch origin`.
 2. For each ticket in `tickets[]` with `status` `pending` or `blocked`: re-fetch the tracker record. If the ticket has been merged elsewhere (per tracker status, or per `gh pr list --state merged --head <branch>` returning a non-empty result), append a `replan_log` entry `{ts, action: "drop_merged", ticket_id, detail}` and set the ticket's `status` to `skipped_already_merged`.
-3. Spawn `orchestration-planner` over the surviving pending/blocked tickets to re-sequence. Re-spawn `investigator` only when `replan_count >= 2` (counted from `replan_log` entries with `action: "investigator_rerun"`).
+3. Run /ticket-triage Phases 1-3 over the surviving pending/blocked tickets to re-sequence. Level 2 investigator (Phase 2b) is gated on `replan_count >= 2`: count `replan_log` entries with `action: "investigator_rerun"`; if the count is >= 2, spawn a real background investigator (including the functional-duplicate brief); otherwise run Level 1 only (conductor-direct). Append the `replan_log` entry `{ts, action: "investigator_rerun", ticket_id: null, detail: "replan #N"}` BEFORE spawning the investigator when it fires. Map the resulting lanes back to the surviving tickets' `cluster_id` and `depends_on` fields (array order); deferred or in-progress-excluded tickets discovered during re-plan are surfaced to the operator and excluded from tickets[].
 4. All writes apply Contract A (per-write `session_id` gate) and Contract B (`replan_log[]` read-merge-write preservation). See "Batch state contracts" below.
 5. Bump `status` back to `active`. Preserve `wallclock_started_at` from the prior batch (the wallclock cap is per-batch lifetime, not per-session - a batch resumed in a later session continues counting against the original `wallclock_started_at`).
 
@@ -11598,34 +11720,90 @@ Emit breadcrumb: `[phase: batch-resume | tickets_remaining=K]`.
 
 ## Phase 0a: Batch triage (Phase 0 produced ≥ 2 entries)
 
+<!--
+Phase 0a manifest:
+  Purpose: run /ticket-triage Phases 1-3 (algorithm by reference) over the Phase 0
+           entries[], surface triage results to the operator, map lane-assigned tickets
+           to batch-state.json, then iterate per-ticket phases 1-12 in array order.
+  Public API: reads Phase 0 entries[]; writes .agentic/batch-state.json tickets[]
+              (lane-assigned only; deferred and in-progress-excluded are NOT written).
+  Upstream deps: /ticket-triage Phases 1-3 (algorithm reference - no copy);
+                 investigator (Phase 2b Level 2, conditional on len(entries) <= 20);
+                 Phase 0 entries[] (already normalized, no re-normalization).
+  Downstream consumers: Phase 0a-pre (resume), Phase 12a (handoff), all per-ticket
+                        phases (1-12) which iterate tickets[] in array order.
+  Failure modes: soft-fail per ticket in Phase 1 metadata fetch; HEURISTIC_ONLY=true
+                 when len(entries)>20; functional-duplicate defer prompts are
+                 operator-gated (one prompt per pair after Phase 3).
+-->
+
 **Trigger:** Phase 0 normalization produced ≥ 2 entries.
 
 **Skip:** Phase 0 produced exactly 1 entry. Mixed-form inputs that Phase 0 normalized down to a single entry count as single-entry and skip Phase 0a.
 
 **Flow:**
 
-1. Spawn `investigator` (Tier 2) to read each ticket, identify shared files, flag duplicates, and cluster by surface area. The investigator returns a structured table mapping each ticket to its files-touched, related tickets, and any duplicates.
-2. Spawn `orchestration-planner` (Tier 2) with the investigator's output. The planner returns a sequenced execution plan: which tickets can be processed in parallel, which must be sequential, which are blocked by others.
+1. **Run the /ticket-triage planning algorithm (Phases 1-3) conductor-orchestrated.** Phase 0a feeds its OWN already-normalized `entries[]` directly into triage Phase 1 - triage Phase 0 is NOT re-run (entries are already normalized).
+
+   - **Phase 1 (metadata fetch, conductor-direct, soft-fail):** for each entry, fetch priority, status, story_points, labels, components, assignee, and issuelinks from the tracker (same per-ticket fetch as /ticket-triage Phase 1). Soft-fail per ticket (mark `fetch_failed: true` and proceed). Detect `terminal: true` (Done/Cancelled) and `in_progress: true` (active workflow state) per the /ticket-triage Phase 1 rules.
+
+   - **Phase 2a (DAG + cycle handling, conductor-direct):** build the dependency graph from `blocks`/`is-blocked-by` links, detect cycles (break at lowest-confidence link, defer both with `cycle_warning: true`). External deps noted but not used for lane assignment.
+
+   - **Phase 2b conflict-surface analysis:** Level 1 is always conductor-direct (shared component/label overlap check). Level 2 applies when `len(entries) <= 20`: spawn ONE real background investigator with the full /ticket-triage Phase 2b brief, including the functional-duplicate detection task (bar: "a reasonable engineer would implement them with exactly the same change"). When `len(entries) > 20`: set `HEURISTIC_ONLY=true` and proceed WITHOUT prompting - rationale: the batch was already committed via Phase 0, and prompting mid-initialization wastes operator context.
+
+   - **Phase 3 (Rules 1-4, conductor-direct):** distribute surviving tickets across lanes using the /ticket-triage Phase 3 consume-and-remainder pipeline. Lane cap is fixed at 3 on this path (`--lanes` override is not available for the /implement-ticket integration path).
+
+   The result is an in-memory `triage_result` containing:
+   `{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`.
+
+2. **Surface triage findings to the operator BEFORE building tickets[].** Present a structured summary covering:
+
+   - **Functional duplicate warnings** (when `functional_duplicates[]` is non-empty): for each pair, print the ticket IDs and the one-sentence reason. Prompt the operator PER PAIR (after all lane assignments are known, since Phase 3 has already run):
+
+     ```
+     Functional duplicate detected: <A> + <B> - <summary>
+     Both tickets appear to describe the same functional work.
+     Action: (defer-first / defer-second / keep-both)
+     ```
+
+     On `defer-first`: add ticket A to `deferred[]`, remove it from its lane. On `defer-second`: add ticket B to `deferred[]`, remove it from its lane. On `keep-both`: no change. Do NOT recompute the lane distribution after a defer choice - surgically remove the deferred ticket from its lane only.
+
+   - **Deferred tickets** (from Phase 3 Rule 1 + any operator-deferred duplicates): list each with its reason.
+
+   - **In-progress tickets** (from Phase 1): list each. These are excluded from tickets[] and kickoff.
+
+   - **HEURISTIC_ONLY notice** (when `HEURISTIC_ONLY=true`): "Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investigator pass skipped). Functional-duplicate detection was also skipped."
+
+   After surfacing, map ONLY the lane-assigned tickets to `tickets[]` (deferred and in-progress-excluded tickets are NOT written to tickets[]).
+
+   Map in ARRAY ORDER: lane 1 first, lane 2 next, lane 3 last. Within each lane, chains are topo-sorted (blockers first); parallel tickets within the same lane are sorted priority-descending then ticket_id-ascending. Each entry:
+   - `status: "pending"`
+   - `cluster_id: "lane-N"` (where N is the lane number)
+   - `depends_on: ["<prev-ticket-id>"]` (chain) or `[]` (parallel lane head or independent)
+
+   No `merge_order` field. Array position is the execution cursor.
+
+   Emit breadcrumb: `[phase: batch-triage | triage_algorithm=ticket-triage-phases-1-3 | N tickets | lanes=K | lane_cap=3 | deferred=P | excluded_in_progress=Q | heuristic_only=<bool>]`.
+
 3. **Initialize `.agentic/batch-state.json`** (persistent batch cursor). First apply the Contract C concurrent-batch refusal: if the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes, REFUSE with the verbatim Contract C message and exit. Otherwise, write the initial skeleton:
    - `schema_version: 1`
    - `session_id: <current>`
    - `batch_id: "<first ticket's TICKET_PREFIX>-batch-<ISO8601>-<4hex>"`
    - `status: "active"`
-   - `tickets[]`: populated from planner output, each entry `status: "pending"`, with `cluster_id` and `depends_on` carried through from the planner
+   - `tickets[]`: triage-derived executable cursor; contains only lane-assigned tickets (deferred and in-progress-excluded tickets are not included); in array order as described in step 2 above
    - `wallclock_started_at: now`, `wallclock_cap_min: <env AGENTIC_BATCH_MAX_WALLCLOCK_MIN or 90>`
    - `replan_log: []`
    - `created_at: now`, `updated_at: now`
 
    Atomic tmp+rename. Apply Contract A on the write (this is a fresh write so no prior `session_id`; the gate effectively passes).
-4. Conductor iterates through the planner's order, running existing per-ticket phases (1 → 12) for each ticket. **Per-ticket transition writes to `batch-state.json`** (each via Contract A + Contract B):
+
+4. Conductor iterates through tickets[] in array order (tickets[] contains only lane-assigned executable tickets; deferred and in-progress-excluded tickets were surfaced in step 2 and are not present), running existing per-ticket phases (1 → 12) for each ticket. **Per-ticket transition writes to `batch-state.json`** (each via Contract A + Contract B):
    - At ticket start: `status: "pending" → "in_progress"`, set `started_at`, update `updated_at`.
    - At ticket complete: `status: "in_progress" → "complete"`, set `ended_at`, `last_summary`, `pr_number`, `branch`.
    - At ticket block: `status → "blocked"` with detail in `last_summary`.
    - At ticket merged-elsewhere skip: `status → "skipped_already_merged"` with `replan_log` append.
 
 **Persistent batch state lives in `.agentic/batch-state.json`. See Phase 0a-pre for the resume protocol.**
-
-Emit breadcrumb: `[phase: batch-triage | N tickets | clusters=K]`.
 
 ---
 
@@ -12019,7 +12197,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
-The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
+The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
 
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
@@ -12500,7 +12678,7 @@ Fires exactly once per ticket per `/implement-ticket` invocation. Skipped entire
 
 **Elevated path: verify from engineer return, do not re-execute.**
 
-The Elevated-path engineer ran `$QUALITY_CMD` itself (per the `quality_gates` contract field in Phase 5) and reported `quality_gate_results: { lint, typecheck, test, raw_output }` in its return summary. Phase 7 verifies this return shape - the conductor does NOT invoke `$QUALITY_CMD` directly on this path.
+The Elevated-path engineer ran `$QUALITY_CMD` itself (per the `quality_gates` contract field in Phase 5) and reported `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` in its return summary. Phase 7 verifies this return shape - the conductor does NOT invoke `$QUALITY_CMD` directly on this path.
 
 **Verification:**
 - If `quality_gate_results.lint == "pass" && quality_gate_results.typecheck == "pass" && quality_gate_results.test == "pass"`: mark Phase 7 complete. Proceed to Phase 8.
@@ -13327,6 +13505,8 @@ Remaining: <N-k> tickets
   ...
 Resume: /implement-ticket from this directory
 ```
+
+Note: N is the executable-cursor count (lane-assigned tickets only). Deferred and in-progress-excluded tickets were surfaced in Phase 0a step 2 and are not included in N.
 
 Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch-paused | reason=<trigger>]`.
 
@@ -14223,11 +14403,12 @@ Seed with these documented defaults exactly:
   "deferred_wrap_pending_ttl_days": 7,
   "abdication_guard_enabled": false,
   "skill_candidate_detection": true,
-  "skill_candidate_nudge": false
+  "skill_candidate_nudge": false,
+  "ticket_driven": "offer"
 }
 ```
 
-**Substitute the up-front dialogue answers into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE, `model_profile` <- INIT_MODELPROFILE, `debugger_on_failure` <- INIT_DEBUGGER. When a variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
+**Substitute values into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE (from dialogue), `model_profile` <- INIT_MODELPROFILE (from dialogue), `debugger_on_failure` <- INIT_DEBUGGER (from dialogue), `ticket_driven` <- derived from Step 1 tracker detection: `"offer"` when a tracker was confirmed in Step 1; `"off"` otherwise (not a dialogue answer - the user is not asked directly; it follows from whether a tracker was confirmed). When a dialogue variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
 
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
@@ -14245,6 +14426,7 @@ Seed with these documented defaults exactly:
 - `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
+- `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
@@ -15893,6 +16075,361 @@ In single-ticket mode, print the before/after state. In `--all` mode, print a on
 
 ---
 
+### /ticket-triage
+
+<!--
+Purpose: Strategic triage command that takes a ticket list or tracker input,
+         analyses dependencies and conflicts, distributes work across parallel
+         lanes, and emits a paste-ready game plan. Plan-only: no code edits,
+         no tracker mutations, no .agentic/ state writes, no /implement-ticket
+         invocations.
+
+Public API: /ticket-triage                         -- triage operator's open assigned tickets (tracker required)
+            /ticket-triage <input>                 -- triage list, default 3 lanes
+            /ticket-triage --lanes <N> <input>     -- override lane cap
+            <input> accepts any form that /implement-ticket Phase 0 accepts
+            (ticket IDs, URLs, JQL, screenshots, comma/space lists).
+            No-args behavior: resolves the operator's open assigned tickets
+            from the configured tracker (read-only query, no tracker writes).
+            source: "assigned" is a triage-local source label used only in
+            the no-args path; it extends (does not match) /implement-ticket
+            Phase 0's source vocabulary - do not assume the source enums
+            are identical between the two commands.
+
+Upstream deps: content/commands/implement-ticket.md Phase 0 (input normalizer,
+               invoked by reference - no copy); METHODOLOGY.md (activation
+               preflight); AGENTS.md ## Tracker / ## Linear sections (TRACKER
+               resolution chain, same as implement-ticket Setup); Jira MCP
+               (mcp__mcp-atlassian__jira_get_issue / jira_search); Linear MCP
+               (mcp__linear__get_issue); content/references/trigger-catalog.md
+               (yolo-guard, §d).
+
+Downstream consumers: operator-invoked only (standalone) OR /implement-ticket
+                      Phase 0a (integration path - algorithm reused by reference,
+                      no copy). Output artifact (standalone path only) is
+                      docs/planning/triage-<YYYYMMDD>-<4hex>.md (gitignored by
+                      convention; gitignore status is project-dependent in
+                      consumer repos). Kickoff prompts in the artifact are inputs
+                      for the conductor on the operator's next /implement-ticket
+                      session; they do not bypass risk classification or Skeptic
+                      review.
+
+Output description: triage_result {lanes[], deferred[], in_progress_excluded[],
+                    functional_duplicates[], conflict_warnings[], heuristic_only}
+                    where functional_duplicates[] contains
+                    {ticket_ids: [A, B], summary: "<one-sentence why same work>"}
+                    entries (empty array when none). Level-1-only / HEURISTIC_ONLY
+                    runs skip functional-duplicate detection (no ticket content
+                    read at Level 1).
+
+Failure modes: soft-fail per ticket throughout; fetch failures treated as
+               independent tickets, not as aborts. Single-ticket degenerate
+               exits before Phase 1. No-tracker exits after Phase 0 with
+               heuristic-only notice; no-args + no-tracker exits immediately
+               (explicit list required). 0 assigned tickets exits immediately.
+               Phase 4b Skeptic skipped when artifact contains zero lanes and
+               zero chains (all deferred / in-progress).
+
+Performance: one tracker API call per ticket in Phase 1 (conductor-direct);
+             one background investigator in Phase 2b when !HEURISTIC_ONLY;
+             one background Skeptic in Phase 4b. Proportional to ticket count.
+             >20 tickets: investigator pass skipped (HEURISTIC_ONLY=true) after
+             a proceed prompt.
+-->
+
+# /ticket-triage
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+Strategic triage for a set of tickets. Produces a lane-distributed game plan with paste-ready `/implement-ticket` kickoff prompts. Stops at the plan; does not invoke `/implement-ticket`, touch the tracker, or write any `.agentic/` state.
+
+## When to use
+
+- Before starting a sprint or batch of related tickets: understand dependencies and safe parallelization before opening sessions.
+- When you have a backlog dump (JQL URL, Linear filter, screenshot) and want a sequenced execution order before committing resources.
+- As a reality-check before splitting work across multiple developer sessions.
+
+## Invocation
+
+- `/ticket-triage` - (no args) resolve the operator's open assigned tickets from the configured tracker and triage them. Requires `TRACKER != none`; see Phase 0 no-args behavior below.
+- `/ticket-triage <input>` - triage the ticket set, distribute across 3 lanes (default).
+- `/ticket-triage --lanes <N> <input>` - override the lane cap.
+- `<input>` accepts any form that `/implement-ticket Phase 0` accepts: bare ticket IDs, comma/space-separated lists, Jira/Linear URLs, JQL search URLs, pasted screenshots, or any mixture.
+- **Single-ticket degenerate:** if Phase 0 normalizes to exactly one entry, print "Single ticket: run /implement-ticket <id> directly." and exit. Phase 4 is not reached.
+- **No-tracker:** if `TRACKER == none`, skip Phase 1 metadata fetch; run Phase 2a on structural links only (none available) and Phase 2b at Level 1 only (no components/labels); print "No tracker configured - heuristic-only analysis, no metadata." before Phase 1.
+
+## Preflight
+
+Run the activation preflight (see `METHODOLOGY.md`). If inactive, no-op and exit.
+
+Resolve `TRACKER`, `TICKET_PREFIX`, and `JIRA_BASE_URL` using the SAME resolution chain as `/implement-ticket` Setup (AGENTS.md `## Tracker` / `## Linear` sections). Cache results in-context for the session; do not re-resolve mid-command.
+
+## Phase 0: Input normalization
+
+**No-args default (invoked with no `<input>` argument).**
+
+When `/ticket-triage` is invoked with no input, resolve the operator's open assigned tickets from the configured tracker (read-only query; no tracker writes):
+
+- **`TRACKER == none`:** print "No tracker configured - an explicit ticket list or URL is required when no tracker is connected." and exit.
+- **Jira:** query `assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC` in the configured project using `mcp__mcp-atlassian__jira_search`. Use the same pagination cap (50 results) as Phase 0's JQL resolver. Collect entries as `{ticket_id, source: "assigned"}`.
+- **Linear:** query issues where `assignee: me` and state type not in `(completed, canceled)` using `mcp__linear__list_issues`. Collect entries as `{ticket_id, source: "assigned"}`.
+- **0 results:** print "No open tickets assigned to you." and exit.
+- **1 result:** fall through to the single-ticket degenerate path (print "Single ticket: run /implement-ticket <id> directly." and exit).
+- **>=2 results:** proceed into Phase 1+ exactly as for an explicit list input. Print the resolved ticket IDs (one per line) before proceeding so the operator can confirm the scope.
+
+`[phase: ticket-triage | phase=resolve-assigned]`
+
+**Explicit input (any `<input>` argument provided).**
+
+Reuse `/implement-ticket` Phase 0 by reference - invoke the same normalization logic verbatim without forking or copying the classifier table. Output is the in-memory `normalized_input.entries[]` list.
+
+**No `.agentic/` state writes.** Phase 0 here is read-only: do NOT invoke Phase 0a-pre, Phase 0a, or any batch-state / loop-state write that implement-ticket's Phase 0 may chain into. Normalization only.
+
+**Large-list gate:** if `len(entries) > 20`, prompt: "Ticket count exceeds 20 - investigator pass will be skipped (HEURISTIC_ONLY=true). Conflict analysis will be Level 1 only (component/label overlap). Continue? [y/N]". On `y`: set `HEURISTIC_ONLY=true` and proceed. On `n`: exit.
+
+`[phase: ticket-triage | phase=normalize]`
+
+## Phase 1: Metadata fetch
+
+Conductor-direct (no subagent). For each entry in `normalized_input.entries[]`, fetch:
+- **Jira:** `mcp__mcp-atlassian__jira_get_issue` - capture `priority`, `status`, `story_points` (or `timeestimate`), `labels`, `components`, `assignee`, and `issuelinks` (blocks / is-blocked-by / relates-to).
+- **Linear:** `mcp__linear__get_issue` - capture `priority`, `state`, `estimate`, `labels`, `assignee`, and relations (blocks / blocked-by / related).
+
+The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates only the display-only "Est" column in the Phase 4a per-ticket summary table. No distribution rule consumes it; estimate-aware lane sizing is a deferred default.
+
+**Soft-fail per ticket:** on any fetch error, mark `fetch_failed: true` on that entry and proceed. Fetch-failed tickets are treated as independent (no known deps, no known metadata) in all downstream phases.
+
+**Terminal-status detection:** tickets whose status maps to a Done/Cancelled/Won't-do state are marked `terminal: true`. They are added to the deferred set in Phase 3 Rule 1 without further analysis.
+
+**In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts).
+
+`[phase: ticket-triage | phase=metadata]`
+
+## Phase 2a: DAG construction
+
+From the `blocks` / `is-blocked-by` link fields, build a directed acyclic graph over the ticket set. Links pointing to tickets outside the set are recorded as `external_deps[]` (noted in the artifact but not used for lane assignment).
+
+**Cycle detection:** if a cycle is found, break it at the lowest-confidence link (`relates-to` < `blocks` < `is-blocked-by`). Defer both endpoints with `cycle_warning: true`. Do not abort - continue with the remaining graph.
+
+`[phase: ticket-triage | phase=dag]`
+
+## Phase 2b: Conflict-surface analysis
+
+**Level 1 (always, conductor-direct):** for each pair of tickets, check for shared `components[]` or `labels[]`. Mark any overlapping pair as in the same conflict group. Functional-duplicate detection is NOT performed at Level 1 (no ticket content is read).
+
+**Level 2 (when `!HEURISTIC_ONLY` and `len(entries) <= 20`):** spawn one background investigator over all tickets. The investigator reads only:
+- root `AGENTS.md` and any track-level `AGENTS.md` for tracks whose names appear in ticket titles/descriptions.
+- A top-level directory listing of the repo.
+- The title and description of each ticket in the set.
+
+The investigator brief MUST include the following two tasks:
+
+1. **Conflict analysis.** Return `{ticket_id -> affected_areas[]}`. Two tickets conflict if their `affected_areas[]` overlap OR they share a Level 1 conflict group.
+
+2. **Functional-duplicate detection.** For every pair of DISTINCT tickets in the set, assess whether a reasonable engineer would implement them with exactly the same change. The bar is strict: related-but-distinct work (e.g. add-login vs add-logout, two separate bug fixes in the same file) is NOT a duplicate. A duplicate pair is only flagged when the descriptions define the same functional requirement such that a single implementation resolves both. Return `functional_duplicates: [{ticket_ids: [A, B], summary: "<one-sentence explanation of why the same change resolves both>"}]` (empty array when none).
+
+The investigator output contract is `{ticket_id -> affected_areas[], functional_duplicates[{ticket_ids, summary}]}`.
+
+**Conductor handling:** store `functional_duplicates[]` from the investigator output into `triage_result.functional_duplicates[]`. Surface this in Phase 4a artifact and, on the /implement-ticket integration path, in Phase 0a step 2.
+
+**HEURISTIC_ONLY stamp:** when `HEURISTIC_ONLY=true`, Phase 2b runs Level 1 only. The artifact header is stamped: "Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investigator pass skipped). Functional-duplicate detection was also skipped."
+
+`[phase: ticket-triage | phase=conflict]`
+
+## Phase 3: Distribution synthesis
+
+Conductor-direct, pure reasoning. Implements the **consume-and-remainder pipeline**: each rule consumes the tickets it assigns; later rules see only the remainder. Every input ticket lands in exactly one category: `deferred`, `in-progress-excluded`, or `lane-assigned`.
+
+**Rule 1 - Deferral (terminal, consumes first):**
+
+Defer the following; they are removed from all downstream rules:
+- Tickets with `terminal: true` (Done / Cancelled).
+- Tickets with unresolved `external_dep` that blocks them (the blocker is outside the set).
+- Fetch-failed tickets where no metadata is available (unplannable).
+- Tickets with `cycle_warning: true`.
+- Lowest-priority tickets with no dependents when `num_entries > lanes * 4` (documented overflow deferral; use judgment and document reason).
+
+**In-progress removal (after Rule 1):** tickets with `in_progress: true` are removed from lane assignment. They appear in the artifact badged `[IN PROGRESS]` and are excluded from kickoff prompts. They are NOT deferred and NOT lane-assigned.
+
+**Rule 2 - Sequential chains (consume DAG-connected components with edges):**
+
+For every connected component of the DAG that has at least one internal edge, topo-sort its members (blockers first) and assign the chain as a single lane (run as an ordered comma-list `/implement-ticket A, B, C` batch). Non-linear components (multiple paths) are still serialized in topological order. All members of a chained component are consumed by Rule 2.
+
+Each chain = one lane slot consumed in the cap accounting.
+
+**Rule 3 - Parallel grouping (sees only the remainder: tickets with zero internal DAG edges):**
+
+1. Sort candidates by **priority descending, then ticket_id ascending** (total order; deterministic).
+2. For each candidate in that order: place it in the **lowest-index existing lane** that has no conflict with it (conflict = shared conflict group per Phase 2b). If no existing lane is conflict-free AND current lane count < cap: open a new lane. If cap is reached: hold for the overflow step.
+3. **Overflow (cap reached, candidate unplaced):** place the candidate in the lane with the fewest conflicts with it; ties broken by lowest lane index. Emit a per-ticket `conflict-warning` entry in the artifact.
+
+**Rule 4 - Cap reconciliation (reorganizes lanes; never reassigns ticket categories):**
+
+Cap = `--lanes N` (default 3).
+
+- If `num_chains > cap`: do NOT merge chains (they are hard dependency units). Report in the artifact: "Dependency structure requires `<num_chains>` sequential lanes, exceeding the cap of `<cap>`. Raise --lanes to `<num_chains>` or accept `<num_chains>` concurrent sessions." Proceed with `num_chains` lanes for chains.
+- If `num_chains + num_parallel_lanes > cap`: run a deterministic merge post-pass over **parallel lanes only**. Repeatedly merge the pair of parallel lanes that introduces the **fewest new intra-lane conflicts**; ties broken by (smallest combined ticket count, then lexicographically smallest member ticket_id). A merged lane runs its tickets sequentially as a comma-list batch. Each merge strictly reduces lane count, so the loop terminates. Stop when total lanes <= cap OR no parallel lanes remain to merge. If still > cap after exhausting merges, emit a cap-warning recommending a higher `--lanes`. **Rule 3 is NOT recomputed after merges.**
+
+`[phase: ticket-triage | phase=distribute]`
+
+## Phase 4a: Artifact draft
+
+Conductor-direct. Write the artifact to `docs/planning/triage-<YYYYMMDD>-<4hex>.md` using the repo's absolute path. The `<YYYYMMDD>` is today's date; `<4hex>` is 4 random hex characters.
+
+Artifact skeleton:
+
+```markdown
+# Ticket Triage - <YYYYMMDD>
+
+<!-- HEURISTIC_ONLY stamp (include only when HEURISTIC_ONLY=true):
+Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investigator pass skipped).
+-->
+
+## At a glance
+
+| Lane | Tickets | Type | Notes |
+|------|---------|------|-------|
+| Lane 1 | A, B | chain | B blocked by A |
+| Lane 2 | C, D | parallel | independent |
+| ...   | ...  | ...  | ... |
+
+## Per-ticket summary
+
+<!-- Est column: shows the captured estimate (story points / time estimate) or "-" when absent.
+     Display-only; no distribution rule consumes it. -->
+
+| Ticket | Priority | Status | Est | Lane | Notes |
+|--------|----------|--------|-----|------|-------|
+| A | High | To Do | 3 | Lane 1 | |
+| B | Med | To Do | 2 | Lane 1 | blocked by A |
+| C | High | To Do | - | Lane 2 | |
+| ... | | | | | |
+
+## Dependency notes
+
+<!-- List external_deps and any cycle_warning entries. -->
+
+## Conflict warnings
+
+<!-- Only present when one or more tickets were placed by overflow (Rule 3 step 3)
+     or when chains exceed the cap (Rule 4). Always include the fixed caveat below
+     when this block is non-empty. -->
+
+Parallel-safe grouping is heuristic - based on ticket metadata and directory-level
+analysis, not file-level diffing. Verify before running lanes truly concurrently;
+each /implement-ticket session's own Skeptic chain still catches collisions at
+merge time.
+
+## Functional duplicate warnings
+
+<!-- Only present when functional_duplicates[] is non-empty (Level 2 investigator ran).
+     List each pair and its one-sentence rationale. Omit this section entirely when
+     the array is empty or when HEURISTIC_ONLY=true (investigator was skipped). -->
+
+| Pair | Why same work |
+|------|---------------|
+| A + B | Both implement the same email validation rule in the same form handler |
+
+Consider deferring one ticket of each pair or merging them into a single ticket before
+running /implement-ticket. Running both risks a merge conflict or duplicated effort.
+
+## Deferred tickets
+
+| Ticket | Reason |
+|--------|--------|
+| X | terminal (Done) |
+| Y | external blocker outside set |
+
+## In-progress tickets
+
+| Ticket | Assignee | Notes |
+|--------|----------|-------|
+| Z [IN PROGRESS] | ... | Excluded from kickoff prompts |
+
+## Kickoff prompts
+
+<!-- One block per lane. Use absolute paths where paths are involved.
+     In-progress and deferred tickets are NOT included here. -->
+
+**Lane 1** (sequential chain - run as one session):
+```
+/implement-ticket A, B
+```
+
+**Lane 2** (parallel - can run concurrently with other lanes):
+```
+/implement-ticket C, D
+```
+```
+
+`[phase: ticket-triage | phase=draft]`
+
+## Phase 4b: Skeptic review
+
+**Skip condition:** if the artifact contains zero lanes AND zero chains (e.g. all tickets are deferred or in-progress), skip Phase 4b entirely and proceed to output.
+
+Otherwise: spawn a fresh background Skeptic on the artifact with this adversarial brief:
+
+> "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented?"
+
+Max 3 fix passes, then escalate to the operator with open findings listed.
+
+`[phase: ticket-triage | phase=skeptic-review]`
+
+## Output
+
+After Phase 4b sign-off (or after the skip condition triggers), print to chat:
+
+1. The absolute path of the artifact.
+2. The at-a-glance table (copy from artifact).
+3. The kickoff prompts section (copy from artifact).
+4. A one-line summary: "N tickets triaged: M lane-assigned across K lanes, P deferred, Q in-progress."
+5. If any conflict warnings were emitted, restate the fixed caveat.
+6. If `HEURISTIC_ONLY=true`, restate the Level 1 stamp.
+
+`[phase: ticket-triage | phase=complete]`
+
+## Composition and non-goals
+
+**Non-goals (this command intentionally does NOT):**
+- Invoke `/implement-ticket` or spawn any implementation agent.
+- Create branches, PRs, worktrees, or commits.
+- Write to `.agentic/batch-state.json`, `.agentic/loop-state.json`, `.agentic/tasks.jsonl`, or any other `.agentic/` state file.
+- Mutate tracker tickets (no status transitions, no comment posts).
+- Produce Briefs, Plans, or ADRs.
+- Perform file-level conflict analysis (directory-level only via the Phase 2b investigator).
+
+**Distinction from related commands:**
+- `/implement-ticket` - executes a ticket through to a merged PR; `/ticket-triage` is upstream planning only.
+- `orchestration-planner` - decomposes a single architect plan into ordered units; `/ticket-triage` operates on a tracker-sourced ticket list before any architect runs.
+
+**Yolo-guard:** the kickoff prompts in the artifact are conductor inputs, not execution bypasses. Pasting a kickoff prompt into a session still invokes the full `/implement-ticket` flow: risk classification, architect, Skeptic, engineer, QA gate. See `content/references/trigger-catalog.md` §d.
+
+## Edge cases
+
+| Condition | Behavior |
+|-----------|----------|
+| No args, no tracker | Print "No tracker configured - an explicit ticket list or URL is required when no tracker is connected." and exit. |
+| No args, 0 assigned | Print "No open tickets assigned to you." and exit. |
+| No args, 1 assigned | Print "Single ticket: run /implement-ticket <id> directly." and exit. |
+| No args, >=2 assigned | Print resolved ticket IDs, then proceed into Phase 1+ as for an explicit list. |
+| Single ticket | Print "run /implement-ticket <id> directly." and exit before Phase 1. |
+| All tickets independent (no DAG edges) | Rule 2 is a no-op; all tickets go to Rule 3 parallel grouping. |
+| Circular dependency | Break at lowest-confidence link; defer both with `cycle_warning`. Do not abort. |
+| Multi-prefix input (Jira + Linear IDs) | Phase 0 normalizes as usual; Phase 1 routes each ID to the correct MCP tool. Conflict analysis treats all tickets uniformly. |
+| JQL returns many results | Phase 0's 50-result cap applies first (truncate + warning). Then, on the surviving set: if count >20, the HEURISTIC_ONLY gate fires (Level 1 conflict analysis only; header stamped). Both rules sequence in that order; a 60-result JQL trips both. |
+| Terminal-status ticket (Done/Cancelled) | Deferred via Rule 1 with reason "terminal". Not included in lane assignment or kickoff prompts. |
+| In-progress ticket | Carried through analysis; removed from lane assignment after Rule 1. Shown badged `[IN PROGRESS]`. Excluded from kickoff prompts. |
+| No tracker configured (with explicit input) | Skip Phase 1; run Phase 2a with zero link data; run Phase 2b Level 1 with zero component/label data; print notice. |
+
+## Soft-fail discipline
+
+Every tracker and MCP call soft-fails: log and continue. A fetch failure on one ticket never aborts the triage of the remaining set. Fetch-failed tickets are treated as independent with no known metadata. The command never errors out on external API failure.
+
+Emit one breadcrumb per phase as shown in each section above. The terminal breadcrumb is `[phase: ticket-triage | phase=complete]`.
+
+---
+
 ### /update-agentic-engineering
 
 # /update-agentic-engineering
@@ -16242,7 +16779,7 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 4. **If `mkdir` fails** (lock already held), attempt to read `<cwd>/.agentic/wrap/lock/owner` to get the owner PID and timestamp.
    - **If the owner file cannot be read or parsed** (file missing, unreadable, or contains no valid ISO8601 timestamp): treat as stale. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap/lock` but its owner file could not be read or parsed. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step.
    - **If the timestamp is older than 30 minutes**: treat as potentially stale, but do NOT remove the lock automatically. Report to the user: "A /wrap lock exists at `<cwd>/.agentic/wrap/lock` (pid N, started at TIME) and is older than 30 minutes. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step. Rationale: only the process that wrote the lock should remove it - auto-removal risks clobbering a live run if the 30-minute heuristic is wrong.
-   - **If the timestamp is less than 30 minutes old** (live lock): wait for the lock to be released. Tell the user once: "Another /wrap run is in progress in this project (pid N, started at TIME). Waiting for it to finish..." Then enter a wait loop: every 5 seconds check whether `<cwd>/.agentic/wrap/lock` still exists (e.g. `ls <cwd>/.agentic/wrap/lock`). When the directory disappears, retry `mkdir` acquisition (step 2). If that `mkdir` succeeds, proceed normally. If it fails (another session won the race), do NOT abort - resume polling and retry on the next disappearance. Continue the loop until either (a) `mkdir` succeeds, or (b) total elapsed wait time since entering the loop exceeds **20 minutes**. On the 20-minute cap, report: "Waited 20 minutes for /wrap lock at `<cwd>/.agentic/wrap/lock` (pid N, started at TIME) without acquiring it. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort.
+   - **If the timestamp is less than 30 minutes old** (live lock): run the acquire helper as a BACKGROUND command (`run_in_background: true`): `agentic-wrap-acquire-lock "$cwd"`. It polls every 5 seconds in-process and exits when the lock is acquired or after 20 minutes; it is non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch by exit code: **0** (`acquired <lockPath>`) - the lock is now held by /wrap, proceed normally. **2** (timeout) - report "Waited 20 minutes for /wrap lock at `<cwd>/.agentic/wrap/lock` without acquiring it. If no /wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." then abort. **3** (unreadable owner) - report the same unreadable-owner message as the sub-case above, then abort. **4** (stale-needs-manual) - report the same >30-minute message as the sub-case above (the binary did not remove the lock; the user must), then abort. **1** (unexpected failure) - surface the WARNING line from stdout, then abort.
 5. Do not perform a PID liveness check (`ps -p`). PID reuse makes the check unreliable for Claude Code processes - the timestamp is the authoritative signal.
 
 The 30-minute staleness heuristic exists because a crashed or force-killed /wrap may leave the lock dir behind. The timestamp backstop is the reliable signal; PID checks are omitted because Claude Code process hierarchies make `ps -p` results unreliable.

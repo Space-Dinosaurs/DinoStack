@@ -1,0 +1,19 @@
+name: hook-tests
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  wrap-lock-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: wrap-lock acquire test
+        run: node hooks/tests/test-wrap-acquire-lock.js
+      - name: wrap-lock release test
+        run: node hooks/tests/test-wrap-release-lock.js

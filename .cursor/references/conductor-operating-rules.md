@@ -184,6 +184,29 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 `user-pattern`. The `learnings-agent` maps each type to LRN or KNW - see
 `content/agents/learnings-agent.md` for the full mapping table.
 
+### Routing hop for `learnings_candidate[]` (new input source)
+
+When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-5 sweep:
+
+1. Run guardrail-first classification (steps a, b, c from capture-classification.md).
+2. If `Capture: MUST`:
+   a. If `kind == "workaround"`, also emit the `tool_failure_workaround` event with all four canonical fields:
+
+      ```bash
+      agentic-emit tool_failure_workaround - - \
+        '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<tool/command named in fact if identifiable, else the entry domain_tag>","domain_tag":"<entry domain_tag>","note":"<entry fact>"}'
+      ```
+
+      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `agentic-cost` does not miscount.
+   b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
+3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
+
+**Relation to triggers 1-5.** `learnings_candidate[]` is a new INPUT SOURCE for the existing trigger machinery, not a 7th trigger. `kind: workaround` is a new input path for trigger 3; `kind: dead-end`/`gotcha` map to `cross-component-gotcha`; `kind: decision` is a new input path for trigger 5. Trigger 1 (investigator/debugger root cause) is NOT replaced - the conductor still evaluates the root cause under trigger 1 independently, and the `learnings_candidate[]` section on those agents' returns carries incidental discoveries only, never the root cause itself.
+
+**Trivial-path engineers.** A Trivial engineer skips Skeptic and wrap-ticket, but the conductor still reads its return. `learnings_candidate[]` entries that pass `Capture: MUST` are still routed to `learnings-agent`. The lightweight Trivial posture (no Skeptic, no brief) is otherwise preserved.
+
+**Cap discipline.** Workers emit at most 5 entries. If a malformed return carries more, the conductor processes the first 5 and logs a warning.
+
 This is additive - `/wrap` still handles AGENTS.md updates, rolling session labels,
 compression, and full session wrap. If learnings-agent fails, the conductor warns
 and proceeds (soft-fail).

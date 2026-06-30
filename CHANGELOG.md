@@ -3,11 +3,34 @@
 
 # Changelog
 
+## 2026-06-30
+
+### Features
+
+- **#364** [add /ticket-triage batch planner (standalone)](https://github.com/Space-Dinosaurs/DinoStack/pull/364) - tyson-solara6
+- **#360** [ticket-driven-by-default flow when a tracker is connected](https://github.com/Space-Dinosaurs/DinoStack/pull/360) - tyson-solara6
+- **#358** [telemetry-health counter for silent-fail visibility (#266)](https://github.com/Space-Dinosaurs/DinoStack/pull/358) - tyson-solara6
+
+### Documentation
+
+- **#362** [add capability-preflight and wrap-deferred end-user pages](https://github.com/Space-Dinosaurs/DinoStack/pull/362) - tyson-solara6
+- **#361** [refresh stale What's-included inventory (30 refs, 22 commands)](https://github.com/Space-Dinosaurs/DinoStack/pull/361) - tyson-solara6
+- **#359** [add end-user docs page for skill-candidate detection](https://github.com/Space-Dinosaurs/DinoStack/pull/359) - tyson-solara6
+
 ## 2026-06-29
+
+### Features
+
+- **#357** [add VS Code Copilot adapter](https://github.com/Space-Dinosaurs/DinoStack/pull/357) - tyson-solara6
+- **#355** [add learnings_candidate[] digest field for subagent-internal capture (DS-40)](https://github.com/Space-Dinosaurs/DinoStack/pull/355) - tyson-solara6
 
 ### Fixes
 
 - **#332** [add path-containment guard on manifest writes (#269) [bin-stack 2/3]](https://github.com/Space-Dinosaurs/DinoStack/pull/332) - bloodf
+
+### Documentation
+
+- **#356** [add runtime smoke-test gate to engineer pre-return checks](https://github.com/Space-Dinosaurs/DinoStack/pull/356) - tyson-solara6
 
 ## 2026-06-28
 
