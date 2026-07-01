@@ -13,12 +13,14 @@
  *   needsRebuild(oldHead, newHead, changedPaths) - pure predicate; exported
  *                   for unit tests via module.exports when not run directly.
  *   hooksTouched(changedPaths) - pure predicate; true when any changed path
- *                   is under hooks/. Drives a non-blocking stderr warning
- *                   after a pull, since Claude Code (and other adapters)
- *                   load hook scripts by absolute path and re-read them from
- *                   disk on every tool call - other open sessions against
- *                   this checkout pick up the change with no restart.
- *                   Exported for unit tests via module.exports.
+ *                   is under hooks/. Drives a non-blocking stderr note after
+ *                   a pull, since install.sh snapshots hooks/ to a
+ *                   session-stable dir - THIS machine's next new session
+ *                   picks up the change via that snapshot refresh, but
+ *                   other already-open sessions against this checkout keep
+ *                   running their previously-installed snapshot until they
+ *                   re-run install.sh. Exported for unit tests via
+ *                   module.exports.
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
  *                external packages.
@@ -309,21 +311,21 @@ function hooksTouched(changedPaths) {
   return hooksPaths(changedPaths).length > 0;
 }
 
-// Builds the non-blocking advisory printed to stderr when a pull changes
-// files under hooks/. Claude Code (and other adapters) load hook scripts by
-// absolute path and re-read them from disk on every tool call - there is no
-// copy step - so any OTHER session with an open terminal already using this
-// checkout picks up the new hook behavior on its NEXT tool call, with no
-// restart and no in-session notice.
+// Builds the non-blocking informational note printed to stderr when a pull
+// changes files under hooks/. install.sh snapshots hooks/ into a
+// session-stable dir, so THIS machine's next new session picks up the
+// change via the snapshot refresh that runs as part of this update's
+// install step - but other Claude Code sessions already open against this
+// checkout keep running their previously-installed snapshot until they
+// explicitly re-run install.sh (or /pull-and-install).
 function buildHooksWarning(changedList) {
   return (
-    'warning: this update changed files under hooks/. Claude Code (and other adapters) ' +
-    'load hook scripts by ABSOLUTE PATH into this checkout and re-read them from disk on ' +
-    'every tool call - there is no copy step. Any OTHER session with an open terminal ' +
-    'already using this checkout will pick up the new hook behavior on its NEXT tool call: ' +
-    'no restart, no re-run of install.sh, no in-session notice. If other sessions are active ' +
-    'against this checkout, tell them to /exit and restart once this update finishes - or ' +
-    'expect hook behavior to change under them mid-session. Changed: ' + changedList
+    'note: this update changed files under hooks/. This update flow will refresh your ' +
+    'local hook snapshot as part of its install step, so THIS machine\'s next new session ' +
+    'uses the updated hooks. Other Claude Code sessions already open against this checkout ' +
+    'keep running their previously-installed hook snapshot until they re-run install.sh ' +
+    '(or /pull-and-install) - they do NOT pick up these hook changes on their next tool ' +
+    'call. Changed: ' + changedList
   );
 }
 
@@ -718,10 +720,11 @@ async function main() {
     }
   }
 
-  // Non-blocking advisory: hook scripts are loaded by absolute path and
-  // re-read from disk on every tool call, so a changed hooks/ file rewires
-  // any OTHER open session against this checkout with no restart. Warn but
-  // never block the update.
+  // Non-blocking note: install.sh snapshots hooks/ to a session-stable dir,
+  // so a changed hooks/ file only reaches THIS machine's next new session
+  // via the snapshot refresh - other already-open sessions against this
+  // checkout keep their old snapshot until they re-run install.sh. Never
+  // blocks the update.
   if (hooksTouched(changedPaths)) {
     console.warn('\n' + buildHooksWarning(hooksPaths(changedPaths).join(', ')));
   }
