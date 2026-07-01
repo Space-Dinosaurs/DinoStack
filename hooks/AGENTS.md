@@ -21,7 +21,7 @@ module-group map.
 | `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. |
 | `session-end-wrap.js` | Node | SessionEnd | Finalize the deferred-`/wrap` pending-to-ready marker transition and optionally launch `wrap-daemon.js` detached. |
 | `session-start-version-check.sh` | Bash | (sub-script, not wired directly) | Emit a "newer version available" `systemMessage` via the version-check core; called by `session-start-wrap.sh`. |
-| `session-start-wrap.sh` | Bash | SessionStart | Compose version notice, auth-failure notice, artifact migration, and guarded daemon launch into one fail-open handler. |
+| `session-start-wrap.sh` | Bash | SessionStart | Compose version notice, hooks-snapshot staleness nudge, auth-failure notice, artifact migration, and guarded daemon launch into one fail-open handler. |
 | `skill-auto-load-check.sh` | Bash | UserPromptSubmit / BeforeAgent / SessionStart | Emit the skill-load instruction when `skill_auto_load=true` in the global config. |
 | `stop-context.js` | Node | Stop | Write session context to `.agentic/context.md`, mark active loops interrupted, write per-developer telemetry, run capture-gap backstop. |
 | `wrap-daemon.js` | Node | (launched detached by SessionEnd/SessionStart) | Background daemon that drains the deferred-`/wrap` ready-marker queue by headlessly resuming forgotten sessions. |
@@ -33,6 +33,8 @@ module-group map.
 | `lib/capture-gap.js` | Detect learning-worthy sessions with no captured learning; used by `post-tool-use-capture-nudge.js` and `stop-context.js`. |
 | `lib/version-check-core.sh` | Adapter-neutral core for the "newer version available" SessionStart notice: resolves clone dir, reads behind-count cache, kicks off throttled detached git-fetch refresh; used by `session-start-version-check.sh` and `session-start-wrap.sh`. |
 | `lib/wrap-marker.js` | Single source of truth for all deferred-`/wrap` marker reads, transitions, lock acquire/release, and PID helpers; used by `session-end-wrap.js`, `session-start-wrap.sh`, `stop-context.js`, `wrap-daemon.js`, and `bin/agentic-wrap-release-lock`. |
+| `lib/hooks-staleness-core.sh` | DS-54: classifies the methodology checkout's hooks-snapshot state (`never_migrated` / `half_applied` / `stale_but_stable` / `current`, evaluation order in that order - mutually exclusive by construction) and prints at most one nudge line; used by `session-start-wrap.sh`. Fail-open, always exits 0. |
+| `../../scripts/lib/hooks-snapshot.sh` | DS-54: lives outside `hooks/` (shared with the adapter `install.sh`/`uninstall.sh` scripts, not just hook code) but is the load-bearing dependency both `hooks-staleness-core.sh` and every in-scope adapter installer source. Owns hooks-snapshot key/dir resolution, the source-hash function, `sync_hooks_snapshot`/`remove_hooks_snapshot` (bounded-delete guarded), and `hooks_config_points_at_snapshot`. |
 
 ## Upstream dependencies
 
@@ -43,10 +45,23 @@ module-group map.
 
 ## Downstream consumers
 
-`~/.claude/settings.json` wired by `.claude/install.sh`; equivalent adapter
-configs for Codex, Gemini, and Kimi. `bin/agentic-wrap-release-lock` depends
-on `lib/wrap-marker.js`. `content/sections/` methodology prose documents the
-rules these hooks enforce.
+Hook commands are NOT wired directly at this checkout's `hooks/` (DS-54).
+`.claude/install.sh` (and the equivalent `.codex/install.sh`,
+`.gemini/install.sh`, `.kimi/install.sh` installers) first sync `hooks/` plus
+each in-scope adapter's own hook sources into a session-stable per-checkout
+snapshot at `$HOME/.agentic/hooks-snapshot/<key>/` via
+`scripts/lib/hooks-snapshot.sh`, then wire `~/.claude/settings.json` (and the
+Codex/Gemini/Kimi equivalents) to point at that snapshot dir, not the live
+checkout. This is why a bare `git pull` cannot silently change what an
+already-running session's hooks do: the wired command resolves to the
+snapshot copy, which only changes when an installer re-syncs it. Re-running
+the relevant `install.sh` refreshes the snapshot in place and an open
+session picks it up on its next tool call; a snapshot that has drifted from
+the live checkout surfaces as a SessionStart nudge
+(`lib/hooks-staleness-core.sh`, composed into `session-start-wrap.sh`).
+`bin/agentic-wrap-release-lock` depends on `lib/wrap-marker.js`.
+`content/sections/` methodology prose documents the rules these hooks
+enforce.
 
 ## Failure-mode discipline
 

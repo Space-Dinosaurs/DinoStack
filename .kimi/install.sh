@@ -2,7 +2,10 @@
 # Purpose: Installs the agentic-engineering skill for the Kimi CLI adapter.
 #          Runs build.sh to generate AGENTS.md and per-command skills, writes
 #          the activation mode/profile to ~/.claude/agentic-engineering.json,
-#          and wires up global skill symlinks under ~/.kimi/skills/.
+#          wires up global skill symlinks under ~/.kimi/skills/, and wires
+#          the SessionStart hook in ~/.kimi/config.toml at the session-stable
+#          hooks snapshot (DS-54, scripts/lib/hooks-snapshot.sh) when sync
+#          succeeds, else the checkout.
 #
 # Public API: bash .kimi/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
 #             Safe to re-run (idempotent). No required arguments.
@@ -28,7 +31,13 @@
 #                are written, ensuring tracked repo symlinks (SKILL.md, agents,
 #                commands, references) are never clobbered. The sections/rules
 #                migration is a 5-case contract; Case 4 (both exist) exits 1
-#                and requires manual intervention.
+#                and requires manual intervention. The SessionStart hook wire
+#                (DS-54) is an atomic block-scoped TOML rewrite: any parse
+#                ambiguity in ~/.kimi/config.toml (more than one matching
+#                [[hooks]] block, or an unrecognized command-line shape)
+#                aborts with NO write at all, leaving the prior config.toml
+#                untouched - it never corrupts, it degrades to "hook not
+#                (re)wired" and prints a warning instead.
 #
 # Performance: ~2-5 s wall time (dominated by build.sh git operations).
 set -euo pipefail
@@ -321,30 +330,137 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Hook snapshot (DS-54)
+#
+# Copies hooks/ + the four in-scope adapters' hook sources into a
+# per-checkout snapshot dir at $HOME/.agentic/hooks-snapshot/<key>/, so a
+# bare `git pull` cannot silently rewire a live session's hook commands.
+# Graceful degradation: any failure here leaves AE_HOOKS_SNAPSHOT_DIR unset
+# and AE_HOOKS_ROOT falls back to the checkout ($REPO_DIR).
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "Syncing hooks snapshot..."
+
+AE_HOOKS_SNAPSHOT_DIR=""
+if [[ -f "$REPO_DIR/scripts/lib/hooks-snapshot.sh" ]]; then
+  # shellcheck source=scripts/lib/hooks-snapshot.sh
+  if . "$REPO_DIR/scripts/lib/hooks-snapshot.sh" 2>/dev/null; then
+    if ! sync_hooks_snapshot "$REPO_DIR"; then
+      AE_HOOKS_SNAPSHOT_DIR=""
+      echo "  ! hooks snapshot sync failed - hooks will read from the checkout (non-fatal)"
+    fi
+  else
+    echo "  ! failed to source scripts/lib/hooks-snapshot.sh - hooks will read from the checkout (non-fatal)"
+  fi
+else
+  echo "  [skip] scripts/lib/hooks-snapshot.sh not found - hooks will read from the checkout"
+fi
+export AE_HOOKS_SNAPSHOT_DIR
+AE_HOOKS_ROOT="${AE_HOOKS_SNAPSHOT_DIR:-$REPO_DIR}"
+
+# ---------------------------------------------------------------------------
 # Configure Kimi CLI hooks
+#
+# DS-54: replaces the old presence-only `grep -q session-start.sh` upsert
+# with an atomic block-scoped TOML rewrite. Finds the [[hooks]] block whose
+# command references session-start.sh (a block runs from a "[[hooks]]"
+# heading to the next top-level heading or EOF), rewrites ONLY that block's
+# command line if it differs from the expected snapshot-rooted command,
+# no-ops if already correct, and appends a fresh block only when none is
+# found. Any parse ambiguity (more than one matching block, or a command
+# line that does not match the plain `command = "..."` shape) aborts with NO
+# write at all - degrading to "hook not (re)wired" rather than ever
+# corrupting config.toml. Written via a temp file + `mv -f` for atomicity.
+# Unrelated [[hooks]] entries (other events, third-party tools) are left
+# byte-for-byte untouched because they never match the session-start.sh scan.
 # ---------------------------------------------------------------------------
 
 KIMI_CONFIG="$HOME/.kimi/config.toml"
-HOOK_SCRIPT="$REPO_DIR/.kimi/hooks/session-start.sh"
+HOOK_SCRIPT="$AE_HOOKS_ROOT/.kimi/hooks/session-start.sh"
 
 if [[ -f "$KIMI_CONFIG" ]]; then
   echo ""
   echo "Configuring Kimi CLI hooks..."
 
-  # Check if the SessionStart hook already exists
-  if grep -q "session-start.sh" "$KIMI_CONFIG" 2>/dev/null; then
-    echo "  = SessionStart hook already configured"
-  else
-    cat >> "$KIMI_CONFIG" <<HOOKEOF
+  python3 - "$KIMI_CONFIG" "$HOOK_SCRIPT" <<'PYEOF'
+import os
+import sys
 
-[[hooks]]
-event = "SessionStart"
-command = "bash $HOOK_SCRIPT"
-matcher = ""
-timeout = 5
-HOOKEOF
-    echo "  + Added SessionStart hook to ~/.kimi/config.toml"
-  fi
+config_path, hook_script = sys.argv[1], sys.argv[2]
+expected_command = f"bash {hook_script}"
+expected_line = f'command = "{expected_command}"\n'
+
+try:
+    with open(config_path) as f:
+        lines = f.readlines()
+except Exception as e:
+    print(f"  ! could not read {config_path}: {e} - aborting hook wiring (no-op)")
+    sys.exit(0)
+
+# Find every "[[hooks]]" heading line.
+block_starts = [i for i, line in enumerate(lines) if line.strip() == "[[hooks]]"]
+
+# For each block (heading to next top-level heading or EOF), record the
+# index of a "command" line that references session-start.sh, if any.
+matches = []
+for idx, start in enumerate(block_starts):
+    end = block_starts[idx + 1] if idx + 1 < len(block_starts) else len(lines)
+    # A different top-level heading (not another [[hooks]]) also ends a
+    # block early, so an unrelated trailing table is never swallowed.
+    for j in range(start + 1, end):
+        stripped = lines[j].strip()
+        if stripped.startswith("[") and stripped != "[[hooks]]":
+            end = j
+            break
+    for j in range(start, end):
+        if "command" in lines[j] and "session-start.sh" in lines[j]:
+            matches.append(j)
+
+if len(matches) > 1:
+    print(f"  ! ambiguous session-start.sh hook entries ({len(matches)} found) in {config_path} - aborting hook wiring (no-op, never corrupts)")
+    sys.exit(0)
+
+if len(matches) == 1:
+    cmd_line_idx = matches[0]
+    stripped = lines[cmd_line_idx].strip()
+    if not (stripped.startswith("command") and "=" in stripped):
+        print(f"  ! could not parse existing command line in {config_path} - aborting hook wiring (no-op, never corrupts)")
+        sys.exit(0)
+    if stripped == expected_line.strip():
+        print("  = SessionStart hook already configured")
+        sys.exit(0)
+    lines[cmd_line_idx] = expected_line
+    action = "updated"
+else:
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] = lines[-1] + "\n"
+    lines.append("\n")
+    lines.append("[[hooks]]\n")
+    lines.append('event = "SessionStart"\n')
+    lines.append(expected_line)
+    lines.append('matcher = ""\n')
+    lines.append("timeout = 5\n")
+    action = "added"
+
+tmp = config_path + ".tmp." + str(os.getpid())
+try:
+    with open(tmp, "w") as f:
+        f.writelines(lines)
+    os.replace(tmp, config_path)
+except Exception as e:
+    print(f"  ! failed to write {config_path}: {e} - aborting hook wiring (no-op)")
+    try:
+        os.remove(tmp)
+    except Exception:
+        pass
+    sys.exit(0)
+
+if action == "updated":
+    print(f"  ~ SessionStart hook command updated -> {expected_command}")
+else:
+    print(f"  + Added SessionStart hook to {config_path}")
+PYEOF
 else
   echo "  ! ~/.kimi/config.toml not found - skipping hook config"
 fi

@@ -3,10 +3,13 @@
 # Role: Install the Gemini CLI adapter into ~/.gemini/
 # Inputs: .gemini/ build artifacts (GEMINI.md, commands/, agents/, hooks/)
 # Outputs: symlinks at ~/.gemini/GEMINI.md, ~/.gemini/commands/, ~/.gemini/agents/;
-#          hooks block merged into ~/.gemini/settings.json
+#          hooks block merged into ~/.gemini/settings.json, pointed at the
+#          session-stable hooks snapshot (DS-54, scripts/lib/hooks-snapshot.sh)
+#          when sync succeeds, else the checkout
 # Side-effects: backs up existing non-symlink targets with .backup-<timestamp> suffix;
-#               creates ~/.gemini/ if absent
-# Consumers: user runs manually; re-run after repo move to update absolute hook paths
+#               creates ~/.gemini/ if absent; syncs the hooks snapshot dir
+# Consumers: user runs manually; re-run after repo move (or to refresh the
+#            hooks snapshot) to update absolute hook paths
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -195,10 +198,41 @@ AGENTS_DST="$HOME/.gemini/agents"
 
 SETTINGS="$HOME/.gemini/settings.json"
 
+# ---------------------------------------------------------------------------
+# Hook snapshot (DS-54)
+#
+# Copies hooks/ + the four in-scope adapters' hook sources into a
+# per-checkout snapshot dir at $HOME/.agentic/hooks-snapshot/<key>/, so a
+# bare `git pull` cannot silently rewire a live session's hook commands.
+# Graceful degradation: any failure here leaves AE_HOOKS_SNAPSHOT_DIR unset
+# and AE_HOOKS_ROOT falls back to the checkout ($REPO_DIR).
+# ---------------------------------------------------------------------------
+
+echo "Syncing hooks snapshot..."
+
+AE_HOOKS_SNAPSHOT_DIR=""
+if [[ -f "$REPO_DIR/scripts/lib/hooks-snapshot.sh" ]]; then
+  # shellcheck source=scripts/lib/hooks-snapshot.sh
+  if . "$REPO_DIR/scripts/lib/hooks-snapshot.sh" 2>/dev/null; then
+    if ! sync_hooks_snapshot "$REPO_DIR"; then
+      AE_HOOKS_SNAPSHOT_DIR=""
+      echo "  ! hooks snapshot sync failed - hooks will read from the checkout (non-fatal)"
+    fi
+  else
+    echo "  ! failed to source scripts/lib/hooks-snapshot.sh - hooks will read from the checkout (non-fatal)"
+  fi
+else
+  echo "  [skip] scripts/lib/hooks-snapshot.sh not found - hooks will read from the checkout"
+fi
+export AE_HOOKS_SNAPSHOT_DIR
+AE_HOOKS_ROOT="${AE_HOOKS_SNAPSHOT_DIR:-$REPO_DIR}"
+
 # Absolute path to hooks directory - computed at install time.
 # Hook commands embed this path so they work regardless of the working directory
 # at hook invocation time (which is the user's project dir, not this repo root).
-GEMINI_HOOKS_DIR="$GEMINI_DIR/hooks"
+# DS-54: rooted at the hooks snapshot when one was successfully synced,
+# falling back to the checkout ($GEMINI_DIR/hooks) otherwise.
+GEMINI_HOOKS_DIR="$AE_HOOKS_ROOT/.gemini/hooks"
 
 # ---------------------------------------------------------------------------
 # Step 1: Run build to ensure artifacts are up to date
@@ -318,11 +352,14 @@ echo "Configuring hooks in ~/.gemini/settings.json..."
 
 HOOKS_DIR_FOR_PYTHON="$GEMINI_HOOKS_DIR"
 
-python3 - "$SETTINGS" "$HOOKS_DIR_FOR_PYTHON" "$REPO_DIR" <<'PYEOF'
+python3 - "$SETTINGS" "$HOOKS_DIR_FOR_PYTHON" "$AE_HOOKS_ROOT" <<'PYEOF'
 import json, os, sys
 
 settings_path = sys.argv[1]
 hooks_dir = sys.argv[2]
+# DS-54: repo_dir here is really "the root SKILL_CMD is built from" - it is
+# AE_HOOKS_ROOT (the hooks snapshot when synced, else the checkout), passed
+# in by the caller so SKILL_CMD lands at <root>/hooks/skill-auto-load-check.sh.
 repo_dir = sys.argv[3]
 
 # Read existing settings
