@@ -128,6 +128,11 @@ def _load_effective_team_config(cwd: str) -> dict:
     try:
         import yaml  # type: ignore
     except Exception:
+        print(
+            "enforce-background-spawn: PyYAML unavailable, team-routing "
+            "enforcement no-op (fail-open)",
+            file=sys.stderr,
+        )
         return {}
 
     config: dict = {}
