@@ -92,8 +92,8 @@ Resolve `TRACKER`, `TICKET_PREFIX`, and `JIRA_BASE_URL` using the SAME resolutio
 When `/ticket-triage` is invoked with no input, resolve the operator's open assigned tickets from the configured tracker (read-only query; no tracker writes):
 
 - **`TRACKER == none`:** print "No tracker configured - an explicit ticket list or URL is required when no tracker is connected." and exit.
-- **Jira:** query `assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC` in the configured project using `mcp__mcp-atlassian__jira_search`. Use the same pagination cap (50 results) as Phase 0's JQL resolver. Collect entries as `{ticket_id, source: "assigned"}`.
-- **Linear:** query issues where `assignee: me` and state type not in `(completed, canceled)` using `mcp__linear__list_issues`. Collect entries as `{ticket_id, source: "assigned"}`.
+- **Jira:** query `project = <TICKET_PREFIX> AND assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC` in the configured project using `mcp__mcp-atlassian__jira_search`, where `<TICKET_PREFIX>` is the project key resolved by the Preflight. Use the same pagination cap (50 results) as Phase 0's JQL resolver. Collect entries as `{ticket_id, source: "assigned"}`.
+- **Linear:** query issues where `assignee: me`, team = the resolved team (from `Team`/`TICKET_PREFIX` in the tracker resolution), and state type not in `(completed, canceled)` using `mcp__linear__list_issues`. Collect entries as `{ticket_id, source: "assigned"}`.
 - **0 results:** print "No open tickets assigned to you." and exit.
 - **1 result:** fall through to the single-ticket degenerate path (print "Single ticket: run /implement-ticket <id> directly." and exit).
 - **>=2 results:** proceed into Phase 1+ exactly as for an explicit list input. Print the resolved ticket IDs (one per line) before proceeding so the operator can confirm the scope.
