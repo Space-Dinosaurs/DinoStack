@@ -43,11 +43,12 @@ Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
 
 Advisory: when a pull changes any file under hooks/, a non-blocking
           informational note is printed to stderr (_hooks_touched /
-          _build_hooks_note) - install.sh snapshots hooks/ to a
-          session-stable dir, so THIS machine's next new session picks up
-          the change via that snapshot refresh, but other already-open
-          sessions against this checkout keep their previously-installed
-          snapshot until they re-run install.sh. Never blocks the update.
+          _build_hooks_note) - a bare pull no longer changes a running
+          session's hooks (they load from a session-stable snapshot, not
+          the checkout), but this update flow also runs the install step,
+          which refreshes this checkout's SHARED hook snapshot in place, so
+          other already-open sessions against this checkout pick up the
+          change on their next tool call. Never blocks the update.
 
 Performance: network-bound (git fetch); rebuild decision and adapter installs
              add seconds only when adapter sources changed.
@@ -239,11 +240,12 @@ def _hooks_touched(changed_paths: list[str]) -> bool:
     normalisation as _needs_rebuild (backslash -> forward slash, strip one
     leading slash) and the same hooks/ prefix test.
 
-    Drives a non-blocking stderr note after a pull: install.sh snapshots
-    hooks/ to a session-stable dir, so THIS machine's next new session
-    picks up the change via that snapshot refresh, but other already-open
-    sessions against this checkout keep their previously-installed
-    snapshot until they re-run install.sh.
+    Drives a non-blocking stderr note after a pull: a bare pull no longer
+    changes a running session's hooks (they load from a session-stable
+    snapshot, not the checkout), but this update flow also runs the
+    install step, which refreshes this checkout's SHARED hook snapshot in
+    place, so other already-open sessions against this checkout pick up
+    the change on their next tool call.
     """
     for p in changed_paths:
         normalised = re.sub(r'^/', '', p.replace("\\", "/"))
@@ -262,12 +264,12 @@ def _build_hooks_note(changed_paths: list[str]) -> str:
         if re.sub(r'^/', '', p.replace("\\", "/")).startswith("hooks/")
     )
     return (
-        "note: this update changed files under hooks/. This update flow will refresh your "
-        "local hook snapshot as part of its install step, so THIS machine's next new session "
-        "uses the updated hooks. Other Claude Code sessions already open against this checkout "
-        "keep running their previously-installed hook snapshot until they re-run install.sh "
-        "(or /pull-and-install) - they do NOT pick up these hook changes on their next tool "
-        "call. Changed: " + changed_list
+        "note: this update changed files under hooks/. A bare git pull no longer changes a "
+        "running session's hooks (they load from a session-stable snapshot, not the checkout) "
+        "- but this flow also runs the install step, which refreshes this checkout's SHARED "
+        "hook snapshot in place. So any OTHER Claude Code session already open against this "
+        "checkout will pick up the changed hooks on its next tool call. If that matters, have "
+        "those sessions /exit and restart once this update finishes. Changed: " + changed_list
     )
 
 

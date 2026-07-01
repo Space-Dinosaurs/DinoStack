@@ -14,12 +14,13 @@
  *                   for unit tests via module.exports when not run directly.
  *   hooksTouched(changedPaths) - pure predicate; true when any changed path
  *                   is under hooks/. Drives a non-blocking stderr note after
- *                   a pull, since install.sh snapshots hooks/ to a
- *                   session-stable dir - THIS machine's next new session
- *                   picks up the change via that snapshot refresh, but
- *                   other already-open sessions against this checkout keep
- *                   running their previously-installed snapshot until they
- *                   re-run install.sh. Exported for unit tests via
+ *                   a pull, since a bare pull no longer changes a running
+ *                   session's hooks (they load from a session-stable
+ *                   snapshot, not the checkout) - but this update flow also
+ *                   runs the install step, which refreshes this checkout's
+ *                   SHARED hook snapshot in place, so other already-open
+ *                   sessions against this checkout pick up the change on
+ *                   their next tool call. Exported for unit tests via
  *                   module.exports.
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
@@ -312,20 +313,21 @@ function hooksTouched(changedPaths) {
 }
 
 // Builds the non-blocking informational note printed to stderr when a pull
-// changes files under hooks/. install.sh snapshots hooks/ into a
-// session-stable dir, so THIS machine's next new session picks up the
-// change via the snapshot refresh that runs as part of this update's
-// install step - but other Claude Code sessions already open against this
-// checkout keep running their previously-installed snapshot until they
-// explicitly re-run install.sh (or /pull-and-install).
+// changes files under hooks/. A bare pull no longer changes a running
+// session's hooks - they load from a session-stable snapshot, not the
+// checkout - but this update flow also runs the install step, which
+// refreshes this checkout's SHARED hook snapshot in place. That means any
+// OTHER Claude Code session already open against this checkout picks up
+// the changed hooks on its next tool call once this flow's install step
+// runs.
 function buildHooksNote(changedList) {
   return (
-    'note: this update changed files under hooks/. This update flow will refresh your ' +
-    'local hook snapshot as part of its install step, so THIS machine\'s next new session ' +
-    'uses the updated hooks. Other Claude Code sessions already open against this checkout ' +
-    'keep running their previously-installed hook snapshot until they re-run install.sh ' +
-    '(or /pull-and-install) - they do NOT pick up these hook changes on their next tool ' +
-    'call. Changed: ' + changedList
+    'note: this update changed files under hooks/. A bare git pull no longer changes a ' +
+    'running session\'s hooks (they load from a session-stable snapshot, not the checkout) ' +
+    '- but this flow also runs the install step, which refreshes this checkout\'s SHARED ' +
+    'hook snapshot in place. So any OTHER Claude Code session already open against this ' +
+    'checkout will pick up the changed hooks on its next tool call. If that matters, have ' +
+    'those sessions /exit and restart once this update finishes. Changed: ' + changedList
   );
 }
 
@@ -720,11 +722,11 @@ async function main() {
     }
   }
 
-  // Non-blocking note: install.sh snapshots hooks/ to a session-stable dir,
-  // so a changed hooks/ file only reaches THIS machine's next new session
-  // via the snapshot refresh - other already-open sessions against this
-  // checkout keep their old snapshot until they re-run install.sh. Never
-  // blocks the update.
+  // Non-blocking note: a bare pull is decoupled from running sessions'
+  // hooks, but this flow's own install step refreshes this checkout's
+  // shared hook snapshot in place - so other already-open sessions against
+  // this checkout pick up the change on their next tool call. Never blocks
+  // the update.
   if (hooksTouched(changedPaths)) {
     console.warn('\n' + buildHooksNote(hooksPaths(changedPaths).join(', ')));
   }
