@@ -11,6 +11,8 @@ Throughout: the configuration here is a **safety rail, not a sandbox**. It
 reduces the chance and blast radius of a bad action; it does not make harm
 impossible.
 
+For a complete list of every setting and its default, see [configuration-reference.md](configuration-reference.md).
+
 ## Permission modes
 
 The Claude Code installer ([`.claude/install.sh`](../.claude/install.sh)) offers
