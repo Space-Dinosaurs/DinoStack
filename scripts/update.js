@@ -13,12 +13,15 @@
  *   needsRebuild(oldHead, newHead, changedPaths) - pure predicate; exported
  *                   for unit tests via module.exports when not run directly.
  *   hooksTouched(changedPaths) - pure predicate; true when any changed path
- *                   is under hooks/. Drives a non-blocking stderr warning
- *                   after a pull, since Claude Code (and other adapters)
- *                   load hook scripts by absolute path and re-read them from
- *                   disk on every tool call - other open sessions against
- *                   this checkout pick up the change with no restart.
- *                   Exported for unit tests via module.exports.
+ *                   is under hooks/. Drives a non-blocking stderr note after
+ *                   a pull, since a bare pull no longer changes a running
+ *                   session's hooks (they load from a session-stable
+ *                   snapshot, not the checkout) - but this update flow also
+ *                   runs the install step, which refreshes this checkout's
+ *                   SHARED hook snapshot in place, so other already-open
+ *                   sessions against this checkout pick up the change on
+ *                   their next tool call. Exported for unit tests via
+ *                   module.exports.
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
  *                external packages.
@@ -309,21 +312,22 @@ function hooksTouched(changedPaths) {
   return hooksPaths(changedPaths).length > 0;
 }
 
-// Builds the non-blocking advisory printed to stderr when a pull changes
-// files under hooks/. Claude Code (and other adapters) load hook scripts by
-// absolute path and re-read them from disk on every tool call - there is no
-// copy step - so any OTHER session with an open terminal already using this
-// checkout picks up the new hook behavior on its NEXT tool call, with no
-// restart and no in-session notice.
-function buildHooksWarning(changedList) {
+// Builds the non-blocking informational note printed to stderr when a pull
+// changes files under hooks/. A bare pull no longer changes a running
+// session's hooks - they load from a session-stable snapshot, not the
+// checkout - but this update flow also runs the install step, which
+// refreshes this checkout's SHARED hook snapshot in place. That means any
+// OTHER Claude Code session already open against this checkout picks up
+// the changed hooks on its next tool call once this flow's install step
+// runs.
+function buildHooksNote(changedList) {
   return (
-    'warning: this update changed files under hooks/. Claude Code (and other adapters) ' +
-    'load hook scripts by ABSOLUTE PATH into this checkout and re-read them from disk on ' +
-    'every tool call - there is no copy step. Any OTHER session with an open terminal ' +
-    'already using this checkout will pick up the new hook behavior on its NEXT tool call: ' +
-    'no restart, no re-run of install.sh, no in-session notice. If other sessions are active ' +
-    'against this checkout, tell them to /exit and restart once this update finishes - or ' +
-    'expect hook behavior to change under them mid-session. Changed: ' + changedList
+    'note: this update changed files under hooks/. A bare git pull no longer changes a ' +
+    'running session\'s hooks (they load from a session-stable snapshot, not the checkout) ' +
+    '- but this flow also runs the install step, which refreshes this checkout\'s SHARED ' +
+    'hook snapshot in place. So any OTHER Claude Code session already open against this ' +
+    'checkout will pick up the changed hooks on its next tool call. If that matters, have ' +
+    'those sessions /exit and restart once this update finishes. Changed: ' + changedList
   );
 }
 
@@ -718,12 +722,13 @@ async function main() {
     }
   }
 
-  // Non-blocking advisory: hook scripts are loaded by absolute path and
-  // re-read from disk on every tool call, so a changed hooks/ file rewires
-  // any OTHER open session against this checkout with no restart. Warn but
-  // never block the update.
+  // Non-blocking note: a bare pull is decoupled from running sessions'
+  // hooks, but this flow's own install step refreshes this checkout's
+  // shared hook snapshot in place - so other already-open sessions against
+  // this checkout pick up the change on their next tool call. Never blocks
+  // the update.
   if (hooksTouched(changedPaths)) {
-    console.warn('\n' + buildHooksWarning(hooksPaths(changedPaths).join(', ')));
+    console.warn('\n' + buildHooksNote(hooksPaths(changedPaths).join(', ')));
   }
 
   const rebuild = needsRebuild(oldHead, newHead, changedPaths);

@@ -178,13 +178,13 @@ NEW_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
 ```
 On non-zero exit: stop and show the error verbatim. Do not proceed to adapter installs.
 
-**4a-2 - Hook-change warning:**
+**4a-2 - Hook-change note:**
 ```bash
 HOOK_CHANGES="$(git -C "$AE_REPO_DIR" diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- hooks/)"
 ```
-If `HOOK_CHANGES` is non-empty, print the following non-blocking warning (substituting `HOOK_CHANGES` as a comma-joined list into `Changed:`) before continuing to 4b. Never stop the flow for this - it is advisory only.
+If `HOOK_CHANGES` is non-empty, print the following informational note (substituting `HOOK_CHANGES` as a comma-joined list into `Changed:`) before continuing to 4b. This is informational only, not an actionable warning - Step 4c below re-runs `install.sh` for every selected adapter, which refreshes this machine's local hook snapshot as part of this flow.
 
-> warning: this update changed files under hooks/. Claude Code (and other adapters) load hook scripts by ABSOLUTE PATH into this checkout and re-read them from disk on every tool call - there is no copy step. Any OTHER session with an open terminal already using this checkout will pick up the new hook behavior on its NEXT tool call: no restart, no re-run of install.sh, no in-session notice. If other sessions are active against this checkout, tell them to /exit and restart once this update finishes - or expect hook behavior to change under them mid-session. Changed: `<comma-joined HOOK_CHANGES>`
+> note: this update changed files under hooks/. A bare git pull no longer changes a running session's hooks (they load from a session-stable snapshot, not the checkout) - but this flow also runs the install step, which refreshes this checkout's SHARED hook snapshot in place. So any OTHER Claude Code session already open against this checkout will pick up the changed hooks on its next tool call. If that matters, have those sessions /exit and restart once this update finishes. Changed: `<comma-joined HOOK_CHANGES>`
 
 If `HOOK_CHANGES` is empty, skip silently and continue to 4b.
 
