@@ -28,7 +28,7 @@ files on every session and the reference docs on the triggers described in METHO
 ## Commands (invoke by name)
 
 - `/agentic-help` - static, zero-token command reference; lists every slash command with a one-line description.
-- `/agentic-status` - read-only resolver dump; shows the resolved mode, profile, preset, and marker with provenance plus a plain-English explainer of what they do and how to change them.
+- `/agentic-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
 - `/brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/brief --from <path>` to extract a Brief from an existing PRD.
 - `/pull-and-install` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
 
