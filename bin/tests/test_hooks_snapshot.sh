@@ -229,6 +229,74 @@ else
 fi
 
 # =============================================================
+# 4. Absolute-path "tests" component must not spuriously exclude everything
+#    (Skeptic Minor 1: excluded() must check the RELATIVE path within the
+#    source root, never the absolute prefix leading up to it)
+# =============================================================
+echo ""
+echo "=== 4. Absolute-path 'tests' component does not spuriously exclude everything ==="
+
+# Nest the fake repo under a parent directory literally named "tests" so the
+# ABSOLUTE path passed to compute_hooks_source_hash contains a "tests"
+# component above the source root itself (distinct from the genuine
+# hooks/tests/ subdir already exercised in section 2).
+REPO_E="$TMP_ROOT/tests/parent-dir/repo-e"
+_make_fake_repo "$REPO_E"
+
+EMPTY_SHA256="$(python3 -c "import hashlib; print(hashlib.sha256(b'').hexdigest())")"
+
+HASH_E1="$(HOME="$FAKE_HOME" bash -c "
+  source '$LIB'
+  compute_hooks_source_hash \
+    '$REPO_E/hooks' \
+    '$REPO_E/.codex/config/hooks.json' \
+    '$REPO_E/.codex/hooks' \
+    '$REPO_E/.gemini/hooks' \
+    '$REPO_E/.kimi/hooks'
+")"
+
+if [[ -n "$HASH_E1" && "$HASH_E1" != "$EMPTY_SHA256" ]]; then
+  _pass "source tree under an absolute path containing a 'tests' component still hashes real content (non-empty digest)"
+else
+  _fail "source tree under an absolute path containing a 'tests' component hashed to empty/constant digest (regression: absolute-path exclusion bug)"
+fi
+
+echo "changed" >> "$REPO_E/hooks/risk-reminder.sh"
+
+HASH_E2="$(HOME="$FAKE_HOME" bash -c "
+  source '$LIB'
+  compute_hooks_source_hash \
+    '$REPO_E/hooks' \
+    '$REPO_E/.codex/config/hooks.json' \
+    '$REPO_E/.codex/hooks' \
+    '$REPO_E/.gemini/hooks' \
+    '$REPO_E/.kimi/hooks'
+")"
+
+if [[ "$HASH_E2" != "$HASH_E1" ]]; then
+  _pass "hash changes when content changes, even under a 'tests'-named absolute path component"
+else
+  _fail "hash did NOT change after content changed under a 'tests'-named absolute path component"
+fi
+
+# The genuine hooks/tests/ subdir and hooks/AGENTS.md exclusions must still
+# hold under this same absolute-path scenario (the fix must not disturb the
+# real relative-path exclusion it is scoped to preserve).
+SNAP_DIR_E="$(HOME="$FAKE_HOME" bash -c "
+  source '$LIB'
+  sync_hooks_snapshot '$REPO_E' >/dev/null
+  printf '%s' \"\$AE_HOOKS_SNAPSHOT_DIR\"
+")"
+
+if [[ -f "$SNAP_DIR_E/hooks/risk-reminder.sh" ]] && \
+   [[ ! -f "$SNAP_DIR_E/hooks/tests/should-be-excluded.sh" ]] && \
+   [[ ! -f "$SNAP_DIR_E/hooks/AGENTS.md" ]]; then
+  _pass "real content is copied AND the genuine hooks/tests/ + hooks/AGENTS.md exclusions still hold under a 'tests'-named absolute path"
+else
+  _fail "exclusion/inclusion behavior broke under a 'tests'-named absolute path (snapshot at $SNAP_DIR_E)"
+fi
+
+# =============================================================
 # Results
 # =============================================================
 echo ""

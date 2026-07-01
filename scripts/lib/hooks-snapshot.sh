@@ -18,9 +18,13 @@
 #     -> prints a single sha256 hex digest over the sorted (relpath, content)
 #        pairs of every file under the given paths (files or directories).
 #        Missing paths are skipped (fail-open). Directories named "tests" and
-#        files named "AGENTS.md" are excluded (mirrors the sync_hooks_snapshot
-#        copy exclusions), so hashing and copying agree on what "the hook
-#        source" means.
+#        files named "AGENTS.md" are excluded, checked ONLY against the path
+#        RELATIVE to the source root being walked - never against the
+#        absolute prefix leading up to that root, so a checkout whose
+#        absolute path itself contains a "tests" component does not have
+#        every file spuriously excluded. Mirrors the sync_hooks_snapshot
+#        copy exclusions on the same relative basis, so hashing and copying
+#        agree on what "the hook source" means.
 #   sync_hooks_snapshot <repo_dir> [--dry-run]
 #     -> rm -rf + cp -R the source set into the snapshot dir, write
 #        .snapshot-meta.json, export AE_HOOKS_SNAPSHOT_DIR. Returns 1 (no
@@ -99,8 +103,14 @@ compute_hooks_source_hash() {
   python3 - "$@" <<'PYEOF'
 import hashlib, os, sys
 
-def excluded(relpath):
-    parts = relpath.split("/")
+def excluded(relative):
+    # relative MUST be relative to the source root being walked (e.g.
+    # "tests/foo.sh" or "AGENTS.md"), never the absolute path leading up to
+    # that root. A checkout whose absolute path happens to contain a
+    # directory component literally named "tests" (e.g.
+    # /home/me/tests/DinoStack) must not have every file excluded just
+    # because "tests" appears somewhere in the parent path.
+    parts = relative.split("/")
     if "tests" in parts:
         return True
     if parts[-1] == "AGENTS.md":
@@ -118,15 +128,19 @@ for arg in sys.argv[1:]:
     if not os.path.exists(real_arg):
         continue
     if os.path.isfile(real_arg):
-        if not excluded(real_arg):
+        # A single-file source arg (e.g. .codex/config/hooks.json) has no
+        # walked structure - the only relative thing to exclude on is its
+        # own basename.
+        if not excluded(os.path.basename(real_arg)):
             entries.append((real_arg, real_arg))
     elif os.path.isdir(real_arg):
         for root, dirs, files in os.walk(real_arg):
             dirs.sort()
             for name in sorted(files):
                 full = os.path.join(root, name)
-                rel = real_arg + "/" + os.path.relpath(full, real_arg)
-                if not excluded(rel):
+                relative = os.path.relpath(full, real_arg)
+                if not excluded(relative):
+                    rel = real_arg + "/" + relative
                     entries.append((rel, full))
 
 entries.sort(key=lambda e: e[0])

@@ -7,7 +7,7 @@
 #          filesystem beyond reads.
 # Public API: bash hooks/lib/hooks-staleness-core.sh
 #             (no args; prints ONE line to stdout when the snapshot state is
-#              half_applied, never_migrated, or stale_but_stable; prints
+#              never_migrated, half_applied, or stale_but_stable; prints
 #              nothing when current. Always exits 0.)
 # Upstream deps: scripts/lib/repo-dir.sh (resolve_repo_dir; optional - a
 #                inline $HOME/DinoStack fallback applies if the lib is
@@ -21,13 +21,18 @@
 # Failure modes: always exits 0 (fail-open). Unresolvable repo_dir, a missing
 #                scripts/lib/hooks-snapshot.sh, or any read/parse error is
 #                treated as "nothing to report" - silent, not an error.
-#                State priority (first match wins):
+#                State evaluation order (first match wins; states are
+#                mutually exclusive by construction, not by an arbitrary
+#                priority choice - half_applied's own definition requires
+#                snapshot+meta PRESENT, which is exactly the negation of
+#                never_migrated's trigger condition, so never_migrated must
+#                be checked first as a structural precondition):
+#                  never_migrated   - the snapshot dir or its
+#                                      .snapshot-meta.json is absent.
 #                  half_applied     - snapshot + meta exist AND at least one
 #                                      present in-scope adapter config still
 #                                      points its hook command at the
 #                                      checkout instead of the snapshot.
-#                  never_migrated   - the snapshot dir or its
-#                                      .snapshot-meta.json is absent.
 #                  stale_but_stable - every checked config points at the
 #                                      snapshot, but the live hook source
 #                                      hash no longer matches
