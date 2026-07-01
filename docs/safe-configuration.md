@@ -163,9 +163,11 @@ the same result as `preset: lean`.
 **Where to set it:**
 
 - **Global** - add a `"preset"` key to `~/.claude/agentic-engineering.json`:
-  `{ "mode": "opt-in", "preset": "lean" }`
+  `{ "preset": "lean" }` (omit `mode` - it controls activation, not profile,
+  and its default value should be left unchanged).
 - **Per-project** - add a marker line to the project's `AGENTS.md`:
-  `agentic-engineering-preset: lean`
+  `agentic-engineering-preset: lean`. This overrides the global preset and
+  any direct `agentic-engineering-profile:` line in the same file.
 
 **Collision rule:** when both a `preset` and a direct `profile` are set, the
 `preset` wins. It is the higher-level knob. When `preset` is absent or null,
