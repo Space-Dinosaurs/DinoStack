@@ -28,9 +28,9 @@ Failure modes: opt-in conflict without --force -> exit 2 with a
                Atomic writes via tmp+rename; partial writes cannot
                leave AGENTS.md or the JSON config corrupted. JSON
                round-trip preserves ONLY the keys already present in
-               the file (never invents profile/preset). Read-only
-               filesystems or permission errors -> exit 1 with the
-               OS error message; no partial state.
+               the file (never invents any key not already present in
+               the file). Read-only filesystems or permission errors ->
+               exit 1 with the OS error message; no partial state.
 
 Performance: O(small). One AGENTS.md read+write and one optional JSON
              read+write. Constant time; <50 ms on a cold start.

@@ -33,7 +33,7 @@ HELP_TEXT = """\
 agentic-engineering - command reference
 
 Inspect & configure
-  /agentic-status              Show resolved config (mode, profile, preset, marker) with provenance and a plain-English explainer. Run this first when unsure what the skill is doing.
+  /agentic-status              Show resolved config (mode, profile, marker) with provenance and a plain-English explainer. Run this first when unsure what the skill is doing.
   /agentic-help                This list.
   /agentic-disable             Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out.
   /agentic-cost                Token and wall-time rollups per agent/session/task from .agentic/events.jsonl.
@@ -62,7 +62,7 @@ Audit & improve the methodology
 Usage patterns
 
   Check what the skill is doing right now:
-    /agentic-status            Shows the resolved mode/profile/preset, WHERE each value comes from, what behavior it produces, and how to change it.
+    /agentic-status            Shows the resolved mode/profile, WHERE each value comes from, what behavior it produces, and how to change it.
 
   Use the skill deliberately when it is globally disabled or in opt-in mode:
     By default the skill auto-loads only when it is in opt-out mode AND the project has not opted out.
