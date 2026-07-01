@@ -43,7 +43,7 @@ Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
 
 Advisory: when a pull changes any file under hooks/, a non-blocking
           informational note is printed to stderr (_hooks_touched /
-          _build_hooks_warning) - install.sh snapshots hooks/ to a
+          _build_hooks_note) - install.sh snapshots hooks/ to a
           session-stable dir, so THIS machine's next new session picks up
           the change via that snapshot refresh, but other already-open
           sessions against this checkout keep their previously-installed
@@ -252,9 +252,9 @@ def _hooks_touched(changed_paths: list[str]) -> bool:
     return False
 
 
-def _build_hooks_warning(changed_paths: list[str]) -> str:
+def _build_hooks_note(changed_paths: list[str]) -> str:
     """Build the non-blocking hooks/-change informational note (mirrors
-    buildHooksWarning() in scripts/update.js). Changed: lists the
+    buildHooksNote() in scripts/update.js). Changed: lists the
     hooks/-prefixed subset only.
     """
     changed_list = ", ".join(
@@ -479,7 +479,7 @@ def main() -> int:
 
     # Non-blocking note: print (never block) when the pull touched hooks/.
     if _hooks_touched(changed_paths):
-        print(_build_hooks_warning(changed_paths), file=sys.stderr)
+        print(_build_hooks_note(changed_paths), file=sys.stderr)
 
     # Count commits pulled
     commits_pulled = 0

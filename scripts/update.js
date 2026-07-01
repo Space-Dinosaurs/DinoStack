@@ -318,7 +318,7 @@ function hooksTouched(changedPaths) {
 // install step - but other Claude Code sessions already open against this
 // checkout keep running their previously-installed snapshot until they
 // explicitly re-run install.sh (or /pull-and-install).
-function buildHooksWarning(changedList) {
+function buildHooksNote(changedList) {
   return (
     'note: this update changed files under hooks/. This update flow will refresh your ' +
     'local hook snapshot as part of its install step, so THIS machine\'s next new session ' +
@@ -726,7 +726,7 @@ async function main() {
   // checkout keep their old snapshot until they re-run install.sh. Never
   // blocks the update.
   if (hooksTouched(changedPaths)) {
-    console.warn('\n' + buildHooksWarning(hooksPaths(changedPaths).join(', ')));
+    console.warn('\n' + buildHooksNote(hooksPaths(changedPaths).join(', ')));
   }
 
   const rebuild = needsRebuild(oldHead, newHead, changedPaths);
