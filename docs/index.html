@@ -1025,6 +1025,7 @@
 <div id="config" class="section config-layer">
   <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: AGENTS.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
   <p class="desc" style="margin-bottom: 12px;">Every setting you can tune, where each lives, and how to set it. Full list with every key: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
+  <div style="overflow-x: auto;">
   <table style="font-size: 13px; border-collapse: collapse; width: 100%; margin-bottom: 20px;">
     <thead>
       <tr>
@@ -1097,6 +1098,7 @@
       </tr>
     </tbody>
   </table>
+  </div>
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
   <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
