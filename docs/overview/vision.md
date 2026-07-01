@@ -25,6 +25,15 @@ task and get back a verifiable outcome.
    autonomy safe to trust.
 3. **Low friction.** Sensible defaults, minimal setup, global-default/per-project-override
    everywhere. The protocol should reduce ceremony, not add it.
+4. **Works for everyone (universality).** The protocol is a shared, portable package — every
+   rule, command, and agent must work for any operator, not just its author. No operator's
+   identity, workspace, tracker, or local setup may be baked into shared behavior: resolve
+   per-operator context at runtime (e.g. "my assigned tickets" via the tracker's own
+   current-user, scoped to the configured project — never a hardcoded account or workspace),
+   honor the global-default / per-project-override seam, and degrade gracefully when a
+   capability isn't configured rather than breaking. A change that only works for its author's
+   setup is a regression. (The "portability test": would this behave correctly for a teammate
+   with different credentials, a different tracker, or a different harness?)
 
 ## What it does
 
@@ -38,11 +47,14 @@ trust — escalating to the human only for genuine decisions.
 - **Not** capability-for-capability's-sake: features that raise attention tax without a
   proportional autonomy/verifiability gain are out of scope.
 - **Not** a finished product — it is a living system meant to evolve as patterns improve.
+- **Not** single-operator software: behavior hardwired to one person's identity, tracker,
+  workspace, or machine has no place in the shared rule set.
 
 ## How to use this for PR alignment
 
 A pull request is **aligned** if it advances at least one North Star pillar without regressing
 another (especially the attention test). A PR is **misaligned** if it adds operator attention
 tax for little autonomy/verifiability gain, makes outcomes harder to verify, increases friction
-without justification, or pulls the methodology toward "human must babysit." Misalignment is a
+without justification, pulls the methodology toward "human must babysit," or fails the
+portability test (works only for the author's identity, tracker, or setup). Misalignment is a
 *direction* signal for the operator — not necessarily a request-changes verdict on correctness.
