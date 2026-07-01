@@ -147,7 +147,7 @@ HOOK_CHANGES="$(git -C "$AE_REPO_DIR" diff --name-only "$OLD_HEAD" "$NEW_HEAD" -
 ```
 If `HOOK_CHANGES` is non-empty, print the following informational note (substituting `HOOK_CHANGES` as a comma-joined list into `Changed:`), then continue. Never stop the flow for this - it is informational only, not an actionable warning. Step 4.5 below auto-refreshes this machine's local hook snapshot once this command's own edit is pushed, independent of the pull handled here.
 
-> note: this update changed files under hooks/. The install step in this flow refreshes your local hook snapshot, so this machine's next new session uses the updated hooks. Other Claude Code sessions already open against this checkout keep running their previously-installed snapshot until they re-run install.sh (or /pull-and-install) - they do NOT pick up these hook changes on their next tool call. Changed: `<comma-joined HOOK_CHANGES>`
+> note: this update changed files under hooks/. A bare git pull no longer changes a running session's hooks (they load from a session-stable snapshot, not the checkout) - but this flow also runs the install step, which refreshes this checkout's SHARED hook snapshot in place. So any OTHER Claude Code session already open against this checkout will pick up the changed hooks on its next tool call. If that matters, have those sessions /exit and restart once this update finishes. Changed: `<comma-joined HOOK_CHANGES>`
 
 If `HOOK_CHANGES` is empty, skip silently.
 
