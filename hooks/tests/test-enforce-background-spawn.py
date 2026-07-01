@@ -17,11 +17,20 @@ HOOK_PATH = os.path.join(
 
 
 def run_hook(payload: str) -> tuple[int, str, str]:
+    # AE_TEAM_ROUTING_DISABLE=1 isolates these background-enforcement /
+    # sentinel-suppression cases from the team-routing branch (Unit D) so a
+    # real ~/.agentic/team.yml on the machine running this suite can't
+    # spuriously deny a case these tests never intended to exercise.
+    # Team-routing behavior has its own coverage in
+    # bin/tests/test_enforce_background_spawn.py.
+    env = dict(os.environ)
+    env["AE_TEAM_ROUTING_DISABLE"] = "1"
     result = subprocess.run(
         [sys.executable, HOOK_PATH],
         input=payload,
         capture_output=True,
         text=True,
+        env=env,
     )
     return result.returncode, result.stdout, result.stderr
 
