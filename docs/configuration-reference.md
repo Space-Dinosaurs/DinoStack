@@ -64,7 +64,10 @@ a warning is printed.
 
 Committed to the repo. Seeded with defaults by `/init-project`. Absent file =
 all defaults, no behavior change. The 16 behavioral toggles plus 6 tuning
-parameters are listed below.
+parameters are listed below. The file also carries a `scaffolding_version` key
+that is installer/migration-managed (used by `/migrate-project` as the
+source-of-truth stamp for "has this project been migrated to vN") - do not edit
+it manually.
 
 ### Behavioral toggles
 
