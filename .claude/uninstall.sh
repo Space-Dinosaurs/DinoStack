@@ -238,6 +238,31 @@ else:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Remove the hooks snapshot (DS-54)
+#
+# Same bounded-delete discipline as the sync path in
+# scripts/lib/hooks-snapshot.sh: resolves the snapshot dir for THIS
+# checkout's REPO_DIR and rm -rf's only that resolved, guard-validated path.
+# ---------------------------------------------------------------------------
+
+echo "Removing hooks snapshot..."
+
+if [[ -f "$REPO_DIR/scripts/lib/hooks-snapshot.sh" ]]; then
+  # shellcheck source=scripts/lib/hooks-snapshot.sh
+  if . "$REPO_DIR/scripts/lib/hooks-snapshot.sh" 2>/dev/null; then
+    if remove_hooks_snapshot "$REPO_DIR"; then
+      echo "  - hooks snapshot removed"
+    else
+      echo "  = hooks snapshot not found or already removed"
+    fi
+  else
+    echo "  ! failed to source scripts/lib/hooks-snapshot.sh - hooks snapshot removal skipped"
+  fi
+else
+  echo "  [skip] scripts/lib/hooks-snapshot.sh not found - hooks snapshot removal skipped"
+fi
+
+# ---------------------------------------------------------------------------
 # Remove managed section from ~/.claude/CLAUDE.md
 # ---------------------------------------------------------------------------
 

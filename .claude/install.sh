@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Purpose: One-shot installer for agentic-engineering. Symlinks agents,
-#          commands, and the skill directory into ~/.claude/; wires hooks into
-#          ~/.claude/settings.json; writes activation mode + risk profile;
-#          optionally configures permissions, MCPs, and developer identity;
-#          writes repo_dir to ~/.agentic/agentic-engineering-config.json with
-#          a clobber-guard (never overwrites a valid different repo_dir).
+#          commands, and the skill directory into ~/.claude/; syncs hook
+#          scripts into a session-stable per-checkout snapshot dir (DS-54,
+#          scripts/lib/hooks-snapshot.sh) and wires hooks in
+#          ~/.claude/settings.json to point there instead of the checkout;
+#          writes activation mode + risk profile; optionally configures
+#          permissions, MCPs, and developer identity; writes repo_dir to
+#          ~/.agentic/agentic-engineering-config.json with a clobber-guard
+#          (never overwrites a valid different repo_dir).
 #
 # Public API:
 #   bash .claude/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
@@ -388,6 +391,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Hook snapshot (DS-54)
+#
+# Copies hooks/ + the four in-scope adapters' hook sources into a
+# per-checkout snapshot dir at $HOME/.agentic/hooks-snapshot/<key>/, so a
+# bare `git pull` cannot silently rewire a live session's hook commands.
+# Graceful degradation: any failure here leaves AE_HOOKS_SNAPSHOT_DIR unset,
+# and the settings-wiring block below falls back to the checkout path via
+# the `AE_HOOKS_SNAPSHOT_DIR or repo_dir` idiom.
+# ---------------------------------------------------------------------------
+
+echo "Syncing hooks snapshot..."
+
+AE_HOOKS_SNAPSHOT_DIR=""
+if [[ -f "$REPO_DIR/scripts/lib/hooks-snapshot.sh" ]]; then
+  # shellcheck source=scripts/lib/hooks-snapshot.sh
+  if . "$REPO_DIR/scripts/lib/hooks-snapshot.sh" 2>/dev/null; then
+    if ! sync_hooks_snapshot "$REPO_DIR"; then
+      AE_HOOKS_SNAPSHOT_DIR=""
+      echo "  ! hooks snapshot sync failed - hooks will read from the checkout (non-fatal)"
+    fi
+  else
+    echo "  ! failed to source scripts/lib/hooks-snapshot.sh - hooks will read from the checkout (non-fatal)"
+  fi
+else
+  echo "  [skip] scripts/lib/hooks-snapshot.sh not found - hooks will read from the checkout"
+fi
+export AE_HOOKS_SNAPSHOT_DIR
+
+# ---------------------------------------------------------------------------
 # Update settings.json
 # ---------------------------------------------------------------------------
 
@@ -398,6 +430,10 @@ import json, os, sys
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
 repo_dir = os.environ.get("REPO_DIR", "")
+# DS-54: hook commands read from the session-stable snapshot when one was
+# successfully synced; otherwise they fall back to the checkout path so
+# install.sh degrades gracefully rather than ever dangling a re-point.
+hooks_root = os.environ.get("AE_HOOKS_SNAPSHOT_DIR", "") or repo_dir
 
 # Read existing settings
 if os.path.exists(settings_path):
@@ -472,7 +508,7 @@ else:
     })
     print("  + Added UserPromptSubmit risk-classification hook")
 
-SKILL_AUTO_CMD = f"bash {repo_dir}/hooks/skill-auto-load-check.sh"
+SKILL_AUTO_CMD = f"bash {hooks_root}/hooks/skill-auto-load-check.sh"
 
 upsert_hook(
     ups_star["hooks"],
@@ -482,7 +518,7 @@ upsert_hook(
 )
 
 # ---- Stop hook --------------------------------------------------------------
-STOP_CMD = f"node {repo_dir}/hooks/stop-context.js"
+STOP_CMD = f"node {hooks_root}/hooks/stop-context.js"
 
 stop_list = hooks.setdefault("Stop", [])
 
@@ -512,7 +548,7 @@ upsert_hook(
 # Scoped to the main session Stop event only (NOT SubagentStop).
 # Default off (abdication_guard_enabled must be true in .agentic/config.json).
 # Disable via: AE_ABDICATION_GUARD_DISABLE=1 in the environment.
-ENFORCE_ABDICATION_CMD = f"python3 {repo_dir}/hooks/enforce-no-abdication.py"
+ENFORCE_ABDICATION_CMD = f"python3 {hooks_root}/hooks/enforce-no-abdication.py"
 
 upsert_hook(
     stop_star["hooks"],
@@ -524,7 +560,7 @@ upsert_hook(
 # ---- SessionEnd hook (deferred-wrap finalize) -------------------------------
 # Finalizes a cleanly-ended session's pending marker to `ready` so the daemon
 # can drain it. Find-or-create; re-running install must NOT duplicate it.
-SESSION_END_CMD = f"node {repo_dir}/hooks/session-end-wrap.js"
+SESSION_END_CMD = f"node {hooks_root}/hooks/session-end-wrap.js"
 
 session_end_list = hooks.setdefault("SessionEnd", [])
 
@@ -551,7 +587,7 @@ upsert_hook(
 # First SessionStart registration: the wrapper composes the version-check
 # notice with the self-healing .claude-host sentinel and the guarded daemon
 # launch. Find-or-create; re-running install must NOT duplicate it.
-SESSION_START_CMD = f"bash {repo_dir}/hooks/session-start-wrap.sh"
+SESSION_START_CMD = f"bash {hooks_root}/hooks/session-start-wrap.sh"
 
 session_start_list = hooks.setdefault("SessionStart", [])
 
@@ -580,9 +616,9 @@ upsert_hook(
 # CC version. The hooks themselves also guard on both names internally for
 # belt-and-suspenders coverage. Two PreToolUse blocks are created: one for
 # "Task" (legacy) and one for "Agent" (current), each containing both hooks.
-ENFORCE_BG_CMD = f"python3 {repo_dir}/hooks/enforce-background-spawn.py"
-ENFORCE_SINGULARITY_CMD = f"python3 {repo_dir}/hooks/enforce-orchestrator-singularity.py"
-ENFORCE_TIER_CMD = f"python3 {repo_dir}/hooks/enforce-tier.py"
+ENFORCE_BG_CMD = f"python3 {hooks_root}/hooks/enforce-background-spawn.py"
+ENFORCE_SINGULARITY_CMD = f"python3 {hooks_root}/hooks/enforce-orchestrator-singularity.py"
+ENFORCE_TIER_CMD = f"python3 {hooks_root}/hooks/enforce-tier.py"
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
@@ -630,7 +666,7 @@ for spawn_matcher in ("Task", "Agent"):
     # Emits a spawn_start telemetry event to .agentic/events.jsonl on every
     # subagent spawn. Fully fail-open (no deny, no stdout). Enables deterministic
     # events.jsonl creation in ad-hoc sessions that never run /implement-ticket.
-    SPAWN_EMIT_CMD = f"node {repo_dir}/hooks/pre-tool-use-spawn-emit.js"
+    SPAWN_EMIT_CMD = f"node {hooks_root}/hooks/pre-tool-use-spawn-emit.js"
     upsert_hook(
         ptu_block["hooks"],
         "pre-tool-use-spawn-emit.js",
@@ -644,7 +680,7 @@ for spawn_matcher in ("Task", "Agent"):
 # renamed the spawn tool from "Task" to "Agent", so we wire BOTH matcher names
 # (same dual Task/Agent block pattern as the PreToolUse hooks above), each
 # find-or-create idempotent. Claude-Code-only (consistent with deferred-wrap hooks).
-CAPTURE_NUDGE_CMD = f"node {repo_dir}/hooks/post-tool-use-capture-nudge.js"
+CAPTURE_NUDGE_CMD = f"node {hooks_root}/hooks/post-tool-use-capture-nudge.js"
 
 ptu_post_list = hooks.setdefault("PostToolUse", [])
 
@@ -671,7 +707,7 @@ for spawn_matcher in ("Task", "Agent"):
 
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ptu_list = hooks.setdefault("PreToolUse", [])
-ENFORCE_AUQ_CMD = f"python3 {repo_dir}/hooks/enforce-askuserquestion-default.py"
+ENFORCE_AUQ_CMD = f"python3 {hooks_root}/hooks/enforce-askuserquestion-default.py"
 
 # Find or create a matcher "AskUserQuestion" block.
 ptu_auq = None

@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+# Module: .codex/install.sh
+# Role: Install the Codex CLI adapter into ~/.codex/ and ~/.agents/skills/
+# Inputs: .codex/ build artifacts (AGENTS.md, agents/, skill/), .codex/config/hooks.json
+# Outputs: symlinks at ~/.agents/skills/agentic-engineering, ~/.codex/AGENTS.md,
+#          ~/.codex/agents/; ~/.codex/hooks.json symlinked to the session-stable
+#          hooks snapshot (DS-54, scripts/lib/hooks-snapshot.sh) when sync
+#          succeeds, else the checkout's .codex/config/hooks.json; codex_hooks
+#          feature flag ensured in ~/.codex/config.toml
+# Side-effects: backs up existing non-symlink targets with .backup-<timestamp>
+#               suffix; syncs the hooks snapshot dir; may append to config.toml
+# Consumers: user runs manually; re-run after repo move (or to refresh the
+#            hooks snapshot) to update absolute hook paths
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -300,8 +312,48 @@ else
   echo "  + ~/.codex/agents/ linked to $NAMED_AGENTS_SRC"
 fi
 
-HOOKS_SRC="$REPO_DIR/.codex/config/hooks.json"
+# ---------------------------------------------------------------------------
+# Hook snapshot (DS-54)
+#
+# Copies hooks/ + the four in-scope adapters' hook sources into a
+# per-checkout snapshot dir at $HOME/.agentic/hooks-snapshot/<key>/, so a
+# bare `git pull` cannot silently rewire a live session's hook commands.
+# Graceful degradation: any failure here leaves AE_HOOKS_SNAPSHOT_DIR unset
+# and AE_HOOKS_ROOT falls back to the checkout ($REPO_DIR).
+# ---------------------------------------------------------------------------
+
+echo "Syncing hooks snapshot..."
+
+AE_HOOKS_SNAPSHOT_DIR=""
+if [[ -f "$REPO_DIR/scripts/lib/hooks-snapshot.sh" ]]; then
+  # shellcheck source=scripts/lib/hooks-snapshot.sh
+  if . "$REPO_DIR/scripts/lib/hooks-snapshot.sh" 2>/dev/null; then
+    if ! sync_hooks_snapshot "$REPO_DIR"; then
+      AE_HOOKS_SNAPSHOT_DIR=""
+      echo "  ! hooks snapshot sync failed - hooks will read from the checkout (non-fatal)"
+    fi
+  else
+    echo "  ! failed to source scripts/lib/hooks-snapshot.sh - hooks will read from the checkout (non-fatal)"
+  fi
+else
+  echo "  [skip] scripts/lib/hooks-snapshot.sh not found - hooks will read from the checkout"
+fi
+export AE_HOOKS_SNAPSHOT_DIR
+AE_HOOKS_ROOT="${AE_HOOKS_SNAPSHOT_DIR:-$REPO_DIR}"
+
+# DS-54: HOOKS_SRC is rooted at the hooks snapshot when one was successfully
+# synced, else the checkout (identical to the pre-DS-54 value). The embedded
+# command strings inside .codex/config/hooks.json are unchanged - they derive
+# their own hook-script root at runtime via
+# dirname(dirname(realpath($HOME/.codex/hooks.json))), which resolves to the
+# snapshot automatically once HOOKS_DST is re-pointed below.
+HOOKS_SRC="$AE_HOOKS_ROOT/.codex/config/hooks.json"
+# Both LEGACY_HOOKS_SRC candidates are checkout paths: the original
+# pre-migration ~/.codex/hooks.json target, and (DS-54) the checkout's own
+# .codex/config/hooks.json, which is now legacy too since the correct target
+# moved to the snapshot.
 LEGACY_HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
+LEGACY_HOOKS_SRC2="$REPO_DIR/.codex/config/hooks.json"
 HOOKS_DST="$HOME/.codex/hooks.json"
 
 CONFIG_FILE="$HOME/.codex/config.toml"
@@ -323,9 +375,10 @@ if [[ -L "$HOOKS_DST" ]]; then
   current_target_canonical="$(canonicalize_path "$current_target")"
   hooks_src_canonical="$(canonicalize_path "$HOOKS_SRC")"
   legacy_hooks_src_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC")"
+  legacy_hooks_src2_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC2")"
   if [[ "$current_target_canonical" == "$hooks_src_canonical" ]]; then
     echo "  = ~/.codex/hooks.json (already linked)"
-  elif [[ "$current_target_canonical" == "$legacy_hooks_src_canonical" ]]; then
+  elif [[ "$current_target_canonical" == "$legacy_hooks_src_canonical" || "$current_target_canonical" == "$legacy_hooks_src2_canonical" ]]; then
     rm "$HOOKS_DST"
     ln -s "$HOOKS_SRC" "$HOOKS_DST"
     echo "  + ~/.codex/hooks.json migrated from legacy source to $HOOKS_SRC"

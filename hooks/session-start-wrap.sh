@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # Purpose: Claude Code SessionStart wrapper for the deferred-wrap feature. It
-#          composes FOUR concerns into a single fail-open SessionStart hook:
+#          composes FIVE concerns into a single fail-open SessionStart hook:
 #          (a) the "newer version available" notice (delegated to the existing
 #          version-check wrapper); (b) a one-line auth-failed notice when the
 #          daemon previously could not authenticate; (c) a one-time migration of
 #          deferred-wrap artifacts from the old top-level .agentic/ layout to the
-#          new .agentic/wrap/ subdirectory; and (d) the self-healing
+#          new .agentic/wrap/ subdirectory; (d) the self-healing
 #          `.agentic/wrap/claude-host` sentinel write (MAJOR-B) plus a guarded,
-#          detached launch of the deferred-wrap daemon. It is the FIRST and only
-#          SessionStart registration install.sh makes; the version-check script
-#          is no longer wired directly - it is invoked from here.
+#          detached launch of the deferred-wrap daemon; and (e) a hooks-snapshot
+#          staleness nudge (DS-54, hooks/lib/hooks-staleness-core.sh) when the
+#          methodology checkout has never been snapshotted, is half-migrated
+#          across adapters, or has moved since the last snapshot sync. It is
+#          the FIRST and only SessionStart registration install.sh makes; the
+#          version-check script is no longer wired directly - it is invoked
+#          from here.
 # Public API: bash hooks/session-start-wrap.sh
 #             (reads the SessionStart JSON payload on stdin, extracts `cwd`;
 #              writes a single JSON object to stdout; always exits 0.)
 # Upstream deps: hooks/session-start-version-check.sh (version notice),
+#                hooks/lib/hooks-staleness-core.sh (hooks-snapshot staleness
+#                  nudge),
 #                jq OR a grep/sed fallback (extract `cwd` from stdin),
 #                node + hooks/wrap-daemon.js (detached daemon launch),
 #                .agentic/config.json (`deferred_wrap_daemon` toggle),
@@ -25,15 +31,19 @@
 #                missing config, or a daemon-launch error never blocks the
 #                session. The sentinel write is create-if-absent and swallows
 #                every fs error. The migration block is fully || true-guarded
-#                (set -euo pipefail safe) and never blocks the session.
+#                (set -euo pipefail safe) and never blocks the session. The
+#                staleness nudge (hooks-staleness-core.sh) is itself fail-open
+#                and always exits 0; a missing script or any internal error
+#                just yields an empty message piece.
 #                There is NO stale-sweep (CRITICAL-A): this script never
 #                promotes a marker, it only relocates old-layout artifacts once
 #                per project, self-heals the sentinel, and conditionally launches
 #                the daemon.
 # Performance: one subshell to the version-check core (sub-10ms read path, no
 #              blocking network), one defensive stdin parse, a migration sweep
-#              (fast: mv only needed when old-path files exist), and at most one
-#              detached daemon spawn that the hook never waits on.
+#              (fast: mv only needed when old-path files exist), one subshell
+#              to the staleness core (a handful of file checks, fail-open), and
+#              at most one detached daemon spawn that the hook never waits on.
 
 set -euo pipefail
 
@@ -87,6 +97,17 @@ except Exception:
     print('')
 " 2>/dev/null || true)"
   fi
+fi
+
+# --- (a2) Hooks-snapshot staleness nudge (DS-54) ---
+# Prints at most one line describing the methodology checkout's hook-snapshot
+# state (half_applied / never_migrated / stale_but_stable), or nothing when
+# current. Fully fail-open; a missing script or any internal error just
+# leaves this piece empty.
+staleness_msg=""
+HOOKS_STALENESS_CORE="$SCRIPT_DIR/lib/hooks-staleness-core.sh"
+if [[ -f "$HOOKS_STALENESS_CORE" ]]; then
+  staleness_msg="$(bash "$HOOKS_STALENESS_CORE" 2>/dev/null || true)"
 fi
 
 # --- (b) One-time migration: relocate old-layout artifacts to .agentic/wrap/ ---
@@ -196,17 +217,22 @@ if [[ "${AGENTIC_WRAP_DAEMON:-}" != "1" ]] && daemon_enabled; then
 fi
 
 # --- Compose + emit a single JSON object ---
-# Join the version notice and the auth-failed notice with a blank line. When
-# both are empty, emit a bare suppressOutput object. AGENTIC_QUIET=1 suppresses
-# the user-facing message but still satisfies the SessionStart JSON contract.
+# Join every non-empty message piece (version notice, auth-failed notice,
+# hooks-snapshot staleness nudge) with a blank line. When all pieces are
+# empty, emit a bare suppressOutput object. AGENTIC_QUIET=1 suppresses the
+# user-facing message but still satisfies the SessionStart JSON contract.
 combined=""
 if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
-  if [[ -n "$version_msg" && -n "$auth_msg" ]]; then
-    combined="$version_msg"$'\n\n'"$auth_msg"
-  elif [[ -n "$version_msg" ]]; then
-    combined="$version_msg"
-  elif [[ -n "$auth_msg" ]]; then
-    combined="$auth_msg"
+  parts=()
+  [[ -n "$version_msg" ]] && parts+=("$version_msg")
+  [[ -n "$auth_msg" ]] && parts+=("$auth_msg")
+  [[ -n "$staleness_msg" ]] && parts+=("$staleness_msg")
+  if [[ ${#parts[@]} -gt 0 ]]; then
+    sep=""
+    for part in "${parts[@]}"; do
+      combined="${combined}${sep}${part}"
+      sep=$'\n\n'
+    done
   fi
 fi
 
