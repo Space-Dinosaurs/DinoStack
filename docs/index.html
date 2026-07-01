@@ -2132,6 +2132,10 @@
     </div>
   </div>
 
+  <div class="note" style="border-left-color: var(--cyan); margin-top: 16px;">
+    <strong>Token spend:</strong> The Elevated classification is the dominant cost driver. Each Elevated task fans out to a Worker + Skeptic - and often an architect, orchestration-planner, and QA engineer - each re-reading full context. Moving from <code>strict</code> or <code>default</code> toward <code>relaxed</code> reclassifies more small work as Low (conductor direct action, no spawns), removing that pipeline overhead entirely. Accept the tradeoff: <code>relaxed</code> trades independent review for speed; keep <code>default</code> or <code>strict</code> wherever a mistake is hard to reverse.
+  </div>
+
   <div class="code-block" style="margin-top: 16px;">
     <span class="cb-label">how to set your profile</span>
     <span class="cb-keyword"># At install time</span><br>
@@ -2142,6 +2146,32 @@
     <br>
     <span class="cb-keyword"># Per-project override in root AGENTS.md</span><br>
     agentic-engineering-profile: strict
+  </div>
+
+  <div class="rel-card" style="margin-top: 16px;">
+    <h4 style="color: var(--text-secondary);">The <code>preset</code> alias</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><code>preset</code> is a session-wide shorthand that resolves to a profile. It is an alias, not extra capability - <code>preset: lean</code> and <code>profile: relaxed</code> have identical effect. When both are set, preset wins (it is the higher-level knob).</p>
+    <table style="font-size: 13px; border-collapse: collapse; width: 100%; margin-bottom: 12px;">
+      <thead>
+        <tr>
+          <th style="text-align: left; padding: 4px 12px 4px 0; color: var(--text-secondary); font-weight: 600;">Preset</th>
+          <th style="text-align: left; padding: 4px 0; color: var(--text-secondary); font-weight: 600;">Resolves to profile</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td style="padding: 3px 12px 3px 0;"><code>lean</code></td><td><code>relaxed</code></td></tr>
+        <tr><td style="padding: 3px 12px 3px 0;"><code>standard</code></td><td><code>default</code></td></tr>
+        <tr><td style="padding: 3px 12px 3px 0;"><code>strict</code></td><td><code>strict</code></td></tr>
+      </tbody>
+    </table>
+    <div class="code-block" style="margin-top: 8px;">
+      <span class="cb-label">setting preset</span>
+      <span class="cb-keyword"># Global: ~/.claude/agentic-engineering.json</span><br>
+      { "preset": "lean" }<br>
+      <br>
+      <span class="cb-keyword"># Per-project: root AGENTS.md  (overrides global preset and any profile: line)</span><br>
+      agentic-engineering-preset: lean
+    </div>
   </div>
 </div>
 
