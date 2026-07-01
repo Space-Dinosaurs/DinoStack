@@ -137,6 +137,10 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 
 Tier 1 (haiku) has no default-role owner; it is opt-in per spawn for shallow mechanical tasks.
 
+**Small-unit Tier-2 Skeptic carve-out.** When a unit meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches none of the 5 Mandatory Tier-3 signal categories above, the conductor MAY declare `Tier: 2 (small-unit nudge)` for the reviewing Skeptic instead of accepting the unconditional Opus role default. The declaration stays visible in the `Tier:` line at spawn time, same as any other tier declaration. This is a loop-cost lever only - it never widens what classifies as Low or Trivial, and the Skeptic still runs.
+
+The 5 Mandatory Tier-3 signal categories are untouched by this carve-out and still force Opus unconditionally, including for the Skeptic reviewing that unit: security/auth/crypto/payments/secrets, irreversible operations, novel architecture constraining future choices, high blast radius / shared-utility change, and release/deploy/production-state change. Do NOT route this carve-out to Tier 1/Haiku - Tier 1 is defined above as existence-checks/format-only and routing a Skeptic review there would gut review depth. The floor for this carve-out is Tier 2, never Tier 1.
+
 **Frontmatter defaults and the model param.** Each agent's frontmatter `model:` encodes its role-default tier. Resolution precedence (Claude Code): `CLAUDE_CODE_SUBAGENT_MODEL` env var > spawn-call `model` param > frontmatter `model:` > inherited session model. Therefore:
 - To accept an agent's role default, the conductor OMITS the `model` param; the frontmatter supplies the model (a skeptic spawn with no param runs Opus).
 - To OVERRIDE for a specific spawn (upgrade a Tier-2 agent to Tier 3 for a novel-architecture unit, or assert a mandated-Tier-3 Skeptic), the conductor passes an explicit `model` param, which wins.
