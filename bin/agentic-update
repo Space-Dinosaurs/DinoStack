@@ -41,6 +41,13 @@ Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
                is non-fatal: failures emit a warning and execution continues.
                Missing agentic-doctor binary: warning, exit 0.
 
+Advisory: when a pull changes any file under hooks/, a non-blocking warning
+          is printed to stderr (_hooks_touched / _build_hooks_warning) -
+          Claude Code (and other adapters) load hook scripts by absolute
+          path and re-read them from disk on every tool call, so other open
+          sessions against this checkout pick up the change with no
+          restart. Never blocks the update.
+
 Performance: network-bound (git fetch); rebuild decision and adapter installs
              add seconds only when adapter sources changed.
 """
@@ -222,6 +229,44 @@ def _needs_rebuild(old_head: str, new_head: str, changed_paths: list[str]) -> bo
             return True
 
     return False
+
+
+def _hooks_touched(changed_paths: list[str]) -> bool:
+    """Return True if any changed path lives under hooks/.
+
+    Ported from scripts/update.js hooksTouched(). Keep in sync - same
+    normalisation as _needs_rebuild (backslash -> forward slash, strip one
+    leading slash) and the same hooks/ prefix test.
+
+    Drives a non-blocking stderr warning after a pull: Claude Code (and
+    other adapters) load hook scripts by absolute path and re-read them
+    from disk on every tool call, so an OTHER open session against this
+    checkout picks up the change on its next tool call with no restart.
+    """
+    for p in changed_paths:
+        normalised = re.sub(r'^/', '', p.replace("\\", "/"))
+        if normalised.startswith("hooks/"):
+            return True
+    return False
+
+
+def _build_hooks_warning(changed_paths: list[str]) -> str:
+    """Build the non-blocking hooks/-change advisory (mirrors buildHooksWarning()
+    in scripts/update.js). Changed: lists the hooks/-prefixed subset only.
+    """
+    changed_list = ", ".join(
+        p for p in changed_paths
+        if re.sub(r'^/', '', p.replace("\\", "/")).startswith("hooks/")
+    )
+    return (
+        "warning: this update changed files under hooks/. Claude Code (and other adapters) "
+        "load hook scripts by ABSOLUTE PATH into this checkout and re-read them from disk on "
+        "every tool call - there is no copy step. Any OTHER session with an open terminal "
+        "already using this checkout will pick up the new hook behavior on its NEXT tool call: "
+        "no restart, no re-run of install.sh, no in-session notice. If other sessions are active "
+        "against this checkout, tell them to /exit and restart once this update finishes - or "
+        "expect hook behavior to change under them mid-session. Changed: " + changed_list
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +474,10 @@ def main() -> int:
         rc, diff_out, _ = _git(repo_dir, "diff", "--name-only", old_head, new_head)
         if rc == 0 and diff_out:
             changed_paths = [p for p in diff_out.splitlines() if p.strip()]
+
+    # Non-blocking advisory: warn (never block) when the pull touched hooks/.
+    if _hooks_touched(changed_paths):
+        print(_build_hooks_warning(changed_paths), file=sys.stderr)
 
     # Count commits pulled
     commits_pulled = 0

@@ -12,6 +12,13 @@
  *                   executed as a script.
  *   needsRebuild(oldHead, newHead, changedPaths) - pure predicate; exported
  *                   for unit tests via module.exports when not run directly.
+ *   hooksTouched(changedPaths) - pure predicate; true when any changed path
+ *                   is under hooks/. Drives a non-blocking stderr warning
+ *                   after a pull, since Claude Code (and other adapters)
+ *                   load hook scripts by absolute path and re-read them from
+ *                   disk on every tool call - other open sessions against
+ *                   this checkout pick up the change with no restart.
+ *                   Exported for unit tests via module.exports.
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
  *                external packages.
@@ -239,6 +246,14 @@ const REBUILD_TRIGGERS = [
   'bin/',
 ];
 
+// Normalise a repo-relative path for prefix/exact-match comparisons:
+// convert backslashes to forward slashes (Windows safety) and strip exactly
+// one leading slash. Shared by needsRebuild() and hooksTouched() so the two
+// predicates never drift on path normalisation semantics.
+function normalisePath(p) {
+  return p.replace(/\\/g, '/').replace(/^\//, '');
+}
+
 // Returns true if adapter install scripts should be run after a pull.
 //
 // Decision table:
@@ -258,8 +273,7 @@ function needsRebuild(oldHead, newHead, changedPaths) {
 
   // Check each changed path against rebuild triggers.
   for (const p of changedPaths) {
-    // Normalise separators (Windows safety) and strip leading slashes.
-    const normalised = p.replace(/\\/g, '/').replace(/^\//, '');
+    const normalised = normalisePath(p);
     for (const trigger of REBUILD_TRIGGERS) {
       if (trigger.endsWith('/')) {
         // Directory prefix: match any file under this directory.
@@ -278,6 +292,39 @@ function needsRebuild(oldHead, newHead, changedPaths) {
   }
 
   return false;
+}
+
+// Returns the subset of changedPaths that live under hooks/, after path
+// normalisation. Shared by hooksTouched() and the pull-warning Changed: line
+// so both use the exact same subset.
+function hooksPaths(changedPaths) {
+  return changedPaths.filter((p) => normalisePath(p).startsWith('hooks/'));
+}
+
+// Returns true if any changedPath lives under hooks/. Pure predicate - takes
+// no oldHead/newHead because the caller (main()) only computes changedPaths
+// when a pull actually moved HEAD, so an empty changedPaths array already
+// means "nothing to warn about" (first install or no-op pull).
+function hooksTouched(changedPaths) {
+  return hooksPaths(changedPaths).length > 0;
+}
+
+// Builds the non-blocking advisory printed to stderr when a pull changes
+// files under hooks/. Claude Code (and other adapters) load hook scripts by
+// absolute path and re-read them from disk on every tool call - there is no
+// copy step - so any OTHER session with an open terminal already using this
+// checkout picks up the new hook behavior on its NEXT tool call, with no
+// restart and no in-session notice.
+function buildHooksWarning(changedList) {
+  return (
+    'warning: this update changed files under hooks/. Claude Code (and other adapters) ' +
+    'load hook scripts by ABSOLUTE PATH into this checkout and re-read them from disk on ' +
+    'every tool call - there is no copy step. Any OTHER session with an open terminal ' +
+    'already using this checkout will pick up the new hook behavior on its NEXT tool call: ' +
+    'no restart, no re-run of install.sh, no in-session notice. If other sessions are active ' +
+    'against this checkout, tell them to /exit and restart once this update finishes - or ' +
+    'expect hook behavior to change under them mid-session. Changed: ' + changedList
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +718,14 @@ async function main() {
     }
   }
 
+  // Non-blocking advisory: hook scripts are loaded by absolute path and
+  // re-read from disk on every tool call, so a changed hooks/ file rewires
+  // any OTHER open session against this checkout with no restart. Warn but
+  // never block the update.
+  if (hooksTouched(changedPaths)) {
+    console.warn('\n' + buildHooksWarning(hooksPaths(changedPaths).join(', ')));
+  }
+
   const rebuild = needsRebuild(oldHead, newHead, changedPaths);
 
   // Run install scripts (fail-fast: stop on first failure)
@@ -741,5 +796,5 @@ if (require.main === module) {
     process.exit(1);
   });
 } else {
-  module.exports = { needsRebuild };
+  module.exports = { needsRebuild, hooksTouched };
 }
