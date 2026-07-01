@@ -56,3 +56,29 @@ to blanket blocks. Hooks never raise to the Claude Code harness; non-fatal
 errors are swallowed or written to stderr. The only intentional side effects
 are append-only writes to `.agentic/` files and deny decisions on clearly
 violating tool calls.
+
+## Fail-open on absent tool_input fields
+
+A PreToolUse hook that gates on a `tool_input` field must fail OPEN (exit 0 /
+allow) when that field is entirely ABSENT from the payload for the guarded
+`tool_name` - this is distinct from present-but-false, which MAY deny. A
+field that is present and `false` is a real signal from the harness; a field
+that never appears in the payload at all is not a signal - it means this
+harness/tool-name combination does not emit that field, and denying on its
+absence blocks every call unconditionally.
+
+Cautionary example: `enforce-background-spawn.py` originally denied any
+`Task`/`Agent` spawn missing `run_in_background: true`. The Claude Code
+harness strips `run_in_background` from the `Agent` tool's PreToolUse
+payload entirely (confirmed by live payload capture: `tool_input` keys for
+an `Agent` spawn are exactly `['description', 'prompt', 'subagent_type']`) -
+`Agent` is background-by-default at the harness level and the field simply
+never arrives. The hook denied every `Agent` spawn until this was found and
+fixed; enforcement was scoped back to the legacy `Task` tool only, where the
+field genuinely is present in the payload.
+
+**Discipline before gating on a field:** capture or obtain one real
+`PreToolUse` payload for the guarded `tool_name` and confirm the field is
+actually present in that harness's real shape. Do not assume a field
+documented for one tool name (or one harness) is present for a related tool
+name or a different harness - verify per tool_name.

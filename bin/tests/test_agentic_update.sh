@@ -495,6 +495,157 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 11 (DS-54): Direct _hooks_touched unit test via importlib
+#
+# Mirrors Test 9's importlib pattern. Covers the same case table as
+# scripts/test/update-hookstouched.test.js so the JS and Python ports of
+# the predicate agree.
+# ---------------------------------------------------------------------------
+python3 - "$UPDATER" > /tmp/t11_agentic_update_out.$$ 2>&1 <<'PYEOF'
+import importlib.util, importlib.machinery, sys
+
+updater_path = sys.argv[1]
+loader = importlib.machinery.SourceFileLoader("agentic_update_t11", updater_path)
+spec = importlib.util.spec_from_file_location("agentic_update_t11", updater_path, loader=loader)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+ht = mod._hooks_touched
+failures = []
+
+if not ht(["hooks/enforce-background-spawn.py"]):
+    failures.append("hooks/-prefixed path should be touched")
+if ht(["content/agents/engineer.md"]):
+    failures.append("non-hooks path should NOT be touched")
+if not ht(["README.md", "hooks/x.sh"]):
+    failures.append("mixed paths (one hooks/) should be touched")
+if ht([]):
+    failures.append("empty changed_paths should NOT be touched")
+if not ht(["hooks\\foo.py"]):
+    failures.append("backslash-normalized hooks path should be touched")
+if not ht(["/hooks/foo.py"]):
+    failures.append("leading-slash hooks path should be touched")
+
+if failures:
+    for f in failures:
+        print("FAIL:", f)
+    sys.exit(1)
+print("all cases ok")
+sys.exit(0)
+PYEOF
+HT_RC=$?
+HT_OUT=$(cat /tmp/t11_agentic_update_out.$$ 2>/dev/null)
+rm -f /tmp/t11_agentic_update_out.$$
+
+if [[ "$HT_RC" == "0" ]]; then
+  _pass "T11 _hooks_touched: hooks/-prefixed path -> touched"
+  _pass "T11 _hooks_touched: non-hooks path -> not touched"
+  _pass "T11 _hooks_touched: mixed paths -> touched"
+  _pass "T11 _hooks_touched: empty changed_paths -> not touched"
+  _pass "T11 _hooks_touched: backslash-normalized path -> touched"
+  _pass "T11 _hooks_touched: leading-slash path -> touched"
+else
+  _fail "T11 _hooks_touched: one or more cases wrong: $HT_OUT"
+fi
+
+# push_ahead_hooks_commit: like push_ahead_commit, but the pushed commit adds
+# a file under hooks/ instead of .claude/install.sh. Used to exercise the
+# hooks-changed warning (DS-54) integration test.
+push_ahead_hooks_commit() {
+  local pusher_dir="$TEMP_HOME/pusher"
+  git clone --quiet "$FAKE_REMOTE" "$pusher_dir" 2>/dev/null
+  (
+    cd "$pusher_dir"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p hooks
+    printf '#!/usr/bin/env python3\n# test hook\n' > hooks/fake-hook.py
+    git add hooks/fake-hook.py
+    git commit -m "add fake hook under hooks/" -q
+    git push -q origin main 2>/dev/null
+  )
+  rm -rf "$pusher_dir"
+}
+
+# ---------------------------------------------------------------------------
+# Test 11b (DS-54): integration - pulling a commit that adds a hooks/ file
+# prints the warning substring.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_hooks_commit   # remote 1 ahead; commit adds hooks/fake-hook.py
+
+invoke_updater --no-doctor
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T11b hooks-changed update: exits 0"
+else
+  _fail "T11b hooks-changed update: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -q "this update changed files under hooks/"; then
+  _pass "T11b hooks-changed update: warning PRESENT in output"
+else
+  _fail "T11b hooks-changed update: warning missing (got: $OUT)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 11c (DS-54, negative): pulling a commit that touches only a non-hooks
+# file must NOT print the warning.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_commit   # adds .claude/install.sh only - no hooks/ files
+
+invoke_updater --no-doctor
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T11c non-hooks update: exits 0"
+else
+  _fail "T11c non-hooks update: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -q "this update changed files under hooks/"; then
+  _fail "T11c non-hooks update: warning present but should be ABSENT (got: $OUT)"
+else
+  _pass "T11c non-hooks update: warning ABSENT (no hooks/ files changed)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 11d (DS-54, negative): a no-op pull (already up to date) must NOT
+# print the warning.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+# No push_ahead_commit call - remote and local are identical (already up to date).
+
+invoke_updater --no-doctor
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T11d no-op pull: exits 0"
+else
+  _fail "T11d no-op pull: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -q "this update changed files under hooks/"; then
+  _fail "T11d no-op pull: warning present but should be ABSENT (already up to date)"
+else
+  _pass "T11d no-op pull: warning ABSENT (no-op / already up to date)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

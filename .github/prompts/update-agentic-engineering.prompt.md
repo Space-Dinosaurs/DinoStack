@@ -133,10 +133,20 @@ Before making any edits, the main agent (not a subagent - git state decisions re
 Decision matrix:
 
 - **Clean tree AND local == origin/main:** proceed to Step 1.
-- **Clean tree AND origin is ahead (local behind):** fast-forward pull (`git pull --ff-only origin main`), then proceed to Step 1.
+- **Clean tree AND origin is ahead (local behind):** capture `OLD_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"`, fast-forward pull (`git pull --ff-only origin main`), capture `NEW_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"`, then run the hook-change warning check below, then proceed to Step 1.
 - **Clean tree AND local is ahead (origin behind):** note this in the user-facing summary but proceed - the push in Step 4 will include the prior commits too.
 - **Clean tree AND both are ahead (divergence):** STOP. Tell the user: "Local and origin have diverged (N local commits, M origin commits). Resolve the divergence manually before running /update-agentic-engineering again." Do not attempt auto-merge or rebase.
 - **Dirty tree (any uncommitted changes):** STOP. Show the user `git status` output and tell them to commit, stash, or discard before running /update-agentic-engineering. Do not auto-stash - the WIP may be important and this command is not authorized to touch it.
+
+**Hook-change warning (after any pull in this step):**
+```bash
+HOOK_CHANGES="$(git -C "$AE_REPO_DIR" diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- hooks/)"
+```
+If `HOOK_CHANGES` is non-empty, print the following non-blocking warning (substituting `HOOK_CHANGES` as a comma-joined list into `Changed:`), then continue. Never stop the flow for this - it is advisory only.
+
+> warning: this update changed files under hooks/. Claude Code (and other adapters) load hook scripts by ABSOLUTE PATH into this checkout and re-read them from disk on every tool call - there is no copy step. Any OTHER session with an open terminal already using this checkout will pick up the new hook behavior on its NEXT tool call: no restart, no re-run of install.sh, no in-session notice. If other sessions are active against this checkout, tell them to /exit and restart once this update finishes - or expect hook behavior to change under them mid-session. Changed: `<comma-joined HOOK_CHANGES>`
+
+If `HOOK_CHANGES` is empty, skip silently.
 
 ## Step 1 - Spawn a Worker
 
@@ -170,7 +180,7 @@ Otherwise (normal isolation-worktree path), after the user approves in Step 2:
    ```
 
 2. Check whether local main has diverged from origin/main using the same decision matrix as Step 0:
-   - **Local behind, fast-forwardable:** `git pull --ff-only origin main`, then continue.
+   - **Local behind, fast-forwardable:** capture `OLD_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"`, `git pull --ff-only origin main`, capture `NEW_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"`, run the same hook-change warning check as Step 0 (`git -C "$AE_REPO_DIR" diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- hooks/`; print the shared advisory when non-empty, never block), then continue.
    - **Diverged (both sides ahead):** STOP. Tell the user: "Local and origin have diverged since Step 0. Resolve the divergence manually before continuing." Do not force or auto-merge.
    - **Local ahead or equal:** proceed.
 
