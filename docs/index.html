@@ -1024,81 +1024,82 @@
 <!-- ═══ LAYER 1: Configuration Files ═══ -->
 <div id="config" class="section config-layer">
   <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: AGENTS.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
-  <p class="desc" style="margin-bottom: 12px;">Every setting you can tune, where each lives, and how to set it. Full list with every key: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
-  <div style="overflow-x: auto;">
-  <table style="font-size: 13px; border-collapse: collapse; width: 100%; margin-bottom: 20px;">
-    <thead>
-      <tr>
-        <th style="text-align: left; padding: 5px 14px 5px 0; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08);">Setting</th>
-        <th style="text-align: left; padding: 5px 14px 5px 0; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08);">Options</th>
-        <th style="text-align: left; padding: 5px 14px 5px 0; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08);">Default</th>
-        <th style="text-align: left; padding: 5px 0; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08);">How to set</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Risk profile</td>
-        <td style="padding: 5px 14px 5px 0;"><code>relaxed</code> / <code><strong>default</strong></code> / <code>strict</code></td>
-        <td style="padding: 5px 14px 5px 0;"><code>default</code></td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">Install: <code>install.sh --profile=&lt;v&gt;</code>; or post-install: <code>profile</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering-profile:</code> in AGENTS.md</td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Preset (profile alias)</td>
-        <td style="padding: 5px 14px 5px 0;"><code>lean</code> / <code>standard</code> / <code>strict</code></td>
-        <td style="padding: 5px 14px 5px 0;">none</td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">Post-install: <code>preset</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering-preset:</code> in AGENTS.md</td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Activation mode</td>
-        <td style="padding: 5px 14px 5px 0;"><code><strong>opt-out</strong></code> / <code>opt-in</code></td>
-        <td style="padding: 5px 14px 5px 0;"><code>opt-out</code></td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);"><code>mode</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering:</code> marker in AGENTS.md</td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Auto-merge on green CI</td>
-        <td style="padding: 5px 14px 5px 0;"><code>true</code> / <code><strong>false</strong></code></td>
-        <td style="padding: 5px 14px 5px 0;"><code>false</code></td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">Post-install: <code>auto_merge_on_ci_green</code> in <code>.agentic/config.json</code></td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Commit telemetry</td>
-        <td style="padding: 5px 14px 5px 0;"><code><strong>true</strong></code> / <code>false</code></td>
-        <td style="padding: 5px 14px 5px 0;"><code>true</code></td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">Post-install: <code>commit_telemetry</code> in <code>.agentic/config.json</code></td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Capability preflight</td>
-        <td style="padding: 5px 14px 5px 0;"><code>advisory</code> / <code><strong>blocking</strong></code></td>
-        <td style="padding: 5px 14px 5px 0;"><code>blocking</code></td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">Post-install: <code>capability_preflight_mode</code> in <code>.agentic/config.json</code></td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Abdication guard</td>
-        <td style="padding: 5px 14px 5px 0;"><code>true</code> / <code><strong>false</strong></code></td>
-        <td style="padding: 5px 14px 5px 0;"><code>false</code></td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">Post-install: <code>abdication_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_ABDICATION_GUARD_DISABLE=1</code></td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Ticket-driven</td>
-        <td style="padding: 5px 14px 5px 0;"><code>off</code> / <code>offer</code> / <code>require</code></td>
-        <td style="padding: 5px 14px 5px 0;"><code>offer</code> if tracker connected, else <code>off</code></td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">Post-install: <code>ticket_driven</code> in <code>.agentic/config.json</code></td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Guard kill-switches</td>
-        <td style="padding: 5px 14px 5px 0; font-size: 12px;"><code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code></td>
-        <td style="padding: 5px 14px 5px 0;">unset</td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);">In-session: <code>export &lt;VAR&gt;=1</code> before launching</td>
-      </tr>
-      <tr>
-        <td style="padding: 5px 14px 5px 0; white-space: nowrap;">Identity handle</td>
-        <td style="padding: 5px 14px 5px 0; font-size: 12px;">any string</td>
-        <td style="padding: 5px 14px 5px 0; font-size: 12px;">derived from GitHub login</td>
-        <td style="padding: 5px 0; font-size: 12px; color: var(--text-secondary);"><code>agentic-identity auto</code> / <code>init &lt;handle&gt;</code> / <code>confirm</code></td>
-      </tr>
-    </tbody>
-  </table>
+  <p class="desc" style="margin-bottom: 16px;">Every setting you can tune - what it does, your options, and how to set it. Full list of every key: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
+
+  <!-- Activation / profile settings -->
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4 style="color: var(--cyan);">Risk profile</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Controls how aggressively work triggers independent Skeptic review - relaxed means less overhead, strict means broader coverage.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>relaxed</code> / <code><strong>default</strong></code> / <code>strict</code> &nbsp; <strong>Default:</strong> <code>default</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> install - <code>bash .claude/install.sh --profile=&lt;v&gt;</code>; post-install - <code>profile</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering-profile:</code> in AGENTS.md</p>
   </div>
+
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4 style="color: var(--cyan);">Preset (profile alias)</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Session-wide shorthand that resolves to a risk profile; an alias, not extra capability. Wins over <code>profile</code> when both are set.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>lean</code> / <code>standard</code> / <code>strict</code> &nbsp; <strong>Default:</strong> none</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>preset</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering-preset:</code> in AGENTS.md</p>
+  </div>
+
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4 style="color: var(--cyan);">Activation mode</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the methodology runs everywhere by default (opt-out) or stays dormant until a project opts in (opt-in).</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>opt-out</strong></code> / <code>opt-in</code> &nbsp; <strong>Default:</strong> <code>opt-out</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>mode</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering:</code> marker in AGENTS.md</p>
+  </div>
+
+  <!-- .agentic/config.json toggles -->
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4>Auto-merge on green CI</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the conductor squash-merges a PR automatically once CI passes and it is approved.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>auto_merge_on_ci_green</code> in <code>.agentic/config.json</code></p>
+  </div>
+
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4>Commit telemetry</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether per-developer session logs are committed to the PR branch as a separate commit.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>true</strong></code> / <code>false</code> &nbsp; <strong>Default:</strong> <code>true</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>commit_telemetry</code> in <code>.agentic/config.json</code></p>
+  </div>
+
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4>Capability preflight</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a spawn with missing required agent tools warns and proceeds (advisory) or is refused until the dep is available (blocking).</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>advisory</code> / <code><strong>blocking</strong></code> &nbsp; <strong>Default:</strong> <code>blocking</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>capability_preflight_mode</code> in <code>.agentic/config.json</code></p>
+  </div>
+
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4>Abdication guard</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook blocks conductor turns that end by asking permission for a non-destructive next step.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>abdication_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_ABDICATION_GUARD_DISABLE=1</code></p>
+  </div>
+
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4>Ticket-driven</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether new work creates a tracker ticket before the first implementer spawns - off skips the gate, offer prompts with a proceed default, require hard-blocks until a ticket exists.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>off</code> / <code>offer</code> / <code>require</code> &nbsp; <strong>Default:</strong> <code>offer</code> if a tracker is connected, else <code>off</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>ticket_driven</code> in <code>.agentic/config.json</code></p>
+  </div>
+
+  <!-- Env kill-switches -->
+  <div class="rel-card" style="margin-bottom: 10px;">
+    <h4>Guard kill-switches</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Per-session env vars that disable individual enforcement hooks or silence activation output.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Vars:</strong> <code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code> &nbsp; <strong>Default:</strong> unset</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> in-session - <code>export &lt;VAR&gt;=1</code> before launching</p>
+  </div>
+
+  <!-- Identity -->
+  <div class="rel-card" style="margin-bottom: 16px;">
+    <h4>Identity handle</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> derived from GitHub login</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code></p>
+  </div>
+
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
   <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
