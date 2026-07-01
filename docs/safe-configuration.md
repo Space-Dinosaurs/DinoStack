@@ -150,34 +150,9 @@ The **risk profile** is the primary lever for cutting that cost. Moving from
 overhead entirely. See the [Risk profiles](#risk-profiles) section above for
 the full list of which signals shift at each level.
 
-### The `preset` alias
-
-`preset` is a session-wide shorthand that resolves to a profile. It is an alias,
-not extra capability - setting `agentic-engineering-profile: relaxed` achieves
-the same result as `preset: lean`.
-
-| Preset     | Resolves to profile |
-|------------|---------------------|
-| `lean`     | `relaxed`           |
-| `standard` | `default`           |
-| `strict`   | `strict`            |
-
-**Where to set it:**
-
-- **Global** - add a `"preset"` key to `~/.claude/agentic-engineering.json`:
-  `{ "preset": "lean" }` (omit `mode` - it controls activation, not profile,
-  and its default value should be left unchanged).
-- **Per-project** - add a marker line to the project's `AGENTS.md`:
-  `agentic-engineering-preset: lean`. This overrides the global preset and
-  any direct `agentic-engineering-profile:` line in the same file.
-
-**Collision rule:** when both a `preset` and a direct `profile` are set, the
-`preset` wins. It is the higher-level knob. When `preset` is absent or null,
-the direct `profile` value is used (back-compat).
-
 ### Tradeoff
 
-Use `relaxed` (or `lean`) for solo work and trusted-repo iteration to reduce
+Use `relaxed` for solo work and trusted-repo iteration to reduce
 token spend; accept that small behavioral edits skip independent Skeptic review.
 Keep `default` or `strict` where a mistake costs time or data - shared repos,
 security-sensitive paths, or any work that is hard to revert. The
