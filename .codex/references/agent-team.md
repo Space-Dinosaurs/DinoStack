@@ -124,7 +124,7 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - The task involves meaningful design decisions (data model, API shape, integration points)
 - The codebase is unfamiliar and exploration is needed before touching code
 - The feature touches multiple subsystems and sequencing matters
-- Skip it for well-understood, self-contained changes - go straight to `engineer`
+- Skip it for well-understood, self-contained changes - go straight to `engineer`. The architect may also be mechanically skipped when the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches neither "Unfamiliar codebase area" nor "Architecture decision constraining future choices". Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts.
 
 **Use `security-auditor` when:**
 - The change touches auth, sessions, tokens, passwords, or permissions
