@@ -7,15 +7,35 @@
 
 ### Features
 
+- **#366** [reliable /wrap lock-wait via agentic-wrap-acquire-lock binary](https://github.com/Space-Dinosaurs/DinoStack/pull/366) - tyson-solara6
+- **#365** [implement-ticket delegates >=2-ticket batch planning to /ticket-triage](https://github.com/Space-Dinosaurs/DinoStack/pull/365) - tyson-solara6
 - **#364** [add /ticket-triage batch planner (standalone)](https://github.com/Space-Dinosaurs/DinoStack/pull/364) - tyson-solara6
 - **#360** [ticket-driven-by-default flow when a tracker is connected](https://github.com/Space-Dinosaurs/DinoStack/pull/360) - tyson-solara6
 - **#358** [telemetry-health counter for silent-fail visibility (#266)](https://github.com/Space-Dinosaurs/DinoStack/pull/358) - tyson-solara6
+- **#336** [add .telemetry-health.json failure counter + agentic-status surface (#266) [hooks-stack 3/3]](https://github.com/Space-Dinosaurs/DinoStack/pull/336) - bloodf
+
+### Fixes
+
+- **#273** [align methodology with current Claude Code harness (Glob/Grep, Task->Agent, bash agent type)](https://github.com/Space-Dinosaurs/DinoStack/pull/273) - tristanlee85
+
+### Performance
+
+- **#335** [read events.jsonl once per session-end in stop-context run() (#267) [hooks-stack 2/3]](https://github.com/Space-Dinosaurs/DinoStack/pull/335) - bloodf
+
+### Refactoring
+
+- **#333** [extract shared atomic_write + acquire_exclusive_lock to _lib.py (#265) [bin-stack 3/3]](https://github.com/Space-Dinosaurs/DinoStack/pull/333) - bloodf
 
 ### Documentation
 
+- **#363** [update command and reference doc counts](https://github.com/Space-Dinosaurs/DinoStack/pull/363) - bloodf
 - **#362** [add capability-preflight and wrap-deferred end-user pages](https://github.com/Space-Dinosaurs/DinoStack/pull/362) - tyson-solara6
 - **#361** [refresh stale What's-included inventory (30 refs, 22 commands)](https://github.com/Space-Dinosaurs/DinoStack/pull/361) - tyson-solara6
 - **#359** [add end-user docs page for skill-candidate detection](https://github.com/Space-Dinosaurs/DinoStack/pull/359) - tyson-solara6
+
+### Maintenance
+
+- **#327** [add pyproject.toml (ruff+mypy) and eslint config, wire into pre-commit (#263)](https://github.com/Space-Dinosaurs/DinoStack/pull/327) - bloodf
 
 ## 2026-06-29
 
