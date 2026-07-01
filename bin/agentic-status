@@ -2,11 +2,25 @@
 """
 Purpose: Read-only inspection of the agentic-engineering activation
          resolver. Dumps the resolved global config, project marker,
-         profile/preset, and first-activation sentinel state to stdout,
-         each value annotated with its provenance, followed by a
+         profile, and first-activation sentinel state to stdout, each
+         value annotated with its provenance, followed by a
          plain-English "What this means" behavior explainer and a
          "How to adjust" block. The CLI for the /agentic-status command.
          Writes nothing.
+
+         The session-wide `preset` (lean/standard/strict) layer is a
+         time-bounded, presence-aware legacy shim (DS-48 Lever 9). A
+         valid legacy preset at either scope resolves to a profile ONLY
+         when no explicit `profile` value is present at that same
+         precedence step: project profile > project preset (legacy,
+         only if project profile absent) > global profile > global
+         preset (legacy, only if global profile absent) > hardcoded
+         "default". Presence of a legacy preset key ALWAYS emits a
+         DEPRECATED notice, regardless of whether it wins - an operator
+         with a stale preset key sees a migrate-off nudge even when a
+         profile override already shadows it. The resolved `preset`
+         value is no longer part of `_resolve`'s return or the printed
+         output - only `profile` and the deprecation notices surface.
 
 Public API: agentic-status
             Prints a fixed-format multi-line report (status lines with
@@ -56,7 +70,10 @@ ROLE_MODELS_GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
 ROLE_MODELS_PROJECT_PATH = Path(".agentic/role-models.yml")
 HEALTH_FILE_PATH = Path(".agentic/.telemetry-health.json")
 
-PRESET_TABLE = {
+# DEPRECATED: legacy session-wide preset->profile alias table (DS-48 Lever 9).
+# preset support will be removed after the deprecation window; profile is the
+# single risk knob going forward.
+LEGACY_PRESET_TABLE = {
     "lean": "relaxed",
     "standard": "default",
     "strict": "strict",
@@ -108,14 +125,22 @@ _PROFILE_RE = re.compile(
     r"^\s*(?:-\s+)?agentic-engineering-profile:\s*(\S+)\s*$",
     re.IGNORECASE,
 )
-_PRESET_RE = re.compile(
+# DEPRECATED: legacy per-project preset marker line (DS-48 Lever 9).
+_LEGACY_PRESET_RE = re.compile(
     r"^\s*(?:-\s+)?agentic-engineering-preset:\s*(\S+)\s*$",
     re.IGNORECASE,
 )
 
 
 def _scan_agents_md(path: Path | None) -> dict:
-    """Return {marker, project_profile, project_preset} from AGENTS.md."""
+    """Return {marker, project_profile, project_preset} from AGENTS.md.
+
+    project_preset is the legacy `agentic-engineering-preset:` marker
+    (DEPRECATED, DS-48 Lever 9) - still scanned because it feeds the
+    presence-aware legacy fallback in `_resolve` and the deprecation
+    notices; it no longer has any resolution weight when a project
+    `profile` value is also present.
+    """
     out = {"marker": "none", "project_profile": None, "project_preset": None}
     if path is None:
         return out
@@ -133,7 +158,7 @@ def _scan_agents_md(path: Path | None) -> dict:
             val = p.group(1).lower()
             if val in ("relaxed", "default", "strict"):
                 out["project_profile"] = val
-        pr = _PRESET_RE.match(line)
+        pr = _LEGACY_PRESET_RE.match(line)
         if pr and out["project_preset"] is None:
             val = pr.group(1).lower()
             if val in ("lean", "standard", "strict"):
@@ -143,8 +168,36 @@ def _scan_agents_md(path: Path | None) -> dict:
     return out
 
 
+_LEGACY_WON_TEMPLATE = (
+    "DEPRECATED: preset key '{value}' ({scope}) resolved to profile={resolved}; "
+    "migrate by setting profile={resolved} directly - preset support will be "
+    "removed after the deprecation window."
+)
+
+_LEGACY_NOT_USED_TEMPLATE = (
+    "DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - "
+    "effective profile is '{effective}' (source: {source}). Remove the stale "
+    "preset key/marker - it has no effect and will be rejected after the "
+    "deprecation window."
+)
+
+
 def _resolve(config: dict, scan: dict, config_status: str = "found") -> dict:
-    """Resolve effective profile, preset, and active state."""
+    """Resolve effective profile and active state (presence-aware, DS-48 Lever 9).
+
+    Precedence: project profile > project preset (legacy, only if project
+    profile absent) > global profile > global preset (legacy, only if global
+    profile absent) > hardcoded "default". An explicit valid value at a given
+    scope is distinguished from an ABSENT or INVALID value at that scope -
+    `config.get("profile")` returning None (absent) is never conflated with an
+    explicit "default" (present); an invalid value is treated identically to
+    absent for precedence purposes, allowing a legacy preset at the same scope
+    to apply.
+
+    Deprecation notices fire on PRESENCE of a valid legacy preset at either
+    scope, regardless of whether it wins the precedence chain - see
+    `legacy_notices` in the returned dict.
+    """
     raw_mode = str(config.get("mode") or "opt-out").lower()
     mode = "opt-in" if raw_mode == "opt-in" else "opt-out"
     mode_source = (
@@ -153,38 +206,83 @@ def _resolve(config: dict, scan: dict, config_status: str = "found") -> dict:
         else "global config (default; file missing)"
     )
 
-    raw_profile = str(config.get("profile") or "default").lower()
-    if raw_profile not in ("relaxed", "default", "strict"):
-        raw_profile = "default"
-    global_profile = raw_profile
+    # Presence-aware validation: None means absent-or-invalid, never conflated
+    # with an explicit "default" value.
+    _raw_global_profile = config.get("profile")
+    global_valid_profile = (
+        _raw_global_profile.lower()
+        if isinstance(_raw_global_profile, str)
+        and _raw_global_profile.lower() in ("relaxed", "default", "strict")
+        else None
+    )
+    _raw_global_preset = config.get("preset")
+    global_valid_preset = (
+        _raw_global_preset.lower()
+        if isinstance(_raw_global_preset, str)
+        and _raw_global_preset.lower() in LEGACY_PRESET_TABLE
+        else None
+    )
 
-    raw_preset = config.get("preset")
-    if isinstance(raw_preset, str) and raw_preset.lower() in PRESET_TABLE:
-        global_preset: str | None = raw_preset.lower()
-    else:
-        global_preset = None
+    project_valid_profile = scan["project_profile"]
+    project_valid_preset = scan["project_preset"]
 
-    # Resolution order: project preset > project profile > global preset > global profile.
-    if scan["project_preset"]:
-        effective_profile = PRESET_TABLE[scan["project_preset"]]
-        profile_source = "preset-resolved"
-        effective_preset: str | None = scan["project_preset"]
-        preset_source = "project"
-    elif scan["project_profile"]:
-        effective_profile = scan["project_profile"]
+    # Precedence chain (see docstring). Each branch sets both the effective
+    # profile and a human-readable provenance label.
+    if project_valid_profile is not None:
+        effective_profile = project_valid_profile
         profile_source = "project"
-        effective_preset = global_preset
-        preset_source = "global" if global_preset else "none"
-    elif global_preset:
-        effective_profile = PRESET_TABLE[global_preset]
-        profile_source = "preset-resolved"
-        effective_preset = global_preset
-        preset_source = "global"
-    else:
-        effective_profile = global_profile
+    elif project_valid_preset is not None:
+        effective_profile = LEGACY_PRESET_TABLE[project_valid_preset]
+        profile_source = "project (legacy preset)"
+    elif global_valid_profile is not None:
+        effective_profile = global_valid_profile
         profile_source = "global"
-        effective_preset = None
-        preset_source = "none"
+    elif global_valid_preset is not None:
+        effective_profile = LEGACY_PRESET_TABLE[global_valid_preset]
+        profile_source = "global (legacy preset)"
+    else:
+        effective_profile = "default"
+        profile_source = "global (default; unset)"
+
+    # Deprecation notices: fire on presence, independent of whether the value
+    # won. Project notice (if any) precedes global notice (if any).
+    legacy_notices: list[str] = []
+    if project_valid_preset is not None:
+        if profile_source == "project (legacy preset)":
+            legacy_notices.append(
+                _LEGACY_WON_TEMPLATE.format(
+                    value=project_valid_preset,
+                    scope="project",
+                    resolved=effective_profile,
+                )
+            )
+        else:
+            legacy_notices.append(
+                _LEGACY_NOT_USED_TEMPLATE.format(
+                    value=project_valid_preset,
+                    scope="project",
+                    effective=effective_profile,
+                    source=profile_source,
+                )
+            )
+    if global_valid_preset is not None:
+        if profile_source == "global (legacy preset)":
+            legacy_notices.append(
+                _LEGACY_WON_TEMPLATE.format(
+                    value=global_valid_preset,
+                    scope="global",
+                    resolved=effective_profile,
+                )
+            )
+        else:
+            legacy_notices.append(
+                _LEGACY_NOT_USED_TEMPLATE.format(
+                    value=global_valid_preset,
+                    scope="global",
+                    effective=effective_profile,
+                    source=profile_source,
+                )
+            )
 
     marker = scan["marker"]
     if mode == "opt-out" and marker == "opt-out":
@@ -216,8 +314,7 @@ def _resolve(config: dict, scan: dict, config_status: str = "found") -> dict:
         "mode_source": mode_source,
         "profile": effective_profile,
         "profile_source": profile_source,
-        "preset": effective_preset,
-        "preset_source": preset_source,
+        "legacy_notices": legacy_notices,
         "set_at": config.get("set_at") or "unset",
         "marker": marker,
         "active": active,
@@ -484,9 +581,6 @@ def _how_to_adjust_block(resolved: dict) -> list[str]:
         f'    edit {config_display}  ->  "profile": "relaxed" | "default" | "strict"',
         "  Turn the skill OFF for this project:        /agentic-disable",
         "  Turn it off EVERYWHERE:                      /agentic-disable --global",
-        "  Use a preset instead of a raw profile:",
-        "    project: agentic-engineering-preset: lean|standard|strict in AGENTS.md",
-        '    global:  "preset": "lean" | "standard" | "strict" in the JSON config',
         "  See every command:                           /agentic-help",
     ]
 
@@ -500,7 +594,6 @@ def main(_argv: list[str]) -> int:
     sentinel_status = "present" if SENTINEL_PATH.is_file() else "absent"
     marker_path_display = str(agents_path) if agents_path else "none"
     res["marker_path_display"] = marker_path_display
-    preset_display = res["preset"] if res["preset"] else "none"
     active_display = "yes" if res["active"] else "no"
 
     out = []
@@ -510,9 +603,8 @@ def main(_argv: list[str]) -> int:
     out.append(
         f"  profile: {res['profile']} (source: {res['profile_source']})"
     )
-    out.append(
-        f"  preset: {preset_display} (source: {res['preset_source']})"
-    )
+    for notice in res["legacy_notices"]:
+        out.append(f"  {notice}")
     out.append(f"  set_at: {res['set_at']}")
     out.append(f"  project marker file: {marker_path_display}")
     out.append(f"  marker: {res['marker']}")

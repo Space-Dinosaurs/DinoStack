@@ -218,7 +218,7 @@ def test_scan_profile_line(tmp_path):
     assert result["project_profile"] == "strict"
 
 
-def test_scan_preset_line(tmp_path):
+def test_scan_legacy_preset_line(tmp_path):
     f = tmp_path / "AGENTS.md"
     f.write_text(
         "agentic-engineering: opt-in\nagentic-engineering-preset: lean\n",
@@ -272,7 +272,7 @@ def test_resolve_missing_config_defaults():
     res = _resolve({}, _empty_scan(), "missing")
     assert res["mode"] == "opt-out"
     assert res["profile"] == "default"
-    assert res["preset"] is None
+    assert res["legacy_notices"] == []
     assert res["active"] is True
     assert "global config (default; file missing)" in res["mode_source"]
 
@@ -303,14 +303,18 @@ def test_resolve_optout_mode_no_marker_active():
     assert res["active"] is True
 
 
-def test_resolve_project_preset_overrides_all(tmp_path):
-    # project preset -> resolves to profile via PRESET_TABLE; overrides global profile.
+def test_resolve_project_profile_present_ignores_project_preset(tmp_path):
+    # project profile present -> project preset is a legacy fallback that does
+    # NOT win (fallback-only-when-absent semantics, not "preset wins").
     scan = {"marker": "opt-in", "project_profile": "strict", "project_preset": "lean"}
     res = _resolve({"mode": "opt-in", "profile": "strict"}, scan, "found")
-    assert res["profile"] == "relaxed"  # lean -> relaxed
-    assert res["preset"] == "lean"
-    assert res["profile_source"] == "preset-resolved"
-    assert res["preset_source"] == "project"
+    assert res["profile"] == "strict"  # project profile wins, not lean->relaxed
+    assert res["profile_source"] == "project"
+    # The legacy project preset is present but did not win -> a NOT-used notice fires.
+    assert len(res["legacy_notices"]) == 1
+    assert "NOT used" in res["legacy_notices"][0]
+    assert "lean" in res["legacy_notices"][0]
+    assert "strict" in res["legacy_notices"][0]
 
 
 def test_resolve_project_profile_no_preset(tmp_path):
@@ -320,19 +324,20 @@ def test_resolve_project_profile_no_preset(tmp_path):
     assert res["profile_source"] == "project"
 
 
-def test_resolve_global_preset_when_no_project_override():
+def test_resolve_global_preset_only_when_no_global_profile():
+    # global profile absent -> global preset is the legacy fallback and wins.
     res = _resolve({"mode": "opt-out", "preset": "standard"}, _empty_scan(), "found")
     assert res["profile"] == "default"  # standard -> default
-    assert res["preset"] == "standard"
-    assert res["profile_source"] == "preset-resolved"
-    assert res["preset_source"] == "global"
+    assert res["profile_source"] == "global (legacy preset)"
+    assert len(res["legacy_notices"]) == 1
+    assert "resolved to profile=default" in res["legacy_notices"][0]
 
 
 def test_resolve_global_profile_fallback():
     res = _resolve({"mode": "opt-out", "profile": "relaxed"}, _empty_scan(), "found")
     assert res["profile"] == "relaxed"
     assert res["profile_source"] == "global"
-    assert res["preset"] is None
+    assert res["legacy_notices"] == []
 
 
 def test_resolve_invalid_mode_treated_as_optout():
@@ -343,6 +348,61 @@ def test_resolve_invalid_mode_treated_as_optout():
 def test_resolve_invalid_profile_treated_as_default():
     res = _resolve({"profile": "mega-strict"}, _empty_scan(), "found")
     assert res["profile"] == "default"
+
+
+# ---------------------------------------------------------------------------
+# _resolve - DS-48 Lever 9 presence-aware regression tests
+# ---------------------------------------------------------------------------
+
+def test_resolve_global_preset_only_no_profile_resolves_strict():
+    # (1) global {"preset":"strict"} no profile -> profile=="strict",
+    # source "global (legacy preset)".
+    res = _resolve({"preset": "strict"}, _empty_scan(), "found")
+    assert res["profile"] == "strict"
+    assert res["profile_source"] == "global (legacy preset)"
+    assert len(res["legacy_notices"]) == 1
+    assert "resolved to profile=strict" in res["legacy_notices"][0]
+
+
+def test_resolve_project_preset_only_no_project_profile_resolves_relaxed(tmp_path):
+    # (2) project AGENTS.md with only agentic-engineering-preset: lean ->
+    # project_profile is None, resolves "relaxed".
+    f = tmp_path / "AGENTS.md"
+    f.write_text("agentic-engineering-preset: lean\n", encoding="utf-8")
+    scan = _scan_agents_md(f)
+    assert scan["project_profile"] is None
+    res = _resolve({}, scan, "found")
+    assert res["profile"] == "relaxed"
+    assert res["profile_source"] == "project (legacy preset)"
+
+
+def test_resolve_coexist_profile_wins_not_used_notice_names_both():
+    # (3) coexist {"profile":"relaxed","preset":"strict"} -> profile=="relaxed"
+    # AND legacy_notices has one NOT-used entry naming both strict and relaxed.
+    res = _resolve({"profile": "relaxed", "preset": "strict"}, _empty_scan(), "found")
+    assert res["profile"] == "relaxed"
+    assert len(res["legacy_notices"]) == 1
+    notice = res["legacy_notices"][0]
+    assert "NOT used" in notice
+    assert "strict" in notice
+    assert "relaxed" in notice
+
+
+def test_resolve_invalid_profile_valid_preset_resolves_via_legacy():
+    # (4) invalid {"profile":"mega-strict","preset":"strict"} -> resolves
+    # "strict" (legacy preset), source "global (legacy preset)".
+    res = _resolve({"profile": "mega-strict", "preset": "strict"}, _empty_scan(), "found")
+    assert res["profile"] == "strict"
+    assert res["profile_source"] == "global (legacy preset)"
+    assert len(res["legacy_notices"]) == 1
+    assert "resolved to profile=strict" in res["legacy_notices"][0]
+
+
+def test_resolve_profile_only_no_deprecation_notice():
+    # No preset key anywhere -> no deprecation line.
+    scan = {"marker": "none", "project_profile": "strict", "project_preset": None}
+    res = _resolve({"mode": "opt-out", "profile": "relaxed"}, scan, "found")
+    assert res["legacy_notices"] == []
 
 
 def test_resolve_set_at_forwarded():
@@ -685,6 +745,23 @@ def test_main_reflects_config(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "opt-in" in out
     assert "relaxed" in out
+    # No legacy preset key set anywhere -> no DEPRECATED line.
+    assert "DEPRECATED" not in out
+
+
+def test_main_reflects_config_shows_deprecated_line_when_legacy_preset_set(monkeypatch, tmp_path, capsys):
+    _clear_harness_env(monkeypatch)
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"mode": "opt-in", "preset": "strict"}), encoding="utf-8")
+    monkeypatch.setattr(_mod, "CONFIG_PATH", cfg)
+    monkeypatch.setattr(_mod, "SENTINEL_PATH", tmp_path / ".activated")
+    monkeypatch.setattr(_mod, "ROLE_MODELS_GLOBAL_PATH", tmp_path / "no-global.yml")
+    monkeypatch.setattr(_mod, "ROLE_MODELS_PROJECT_PATH", tmp_path / "no-project.yml")
+    monkeypatch.chdir(tmp_path)
+    main([])
+    out = capsys.readouterr().out
+    assert "DEPRECATED" in out
+    assert "strict" in out
 
 
 # ---------------------------------------------------------------------------
