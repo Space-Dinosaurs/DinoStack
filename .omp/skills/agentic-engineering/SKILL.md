@@ -110,6 +110,7 @@ Command templates live in `commands/`. Pi does not support custom markdown comma
 Available commands:
 
 - **cleanup-worktrees** - Clean up stale git worktrees and local branches.
+- **configure-team** - Set up and verify a cross-harness agent team for role-to-harness dispatch.
 - **implement-ticket** - End-to-end ticket implementation with architect, engineer, and skeptic.
 - **init-project** - Initialize agentic-engineering in a new repository.
 - **memory-update** - Update session context and memory files.
