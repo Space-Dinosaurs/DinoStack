@@ -446,6 +446,68 @@ def test_discover_installed_harness_has_version_field(monkeypatch):
     assert "version" in payload["codex"]  # key must be present even if None
 
 
+def test_discover_omp_models_populated_from_canned_json(monkeypatch):
+    """omp models probe: canned `omp models ls --json` stdout -> models list
+    populated with id/selector strings; discover still succeeds."""
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+
+    def fake_which(binary: str) -> str | None:
+        return "/usr/local/bin/omp" if binary == "omp" else None
+
+    def fake_run(argv, **kwargs):  # type: ignore[override]
+        class _Result:
+            pass
+        r = _Result()
+        if argv[1:] == ["models", "ls", "--json"]:
+            r.stdout = json.dumps({"models": [{"id": "minimax/MiniMax-M3"}, {"selector": "kimi/kimi-k2.7"}]})
+            r.stderr = "extension load warning: ignored\n"
+        else:
+            r.stdout = "omp 16.2.6\n"
+            r.stderr = ""
+        r.returncode = 0
+        return r
+
+    monkeypatch.setattr(_shutil, "which", fake_which)
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+
+    payload = _discover_harnesses()
+    assert payload["omp"]["installed"] is True
+    assert payload["omp"]["models"] == ["minimax/MiniMax-M3", "kimi/kimi-k2.7"]
+
+
+def test_discover_omp_models_probe_exception_yields_empty_list(monkeypatch):
+    """omp models probe raising (e.g. timeout, bad JSON) -> models=[];
+    discover as a whole still succeeds (does not raise)."""
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+
+    def fake_which(binary: str) -> str | None:
+        return "/usr/local/bin/omp" if binary == "omp" else None
+
+    def fake_run(argv, **kwargs):  # type: ignore[override]
+        if argv[1:] == ["models", "ls", "--json"]:
+            raise _subprocess.TimeoutExpired(cmd=argv, timeout=10)
+        class _Result:
+            stdout = "omp 16.2.6\n"
+            stderr = ""
+            returncode = 0
+        return _Result()
+
+    monkeypatch.setattr(_shutil, "which", fake_which)
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+
+    payload = _discover_harnesses()
+    assert payload["omp"]["installed"] is True
+    assert payload["omp"]["models"] == []
+
+
 def test_discover_exit_zero_when_all_absent(monkeypatch, tmp_path):
     """main() returns 0 from discover even when every harness is absent.
     Hermetic: env vars cleared; models=[] always (static, no probe).
@@ -592,6 +654,69 @@ def test_dispatch_builds_claude_argv():
     assert "-p" in argv
     assert "--output-format" in argv
     assert "json" in argv
+
+
+def test_dispatch_builds_kimi_argv():
+    """kimi argv is --print --yolo --final-message-only -p '<brief>'."""
+    argv = _build_worker_argv("kimi", "test brief")
+    assert argv[0] == HARNESS_BINARY["kimi"]
+    assert "--print" in argv
+    assert "--yolo" in argv
+    assert "--final-message-only" in argv
+    assert "-p" in argv
+    assert "test brief" in argv
+
+
+def test_dispatch_builds_pi_argv():
+    """pi argv is -p '<brief>' (default text mode)."""
+    argv = _build_worker_argv("pi", "test brief")
+    assert argv[0] == HARNESS_BINARY["pi"]
+    assert "-p" in argv
+    assert "test brief" in argv
+
+
+def test_dispatch_builds_omp_argv():
+    """omp argv is -p '<brief>' (default text mode, not json)."""
+    argv = _build_worker_argv("omp", "test brief")
+    assert argv[0] == HARNESS_BINARY["omp"]
+    assert "-p" in argv
+    assert "test brief" in argv
+    assert "--mode" not in argv
+
+
+# ---------------------------------------------------------------------------
+# Section A: --model flag forwarded for all 7 harnesses, after positional brief
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "harness,expected_flag",
+    [
+        ("codex", "-m"),
+        ("gemini", "-m"),
+        ("claude", "--model"),
+        ("cursor-agent", "--model"),
+        ("kimi", "--model"),
+        ("pi", "--model"),
+        ("omp", "--model"),
+    ],
+)
+def test_dispatch_model_flag_forwarded_for_all_harnesses(harness, expected_flag):
+    """--model is forwarded for every KNOWN_HARNESSES entry, using the
+    harness's own flag spelling, appended AFTER the positional brief."""
+    argv = _build_worker_argv(harness, "test brief", model="some-model")
+    assert expected_flag in argv
+    flag_idx = argv.index(expected_flag)
+    assert argv[flag_idx + 1] == "some-model"
+    brief_idx = argv.index("test brief")
+    assert flag_idx > brief_idx, "model flag must come after positional brief"
+
+
+def test_dispatch_no_model_flag_when_model_absent():
+    """When model is None, no model flag appears in any harness argv."""
+    for harness in KNOWN_HARNESSES:
+        argv = _build_worker_argv(harness, "test brief")
+        assert "--model" not in argv
+        assert "-m" not in argv
 
 
 # ---------------------------------------------------------------------------
@@ -1102,36 +1227,42 @@ def test_no_model_argv_unchanged():
     assert _build_worker_argv("codex", "BRIEF", model="") == _build_worker_argv("codex", "BRIEF")
 
 
-# --- M2b fail-fast: reject --model for non-confirmed harness, no side effect --
+# --- All 7 harnesses now accept --model (no fail-fast reject) ----------------
 
-def test_dispatch_model_rejected_for_kimi_no_side_effect(tmp_path, monkeypatch, capsys):
-    """(e) dispatch --model X --harness kimi -> exit 2, reject message, no run
-    dir created, no subprocess spawned."""
+def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
+    """dispatch --model X --harness kimi -> succeeds (rc 0), no fail-fast
+    reject; the model flag reaches the spawned argv."""
     import argparse as _argparse
 
     workdir = tmp_path / "wd"
     workdir.mkdir()
     brief_file = _make_brief_file(tmp_path)
-    teamrun = workdir / ".agentic" / "teamrun"
 
-    # Prove no subprocess is spawned: any Popen call is a hard failure.
-    def _no_popen(*a, **k):
-        raise AssertionError("subprocess.Popen must NOT be called on a rejected dispatch")
+    captured: dict = {}
 
-    monkeypatch.setattr(_mod.subprocess, "Popen", _no_popen)
+    class _FakeProc:
+        pid = 12345
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def _fake_popen(argv, *a, **k):
+        captured["argv"] = argv
+        return _FakeProc()
+
+    monkeypatch.setattr(_mod.subprocess, "Popen", _fake_popen)
 
     args = _argparse.Namespace(
         harness="kimi", role="engineer",
         brief=str(brief_file), workdir=str(workdir), model="some-model",
     )
     rc = _mod._cmd_dispatch(args)
-    assert rc == 2, f"rejected dispatch must return 2, got {rc}"
-    err = capsys.readouterr().err
-    assert "--model is not supported for harness 'kimi'" in err
-    assert "codex" in err and "gemini" in err and "claude" in err
-    # No filesystem side effect: teamrun dir never created (fail-fast precedes mkdir).
-    assert not teamrun.exists(), "no run dir / teamrun tree may be created on reject"
-    assert _MODEL_FLAG_HARNESSES == frozenset({"codex", "gemini", "claude"})
+    assert rc == 0, f"dispatch with --model on kimi must succeed, got rc={rc}"
+    assert "--model" in captured["argv"] and "some-model" in captured["argv"]
+    assert _MODEL_FLAG_HARNESSES == frozenset(_mod.KNOWN_HARNESSES)
 
 
 # --- M2a: sibling-gated .active unlink ---------------------------------------
