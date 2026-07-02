@@ -60,7 +60,16 @@ Failure modes:
     (non-JSON) lines in the store are skipped silently.
   mark: exits 1 with a stderr message if the store file is absent or no
     line matches --id. The rewrite is all-or-nothing via atomic_write - a
-    failure mid-rewrite leaves the original file untouched.
+    failure mid-rewrite leaves the original file untouched. A malformed
+    (non-JSON) line encountered during mark's read is dropped from the
+    rewritten file (as with list) but - unlike list - mark prints a
+    one-line stderr warning naming the line number, since mark's rewrite
+    is destructive and the drop should be visible, not silent. mark also
+    re-canonicalizes every surviving line via json.dumps with compact
+    separators on rewrite, so non-target lines are byte-identical only
+    for lines the CLI itself originally wrote; an externally hand-edited
+    line (different key order, whitespace, etc.) will be re-canonicalized
+    to the CLI's compact form even though its field values are preserved.
 
   Locking: all three subcommands acquire the same exclusive LOCK_PATH for
   their full read/modify/write critical section (append's read+append,
@@ -125,22 +134,34 @@ def _ensure_lock_bootstrap() -> None:
     LOCK_PATH.touch(exist_ok=True)
 
 
-def _read_store() -> list[dict]:
+def _read_store(warn_on_malformed: bool = False) -> list[dict]:
     """Read FEEDBACK_PATH and return a list of parsed line dicts.
 
-    File-absent returns []. Malformed (non-JSON) lines are skipped silently.
+    File-absent returns []. Malformed (non-JSON) lines are skipped.
+
+    When warn_on_malformed is True (used by `mark`'s full-file rewrite,
+    where a skipped line represents a destructive silent drop from the
+    store), a one-line stderr warning naming the 1-based line number is
+    printed for each skipped line. `list`'s read path leaves this False -
+    list is non-destructive, so warning there would be noisier than useful.
     """
     if not FEEDBACK_PATH.is_file():
         return []
     rows: list[dict] = []
     text = FEEDBACK_PATH.read_text(encoding="utf-8")
-    for line in text.splitlines():
+    for lineno, line in enumerate(text.splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
         try:
             rows.append(json.loads(line))
         except json.JSONDecodeError:
+            if warn_on_malformed:
+                print(
+                    f"agentic-feedback: skipping malformed line {lineno} in "
+                    f"{FEEDBACK_PATH.name}",
+                    file=sys.stderr,
+                )
             continue
     return rows
 
@@ -261,7 +282,7 @@ def cmd_mark(args: argparse.Namespace) -> int:
                 )
                 return 1
 
-            rows = _read_store()
+            rows = _read_store(warn_on_malformed=True)
             matched = False
             new_lines: list[str] = []
             for row in rows:

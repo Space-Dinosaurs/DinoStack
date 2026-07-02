@@ -20,6 +20,15 @@ Test groups:
   8. test_two_sequential_appends_both_land_under_shared_lock - two
      sequential append calls (simulating two projects' /wrap runs) both
      land intact; final file is the union of valid items, one line each.
+  9. test_concurrent_appends_serialize_under_real_multiprocess_contention -
+     genuine cross-process concurrency via multiprocessing.Process: N
+     workers each append many records to the SAME store at once; asserts
+     exact expected line count and that every line is valid, non-torn
+     JSON, proving the fcntl lock actually serializes writers (a version
+     with the lock removed would drop and/or interleave lines).
+  10. test_mark_warns_on_malformed_line_and_drops_it - mark's rewrite
+      prints a stderr warning naming the line number of a malformed line
+      it drops (visibility for a destructive silent skip).
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_agentic_feedback.py -x
@@ -31,6 +40,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import multiprocessing
 import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -48,6 +58,48 @@ _mod = importlib.util.module_from_spec(_spec)
 _loader.exec_module(_mod)
 
 main = _mod.main
+
+
+def _mp_append_worker(
+    bin_path_str: str,
+    feedback_path_str: str,
+    lock_path_str: str,
+    repo: str,
+    session_uuid: str,
+    batch_path_str: str,
+) -> None:
+    """Multiprocessing worker (module-level, picklable): fresh-imports
+    bin/agentic-feedback in THIS process and patches FEEDBACK_PATH/LOCK_PATH
+    before invoking `append`, then sys.exit()s with main()'s return code.
+
+    Must be defined at module level (not a closure/lambda) so
+    multiprocessing can pickle a reference to it for the child process.
+    Each worker re-imports the CLI module and re-sets FEEDBACK_PATH/
+    LOCK_PATH itself, because a multiprocessing worker does not inherit the
+    parent test process's monkeypatched module globals (the child gets its
+    own copy of the module either way - via re-import under 'spawn' or
+    copy-on-write under 'fork' - so re-setting explicitly here is what
+    makes the worker point at the shared tmp-dir store regardless of which
+    start method the platform uses).
+    """
+    import importlib.machinery as _mp_ilm
+    import importlib.util as _mp_ilu
+    import sys as _mp_sys
+    from pathlib import Path as _MpPath
+
+    loader = _mp_ilm.SourceFileLoader("agentic_feedback_mp_worker", bin_path_str)
+    spec = _mp_ilu.spec_from_loader("agentic_feedback_mp_worker", loader)
+    worker_mod = _mp_ilu.module_from_spec(spec)
+    loader.exec_module(worker_mod)
+
+    worker_mod.FEEDBACK_PATH = _MpPath(feedback_path_str)
+    worker_mod.LOCK_PATH = _MpPath(lock_path_str)
+
+    rc = worker_mod.main([
+        "agentic-feedback", "append",
+        "--repo", repo, "--session-uuid", session_uuid, "--file", batch_path_str,
+    ])
+    _mp_sys.exit(rc)
 
 
 def _patch_paths(tmp_path: Path):
@@ -304,6 +356,108 @@ def test_two_sequential_appends_both_land_under_shared_lock():
         print("PASS test_two_sequential_appends_both_land_under_shared_lock")
 
 
+def test_concurrent_appends_serialize_under_real_multiprocess_contention():
+    """(9) genuine concurrency: N multiprocessing.Process workers each append
+    many records to the SAME store at once. Asserts on COUNT and JSON-validity
+    only (no timing/ordering assertions - deterministic and robust):
+      (a) the final file has exactly the expected total line count, and
+      (b) every line parses as valid JSON (no torn/interleaved half-lines).
+    A version with the fcntl lock removed would be expected to drop and/or
+    interleave lines under this contention - this test proves the lock
+    actually serializes writers, unlike a sequential-call test."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        feedback_path = tmp_path / "feedback.jsonl"
+        lock_path = tmp_path / "feedback.jsonl.lock"
+
+        n_workers = 4
+        n_per_worker = 25
+        procs = []
+        for w in range(n_workers):
+            drafts = [
+                dict(VALID_DRAFT, evidence=f"worker {w} item {i}")
+                for i in range(n_per_worker)
+            ]
+            batch_path = tmp_path / f"batch-{w}.json"
+            batch_path.write_text(json.dumps(drafts), encoding="utf-8")
+            p = multiprocessing.Process(
+                target=_mp_append_worker,
+                args=(
+                    str(_BIN_PATH), str(feedback_path), str(lock_path),
+                    f"/repo/{w}", f"sess-{w}", str(batch_path),
+                ),
+            )
+            procs.append(p)
+
+        for p in procs:
+            p.start()
+        for p in procs:
+            p.join(timeout=60)
+
+        for w, p in enumerate(procs):
+            assert p.exitcode == 0, f"worker {w} exited with {p.exitcode!r} (expected 0)"
+
+        assert feedback_path.is_file(), "store file must exist after concurrent appends"
+        lines = [ln for ln in feedback_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+        expected_total = n_workers * n_per_worker
+        assert len(lines) == expected_total, (
+            f"Expected exactly {expected_total} lines under lock-serialized "
+            f"contention, got {len(lines)} (a lost/torn write indicates the "
+            f"lock did not serialize the workers)"
+        )
+
+        # Every line must be valid, non-torn JSON - json.loads raises on a
+        # half-written/interleaved line, which a missing lock could produce.
+        ids = set()
+        for line in lines:
+            row = json.loads(line)
+            ids.add(row["id"])
+        assert len(ids) == expected_total, (
+            "every appended item must get a distinct id (no duplicate/corrupted rows)"
+        )
+
+        print("PASS test_concurrent_appends_serialize_under_real_multiprocess_contention")
+
+
+def test_mark_warns_on_malformed_line_and_drops_it():
+    """(10) mark's rewrite prints a stderr warning naming the line number of a
+    malformed line it drops - visibility for what would otherwise be a
+    silent, destructive skip during the full-file rewrite."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        feedback_path, _ = _patch_paths(tmp_path)
+
+        batch_path = _write_batch(tmp_path, [dict(VALID_DRAFT, evidence="good item")])
+        rc, _, _ = _run([
+            "append", "--repo", "/repo/x", "--session-uuid", "s1", "--file", str(batch_path),
+        ])
+        assert rc == 0
+
+        good_line = feedback_path.read_text(encoding="utf-8").rstrip("\n")
+        good_id = json.loads(good_line)["id"]
+
+        # Hand-corrupt the store: append a malformed (non-JSON) line at line 2.
+        with open(feedback_path, "a", encoding="utf-8") as f:
+            f.write("{this is not valid json\n")
+
+        rc, out, err = _run(["mark", "--id", good_id, "--status", "triaged"])
+        assert rc == 0, f"mark should still succeed despite a malformed line: {err}"
+        assert "skipping malformed line 2" in err, (
+            f"Expected a stderr warning naming line 2, got: {err!r}"
+        )
+
+        remaining_lines = [
+            ln for ln in feedback_path.read_text(encoding="utf-8").splitlines() if ln.strip()
+        ]
+        assert len(remaining_lines) == 1, "malformed line must be dropped from the rewrite"
+        row = json.loads(remaining_lines[0])
+        assert row["id"] == good_id
+        assert row["status"] == "triaged"
+
+        print("PASS test_mark_warns_on_malformed_line_and_drops_it")
+
+
 if __name__ == "__main__":
     test_append_valid_and_invalid_mixed()
     test_append_overwrites_caller_supplied_id_ts_status()
@@ -313,4 +467,6 @@ if __name__ == "__main__":
     test_mark_updates_only_target_status()
     test_mark_unknown_id_exits_1_and_leaves_file_unchanged()
     test_two_sequential_appends_both_land_under_shared_lock()
+    test_concurrent_appends_serialize_under_real_multiprocess_contention()
+    test_mark_warns_on_malformed_line_and_drops_it()
     print("All tests passed.")
