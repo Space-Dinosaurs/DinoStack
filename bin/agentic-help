@@ -53,6 +53,7 @@ Maintain & curate
   /migrate-project             Apply scaffolding migrations to bring a project up to the current manifest version.
   /cleanup-worktrees           Remove stale subagent and feature worktrees.
   /ticket-status-sync          Reconcile a tracker column with the real PR/branch state.
+  /feedback-triage             Triage captured session friction (~/.agentic/feedback.jsonl) into tracker tickets.
 
 Audit & improve the methodology
   /prune-harness               Propose deletions of rules that are not earning their keep.
