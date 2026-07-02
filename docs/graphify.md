@@ -59,7 +59,7 @@ Build a graph once from the repo root:
 
 ```bash
 pip install graphifyy
-graphify install          # installs tree-sitter grammars
+graphify install          # graphify setup step
 graphify .                # builds graphify-out/graph.json and GRAPH_REPORT.md
 ```
 
