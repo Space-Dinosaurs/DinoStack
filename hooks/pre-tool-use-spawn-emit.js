@@ -8,6 +8,12 @@
  *          spawn_complete events). This provides deterministic events.jsonl
  *          creation in any session that spawns at least one subagent.
  *
+ *          Additionally, when the spawned agent is 'architect', writes a
+ *          timestamp sentinel to [cwd]/.agentic/.last-architect-spawn so the
+ *          planning-artifact advisory hook (enforce-planning-artifact-spawn.py)
+ *          can detect recent architect activity and suppress false-positive
+ *          advisories during legitimate Brief/Plan authoring.
+ *
  *          NOTE on PostToolUse: PostToolUse fires at async_launched (spawn LAUNCH),
  *          NOT at subagent completion, so there is no wall-time or token data
  *          available from hook payloads. This hook emits spawn_start only, with
@@ -20,6 +26,8 @@
  * Upstream deps: Node built-ins only (fs, path). No npm dependencies.
  *                Reads PreToolUse payload from stdin (fd 0).
  *                Writes [cwd]/.agentic/events.jsonl via appendFileSync.
+ *                Writes [cwd]/.agentic/.last-architect-spawn via writeFileSync
+ *                when agentName === 'architect'.
  *                Never reads other .agentic/ files.
  *
  * Downstream consumers: Claude Code PreToolUse(Task/Agent) hook (wired by
@@ -105,6 +113,14 @@ function run() {
     };
     const eventsPath = path.join(agenticDir, 'events.jsonl');
     fs.appendFileSync(eventsPath, JSON.stringify(event) + '\n', 'utf8');
+
+    // Write architect sentinel so the planning-artifact advisory hook can
+    // detect a recent architect spawn and suppress false-positive warnings
+    // during legitimate Brief/Plan authoring.
+    if (agentName === 'architect') {
+      const sentinelPath = path.join(agenticDir, '.last-architect-spawn');
+      fs.writeFileSync(sentinelPath, new Date().toISOString(), 'utf8');
+    }
 
     process.exit(0);
   } catch (_) {

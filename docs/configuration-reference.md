@@ -2,7 +2,7 @@
 
 Every user-facing setting in the agentic-engineering methodology, with its
 default value and where to set it. This is the complete catalog - if you only
-want to tune Skeptic overhead, you need only `profile` or `preset`. See
+want to tune Skeptic overhead, you need only `profile`. See
 [safe-configuration.md](safe-configuration.md) for the cost/rigor tradeoff
 and recommended starting points.
 
@@ -15,22 +15,14 @@ Written by the installer. Controls activation and the session-wide risk profile.
 | Key | Default | Valid values | Effect |
 |---|---|---|---|
 | `mode` | `"opt-out"` | `"opt-in"`, `"opt-out"` | Activation mode: `opt-out` runs everywhere unless a project opts out; `opt-in` stays dormant until a project opts in |
-| `profile` | `"default"` | `"relaxed"`, `"default"`, `"strict"` | Session-wide risk profile (see [Risk Profiles](#risk-profiles-and-preset-alias)) |
-| `preset` | `null` | `"lean"`, `"standard"`, `"strict"`, `null` | Shorthand alias that resolves to a profile; **wins over `profile` when both are set** |
+| `profile` | `"default"` | `"relaxed"`, `"default"`, `"strict"` | Session-wide risk profile (see [Risk profiles](#risk-profiles)) |
 | `set_at` | n/a | ISO8601 string | Metadata timestamp written by installer; do not edit |
 
-Absent file resolves to `mode=opt-out`, `profile=default`, `preset=null`.
+Absent file resolves to `mode=opt-out`, `profile=default`.
 
-### Risk profiles and preset alias
+### Risk profiles
 
-| Preset | Resolves to profile |
-|---|---|
-| `lean` | `relaxed` |
-| `standard` | `default` |
-| `strict` | `strict` |
-
-**Precedence:** `preset` wins over `profile` when both are set. Per-project
-markers (Section 2) override global values.
+Per-project markers (Section 2) override global values.
 
 **Profile effects:**
 
@@ -53,7 +45,6 @@ leading `- `.
 |---|---|---|---|
 | `agentic-engineering:` | none | `opt-in`, `opt-out` | Per-project activation override |
 | `agentic-engineering-profile:` | falls to global profile | `relaxed`, `default`, `strict` | Overrides global profile for this project |
-| `agentic-engineering-preset:` | falls to global preset | `lean`, `standard`, `strict` | Overrides global preset and any same-file `profile:` line (**preset wins on collision**) |
 
 If both `opt-in` and `opt-out` appear in the same file, the first one wins and
 a warning is printed.

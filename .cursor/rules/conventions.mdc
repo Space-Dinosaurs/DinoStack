@@ -66,6 +66,21 @@ Telemetry is buffered (not lost) until confirmed.
 
 The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
 
+**Deprecated-preset first-user-turn notice.** When the preflight (Step 1 in `content/sections/01-activation-preflight.md`) finds a legacy session-wide `preset` key present at either scope - `~/.claude/agentic-engineering.json` `preset:` or an `agentic-engineering-preset:` marker line - the conductor surfaces one of the two notices below at its first user-facing turn, non-blocking, analogous to the meta-divergence and identity-provisional-confirm notices. Fire on PRESENCE of the key regardless of whether it wins resolution; use the first template when the legacy preset won at that scope, the second when it was present but overridden by a `profile` elsewhere in the precedence chain:
+
+```
+# Legacy preset WON resolution at this scope:
+DEPRECATED: preset key '{value}' ({scope}) resolved to profile={resolved}; migrate by setting
+profile={resolved} directly - preset support will be removed after the deprecation window.
+
+# Legacy preset PRESENT but did NOT win (coexistence / cross-scope override):
+DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - effective profile is
+'{effective}' (source: {source}). Remove the stale preset key/marker - it has no effect and
+will be rejected after the deprecation window.
+```
+
+This is the 4th stacked first-user-turn notice (alongside meta-divergence, skill-candidate, and identity-provisional-confirm); ordering among the four is immaterial.
+
 **Telemetry is BUFFERED, not lost.** While identity is unconfirmed (provisional or absent), the Stop hook writes session telemetry to a pending buffer (`~/.agentic/session-log/.pending/<uuid>.json`) rather than directly to the session log. Pending sessions are flushed and attributed when `agentic-identity confirm` (or `init --force`) runs. No session is silently dropped.
 
 **TEAM dimension.** `agentic-cost team` aggregates all `.agentic/session-log/*.jsonl` files found locally. Session-logs are committed to git via the Phase 8 telemetry commit (when `commit_telemetry: true` and identity is confirmed), so `team` reflects sessions from any developer whose telemetry has landed on the current branch via pull after merge.

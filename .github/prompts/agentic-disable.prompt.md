@@ -51,8 +51,8 @@ The script resolves the project `AGENTS.md` (following `CLAUDE.md`
 Updates `~/.claude/agentic-engineering.json` with `mode=opt-out` and a
 fresh `set_at` ISO8601 UTC timestamp. **Preserves existing keys
 verbatim**: the helper writes back the same set of keys it read; absent
-keys remain absent. The script will not invent `profile`, `preset`, or
-any other key not already present in the file.
+keys remain absent. The script will not invent any key not already
+present in the file.
 
 If the config file is missing, it is created with the minimal shape
 `{"mode": "opt-out", "set_at": "<iso>"}`.

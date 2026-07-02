@@ -25,7 +25,7 @@ Performance: Standard.
 
 # Spawn presets - full reference
 
-A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate. They are distinct from the session-wide `preset` field in `~/.claude/agentic-engineering.json` (which is a tone setting that maps to a risk profile - see Activation preflight Step 1). Same word, different scope.
+A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate.
 
 **Declaration format (optional line, immediately below `Tier:`):**
 ```

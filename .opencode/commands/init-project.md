@@ -19,7 +19,7 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 **0a. Global activation mode** — read this before any other discovery work.
 
-Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `METHODOLOGY.md`.
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out` and `profile=default`. When writing this file during init (if creating it for the first time), include `"profile": "default"` as a sensible default.
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 

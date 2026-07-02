@@ -32,11 +32,13 @@ A portable methodology for AI-assisted software development. Provides structured
 
 Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to three file reads with no subagent spawn and no LLM reasoning. **Exception:** Step 6 (Scaffolding-sync check) is the single authorized side-effecting exception to this invariant. It calls `bin/agentic-migrate` as a bounded shell-out; the binary is methodology-owned, failure is swallowed, and it never blocks activation.
 
-1. **Read the global mode, profile, and preset.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`. The `preset` field is optional; when present and non-null, it RESOLVES to a profile via the preset table below and overrides the direct `profile` field. When `preset` is null or missing, the direct `profile` field is used (back-compat).
+1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset subsection below for the fallback path when `profile` is genuinely absent rather than merely invalid).
 
    Also read the **effective identity** for this session. Check `<cwd>/.agentic/identity.yml` first, then fall back to `~/.agentic/identity.yml`. Use the first file that exists, resolving by the 4-tier confirmation ordering: project-confirmed > global-confirmed > project-provisional > global-provisional > none. In practice this is a two-file read: if the project file exists and is confirmed (no `provisional: true`), use it. If the project file is provisional, also read the global file; if the global is confirmed, prefer the global. Otherwise use the project file. Record `developer_id` and `provisional` from whichever file wins. Absent file or absent `provisional` field = confirmed identity (Python `.get('provisional', False)`; JS `provisional === true`). **This is a read-only field parse - no prompt, no shell-out, no LLM reasoning. The "fast, silent" preflight invariant is preserved.** When `provisional: true` is recorded on the effective identity, the conductor surfaces a non-blocking confirmation notice at its first user-facing turn (see §Session Context and Memory in `content/rules/conventions.md`).
 
-   **Preset table (session-wide risk profile preset):**
+   **Deprecated legacy preset (read-only compat).** Older configs may still carry a session-wide `preset` field (`lean` | `standard` | `strict`) at either scope. It is a read-only fallback used ONLY when `profile` is genuinely ABSENT at that scope - check key presence, not truthiness. An invalid `profile` value is treated identically to absent for this purpose (a valid legacy `preset` may then apply); if nothing validates anywhere, terminate at `default`.
+
+   Legacy preset table:
 
    | Preset    | Resolves to profile |
    |-----------|---------------------|
@@ -44,14 +46,18 @@ Run this check once at the top of the first skill invocation in a session (and a
    | standard  | default             |
    | strict    | strict              |
 
-   Note: this session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below. The session-wide preset is a tone setting; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
+   Precedence chain (replaces the old "preset wins on collision" rule): project `profile` > project `preset` (legacy, only if project profile absent) > global `profile` > global `preset` (legacy, only if global profile absent) > hardcoded `"default"`.
+
+   Presence of a legacy `preset` key at either scope fires a deprecation notice regardless of whether it wins resolution (see §Session Context and Memory in `content/rules/conventions.md` for the two notice templates).
+
+   Note: this deprecated session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below - that mechanism is unaffected by this deprecation. The session-wide preset was a legacy tone-setting alias; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
 2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
 3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
    - `agentic-engineering: opt-in`
    - `agentic-engineering: opt-out`
    If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
-   Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the global profile.
-   Also scan for `agentic-engineering-preset: <value>`. If present, it overrides the resolved global preset for this project. Valid values: `lean`, `standard`, `strict`. The project preset is resolved through the same preset table (above) to a profile; that resolved profile overrides any direct `agentic-engineering-profile:` line in the same file (preset wins on collision because it is the higher-level knob). Any other value falls back to the global preset/profile resolution.
+   Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the precedence chain in the deprecated legacy preset subsection above (project preset, then global profile, then global preset, then default).
+   Also scan for `agentic-engineering-preset: <value>` (deprecated legacy alias). If present, it resolves through the legacy preset table above ONLY when no valid `agentic-engineering-profile:` line is present in the same file - it is a fallback below the project profile, not an override that wins on collision. Any other value falls back to the next step in the precedence chain (global profile, then global preset, then default). Presence of this marker fires a deprecation notice regardless of whether it wins.
 4. **Activation decision.**
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
@@ -71,7 +77,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness consumes `run_in_background` for its own async routing and strips it from the PreToolUse hook payload (confirmed by live payload capture: hook tool_input keys for an Agent spawn are exactly `['description', 'prompt', 'subagent_type']`). As a result, `hooks/enforce-background-spawn.py` does NOT enforce `run_in_background` on `Agent` - doing so would brick every Agent spawn. Background enforcement is applied to the legacy `Task` tool name only. The hook retains two active responsibilities: (a) `run_in_background` enforcement for the legacy `Task` tool, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
 
-**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated.
+**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
 
@@ -149,14 +155,15 @@ the conductor surfaces the question with a recommended default and proceeds with
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
 | Read a file / git status/log/diff (when confirming a known fact, not exploring; see Context preservation in Risk Classification) | Yes | No |
-| Answer a question from context in memory | Yes | No |
+| Answer a question from context in memory | Yes - but producing a new doc/plan/analysis/recommendation from context is 'Document synthesis' (Elevated) | No |
 | Take a screenshot or browser snapshot | Yes | No |
-| Synthesize already-returned subagent results | Yes | No |
+| Synthesize already-returned subagent results | Yes - but a new doc/spec/plan/recommendation built from those results is 'Document synthesis' (Elevated) | No |
 | Diagnostic-only changes (pure logging across any number of files, zero behavioral effect) | Yes | No |
 | Documentation-only file creation (new .md or .txt that is a pure list, glossary, or running note - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/DinoStack/; overrides "New file creation" below for this case only) | Yes | No |
 | Targeted wording fix to already-reviewed content (phrasing adjustment only, substance Skeptic-approved in the current or a recent session; does not apply to new decisions, new recommendations, new content not previously reviewed, or protocol/infrastructure files; overrides the single-file edit and new file Elevated signals for this case only) | Yes | No |
 | UI-only copy changes (rewording display strings, labels, tooltips, or placeholder text with no logic, structural, or behavioral effect; does not apply to error messages that drive control flow, strings matched by tests, or protocol/infrastructure files; overrides "Any code edit with behavioral effect" for this case only) | Yes | No |
 | File renaming (rename/move files with no content changes to any file - neither the renamed file nor any other file; does not apply to protocol/infrastructure files; does not apply if any other files reference the renamed path - those reference updates are content changes making the operation Elevated; does not apply if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the rename changes behavior without changing file contents; overrides "New file creation", "Multi-file change", and "Bash with side effects" signals for this case only) | Yes | No |
+| Bounded 2-3 file behavioral-edit change (relaxed profile only; see `content/sections/04-risk-classification.md` §Risk profiles for the full definition: exactly 2-3 files, each file beyond the first colocated-test-connected or import/call-connected to a touched diff, connectivity fails closed to Elevated when unverifiable, <=30 changed lines total, no exported API/types/shared utilities/tokens/config/env/CI, no cross-component data flow, not protocol/infra, per-file one-line revert, no security/auth/PII surface, and zero other Elevated signals present) | Yes (relaxed only) | No |
 | Trivial risk (see Risk Classification) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
 | Any code edit with behavioral effect (write/modify/delete, excluding diagnostic-only logging) | No | **Yes** |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
@@ -164,8 +171,8 @@ the conductor surfaces the question with a recommended default and proceeds with
 | Architecture decision constraining future choices | No | **Yes** |
 | Modifies protocol or infrastructure files | No | **Yes** |
 | Production or shared state | No | **Yes** |
-| Multi-file change (any size) | No | **Yes** |
-| New file creation (any file) | No | **Yes** |
+| Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override above - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
+| New file creation (any file) (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated regardless of profile) | No | **Yes** |
 | Touches external APIs or services | No | **Yes** |
 | Unfamiliar codebase area | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
@@ -189,7 +196,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 **wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
 
 **Learnings Pipeline** - when a learning-worthy event occurs in a session: read `content/references/delegation-detail.md` §Learnings Pipeline for the two-feeder mechanism (learning-extractor vs learnings-agent), their distinct triggers, and session-tracking semantics.
@@ -345,9 +352,9 @@ For the Brief template, Plan-tier directory layout, verification-gate template, 
 
 ## Risk Classification
 
-Perform a brief risk assessment before starting any task. Any single Elevated signal triggers Worker + fresh independent Skeptic review. Low risk permits direct action with a brief inline self-check. When in doubt, classify as Elevated.
+Perform a brief risk assessment before starting any task. Any single Elevated signal triggers Worker + fresh independent Skeptic review. Low risk permits direct action with a brief inline self-check. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
-**Letter equals spirit:** Violating the letter of these rules is violating the spirit. "I followed the intent" after skipping a required step is not a defense.
+**Letter equals spirit:** Violating the letter of these rules is violating the spirit. "I followed the intent" after skipping a required step is not a defense. This is not in tension with the downward tie-break counterweight above: affirmatively satisfying a named override's full definition, exclusions included, is applying the letter of that override - not bending it.
 
 **Context preservation - apply risk to the task, not the tool call.** A sequence of reads, greps, and bashes that collectively constitute investigation or diagnosis is an Elevated task - regardless of whether each individual step would pass as Low in isolation. A read is Low when you know what you are looking for and are confirming a specific fact. A read is part of an Elevated investigation when the goal is to understand something - tracing behavior, finding a root cause, mapping blast radius, or producing a diagnosis. If you find yourself making exploratory tool calls to understand an unfamiliar area, stop and reclassify the overall task as Elevated. Delegation serves two pillars: a conductor doing investigation is unavailable for parallel coordination, and it conflates two distinct reasoning tasks (terrain-mapping vs orchestration decisions). Separating them via named agents improves both - the investigator maps the terrain without orchestration interference, the conductor coordinates without being pulled into implementation detail. (Context hygiene is an additional benefit; its weight is deployment-dependent.) When in doubt, spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
 
@@ -375,6 +382,8 @@ The existing signal lists below represent the `default` profile. These deltas ap
   - Definition: touches exactly one file; modifies local behavior (e.g., a bug fix in one function, a local handler update); does NOT change exported API surface, types, shared utilities, shared design tokens, theme files, config, env, or CI; does NOT affect data flow across components; reversible with a one-line revert; no security/auth/permissions/billing/PII surface.
 - **Multi-file pure-UI-only changes** are treated as **Low** instead of Elevated.
   - Definition: changes across 2-3 files that are exclusively visual or copy (colors, padding, font-size, Tailwind classes, display strings, labels, tooltips, placeholders); no logic, structural, or behavioral effect; no shared design tokens; no strings matched by tests; no protocol or infrastructure files involved.
+- **Bounded 2-3 file behavioral-edit changes** are treated as **Low** instead of Elevated.
+  - Definition: touches exactly 2-3 files. **Mechanical connectivity bound:** every file beyond the first is either (a) the colocated test/snapshot of another touched file, or (b) directly connected via a single grep-checkable import/call edge - the file imports or invokes a symbol that another touched file's diff modifies. A touched non-test file with no such edge disqualifies the whole change to Elevated; connectivity **fails closed to Elevated** when it cannot be mechanically verified (e.g., an operator config flip with no renamed symbol to trace). Total changed lines (added + removed) across all files <= 30. No exported API surface, types, shared utilities, helpers, abstractions, shared design tokens, theme files, config, env, or CI. **Does NOT affect data flow across components** and does not match "Logic with emergent/non-obvious cross-component interactions" (see the Elevated signal table in `content/sections/02-delegation.md`) - ported from the single-file override's guardrail. Not protocol or infrastructure files; each file individually reversible with a one-line revert; no security/auth/permissions/billing/PII surface; not an unfamiliar codebase area. **Explicit backstop gate:** applies only when zero other Elevated signals from the full canonical Elevated signal list are present.
 
 **`default` (compared to legacy):**
 - **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated (same definition as `relaxed` above). All other signals remain at their legacy levels.
@@ -393,7 +402,7 @@ See §Delegation signal table above for the full Elevated signals list.
 
 ### Trivial signals
 
-ALL must hold - any single disqualifier pushes to Elevated: touches exactly one file (or one file plus its colocated test/snapshot); no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports (exported symbols, public CSS classes, route paths); reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved. Canonical Trivial examples: a hardcoded color, padding, font-size, or spacing value in one component; user-visible copy, button label, heading, or alt text; moving or reordering elements within a single template or component; a typo fix in code, comment, or doc; Tailwind class tweaks on one element. NOT Trivial even if it feels small: edits to `tailwind.config.*`, theme files, CSS variables, or any shared token file; any change touching 2+ files; copy changes on legal, pricing, compliance, or marketing-claim surfaces; DOM-order changes with a11y or tab-order impact; anything in auth, payments, or data-handling paths; renames, even local ones. When in doubt between Trivial and Elevated, choose Elevated.
+ALL must hold - any single disqualifier pushes to Elevated: touches exactly one file (or one file plus its colocated test/snapshot); no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports (exported symbols, public CSS classes, route paths); reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved. Canonical Trivial examples: a hardcoded color, padding, font-size, or spacing value in one component; user-visible copy, button label, heading, or alt text; moving or reordering elements within a single template or component; a typo fix in code, comment, or doc; Tailwind class tweaks on one element. NOT Trivial even if it feels small: edits to `tailwind.config.*`, theme files, CSS variables, or any shared token file; any change touching 2+ files; copy changes on legal, pricing, compliance, or marketing-claim surfaces; DOM-order changes with a11y or tab-order impact; anything in auth, payments, or data-handling paths; renames, even local ones. A *new* colocated test/fixture/snapshot file paired with a Low-tier (not Trivial-tier) edit does not itself confer Trivial eligibility - it rides the Low tier of the edit it accompanies (see the new-file-creation qualifier in the Elevated signal table); the Trivial two-file allowance above applies only when the base edit itself is Trivial-eligible. When in doubt between Trivial and Elevated, choose Elevated.
 
 **Conductor rule for Trivial:** The conductor delegates the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file) regardless of subagent state; the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). A commit message is still required. If a Worker discovers mid-task that the change is not actually Trivial (e.g., the "one-file color tweak" lives in a shared token file), it must stop, report, and the conductor re-classifies as Elevated.
 
@@ -844,6 +853,21 @@ Telemetry is buffered (not lost) until confirmed.
 
 The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
 
+**Deprecated-preset first-user-turn notice.** When the preflight (Step 1 in `content/sections/01-activation-preflight.md`) finds a legacy session-wide `preset` key present at either scope - `~/.claude/agentic-engineering.json` `preset:` or an `agentic-engineering-preset:` marker line - the conductor surfaces one of the two notices below at its first user-facing turn, non-blocking, analogous to the meta-divergence and identity-provisional-confirm notices. Fire on PRESENCE of the key regardless of whether it wins resolution; use the first template when the legacy preset won at that scope, the second when it was present but overridden by a `profile` elsewhere in the precedence chain:
+
+```
+# Legacy preset WON resolution at this scope:
+DEPRECATED: preset key '{value}' ({scope}) resolved to profile={resolved}; migrate by setting
+profile={resolved} directly - preset support will be removed after the deprecation window.
+
+# Legacy preset PRESENT but did NOT win (coexistence / cross-scope override):
+DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - effective profile is
+'{effective}' (source: {source}). Remove the stale preset key/marker - it has no effect and
+will be rejected after the deprecation window.
+```
+
+This is the 4th stacked first-user-turn notice (alongside meta-divergence, skill-candidate, and identity-provisional-confirm); ordering among the four is immaterial.
+
 **Telemetry is BUFFERED, not lost.** While identity is unconfirmed (provisional or absent), the Stop hook writes session telemetry to a pending buffer (`~/.agentic/session-log/.pending/<uuid>.json`) rather than directly to the session log. Pending sessions are flushed and attributed when `agentic-identity confirm` (or `init --force`) runs. No session is silently dropped.
 
 **TEAM dimension.** `agentic-cost team` aggregates all `.agentic/session-log/*.jsonl` files found locally. Session-logs are committed to git via the Phase 8 telemetry commit (when `commit_telemetry: true` and identity is confirmed), so `team` reflects sessions from any developer whose telemetry has landed on the current branch via pull after merge.
@@ -973,9 +997,9 @@ Performance: Standard (single file write + optional binary shell-out).
 
    **Notice text (verbatim, single line, printed to stdout when create succeeds):**
    ```
-   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>, preset=<preset or 'none'>). Run /agentic-status to inspect, /agentic-disable to opt out.
+   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>). Run /agentic-status to inspect, /agentic-disable to opt out.
    ```
-   Values come from the resolver outputs of Steps 1-3. The literal JSON `null` for `preset` is rendered as the string `none`.
+   Values come from the resolver outputs of Steps 1-3.
 
 ## Step 6: Scaffolding-Sync Check
 
@@ -2417,6 +2441,7 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 - "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
 - "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
+- "I have subagent output in hand, so writing from it is just synthesizing results" - synthesis means aggregating what agents returned into a conductor update, not authoring a new document, specification, plan, or recommendation. The moment the output is a new artifact, it is "Document synthesis" (Elevated) regardless of whether the inputs came from subagents.
 
 ## Investigator-Before-Architect Rules
 
@@ -3907,8 +3932,8 @@ Any single signal triggers:
 - Architecture decisions that constrain future choices
 - Modifies protocol or infrastructure files
 - Production or shared state
-- Multi-file changes
-- New file creation
+- Multi-file changes (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes back to Elevated)
+- New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated in every profile)
 - Touches external APIs or services
 - Unfamiliar codebase area
 - Logic with emergent/non-obvious cross-component interactions
@@ -3927,9 +3952,9 @@ None of the above:
 - **Targeted wording fix to already-reviewed content** - a change that adjusts phrasing only, where the substance was already reviewed and approved (e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration, fixing ambiguous wording). Applies only when the content being adjusted has already passed Skeptic review in the current or a recent session. Overrides the "new file creation" and single-file edit Elevated signals for this case only. Does not override the "modifies protocol or infrastructure files" Elevated signal - wording fixes in protocol or infrastructure files remain Elevated regardless. Does not apply to new decisions, new recommendations, or new content not previously reviewed.
 - **File renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing (e.g., Next.js page files), auto-discovery (e.g., Jest test globs, webpack entry points), config naming conventions (e.g., `next.config.js`, `__init__.py`) - the operation is Elevated because the rename changes behavior without changing file contents).
 
-**Uncertainty rule:** When in doubt, classify as Elevated. "Looks simple" is not a Low signal.
+**Uncertainty rule:** When in doubt, classify as Elevated. "Looks simple" is not a Low signal. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
-**Letter equals spirit rule:** Violating the letter of these rules is violating the spirit of these rules. There is no valid interpretation of a rule that permits bypassing it. "I followed the intent" after skipping a required step is not a defense - the steps exist because intent alone does not catch errors. This principle applies to every rule in both protocols.
+**Letter equals spirit rule:** Violating the letter of these rules is violating the spirit of these rules. There is no valid interpretation of a rule that permits bypassing it. "I followed the intent" after skipping a required step is not a defense - the steps exist because intent alone does not catch errors. This principle applies to every rule in both protocols. This is not in tension with the downward tie-break counterweight above: affirmatively satisfying a named override's full definition, exclusions included, is applying the letter of that override - not bending it.
 
 **Mid-task reclassification:** If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point.
 
@@ -4732,7 +4757,7 @@ Performance: Standard.
 
 # Spawn presets - full reference
 
-A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate. They are distinct from the session-wide `preset` field in `~/.claude/agentic-engineering.json` (which is a tone setting that maps to a risk profile - see Activation preflight Step 1). Same word, different scope.
+A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate.
 
 **Declaration format (optional line, immediately below `Tier:`):**
 ```
@@ -4811,7 +4836,7 @@ When the conductor spawns workers for a multi-unit plan with task-state tracking
 
 The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
 
-"Looks simple" is not a Low signal. The uncertainty rule applies: when in doubt, classify as Elevated and spawn a Worker. When in doubt between Trivial and Elevated, choose Elevated.
+"Looks simple" is not a Low signal. The uncertainty rule applies: when in doubt, classify as Elevated and spawn a Worker. When in doubt between Trivial and Elevated, choose Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
 **Trivial escape hatch:** If a Worker spawned for a Trivial task discovers mid-execution that the change is not actually Trivial (e.g., the target file turns out to be a shared token file, or the change requires touching a second file), it must stop immediately, report the finding to the conductor, and the conductor re-classifies the task as Elevated and applies the full Worker + Skeptic flow from that point.
 
@@ -4950,9 +4975,9 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 |---|---|---|
 | Read a single known file | Yes | No |
 | `git status` / `git log` / `git diff` (read-only) | Yes | No |
-| Answer from memory/context | Yes | No |
+| Answer from memory/context | Yes - but producing a new doc/plan/analysis/recommendation from context is 'Document synthesis' (Elevated) | No |
 | Take a screenshot or snapshot | Yes | No |
-| Synthesize already-returned subagent results | Yes | No |
+| Synthesize already-returned subagent results | Yes - but a new doc/spec/plan/recommendation built from those results is 'Document synthesis' (Elevated) | No |
 | 1–2 line edit, single file, correct output apparent, no Elevated signals | Yes | No |
 | Trivial risk (ALL qualifying signals hold) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
@@ -4960,8 +4985,8 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Architecture decision that constrains future choices | No | **Yes** |
 | Modifies protocol or infrastructure files | No | **Yes** |
 | Production or shared state | No | **Yes** |
-| Multi-file change (any size) | No | **Yes** |
-| New file creation | No | **Yes** |
+| Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
+| New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated regardless of profile) | No | **Yes** |
 | Touches external APIs or services | No | **Yes** |
 | Unfamiliar codebase area | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
@@ -4975,9 +5000,9 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Clarification - Trivial vs. the "1-2 line edit" row:** For cosmetic, copy, or Tailwind-class edits, the Trivial disqualifier checklist (ALL signals must hold) takes precedence over the older "1-2 line edit" row. A conductor must not bypass the Trivial disqualifier gate by invoking the "1-2 line" row - if an edit looks cosmetic, run the Trivial checklist first. Only if ALL Trivial signals hold does the Trivial path apply. If any disqualifier is present (e.g., the file is a shared token file, or the change touches 2+ files), the task is Elevated regardless of line count.
 
-**Default rule:** when in doubt, classify as Elevated and spawn a Worker. Direct action is the narrow exception.
+**Default rule:** when in doubt, classify as Elevated and spawn a Worker. Direct action is the narrow exception. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
-**Footnote — new file creation:** The 1–2 line direct-action exception applies exclusively to modifications of existing files. New file creation always requires a Worker regardless of line count.
+**Footnote — new file creation:** The 1–2 line direct-action exception applies exclusively to modifications of existing files. New file creation always requires a Worker regardless of line count. This footnote is distinct from the new-file colocated-test qualifier on the "New file creation" signal above (Section 3 table): that qualifier governs whether new-file creation triggers Elevated risk classification at all; this footnote governs only the separate 1–2 line direct-action carve-out for edits to existing files, which never applies to new files regardless of any qualifier above.
 
 ---
 
@@ -7608,7 +7633,7 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 1. **Identify the task category.** Is this a new feature, a bug fix, a security-sensitive change, a refactor, an investigation, or research? The category shapes the default flow.
 
-2. **Classify risk.** Apply the conductor's risk classification rules. Any code change, new file, multi-file change, security concern, or architecture decision is Elevated and requires a Skeptic. Low risk (reads, research with no artifact) permits a lighter flow. Trivial risk (single-file cosmetic or copy change - or one file plus its colocated test/snapshot - with no logic impact, all qualifying signals must hold) bypasses Skeptic entirely: a worktree-isolated `engineer` performs the shippable edit (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). If classifying Trivial, return a short-circuit plan - do not build out a full agent roster or multi-phase sequence. When in doubt between Trivial and Elevated, choose Elevated.
+2. **Classify risk.** Apply the conductor's risk classification rules. Any code change, new file (unless it is a colocated test/fixture/snapshot accompanying an existing Low-tier edit, which rides that edit's tier - Low, never auto-Trivial), multi-file change (in `relaxed` profile, see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles), security concern, or architecture decision is Elevated and requires a Skeptic. Low risk (reads, research with no artifact) permits a lighter flow. Trivial risk (single-file cosmetic or copy change - or one file plus its colocated test/snapshot - with no logic impact, all qualifying signals must hold) bypasses Skeptic entirely: a worktree-isolated `engineer` performs the shippable edit (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). If classifying Trivial, return a short-circuit plan - do not build out a full agent roster or multi-phase sequence. When in doubt between Trivial and Elevated, choose Elevated.
 
 3. **Select agents.** Only include agents whose specific capability is needed. Do not add agents defensively. Use the decision rules below.
 
@@ -10149,8 +10174,8 @@ The script resolves the project `AGENTS.md` (following `CLAUDE.md`
 Updates `~/.claude/agentic-engineering.json` with `mode=opt-out` and a
 fresh `set_at` ISO8601 UTC timestamp. **Preserves existing keys
 verbatim**: the helper writes back the same set of keys it read; absent
-keys remain absent. The script will not invent `profile`, `preset`, or
-any other key not already present in the file.
+keys remain absent. The script will not invent any key not already
+present in the file.
 
 If the config file is missing, it is created with the minimal shape
 `{"mode": "opt-out", "set_at": "<iso>"}`.
@@ -10531,7 +10556,7 @@ migration and continue to work without change.
 # /agentic-status
 
 Read-only inspection of the agentic-engineering activation resolver.
-Dumps the resolved global config, project marker, profile, preset, and
+Dumps the resolved global config, project marker, profile, and
 first-activation sentinel state. Writes nothing. Always exits 0.
 
 Implementation: `bin/agentic-status` (Python 3 stdlib).
@@ -10556,7 +10581,6 @@ agentic-engineering status
   global config: /Users/<you>/.claude/agentic-engineering.json (found)
   mode: opt-out (source: global config)
   profile: default (source: global)
-  preset: none (source: none)
   set_at: 2026-04-15T12:00:00Z
   project marker file: /path/to/project/AGENTS.md
   marker: none
@@ -10564,13 +10588,18 @@ agentic-engineering status
   sentinel: .agentic/.activated (present)
   deferred_wrap_daemon: false (source: .agentic/config.json; out-of-session daemon for deferred /wrap jobs)
 
+DEPRECATED example (only shown when a legacy preset key is present at some scope):
+  DEPRECATED: preset key 'strict' (global) resolved to profile=strict; migrate by setting
+  profile=strict directly - preset support will be removed after the deprecation window.
+
 What this means
   Active here: yes. The methodology governs how work gets done in this project.
   Profile 'default': single-file behavioral edits run directly with a self-check;
     multi-file changes, new files, shared utilities, config, and anything risky
     spawn a Worker plus an independent Skeptic review.
-  (relaxed: single-file behavioral edits AND small pure-UI multi-file changes run
-    directly - lighter review, faster iteration.)
+  (relaxed: single-file behavioral edits, small pure-UI multi-file changes, AND
+    bounded 2-3-file behavioral edits (connectivity-bound, <=30 changed lines,
+    zero other Elevated signals) run directly - lighter review, faster iteration.)
   (strict: UI-copy tweaks, file renames, and targeted wording fixes are all treated
     as Elevated and get Worker + Skeptic - broadest review coverage.)
 
@@ -10581,29 +10610,32 @@ How to adjust
     edit /Users/<you>/.claude/agentic-engineering.json  ->  "profile": "relaxed" | "default" | "strict"
   Turn the skill OFF for this project:        /agentic-disable
   Turn it off EVERYWHERE:                      /agentic-disable --global
-  Use a preset instead of a raw profile:
-    project: agentic-engineering-preset: lean|standard|strict in AGENTS.md
-    global:  "preset": "lean" | "standard" | "strict" in the JSON config
   See every command:                           /agentic-help
 
 Note: deleting the sentinel re-arms the first-activation notice only.
 To opt out, use /agentic-disable.
 ```
 
-The `source` annotation on `mode`, `profile`, and `preset` records where
+The `source` annotation on `mode` and `profile` records where
 the effective value came from:
 
 - `mode` source: `global config` - the mode was read from a valid
   `~/.claude/agentic-engineering.json`; `global config (default; file missing)`
   - the config file is missing or malformed, so `mode` falls back to its
   `opt-out` default.
-- `global` - the profile or preset value comes from
+- `global` - the profile value comes from a valid `profile:` key in
   `~/.claude/agentic-engineering.json`.
-- `project` - the value comes from an `agentic-engineering-profile:` or
-  `agentic-engineering-preset:` line in `AGENTS.md`.
-- `preset-resolved` - the profile was resolved from a preset (e.g.
-  `lean -> relaxed`).
-- `none` - no preset is in effect.
+- `project` - the value comes from a valid `agentic-engineering-profile:`
+  line in `AGENTS.md`.
+- `global (legacy preset)` - no valid `profile` key at global scope, but a
+  legacy `preset:` key resolved to this value via the deprecated preset
+  table (see the DEPRECATED notice, which fires on presence of the legacy
+  key regardless of whether it wins).
+- `project (legacy preset)` - no valid `agentic-engineering-profile:` line
+  in `AGENTS.md`, but a legacy `agentic-engineering-preset:` marker resolved
+  to this value.
+- `global (default; unset)` - nothing valid at any scope; falls back to the
+  hardcoded `default`.
 - `.agentic/config.json` - the `deferred_wrap_daemon` line comes from the
   project config file; when the file or the key is absent, the line prints the
   documented default (`false`).
@@ -10613,8 +10645,9 @@ the `(mode=... + marker=... -> active|inactive: <reason>)` clause - so it is
 self-explanatory why the project is or is not governed. The "What this means"
 block then explains the resolved profile's review behavior (with the other
 two profiles shown as parenthetical contrast), and the "How to adjust" block
-lists the exact edits to change the profile, swap to a preset, or turn the
-skill off.
+lists the exact edits to change the profile or turn the skill off. A
+DEPRECATED line appears whenever a legacy `preset` key is present at either
+scope, independent of whether it won resolution.
 
 ## Sentinel as reset
 
@@ -13545,7 +13578,7 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 **0a. Global activation mode** — read this before any other discovery work.
 
-Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `METHODOLOGY.md`.
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out` and `profile=default`. When writing this file during init (if creating it for the first time), include `"profile": "default"` as a sensible default.
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 
@@ -16015,15 +16048,25 @@ After writing the report, print 3-5 sentences naming the report path, the count 
 <!--
 Purpose: Reconciles a ticket's tracker column with the actual state of its code. Fires the Done
          (or other appropriate) transition that /implement-ticket leaves unfired on the default
-         human-merge path (AUTO_MERGE_ON_CI_GREEN=false).
+         human-merge path (AUTO_MERGE_ON_CI_GREEN=false). --all mode additionally sweeps the whole
+         tracker (not just .agentic/tasks.jsonl) for tickets whose work shipped in conductor-led
+         sessions outside /implement-ticket, where the tasks.jsonl pass alone can't see them.
 
 Public API: /ticket-status-sync <TICKET_ID>    — reconcile one ticket, prompts before transitioning
-            /ticket-status-sync --all           — reconcile every non-terminal ticket in .agentic/tasks.jsonl
+            /ticket-status-sync --all           - reconcile every non-terminal ticket in .agentic/tasks.jsonl,
+                                                    then sweep the tracker-wide non-terminal ticket set for
+                                                    deterministic ID-match evidence (Tier 1, may transition)
+                                                    and report unmatched shipped-looking candidates (Tier 2,
+                                                    report-only, never transitions)
             /ticket-status-sync --all --force   — same as --all (--force is a no-op in v1, reserved for forward compat)
 
 Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
-               gh CLI (pr view — state, isDraft, mergeable, reviewDecision);
+               gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
+               for the tracker-wide sweep and the last-100-merged-PRs Tier 2 candidate scan);
+               git log --grep (default-branch commit evidence for the tracker-wide sweep);
                AGENTS.md ## Linear / ## Tracker sections (TRACKER resolution chain, same as implement-ticket.md Setup);
+               tracker query tools for the non-terminal ticket set (Jira mcp__mcp-atlassian__jira_search JQL;
+               Linear mcp__linear__list_issues);
                content/commands/implement-ticket.md ## Tracker Writeback Helper (subagent invocation shape, forward-only guard semantics);
                METHODOLOGY.md (activation preflight).
 
@@ -16031,13 +16074,16 @@ Downstream consumers: operator-invoked only; no programmatic consumers.
 
 Failure modes: soft-fail throughout — every tracker/gh/git call logs and continues on error; a single
                ticket's reconciliation failure never aborts an --all sweep. The command never errors
-               out on an external API failure.
+               out on an external API failure. Tier 2 (unmatched candidates) never writes anything -
+               a Tier 2 false positive is a wrong report line, never a wrong transition.
 
 Performance: one gh CLI call + one tracker-writeback subagent spawn per ticket that requires a transition.
              State-read calls are Tier-1 fast; --all sweeps are proportional to non-terminal ticket count.
+             The tracker-wide sweep caps its non-terminal ticket query at 100 (most recently updated);
+             a capped run prints how many tickets were skipped rather than truncating silently.
 -->
 
-Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/implement-ticket` exits before merge - the default human-merge flow leaves the final Done transition unfired until a human merges the PR, so the tracker can lag behind reality. This command computes the correct state and pushes the transition.
+Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/implement-ticket` exits before merge - the default human-merge flow leaves the final Done transition unfired until a human merges the PR, so the tracker can lag behind reality. This command computes the correct state and pushes the transition. `--all` mode also sweeps the whole tracker so tickets worked outside `/implement-ticket` (conductor-led sessions with no `.agentic/tasks.jsonl` entry) don't silently drift.
 
 ## When to use
 
@@ -16048,7 +16094,7 @@ Reconcile a ticket's tracker status (column) with the actual state of its code. 
 ## Invocation
 
 - `/ticket-status-sync <TICKET_ID>` - reconcile one ticket. Prompts before transitioning.
-- `/ticket-status-sync --all` - reconcile every non-terminal ticket in `.agentic/tasks.jsonl`. Transitions without prompting.
+- `/ticket-status-sync --all` - reconcile every non-terminal ticket in `.agentic/tasks.jsonl`, then sweep the tracker itself for non-terminal tickets outside that file (deterministic ID-match may transition; unmatched candidates are report-only). Transitions without prompting.
 - `--force` - reserved future-proofing alias for `--all` confirmation bypass. In v1, `--all` already transitions without prompt, so `--force` is currently a no-op modifier documented for forward compatibility.
 
 ## Preflight
@@ -16079,19 +16125,69 @@ Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution c
 
 ## `--all` mode
 
-If `.agentic/tasks.jsonl` is absent, print "No task state found; nothing to sync." and exit cleanly (soft-success, not an error).
+If `.agentic/tasks.jsonl` is absent, print "No task state found; nothing to sync." and continue - do NOT exit the whole `--all` invocation on this condition. Only the tasks.jsonl pass itself is skipped; the tracker-wide sweep below still runs whenever `TRACKER != none`.
 
 Iterate every non-terminal ticket in `.agentic/tasks.jsonl` (skip entries whose `status` is a terminal value already reconciled). Run the single-ticket algorithm for each. Transition without prompting. Aggregate counts.
 
+After the tasks.jsonl pass completes, run the tracker-wide sweep below (Tier 1, then Tier 2) as part of the same `--all` invocation.
+
+## Tracker-wide sweep (`--all` mode, Tier 1 - deterministic ID-match, may transition)
+
+Purpose: catch tickets whose work shipped in a conductor-led session outside `/implement-ticket` - no `.agentic/tasks.jsonl` entry exists for them at all, so the tasks.jsonl pass above can't see them, but their ticket key appears in merged commit or PR titles (e.g. DS-48-class: PRs #374/#376/#388 reference the key, the ticket itself never moved off To Do).
+
+**Skip condition.** If `TRACKER == none`, skip this entire sweep (same top-level gate as the rest of the command) - print nothing extra.
+
+1. **Query non-terminal tickets in the configured project.**
+   - Jira: `mcp__mcp-atlassian__jira_search` with JQL `project = <TICKET_PREFIX> AND statusCategory != Done`, ordered most-recently-updated first.
+   - Linear: `mcp__linear__list_issues` filtered to the team resolved as `TICKET_PREFIX`, excluding state types `completed` and `cancelled`, ordered most-recently-updated first.
+
+   **Cap: 100 most recently updated tickets.** Never truncate silently. If the query returns more than 100 non-terminal tickets, take the 100 most recently updated and print: `[ticket-status-sync] tracker-wide sweep capped at 100 most-recently-updated tickets; N older tickets skipped this run.`
+
+2. **Exclude already-reconciled tickets.** Drop any ticket key that was already processed by the tasks.jsonl pass above (its `ticket_id` appears in `.agentic/tasks.jsonl`) - that pass already evaluated it (transitioned or correctly left alone); re-evaluating it here is redundant, not wrong, but is skipped to keep the sweep focused on what the tasks.jsonl pass structurally cannot see.
+
+3. **Gather deterministic evidence per remaining ticket key `<KEY>`:**
+   - `git log --grep "<KEY>" --oneline` on `BASE_BRANCH`.
+   - `gh pr list --repo <GH_REPO> --state merged --search "<KEY>" --json number,title,mergedAt`.
+   - `gh pr list --repo <GH_REPO> --state open --search "<KEY>"`.
+
+   Each call soft-fails independently: a failure for one ticket's evidence gathering logs and moves to the next ticket; it never aborts the sweep.
+
+4. **Zero evidence found** (no commits, no merged PRs, no open PRs reference `<KEY>`): do NOT transition. This ticket flows into the Tier 2 unmatched-candidates pass below instead. Tier 1 only ever acts on positive ID-match evidence.
+
+5. **Evidence found - compute target state.** Do NOT invent a new state machine here. Feed the gathered evidence into the SAME "Resolution algorithm (single ticket)" mapping table above (step 4): a merged PR referencing `<KEY>` (and no open PR still referencing it) maps to the "PR merged" row -> `$TRACKER_STATE_DONE`; an open PR referencing `<KEY>` maps to "PR open + ready" or "PR draft" per its `isDraft`/`reviewDecision` -> `$TRACKER_STATE_QA` / `$TRACKER_STATE_IN_REVIEW`; commits referencing `<KEY>` on `BASE_BRANCH` with no PR record at all (a direct conductor commit) map to the "task complete but no PR found" row -> `$TRACKER_STATE_DONE`.
+
+6. **Apply forward-only guard, then transition.** Identical to single-ticket steps 5-6: read the ticket's current tracker state, apply the same rank comparison (Linear `state.type` ranking / Jira `statusCategory.key` ranking), skip if current rank >= target rank or the ticket is terminal/cancelled. If a transition is warranted, spawn the tracker-writeback subagent (reuse `## Tracker Writeback Helper` from `implement-ticket.md`: Tier 1, `general-purpose`, `target_state: <expected>`, `forward_only_guard: true`). Soft-fail: a spawn or API failure logs and moves to the next ticket.
+
+7. **Evidence comment (only when the transition succeeded).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s) - e.g. `Reconciled by /ticket-status-sync: shipped in PR #388, commit db2fc08.` Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. **Gate the comment on the Writeback Helper reporting the transition applied.** If the forward-only guard skipped the transition, or the transition failed, do NOT post a comment - a repeatedly soft-failing transition would otherwise re-post the same comment on every `--all` run. A failed comment call (on an otherwise-successful transition) logs and continues independently - it never rolls back or retries the transition.
+
+8. **Operator-visible line per transition attempt (mandatory, never silent - unconditional regardless of comment outcome):**
+
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - transitioned
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - FAILED: <error>
+
+## Unmatched candidates (`--all` mode, Tier 2 - report-only, NEVER transitions)
+
+Runs immediately after the Tier 1 sweep, over the non-terminal ticket set gathered in Tier 1 step 1 (post-cap, post-exclusion) minus every ticket Tier 1 found ID-match evidence for. These are tickets with ZERO ID-match evidence anywhere in git history or PR search results - e.g. a ticket filed retroactively for work that already shipped before the ticket existed, so its key never appears in git history at all (DS-53-class: PR #338 merged 5 days before the ticket was created).
+
+**Absolute rule: Tier 2 never writes.** No tracker transition, no evidence comment, no state mutation of any kind, ever. Report-only.
+
+1. Fetch the last 100 merged PRs in one call: `gh pr list --repo <GH_REPO> --state merged --limit 100 --json number,title,mergedAt`.
+2. For each Tier 2 candidate ticket, compare its tracker summary/title against the fetched PR titles using judgment (semantic similarity, not just substring match - e.g. ticket "Tracker status drift" plausibly matches PR "fix(tracker): status drift correction"). This is a best-effort judgment call, not a deterministic algorithm; false positives are acceptable because Tier 2 never writes anything.
+3. For each plausible match, print exactly one report-only line and take no other action:
+
+       candidate: <KEY> looks shipped in PR #<N> - confirm and run /ticket-status-sync <KEY>, or close manually
+
+4. Tickets with no plausible match print nothing - Tier 2 output is opt-in signal, not an exhaustive audit list.
+
 ## Soft-fail discipline
 
-Every tracker/gh/git call soft-fails: log and continue. A single ticket's reconciliation failure does not abort an `--all` sweep. The command never errors out on an external API failure.
+Every tracker/gh/git call soft-fails: log and continue. A single ticket's reconciliation failure does not abort an `--all` sweep, and applies equally to the tasks.jsonl pass and the tracker-wide sweep (Tier 1 and Tier 2). The command never errors out on an external API failure.
 
 ## Output
 
-Emit one breadcrumb: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]`
+Emit one breadcrumb per pass: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]` for the single-ticket / tasks.jsonl-pass counts, and, when the tracker-wide sweep ran, a second breadcrumb: `[phase: ticket-status-sync | mode=all | pass=tracker-sweep | transitions=<N> | skipped=<N> | capped=<N> | candidates=<N>]`.
 
-In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table.
+In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table for the tasks.jsonl pass, then the Tier 1 operator-visible transition lines, then the Tier 2 candidate lines (if any).
 
 ---
 
@@ -16818,6 +16914,7 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | `gh pr` open-PR enumeration | omitted |
 | Step 5 `/cleanup-worktrees` | omitted |
 | Step 6 terminal marker transition | omitted; daemon owns `done` |
+| Part F tracker status reconciliation | omitted; daemon has no Bash and spawns nothing |
 | drift-requires-input prompt | omitted; drift -> context.md "Watch Out For" bullet |
 
 ---
@@ -17010,6 +17107,7 @@ Zero-substance procedure:
 - Skip Step 4 Parts A, B, C entirely
 - Skip Part D (no session activity to extract skill-candidate signals from)
 - Skip Part E (nothing changed, nothing to compress)
+- Skip Part F (no session activity means no ticket-referencing commits to detect)
 - Still run Step 5 (worktree cleanup) - that is always useful
 - Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
 
@@ -17026,7 +17124,8 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 5. Run Part D (skill-candidate wrap-time signal) - the light path still ran a session worth extracting from.
 6. Skip Part E entirely (nothing changed, nothing to compress).
 7. Run Step 5 (worktree cleanup) as normal.
-8. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
+8. Run Step 6 as normal, including Part F (tracker status reconciliation) - a light-path session can still have committed ticket-referencing work even with no memory/AGENTS.md updates to review.
+9. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
 
 **Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
 
@@ -17369,7 +17468,27 @@ Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired hel
 
 - **Full success** (context.md written + Part B/C applied + Part E settled, no escalation outstanding): set this session's marker `status: done` AND stamp `wrapped_at: <now ISO8601 UTC>` and RETAIN the marker (do NOT unlink it). The retained `done` tombstone prevents this same session being re-staged after `.agentic/wrap/last-wrap` rolls to a different session; the daemon janitor reaps it after `deferred_wrap_pending_ttl_days`. A partial or escalated run leaves the marker in its pre-Step-6 state so the daemon can complete it later.
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false). Also include the cleanup summary if Step 5 ran.
+**Part F - Tracker status reconciliation.**
+
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before. Tracker/gh API calls (ticket queries, `gh pr list`, comment posts) are slow and must not extend how long `/wrap` holds `.agentic/wrap/lock` - other conductors and `wrap-ticket` invocations queue behind that lock. Purpose: give conductor-led ticket work (a session that touched a ticket outside `/implement-ticket` - e.g. a direct fix committed to `BASE_BRANCH`) a tracker footprint, so the ticket's tracker column doesn't silently lag behind shipped work.
+
+Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session activity means no ticket-referencing commits to detect. Part F runs on the light path and the standard path, same as Part D.
+
+**Gate.** Resolve `TRACKER` and `TICKET_PREFIX` using the SAME resolution chain as `/implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections). If `TRACKER == none`, skip Part F silently - no output, no log line.
+
+**Detect ticket keys referenced in this session's work (cheap, bounded).**
+1. Ticket-key-shaped tokens (`<TICKET_PREFIX>-<n>`) already visible in the commit messages of any commit the conductor made this session - already known from this session's own tool-call history, no extra call needed.
+2. One bounded `git log` call on `BASE_BRANCH` to catch keys in commits whose recorded message differs from what the conductor typed (e.g. a squash-merge commit rewritten by the merge tool): `git log <BASE_BRANCH> -E --grep="<TICKET_PREFIX>-[0-9]+" --oneline -20` - capped at the last 20 commits, one call.
+3. If the session worked on a not-yet-merged feature/fix/chore branch, also scan that branch's own commits: `git log <BASE_BRANCH>..<branch> --oneline` - naturally bounded to the session's own branch work.
+4. Union and dedupe the resulting keys. If none found, skip the rest of Part F silently.
+
+**Reconcile each detected key.** For each detected ticket key, run the `/ticket-status-sync` single-ticket "Resolution algorithm (single ticket)" (`content/commands/ticket-status-sync.md`) - do NOT duplicate that algorithm here. On a warranted transition, fire the Tracker Writeback Helper (`content/commands/implement-ticket.md` `## Tracker Writeback Helper`) with `forward_only_guard: true`, exactly as `/ticket-status-sync` does. **Post the evidence comment (PR number(s) + commit SHA(s)) only when the Writeback Helper reports the transition applied** - if the forward-only guard skipped the transition or the transition failed, do NOT post a comment (a repeatedly soft-failing transition would otherwise re-post the same comment on every `/wrap` run). Regardless of comment outcome, print one operator-visible line per transition attempt so failures stay visible:
+
+    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit <sha>) - transitioned
+
+**Soft-fail (absolute).** Any error anywhere in Part F - tracker resolution failure, git call failure, MCP/gh API failure, subagent spawn failure - is swallowed with a one-line stderr log (`[wrap: Part F] <error>`), and Part F moves on to the next key or exits cleanly. Part F NEVER breaks, delays, retries-with-backoff, or blocks `/wrap`'s return to the user. It runs once, best-effort, after the lock is already released - a slow or failing tracker call costs the user nothing beyond Part F's own runtime.
+
+Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
