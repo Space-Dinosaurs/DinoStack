@@ -14,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(dirname \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")\")/hooks/skill-auto-load-check.sh\"",
+            "command": "AE_ADAPTER=codex bash \"$(dirname \"$(dirname \"$(dirname \"$(realpath \"$HOME/.codex/hooks.json\")\")\")\")/hooks/skill-auto-load-check.sh\"",
             "statusMessage": "Checking skill auto-load"
           }
         ]

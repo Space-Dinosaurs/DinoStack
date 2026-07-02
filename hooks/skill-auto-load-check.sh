@@ -2,6 +2,7 @@
 # Purpose: Emits a skill-load instruction to stdout when skill_auto_load is enabled in the
 #          agentic-engineering config. Called by Claude Code, Codex, and Gemini hook handlers.
 # Public API: bash hooks/skill-auto-load-check.sh (no args; reads ~/.claude/agentic-engineering.json)
+#             AE_ADAPTER=codex selects the Codex user-scope skill install path.
 # Upstream deps: ~/.claude/agentic-engineering.json (optional; missing = silent exit)
 # Downstream consumers: .claude/install.sh (UserPromptSubmit hook), .codex/config/hooks.json
 #                       (UserPromptSubmit hook), .gemini/install.sh (BeforeAgent hook)
@@ -21,8 +22,12 @@ except Exception:
 " 2>/dev/null || echo "false")
 
 if [[ "$skill_auto_load" == "true" ]]; then
+  skill_path="$HOME/.claude/skills/agentic-engineering/SKILL.md"
+  if [[ "${AE_ADAPTER:-}" == "codex" ]]; then
+    skill_path="$HOME/.agents/skills/agentic-engineering/SKILL.md"
+  fi
   echo "SKILL CHECK [agentic-engineering]: skill_auto_load=true."
-  echo "Before responding to any software development request, read ~/.claude/skills/agentic-engineering/SKILL.md."
+  echo "Before responding to any software development request, read $skill_path."
   echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
 fi
 
