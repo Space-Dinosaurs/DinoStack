@@ -16053,7 +16053,7 @@ Purpose: Reconciles a ticket's tracker column with the actual state of its code.
          sessions outside /implement-ticket, where the tasks.jsonl pass alone can't see them.
 
 Public API: /ticket-status-sync <TICKET_ID>    — reconcile one ticket, prompts before transitioning
-            /ticket-status-sync --all           — reconcile every non-terminal ticket in .agentic/tasks.jsonl,
+            /ticket-status-sync --all           - reconcile every non-terminal ticket in .agentic/tasks.jsonl,
                                                     then sweep the tracker-wide non-terminal ticket set for
                                                     deterministic ID-match evidence (Tier 1, may transition)
                                                     and report unmatched shipped-looking candidates (Tier 2,
@@ -16061,7 +16061,7 @@ Public API: /ticket-status-sync <TICKET_ID>    — reconcile one ticket, prompts
             /ticket-status-sync --all --force   — same as --all (--force is a no-op in v1, reserved for forward compat)
 
 Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
-               gh CLI (pr view — state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
+               gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
                for the tracker-wide sweep and the last-100-merged-PRs Tier 2 candidate scan);
                git log --grep (default-branch commit evidence for the tracker-wide sweep);
                AGENTS.md ## Linear / ## Tracker sections (TRACKER resolution chain, same as implement-ticket.md Setup);
@@ -16158,9 +16158,9 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/i
 
 6. **Apply forward-only guard, then transition.** Identical to single-ticket steps 5-6: read the ticket's current tracker state, apply the same rank comparison (Linear `state.type` ranking / Jira `statusCategory.key` ranking), skip if current rank >= target rank or the ticket is terminal/cancelled. If a transition is warranted, spawn the tracker-writeback subagent (reuse `## Tracker Writeback Helper` from `implement-ticket.md`: Tier 1, `general-purpose`, `target_state: <expected>`, `forward_only_guard: true`). Soft-fail: a spawn or API failure logs and moves to the next ticket.
 
-7. **Evidence comment (mandatory on every transition).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s) - e.g. `Reconciled by /ticket-status-sync: shipped in PR #388, commit db2fc08.` Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. A failed comment call logs and continues independently of the transition - neither blocks the other.
+7. **Evidence comment (only when the transition succeeded).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s) - e.g. `Reconciled by /ticket-status-sync: shipped in PR #388, commit db2fc08.` Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. **Gate the comment on the Writeback Helper reporting the transition applied.** If the forward-only guard skipped the transition, or the transition failed, do NOT post a comment - a repeatedly soft-failing transition would otherwise re-post the same comment on every `--all` run. A failed comment call (on an otherwise-successful transition) logs and continues independently - it never rolls back or retries the transition.
 
-8. **Operator-visible line per transition (mandatory, never silent):**
+8. **Operator-visible line per transition attempt (mandatory, never silent - unconditional regardless of comment outcome):**
 
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - transitioned
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - FAILED: <error>
@@ -16914,6 +16914,7 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | `gh pr` open-PR enumeration | omitted |
 | Step 5 `/cleanup-worktrees` | omitted |
 | Step 6 terminal marker transition | omitted; daemon owns `done` |
+| Part F tracker status reconciliation | omitted; daemon has no Bash and spawns nothing |
 | drift-requires-input prompt | omitted; drift -> context.md "Watch Out For" bullet |
 
 ---
@@ -17477,11 +17478,11 @@ Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session 
 
 **Detect ticket keys referenced in this session's work (cheap, bounded).**
 1. Ticket-key-shaped tokens (`<TICKET_PREFIX>-<n>`) already visible in the commit messages of any commit the conductor made this session - already known from this session's own tool-call history, no extra call needed.
-2. One bounded `git log` call on `BASE_BRANCH` to catch keys in commits whose recorded message differs from what the conductor typed (e.g. a squash-merge commit rewritten by the merge tool): `git log <BASE_BRANCH> --oneline -20 --grep -E "<TICKET_PREFIX>-[0-9]+"` - capped at the last 20 commits, one call.
+2. One bounded `git log` call on `BASE_BRANCH` to catch keys in commits whose recorded message differs from what the conductor typed (e.g. a squash-merge commit rewritten by the merge tool): `git log <BASE_BRANCH> -E --grep="<TICKET_PREFIX>-[0-9]+" --oneline -20` - capped at the last 20 commits, one call.
 3. If the session worked on a not-yet-merged feature/fix/chore branch, also scan that branch's own commits: `git log <BASE_BRANCH>..<branch> --oneline` - naturally bounded to the session's own branch work.
 4. Union and dedupe the resulting keys. If none found, skip the rest of Part F silently.
 
-**Reconcile each detected key.** For each detected ticket key, run the `/ticket-status-sync` single-ticket "Resolution algorithm (single ticket)" (`content/commands/ticket-status-sync.md`) - do NOT duplicate that algorithm here. On a warranted transition, fire the Tracker Writeback Helper (`content/commands/implement-ticket.md` `## Tracker Writeback Helper`) with `forward_only_guard: true`, exactly as `/ticket-status-sync` does. Post the same evidence comment (PR number(s) + commit SHA(s)) that `/ticket-status-sync`'s tracker-wide sweep requires, and print one operator-visible line per transition:
+**Reconcile each detected key.** For each detected ticket key, run the `/ticket-status-sync` single-ticket "Resolution algorithm (single ticket)" (`content/commands/ticket-status-sync.md`) - do NOT duplicate that algorithm here. On a warranted transition, fire the Tracker Writeback Helper (`content/commands/implement-ticket.md` `## Tracker Writeback Helper`) with `forward_only_guard: true`, exactly as `/ticket-status-sync` does. **Post the evidence comment (PR number(s) + commit SHA(s)) only when the Writeback Helper reports the transition applied** - if the forward-only guard skipped the transition or the transition failed, do NOT post a comment (a repeatedly soft-failing transition would otherwise re-post the same comment on every `/wrap` run). Regardless of comment outcome, print one operator-visible line per transition attempt so failures stay visible:
 
     [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit <sha>) - transitioned
 

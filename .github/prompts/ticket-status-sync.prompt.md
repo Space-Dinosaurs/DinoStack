@@ -10,7 +10,7 @@ Purpose: Reconciles a ticket's tracker column with the actual state of its code.
          sessions outside /implement-ticket, where the tasks.jsonl pass alone can't see them.
 
 Public API: /ticket-status-sync <TICKET_ID>    — reconcile one ticket, prompts before transitioning
-            /ticket-status-sync --all           — reconcile every non-terminal ticket in .agentic/tasks.jsonl,
+            /ticket-status-sync --all           - reconcile every non-terminal ticket in .agentic/tasks.jsonl,
                                                     then sweep the tracker-wide non-terminal ticket set for
                                                     deterministic ID-match evidence (Tier 1, may transition)
                                                     and report unmatched shipped-looking candidates (Tier 2,
@@ -18,7 +18,7 @@ Public API: /ticket-status-sync <TICKET_ID>    — reconcile one ticket, prompts
             /ticket-status-sync --all --force   — same as --all (--force is a no-op in v1, reserved for forward compat)
 
 Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
-               gh CLI (pr view — state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
+               gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
                for the tracker-wide sweep and the last-100-merged-PRs Tier 2 candidate scan);
                git log --grep (default-branch commit evidence for the tracker-wide sweep);
                AGENTS.md ## Linear / ## Tracker sections (TRACKER resolution chain, same as implement-ticket.md Setup);
@@ -115,9 +115,9 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/i
 
 6. **Apply forward-only guard, then transition.** Identical to single-ticket steps 5-6: read the ticket's current tracker state, apply the same rank comparison (Linear `state.type` ranking / Jira `statusCategory.key` ranking), skip if current rank >= target rank or the ticket is terminal/cancelled. If a transition is warranted, spawn the tracker-writeback subagent (reuse `## Tracker Writeback Helper` from `implement-ticket.md`: Tier 1, `general-purpose`, `target_state: <expected>`, `forward_only_guard: true`). Soft-fail: a spawn or API failure logs and moves to the next ticket.
 
-7. **Evidence comment (mandatory on every transition).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s) - e.g. `Reconciled by /ticket-status-sync: shipped in PR #388, commit db2fc08.` Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. A failed comment call logs and continues independently of the transition - neither blocks the other.
+7. **Evidence comment (only when the transition succeeded).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s) - e.g. `Reconciled by /ticket-status-sync: shipped in PR #388, commit db2fc08.` Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. **Gate the comment on the Writeback Helper reporting the transition applied.** If the forward-only guard skipped the transition, or the transition failed, do NOT post a comment - a repeatedly soft-failing transition would otherwise re-post the same comment on every `--all` run. A failed comment call (on an otherwise-successful transition) logs and continues independently - it never rolls back or retries the transition.
 
-8. **Operator-visible line per transition (mandatory, never silent):**
+8. **Operator-visible line per transition attempt (mandatory, never silent - unconditional regardless of comment outcome):**
 
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - transitioned
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - FAILED: <error>
