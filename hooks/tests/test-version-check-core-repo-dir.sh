@@ -61,11 +61,14 @@ write_fake_cache() {
 }
 
 # Extract the repo path from the notice line:
-#   "... Update with /update-agentic-engineering ... or <PATH>/update.sh ..."
+#   "... No PATH? <PATH>/update.sh"
+# Anchored on the "No PATH? " token (not "or ") because PR #322 added a
+# second "or /pull-and-install (in session)" phrase earlier in the notice;
+# a greedy "or " anchor would swallow that phrase into the captured path.
 extract_path_from_notice() {
   local notice="$1"
-  # The path appears as the substring before "/update.sh" in the notice.
-  echo "$notice" | sed 's|.*or \(.*\)/update\.sh.*|\1|'
+  # The path appears as the substring between "No PATH? " and "/update.sh".
+  echo "$notice" | sed 's|.*No PATH? \(.*\)/update\.sh.*|\1|'
 }
 
 # ---------------------------------------------------------------------------
