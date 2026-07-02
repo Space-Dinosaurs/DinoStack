@@ -1,8 +1,9 @@
 <!--
 Purpose: Documents the cross-harness agent-team layer that lets the conductor
          dispatch leaf workers to entirely different CLIs (codex, gemini,
-         cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning
-         them as native subagents within the conductor's own harness.
+         cursor-agent, kimi, pi, omp, opencode, copilot, claude-as-worker)
+         rather than spawning them as native subagents within the conductor's
+         own harness.
 
 Public API: Read-only reference. Load when configuring team.yml, deciding
             whether to use cross-harness dispatch vs native delegation,
@@ -35,7 +36,8 @@ Performance: Standard. Dispatch is background shell-out per worker; no blocking
 # Cross-harness agent teams
 
 This layer lets the conductor dispatch leaf workers to entirely different CLI
-harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, or claude-as-worker --
+harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, opencode, copilot, or
+claude-as-worker --
 rather than spawning native subagents within its own harness. It is **OMC-
 independent**: it does not trigger oh-my-claudecode, nor does it use the
 conductor harness's own built-in subagent mechanism.
@@ -108,8 +110,8 @@ dispatch:
 | `enabled` | bool | yes | Set `false` to disable cross-harness dispatch without removing the file. |
 | `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
 | `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
-| `roles[*].harness` | string | yes (if mapping) | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
-| `roles[*].model` | string | no | For codex/gemini/claude, forwarded to the harness `--model`/`-m` flag at dispatch. For all other harnesses, supplying `model` is rejected at dispatch with a non-zero exit (no silent drop). Omit to let the harness use its session default (no hardcoded IDs). |
+| `roles[*].harness` | string | yes (if mapping) | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
+| `roles[*].model` | string | no | For codex/gemini/claude/opencode/copilot, forwarded to the harness `--model`/`-m` flag at dispatch. For all other harnesses, supplying `model` is rejected at dispatch with a non-zero exit (no silent drop). Omit to let the harness use its session default (no hardcoded IDs). |
 | `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
 | `dispatch.output_format` | string | no | `json` (default) or `text`. Governs the `collect` demux path. |
 
@@ -140,6 +142,8 @@ fact).
 | **kimi** | `kimi-cli` headless run (exact flag confirmed by `discover`) | per kimi-cli | Binary name is `kimi-cli` (not `kimi`); exact non-interactive flag probed at discovery. No custom slash commands; methodology loaded via inline skill content in the brief. |
 | **pi** | `pi` run with prompt (pi-coding-agent; `.pi/` project resources) | per pi | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Exact headless flag probed at discovery. |
 | **omp** | oh-my-pi headless run | per omp | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. Exact flag probed at discovery. |
+| **opencode** | `opencode run "<brief>" --model <m>` | raw stdout | `--model` forwarded only when a model is configured; final message is raw stdout. |
+| **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths --model <m>` | raw stdout | `--allow-all-tools --allow-all-paths` required for non-interactive file writes; `--model` forwarded only when configured; final message is raw stdout. |
 | **claude (worker)** | `claude -p "<brief>"` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
 
 **Binary-name map (discovery uses this, not the harness label):**
@@ -152,6 +156,8 @@ fact).
 | kimi | `kimi-cli` |
 | pi | `pi` |
 | omp | `omp` |
+| opencode | `opencode` |
+| copilot | `copilot` |
 | claude | `claude` |
 
 The binary-name map is the only per-harness hardcoded fact in the repo. It maps
@@ -184,7 +190,7 @@ process itself, not by a wrapper script.
 
 Each worker launch prepends a wrapper directory to `PATH`. Shims in that
 directory for `git`, `omc`, and all sibling CLI names (`codex`, `gemini`,
-`cursor-agent`, `kimi-cli`, `pi`, `omp`, `claude`) exit 1 and append a line to
+`cursor-agent`, `kimi-cli`, `pi`, `omp`, `opencode`, `copilot`, `claude`) exit 1 and append a line to
 `<workdir>/.agentic/teamrun/<run-id>/violations.log`. The worker's own binary
 is exempt (a codex worker can still run `codex`; its shim is not placed).
 
@@ -261,6 +267,8 @@ returns the final message text:
 | cursor-agent | JSON | `jq '.result'` |
 | kimi | per kimi-cli (probed) | shape confirmed at AC2 discovery |
 | pi / omp | per harness (probed) | shape confirmed at AC2 discovery |
+| opencode | raw stdout | raw stdout, no demux |
+| copilot | raw stdout | raw stdout, no demux |
 | claude (worker) | JSON `{result: ...}` | `jq '.result'` |
 
 Once `collect` returns the final message, **that text is treated identically to

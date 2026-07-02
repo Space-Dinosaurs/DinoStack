@@ -20,6 +20,7 @@ Additional coverage:
   test_scalar_role_treated_as_harness   - scalar string role value sets harness
   test_dispatch_block_parsed             - dispatch sub-block round-trips
   test_normalize_role_spec_imported      - _role_spec.normalize_role_spec is wired
+  test_dispatch_path_guardrail_shims_opencode_and_copilot - opencode/copilot shims present
 
 Run with: python3 -m pytest bin/tests/test_agentic_team.py -x
 """
@@ -625,6 +626,17 @@ def test_dispatch_path_guardrail_shims_git(tmp_path):
     git_shim = shim_dir / "git"
     assert git_shim.exists(), "git shim must be present"
     assert git_shim.stat().st_mode & _stat.S_IEXEC, "git shim must be executable"
+
+
+def test_dispatch_path_guardrail_shims_opencode_and_copilot(tmp_path):
+    """Shim dir contains executable 'opencode' and 'copilot' shims."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shim_dir = _build_shim_dir(run_dir, exempt_binary="codex")
+    for binary_name in ("opencode", "copilot"):
+        shim = shim_dir / binary_name
+        assert shim.exists(), f"{binary_name} shim must be present"
+        assert shim.stat().st_mode & _stat.S_IEXEC, f"{binary_name} shim must be executable"
 
 
 def test_git_shim_exits_nonzero_and_logs(tmp_path):
