@@ -99,6 +99,7 @@ Performance: < 5 ms per call (in-memory JSON parse + optional YAML parse of two
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -110,6 +111,48 @@ from pathlib import Path
 _DISPATCHABLE_ROLES = frozenset({
     "engineer", "debugger", "qa-engineer", "skeptic", "security-auditor",
 })
+
+# Mirrors KNOWN_HARNESSES in bin/_role_spec.py (single source of truth for
+# bin/agentic-team + bin/agentic-configure). _known_harnesses() below tries
+# the real module first; this is only the fail-open fallback, kept in sync
+# by hand - matches how _DISPATCHABLE_ROLES above is hand-duplicated too.
+_KNOWN_HARNESSES_FALLBACK = frozenset({
+    "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
+})
+
+
+def _known_harnesses() -> frozenset:
+    """Load the canonical KNOWN_HARNESSES from bin/_role_spec.py.
+
+    Falls back to the hand-kept mirror on any import error (missing file,
+    path layout change, etc.) - team.yml harness validation must never
+    crash the hook.
+    """
+    try:
+        import importlib.machinery as _im
+        import importlib.util as _ilu
+
+        rs_path = Path(__file__).resolve().parent.parent / "bin" / "_role_spec.py"
+        loader = _im.SourceFileLoader("_role_spec", str(rs_path))
+        spec = _ilu.spec_from_loader("_role_spec", loader)
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        loader.exec_module(mod)
+        return mod.KNOWN_HARNESSES
+    except Exception:
+        return _KNOWN_HARNESSES_FALLBACK
+
+
+def _safe_display(value, max_len: int = 40) -> str:
+    """Strip control chars and truncate untrusted display text.
+
+    *value* originates from a project-level team.yml, which a malicious PR
+    can control - it must never carry control characters (e.g. embedded
+    newlines) or unbounded length into an LLM-facing deny message.
+    """
+    if not value:
+        return ""
+    cleaned = re.sub(r"[\x00-\x1f\x7f]", "", str(value))
+    return cleaned[:max_len]
 
 _GLOBAL_TEAM_YML_REL = "~/.agentic/team.yml"
 _PROJECT_TEAM_YML_REL = ".agentic/team.yml"
@@ -277,15 +320,26 @@ def main() -> None:
                     if team_config.get("enabled") is True:
                         harness, model = _resolve_role_harness(team_config, role)
                         if harness and harness != "claude":
-                            model_note = f" (model {model})" if model else ""
-                            model_flag = f" --model {model}" if model else ""
-                            _deny(
-                                f"cross-harness team active: role '{role}' is assigned to "
-                                f"harness '{harness}'{model_note}. Dispatch with: "
-                                f"bin/agentic-team dispatch --harness {harness} --role {role} "
-                                f"--brief <file> --workdir <dir>{model_flag} - then poll "
-                                "status/collect."
-                            )
+                            if harness not in _known_harnesses():
+                                # harness is untrusted (team.yml is project-
+                                # controlled, e.g. a malicious PR) - do not
+                                # echo it back into an LLM-facing message.
+                                _deny(
+                                    f"cross-harness team active: role '{role}' is "
+                                    "assigned to a non-claude harness in team.yml; "
+                                    "dispatch via bin/agentic-team."
+                                )
+                            else:
+                                safe_model = _safe_display(model)
+                                model_note = f" (model {safe_model})" if safe_model else ""
+                                model_flag = f" --model {safe_model}" if safe_model else ""
+                                _deny(
+                                    f"cross-harness team active: role '{role}' is assigned to "
+                                    f"harness '{harness}'{model_note}. Dispatch with: "
+                                    f"bin/agentic-team dispatch --harness {harness} --role {role} "
+                                    f"--brief <file> --workdir <dir>{model_flag} - then poll "
+                                    "status/collect."
+                                )
                 except Exception:
                     # Fail-open: any config-load/resolution error allows the
                     # native spawn through unchanged.

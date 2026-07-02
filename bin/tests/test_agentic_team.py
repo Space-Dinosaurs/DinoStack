@@ -508,6 +508,69 @@ def test_discover_omp_models_probe_exception_yields_empty_list(monkeypatch):
     assert payload["omp"]["models"] == []
 
 
+def test_discover_cursor_agent_models_populated_from_canned_json(monkeypatch):
+    """cursor-agent models probe: canned `cursor-agent --list-models` stdout
+    (newline-separated model ids) -> models list populated; discover still
+    succeeds."""
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+
+    def fake_which(binary: str) -> str | None:
+        return "/usr/local/bin/cursor-agent" if binary == "cursor-agent" else None
+
+    def fake_run(argv, **kwargs):  # type: ignore[override]
+        class _Result:
+            pass
+        r = _Result()
+        if argv[1:] == ["--list-models"]:
+            r.stdout = "gpt-5.4\ncomposer-2\n"
+            r.stderr = ""
+        else:
+            r.stdout = "cursor-agent 2026.6.1\n"
+            r.stderr = ""
+        r.returncode = 0
+        return r
+
+    monkeypatch.setattr(_shutil, "which", fake_which)
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+
+    payload = _discover_harnesses()
+    assert payload["cursor-agent"]["installed"] is True
+    assert payload["cursor-agent"]["models"] == ["gpt-5.4", "composer-2"]
+
+
+def test_discover_cursor_agent_models_probe_exception_yields_empty_list(monkeypatch):
+    """cursor-agent models probe raising (e.g. timeout) -> models=[];
+    discover as a whole still succeeds (does not raise)."""
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+
+    def fake_which(binary: str) -> str | None:
+        return "/usr/local/bin/cursor-agent" if binary == "cursor-agent" else None
+
+    def fake_run(argv, **kwargs):  # type: ignore[override]
+        if argv[1:] == ["--list-models"]:
+            raise _subprocess.TimeoutExpired(cmd=argv, timeout=10)
+        class _Result:
+            stdout = "cursor-agent 2026.6.1\n"
+            stderr = ""
+            returncode = 0
+        return _Result()
+
+    monkeypatch.setattr(_shutil, "which", fake_which)
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+
+    payload = _discover_harnesses()
+    assert payload["cursor-agent"]["installed"] is True
+    assert payload["cursor-agent"]["models"] == []
+
+
 def test_discover_exit_zero_when_all_absent(monkeypatch, tmp_path):
     """main() returns 0 from discover even when every harness is absent.
     Hermetic: env vars cleared; models=[] always (static, no probe).
@@ -642,6 +705,17 @@ def test_dispatch_builds_cursor_argv():
     argv = _build_worker_argv("cursor-agent", "test brief")
     assert argv[0] == HARNESS_BINARY["cursor-agent"]
     assert "-p" in argv
+    assert "--force" in argv
+    assert "--output-format" in argv
+    assert "json" in argv
+
+
+def test_dispatch_builds_cursor_agent_argv():
+    """cursor-agent argv non-model flags: '--force' and '--output-format json'
+    per the existing pre-PR pattern (named to match the harness label
+    exactly, alongside test_dispatch_builds_cursor_argv above)."""
+    argv = _build_worker_argv("cursor-agent", "test brief")
+    assert argv[0] == HARNESS_BINARY["cursor-agent"]
     assert "--force" in argv
     assert "--output-format" in argv
     assert "json" in argv
