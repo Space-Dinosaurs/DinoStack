@@ -554,6 +554,12 @@ def _cmd_configure(argv: list[str]) -> int:
             chosen = None
         elif raw.isdigit() and 1 <= int(raw) <= len(installed_harnesses):
             chosen = installed_harnesses[int(raw) - 1]
+        elif raw.isdigit():
+            print(
+                f"    {raw!r} is out of range (1-{len(installed_harnesses)}); "
+                f"skipping {role}"
+            )
+            continue
         elif raw in installed_harnesses:
             chosen = raw
         else:
