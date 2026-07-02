@@ -29,6 +29,11 @@ Test groups:
   10. test_mark_warns_on_malformed_line_and_drops_it - mark's rewrite
       prints a stderr warning naming the line number of a malformed line
       it drops (visibility for a destructive silent skip).
+  11. test_cli_runs_through_path_symlink_resolving_lib - regression guard
+      for the install.sh PATH-symlink invocation path: invokes the CLI as
+      a subprocess through a symlink (mimicking ~/.local/bin/agentic-feedback
+      -> repo bin/agentic-feedback) and asserts it can still locate and
+      load bin/_lib.py rather than raising FileNotFoundError.
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_agentic_feedback.py -x
@@ -41,6 +46,8 @@ import importlib.util
 import io
 import json
 import multiprocessing
+import os
+import subprocess
 import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -263,6 +270,52 @@ def test_list_missing_file_returns_empty_array():
         print("PASS test_list_missing_file_returns_empty_array")
 
 
+def test_cli_runs_through_path_symlink_resolving_lib():
+    """(11) Regression guard for the install.sh PATH-symlink invocation path.
+
+    install.sh symlinks ~/.local/bin/agentic-feedback -> repo bin/agentic-feedback
+    but never symlinks _lib.py alongside it. When Python resolves __file__ for a
+    symlinked entrypoint it reports the SYMLINK's path, so `Path(__file__).parent`
+    lands in ~/.local/bin/ where _lib.py does not exist. Must invoke via a real
+    subprocess THROUGH the symlink (not an in-process import) because the bug
+    only manifests when the OS/interpreter actually resolves __file__ to a
+    symlink path, which in-process importlib loading (as used by _run() above)
+    never exercises.
+    """
+    real_bin_path = Path(__file__).parent.parent / "agentic-feedback"
+    assert real_bin_path.is_file(), f"expected real CLI at {real_bin_path}"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_local_bin = tmp_path / "local-bin"
+        fake_local_bin.mkdir()
+        symlink_path = fake_local_bin / "agentic-feedback"
+        os.symlink(real_bin_path.resolve(), symlink_path)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+
+        result = subprocess.run(
+            [str(symlink_path), "list"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        assert result.returncode == 0, (
+            f"CLI invoked through PATH symlink failed (rc={result.returncode}): "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        assert json.loads(result.stdout.strip()) == []
+        assert "FileNotFoundError" not in result.stderr
+
+        print("PASS test_cli_runs_through_path_symlink_resolving_lib")
+
+
 def test_mark_updates_only_target_status():
     """(6) mark changes only the matching line's status; all else byte-identical."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -464,6 +517,7 @@ if __name__ == "__main__":
     test_append_empty_array_is_clean_noop()
     test_list_filters_by_scope_and_status()
     test_list_missing_file_returns_empty_array()
+    test_cli_runs_through_path_symlink_resolving_lib()
     test_mark_updates_only_target_status()
     test_mark_unknown_id_exits_1_and_leaves_file_unchanged()
     test_two_sequential_appends_both_land_under_shared_lock()
