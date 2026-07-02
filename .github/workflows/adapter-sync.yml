@@ -32,3 +32,5 @@ jobs:
           fi
       - name: Verify Codex hook commands resolve (DS-57 regression guard)
         run: bash bin/tests/test_codex_hooks_resolve.sh
+      - name: Verify pre-commit install resolves gitdir in worktrees (DS-58 regression guard)
+        run: bash bin/tests/test_precommit_worktree.sh
