@@ -925,6 +925,7 @@
   <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Contributing</a>
   <span class="deck-index-label deck-index-label-docs">Docs</span>
   <a class="deck-index-link" href="agentic-engineering-comparison.html" target="_blank" rel="noopener noreferrer">Ecosystem Comparison</a>
+  <a class="deck-index-link" href="codex-permissions.md" target="_blank" rel="noopener noreferrer">Codex Permissions</a>
 </nav>
 
 <div class="diagram">
@@ -2112,7 +2113,7 @@
 <div id="permissions" class="section config-layer">
   <div class="section-title" data-num="10"><h2>Hands-off Configuration</h2><h3>Permissions that let Claude work without prompts - but not destroy data</h3></div>
 
-  <p class="desc">The protocol assumes Claude can run most commands without interruption. That only works if the session is not constantly asking for permission. The pattern: set <code>defaultMode</code> to <code>bypassPermissions</code>, then use a tight denylist to block the handful of commands that are genuinely destructive. Everything else runs freely; the worst mistakes are still impossible.</p>
+  <p class="desc">The protocol assumes Claude can run most commands without interruption. That only works if the session is not constantly asking for permission. The pattern: set <code>defaultMode</code> to <code>bypassPermissions</code>, then use a tight denylist to block the handful of commands that are genuinely destructive. Everything else runs freely; the worst mistakes are still impossible. Codex users should also review <a href="codex-permissions.md" style="color: var(--cyan);">codex-permissions.md</a> for the equivalent trusted-work posture.</p>
 
   <div class="two-col" style="margin-top: 20px;">
     <div>
@@ -2163,6 +2164,10 @@
 
   <div class="note" style="margin-top: 16px;">
     <strong>When a denied command is actually what you want:</strong> disable the rule temporarily by editing settings, run the command, re-enable. Do NOT add a bypass hack that survives the session. The friction is the point - if you want to <code>git reset --hard</code>, a five-second edit is a fair cost for the protection the rest of the time.
+  </div>
+
+  <div class="note" style="margin-top: 16px;">
+    <strong>Codex trusted-work config:</strong> for trusted DinoStack work, use top-level <code>sandbox_mode = "danger-full-access"</code> and <code>approval_policy = "never"</code> in <code>~/.codex/config.toml</code>, then verify with <code>codex --strict-config doctor</code>. Use stricter sandboxing and approvals for untrusted repositories or prompts. Full guidance: <a href="codex-permissions.md" style="color: var(--cyan);">codex-permissions.md</a>.
   </div>
 </div>
 
@@ -2496,6 +2501,7 @@
   <div class="rel-card" style="margin-top: 24px; border-color: var(--border-subtle);">
     <h4 style="color: var(--cyan); font-size: 18px; margin-bottom: 4px;">Codex CLI</h4>
     <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px; font-family: 'JetBrains Mono', monospace;">Native AGENTS.md support - TOML agent format - hook system requires opt-in flag</p>
+    <p class="desc" style="margin-bottom: 12px;">Recommended trusted-work permissions are documented in <a href="codex-permissions.md" style="color: var(--cyan);">codex-permissions.md</a>.</p>
     <table>
       <thead><tr><th>Surface</th><th>Codex equivalent</th></tr></thead>
       <tbody>

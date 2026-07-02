@@ -62,7 +62,9 @@ if [[ "$has_marker" == "true" ]]; then
   >&2 echo "┌─────────────────────────────────────────────────────────────────────┐"
   >&2 echo "│  agentic-engineering: ACTIVE in this project                        │"
   >&2 echo "│  Load the skill: /skill:agentic-engineering                         │"
-  >&2 echo "│  Conductor rule: delegate ALL work to subagents. No direct tools.   │"
+  >&2 echo "│  Classify risk first. Main session is the conductor.                │"
+  >&2 echo "│  Shippable edits go to named engineer Workers; Elevated also        │"
+  >&2 echo "│  requires a fresh Skeptic. Low-risk direct action remains OK.       │"
   >&2 echo "└─────────────────────────────────────────────────────────────────────┘"
   >&2 echo ""
 fi
@@ -74,7 +76,7 @@ fi
 if [[ "$skill_auto_load" == "true" ]]; then
   echo "SKILL CHECK [agentic-engineering]: skill_auto_load=true."
   echo "Before responding to any software development request, read ~/.kimi/skills/agentic-engineering/SKILL.md."
-  echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
+  echo "Classify risk first. If agentic-engineering is active, the main session is the conductor: delegate shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic; Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK."
 fi
 
 exit 0

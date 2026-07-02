@@ -161,11 +161,20 @@ hooks = settings.get("hooks", {})
 
 RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
-    "Elevated = spawn Worker + Skeptic in background. "
-    "Direct action ONLY for: reads, answering from memory, screenshots, "
-    "synthesizing subagent results, diagnostic-only logging. "
+    "If agentic-engineering is active in this project, the main session is the conductor. "
+    "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
+    "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
     "When in doubt, classify Elevated.'"
 )
+OLD_RISK_CMDS = {
+    (
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "Elevated = spawn Worker + Skeptic in background. "
+        "Direct action ONLY for: reads, answering from memory, screenshots, "
+        "synthesizing subagent results, diagnostic-only logging. "
+        "When in doubt, classify Elevated.'"
+    )
+}
 
 changed = False
 
@@ -176,7 +185,7 @@ ups_list_changed = False
 for block in ups_list:
     new_hooks = [
         e for e in block.get("hooks", [])
-        if e.get("command") != RISK_CMD
+        if e.get("command") != RISK_CMD and e.get("command") not in OLD_RISK_CMDS
     ]
     removed_count = len(block.get("hooks", [])) - len(new_hooks)
     if removed_count:

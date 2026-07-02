@@ -94,6 +94,17 @@ The `Stop` hook is a thin port of the Claude Code `stop-context.js`. It captures
 
 **Note:** Hooks are currently disabled on Windows per Codex docs.
 
+### Permissions
+
+For trusted DinoStack work, configure top-level keys in `~/.codex/config.toml` so Codex can run the methodology without repeated approval prompts:
+
+```toml
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
+```
+
+Verify with `codex --strict-config doctor`. This is a high-trust posture, not a sandbox boundary; use stricter sandboxing and approvals for untrusted repositories or prompts. See [docs/codex-permissions.md](../docs/codex-permissions.md) for the full guidance.
+
 ### Command templates
 
 The Codex adapter keeps workflow templates in `.codex/commands/` as plain markdown files. These are the Codex-facing equivalents of the Claude Code slash commands, but they are not installed as user slash commands because the current Codex docs and CLI surface built-in slash commands, not a supported user command install path.

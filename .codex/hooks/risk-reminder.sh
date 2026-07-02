@@ -11,7 +11,8 @@
 
 cat <<'REMINDER'
 BEFORE ANY ACTION: classify risk first.
-- Elevated risk = spawn Worker + Skeptic in background. Do NOT act directly.
-- Direct action ONLY for: reads, answering from memory, screenshots, synthesizing subagent results, diagnostic-only logging.
+- If agentic-engineering is active in this project, the main session is the conductor.
+- The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review.
+- Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK.
 - When in doubt, classify Elevated.
 REMINDER

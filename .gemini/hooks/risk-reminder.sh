@@ -14,7 +14,7 @@ cat <<'REMINDER'
 {
   "hookSpecificOutput": {
     "hookEventName": "BeforeAgent",
-    "additionalContext": "BEFORE ANY ACTION: classify risk first.\n- Elevated risk = spawn Worker + Skeptic in background. Do NOT act directly.\n- Direct action ONLY for: reads, answering from memory, screenshots, synthesizing subagent results, diagnostic-only logging.\n- When in doubt, classify Elevated."
+    "additionalContext": "BEFORE ANY ACTION: classify risk first.\n- If agentic-engineering is active in this project, the main session is the conductor.\n- The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review.\n- Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK.\n- When in doubt, classify Elevated."
   }
 }
 REMINDER
