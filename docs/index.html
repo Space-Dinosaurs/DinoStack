@@ -1030,12 +1030,17 @@
   <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: AGENTS.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
   <p class="desc" style="margin-bottom: 16px;">Every setting you can tune - what it does, your options, and how to set it. Full list of every key: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
+  <div class="note" style="border-left-color: var(--cyan); margin-bottom: 20px; padding: 12px 16px;">
+    <strong style="color: var(--cyan);">Just ask your session agent.</strong> You can set any of these by describing what you want in plain language - say something like <em>&ldquo;set the risk profile to relaxed&rdquo;</em> and the agent applies it for you via <code>/agentic-config</code> or directly. No config file editing required.
+  </div>
+
   <!-- Activation / profile settings -->
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4 style="color: var(--cyan);">Risk profile</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Controls how aggressively work triggers independent Skeptic review - relaxed means less overhead, strict means broader coverage.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>relaxed</code> / <code><strong>default</strong></code> / <code>strict</code> &nbsp; <strong>Default:</strong> <code>default</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> install - <code>bash .claude/install.sh --profile=&lt;v&gt;</code>; post-install - <code>profile</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering-profile:</code> in AGENTS.md</p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set the risk profile to relaxed&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1043,6 +1048,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the methodology runs everywhere by default (opt-out) or stays dormant until a project opts in (opt-in).</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>opt-out</strong></code> / <code>opt-in</code> &nbsp; <strong>Default:</strong> <code>opt-out</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>mode</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering:</code> marker in AGENTS.md</p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set activation mode to opt-out&rdquo;</span></p>
   </div>
 
   <!-- .agentic/config.json toggles -->
@@ -1051,6 +1057,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the conductor squash-merges a PR automatically once CI passes and it is approved.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>auto_merge_on_ci_green</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn on auto-merge when CI is green&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1058,6 +1065,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether per-developer session logs are committed to the PR branch as a separate commit.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>true</strong></code> / <code>false</code> &nbsp; <strong>Default:</strong> <code>true</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>commit_telemetry</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn off commit telemetry&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1065,6 +1073,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a spawn with missing required agent tools warns and proceeds (advisory) or is refused until the dep is available (blocking).</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>advisory</code> / <code><strong>blocking</strong></code> &nbsp; <strong>Default:</strong> <code>blocking</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>capability_preflight_mode</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set capability preflight to advisory&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1072,6 +1081,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook blocks conductor turns that end by asking permission for a non-destructive next step.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>abdication_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_ABDICATION_GUARD_DISABLE=1</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;enable the abdication guard&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1079,6 +1089,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether new work creates a tracker ticket before the first implementer spawns - off skips the gate, offer prompts with a proceed default, require hard-blocks until a ticket exists.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>off</code> / <code>offer</code> / <code>require</code> &nbsp; <strong>Default:</strong> <code>offer</code> if a tracker is connected, else <code>off</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>ticket_driven</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set ticket-driven to require&rdquo;</span></p>
   </div>
 
   <!-- Env kill-switches -->
