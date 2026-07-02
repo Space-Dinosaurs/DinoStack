@@ -95,11 +95,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-feedback ->
+# repo bin/agentic-feedback, as created by install.sh) back to the real
+# bin/ directory so _lib.py is found on a bare `agentic-feedback` invocation.
 import sys as _sys
 import importlib.util as _ilu
 import importlib.machinery as _ilm
 
-_LIB_PATH = Path(__file__).parent / "_lib.py"
+_LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
 if "_lib" in _sys.modules:
     _lib_mod = _sys.modules["_lib"]
 else:
