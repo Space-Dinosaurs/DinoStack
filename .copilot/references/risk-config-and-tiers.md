@@ -134,8 +134,9 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | learning-extractor | 2 | sonnet | Pattern extraction |
 | learnings-agent | 2 | sonnet | Discretionary capture |
 | wrap-ticket | 2 | sonnet | Session wrap |
+| goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 
-Tier 1 (haiku) has no default-role owner; it is opt-in per spawn for shallow mechanical tasks.
+Tier 1 (haiku) has exactly one default-role owner: `goal-condition-evaluator` (see the Role-default tier table above). For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
 
 **Small-unit Tier-2 Skeptic carve-out.** When a unit meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches none of the 5 Mandatory Tier-3 signal categories above, the conductor MAY declare `Tier: 2 (small-unit nudge)` for the reviewing Skeptic instead of accepting the unconditional Opus role default. The declaration stays visible in the `Tier:` line at spawn time, same as any other tier declaration. This is a loop-cost lever only - it never widens what classifies as Low or Trivial, and the Skeptic still runs.
 

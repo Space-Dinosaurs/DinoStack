@@ -1492,13 +1492,13 @@
   <div style="margin-bottom: 8px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 17 named agents, 5 composed flows, decision rules, and spawn instructions.</div>
+      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 18 named agents, 5 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
           <h4 style="color: #b06bff;">The Team</h4>
-          <p class="desc">17 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">18 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, goal-condition-evaluator, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1590,6 +1590,7 @@
           <li><strong>release-orchestrator</strong> - sequences the full release from pre-flight gates through version bump, tag, deploy, and post-deploy verification. Enforces gates; refuses to proceed when any check fails.</li>
           <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
           <li><strong>learning-extractor</strong> - per-ticket learning extraction at Phase 6 clean exit. Reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code>. Tier 1 leaf agent; soft-fail only.</li>
+          <li><strong>goal-condition-evaluator</strong> - cheap Tier-1 stop-condition check for open-goal loops; gates continuation only, never correctness/safety.</li>
           <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/context.md</code> (Recent Focus only). Constrained automated subset of <code>/wrap</code>; soft-fail only.</li>
           <li><strong>learnings-agent</strong> - session-scoped background learnings capture. Spawned when the first learning-worthy event occurs in a session. Receives learning events as messages and writes structured entries to <code>.agentic/learnings.md</code> immediately, with optional MEMORY.md append for project-affecting facts. Tier 1 leaf agent; soft-fail only.</li>
         </ul>

@@ -224,6 +224,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
   .columns-3 .card:nth-child(7) { border-left-color: #b06bff; }
   .columns-3 .card:nth-child(8) { border-left-color: #2fd4c4; }
   .columns-3 .card:nth-child(9) { border-left-color: #ff7a5d; }
+  .columns-3 .card:nth-child(10) { border-left-color: #4ea3ff; }
   h2 { margin-bottom: 0.25em; }
   .tier { font-size: 0.85em; color: #6a7c97; margin-top: 0.2em; }
 </style>
@@ -238,6 +239,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>learning-extractor</strong><br/>Per-ticket learning extraction at Phase 6 clean exit. Reads resolved findings_log and writes fix-pattern entries to .agentic/learnings.md.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>wrap-ticket</strong><br/>Per-ticket learnings capture at Phase 11b (PR open). Appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>learnings-agent</strong><br/>Session-scoped background learnings capture. Receives learning events in real-time and writes structured entries to .agentic/learnings.md immediately.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>goal-condition-evaluator</strong><br/>Cheap per-turn stop-condition check for open-goal loops. Gates continuation only, never correctness/safety.<div class="tier">Default Tier: 1</div></div>
 </div>
 
 ---

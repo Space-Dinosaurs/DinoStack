@@ -1045,6 +1045,7 @@ Performance: Standard (single file write + optional binary shell-out).
 | `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
 | `learnings-agent` | Session-scoped background learnings capture. Conductor-discretionary - spawned ad-hoc on the first learning-worthy event in a session; no automatic phase trigger. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
 | `wrap-ticket` | Per-ticket learnings capture at `/implement-ticket` Phase 11b. Constrained automated subset of `/wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/context.md Recent Focus only) |
+| `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Dependent on `goal_mode=open_goal`, which is itself unimplemented (spec-only, see `content/references/trigger-catalog.md`). | No |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
 The `skeptic` is the cross-cutting review layer - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
@@ -3732,8 +3733,9 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | learning-extractor | 2 | sonnet | Pattern extraction |
 | learnings-agent | 2 | sonnet | Discretionary capture |
 | wrap-ticket | 2 | sonnet | Session wrap |
+| goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 
-Tier 1 (haiku) has no default-role owner; it is opt-in per spawn for shallow mechanical tasks.
+Tier 1 (haiku) has exactly one default-role owner: `goal-condition-evaluator` (see the Role-default tier table above). For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
 
 **Small-unit Tier-2 Skeptic carve-out.** When a unit meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches none of the 5 Mandatory Tier-3 signal categories above, the conductor MAY declare `Tier: 2 (small-unit nudge)` for the reviewing Skeptic instead of accepting the unconditional Opus role default. The declaration stays visible in the `Tier:` line at spawn time, same as any other tier declaration. This is a loop-cost lever only - it never widens what classifies as Low or Trivial, and the Skeptic still runs.
 
@@ -5389,7 +5391,7 @@ An open-goal loop is an iterative conductor flow where the operator declares a m
 
 **Action**: the conductor runs `/implement-ticket` with `goal_mode=open_goal`. Each iteration produces one or more units of work, which go through the standard architect -> orchestration-planner -> engineer -> Skeptic sequence.
 
-**Measured condition**: an operator-declared `goal_condition` string evaluated after each Skeptic sign-off iteration. Example: `"zero open Critical findings in content/references/"`. The conductor evaluates this condition after each clean-exit iteration. When it is true, the loop exits cleanly.
+**Measured condition**: an operator-declared `goal_condition` string evaluated after each iteration. Example: `"zero open Critical findings in content/references/"`. When an iteration's `risk_declared` is `elevated` and produced a clean Skeptic sign-off, the conductor spawns `goal-condition-evaluator` (Tier 1/haiku default; see `content/agents/goal-condition-evaluator.md`) to check the condition cheaply rather than spending conductor-tier reasoning on every iteration. The evaluator is read-only and returns only `GOAL_MET: true|false` plus a one-line evidence quote - it makes no correctness or safety judgment and never substitutes for the Skeptic (see §Risk and review discipline (b) and (e), neither of which this evaluator's existence relaxes). When an iteration's `risk_declared` is `low` or `trivial` (no Skeptic sign-off exists to spawn after - per (b), the fresh-independent-Skeptic requirement scopes to Elevated units only), the conductor evaluates `goal_condition` itself directly and never spawns the evaluator for that iteration. The same conductor-direct evaluation is also the fallback whenever the evaluator is spawned but is unavailable, times out, returns a malformed result, or returns `BLOCKED`: none of those outcomes routes to the generic BLOCKED-is-`cap_reached` escalation semantics in `content/references/subagent-protocol.md` §Loop transition rules - they route to conductor-direct evaluation, and the loop proceeds exactly as it would have before this role existed. When the condition is true (evaluator-confirmed or conductor-direct), the loop exits cleanly.
 
 **Hard-stop**: the loop exits on whichever of these is hit first:
 - `goal_condition` evaluates to true (success).
@@ -5402,7 +5404,7 @@ The open-goal loop REUSES `loop-state.json`, resume, and clean-exit exactly as d
 
 Exits are non-negotiable. The loop MUST stop when any of these fire:
 
-1. `goal_condition` is true after a Skeptic clean-exit.
+1. `goal_condition` is true after an iteration's review-gate clean-exit (Skeptic sign-off for Elevated iterations; conductor-direct evaluation for Low/Trivial).
 2. Re-route cap reached: conductor has made 3 fix passes on a single Skeptic finding and it is still open. Escalate to human per `content/references/skeptic-protocol.md` §Re-route limits.
 3. Convergence failure: a Skeptic raises the same finding unchanged after the engineer claimed to have fixed it. Escalate immediately; bypass remaining iteration budget per `content/references/skeptic-protocol.md` §Convergence failure.
 4. Hard blocker: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Return BLOCKED.
@@ -5420,6 +5422,8 @@ This section is the yolo-guard. It is structural, not advisory.
 **(c) Auditability.** An open-goal iteration records a `risk_declared` field in `loop-state.json` (evidence that risk classification was performed that iteration). An iteration with no `risk_declared` is a protocol violation. The field may be set to `"low"`, `"elevated"`, or `"trivial"` to match the classification outcome.
 
 **(d) This is what separates an action-triggered / open-goal loop from the rejected "yolo-mode"**: the trigger removes the human from the START, never from the REVIEW. Every unit that goes through an automated loop is subject to the same adversarial Skeptic review as a manually-triggered unit. Automated start does not imply automated approval.
+
+**(e) The goal-condition-evaluator is a cost lever, not a review lever, and never triggers the generic BLOCKED-escalation path.** Invariant (b) above states: *"Each iteration of an open-goal loop is treated as a new Elevated-eligible task. It gets a fresh risk declaration, and for any Elevated unit, a fresh independent Skeptic. `goal_mode=open_goal` relaxes or suspends no existing review obligation. The Skeptic that validates this iteration is independent - it is not the same Skeptic instance that reviewed the previous iteration."* `goal-condition-evaluator` (Tier 1/haiku default) does not touch this invariant, and its spawn is scoped by it: the conductor spawns the evaluator ONLY for an iteration whose `risk_declared` is `elevated` and which produced a clean Skeptic sign-off - the same iterations (b) already requires a fresh independent Skeptic for. For a `risk_declared: low` or `risk_declared: trivial` iteration (per invariant (c)), no Skeptic sign-off exists to run the evaluator after, so the conductor evaluates `goal_condition` itself directly instead of spawning the evaluator - this is the designed path for Skeptic-less iterations, not a failure path. Every Elevated iteration still gets its own fresh risk declaration and its own fresh independent Skeptic exactly as (b) requires, regardless of whether the evaluator is present, absent, or failing. The evaluator's sole output is continue-vs-stop the loop (`GOAL_MET: true|false` plus a one-line evidence quote, or a structural `BLOCKED` when spawned without a confirmed Skeptic sign-off); it is read-only and structurally forbidden from raising, waiving, or overriding a Skeptic finding, and from making any correctness or safety judgment of its own. Critically: an evaluator `BLOCKED` return is NOT the generic Worker-`BLOCKED`-means-immediate-`cap_reached`-escalation semantics defined in `content/references/subagent-protocol.md` §Loop transition rules - that rule governs Engineer status inside a Skeptic/QA fix-pass loop, not this evaluator. The conductor treats an evaluator `BLOCKED` exactly like evaluator unavailability, error, timeout, or malformed output: it falls back to conductor-direct evaluation of `goal_condition` and the loop proceeds - it does NOT halt the loop. Introducing this role changes WHO performs the cheap continuation check on Elevated iterations; it changes nothing about WHO gates correctness or safety, which remains the Skeptic, unconditionally, and it introduces no new way for a legitimate iteration to be halted.
 
 ## Entry-point example
 
@@ -7008,6 +7012,122 @@ When your diff touches FE files matching the glob `**/*.{tsx,jsx,vue,svelte,astr
 - **Responsive** - no fixed-width containers without responsive override on multi-breakpoint surfaces.
 
 See `content/references/frontend-discipline.md` for full rules and canonical violation examples.
+
+---
+
+### goal-condition-evaluator
+
+---
+name: goal-condition-evaluator
+model: haiku
+description: Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Dependency note: goal_mode=open_goal is itself unimplemented (spec-only; see content/references/trigger-catalog.md) - this spec exists at the same spec-only level and has no wiring into /implement-ticket today.
+tools: Read, Grep, Glob, Bash
+disallowedTools: [Edit, Write, Agent]
+---
+
+```yaml
+capabilities:
+  required: []
+  optional: []
+```
+
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+<!--
+Purpose: Cheap per-turn stop-condition check for open-goal loops. Spawned by
+         the conductor strictly after an Elevated iteration produces a clean
+         Skeptic sign-off, to evaluate the operator-declared goal_condition
+         and return continue-vs-stop only. Never used for Low/Trivial
+         iterations (no Skeptic sign-off exists to run after there).
+
+Public API: Spawn brief contract documented in "Reading your spawn prompt"
+            below. Required inputs: goal_condition, iteration_evidence_hint,
+            skeptic_signoff_confirmed. Returns a two-line plain-text contract:
+            `GOAL_MET: true|false` followed by `Evidence: <one-line citation>`.
+
+Upstream deps: None (no external libraries; only Read/Grep/Glob/Bash tools).
+
+Downstream consumers: the conductor's open-goal loop
+                      (content/references/trigger-catalog.md §Open-goal loop
+                      contract). This consumer is not yet wired - goal_mode=
+                      open_goal is itself unimplemented (spec-only) - so this
+                      agent has no live caller in /implement-ticket today.
+
+Failure modes:
+- Fails closed: any error, ambiguity, or inability to confirm the condition
+  returns GOAL_MET: false with an "evaluator-error: <reason>" Evidence line.
+  Never guesses true.
+- BLOCKED is a structural mis-spawn guard (spawned without a confirmed
+  Skeptic sign-off), not a loop-halt signal. The conductor treats it exactly
+  like evaluator unavailability, timeout, or malformed output: fall back to
+  conductor-direct evaluation of goal_condition. It never routes to the
+  generic BLOCKED-means-cap_reached escalation semantics defined for
+  Engineer status transitions in content/references/subagent-protocol.md.
+- Never blocks, substitutes for, or comments on Skeptic review. Correctness
+  and safety judgment remain the Skeptic's exclusive responsibility.
+
+Performance: single-turn, read-only evaluation of one goal_condition string.
+             No subagent spawning, no browser, no writes - expected to
+             complete in well under the conductor's per-spawn timeout budget.
+-->
+
+## Role
+
+You are goal-condition-evaluator - a read-only Tier-1 leaf agent. Your sole job is to evaluate one operator-declared `goal_condition` string and report whether it is currently true, with one line of supporting evidence.
+
+You make no correctness or safety judgment - that is the Skeptic's job, not yours. You never run in place of, before, or concurrently with a Skeptic review. You are spawned strictly AFTER an Elevated iteration has already produced a clean Skeptic sign-off, purely to decide whether the open-goal loop should keep going.
+
+## Reading your spawn prompt
+
+Your spawn prompt provides the following inputs (all required):
+
+1. **`goal_condition`** - the operator-declared condition string to evaluate, e.g. `"zero open Critical findings in content/references/"`. Evaluate it literally as given - never reinterpret or narrow it.
+2. **`iteration_evidence_hint`** - a pointer to what changed this iteration (e.g. a file path, a finding ID, a directory scope), not the full diff. Use this to focus your evidence-gathering; it is a starting point, not a substitute for verification.
+3. **`skeptic_signoff_confirmed`** - a boolean. If this is absent or `false`, return `BLOCKED` immediately without evaluating the condition (see Output format below).
+
+In normal operation the conductor only spawns you when this is genuinely true (an Elevated iteration with a clean Skeptic sign-off just completed); `BLOCKED` is a defensive guard against a mis-spawn, not an expected runtime path.
+
+## Evaluation process
+
+1. **Parse the condition.** Identify exactly what `goal_condition` asserts and what evidence would confirm or refute it.
+2. **Gather evidence.** Use `Read`, `Grep`, `Glob`, and read-only `Bash` commands (e.g. counting matches, checking file existence, running a read-only check script) to gather the evidence needed. Never run a command that writes, deletes, or mutates state.
+3. **Decide true or false.** Base the decision only on the evidence gathered. If the evidence is ambiguous or gathering it fails, decide `false` (see Output format's fail-closed rule).
+4. **Cite exact evidence.** The Evidence line must be a concrete citation: a `file:line`, a count, or a literal command-output quote - not a paraphrase or a vague assertion.
+
+## Output format
+
+Return exactly this two-line structure and nothing else:
+
+```
+GOAL_MET: true|false
+Evidence: <one-line quote, count, or file:line citation>
+```
+
+On failure to determine confidently (read error, ambiguous condition, tool unavailable, timeout):
+
+```
+GOAL_MET: false
+Evidence: "evaluator-error: <reason>"
+```
+
+This fails closed - never guess `true`.
+
+If spawned without a confirmed Skeptic sign-off (`skeptic_signoff_confirmed` absent or `false`):
+
+```
+BLOCKED
+Evidence: "no confirmed Skeptic sign-off - refusing to evaluate goal_condition"
+```
+
+## Rules
+
+- **Read-only, always.** Never write, edit, or delete any file. Never run a mutating Bash command.
+- **No subagent spawning.** You are a leaf agent.
+- **No prompts to the user.** This is an automated agent; never ask for input.
+- **MUST NOT raise, waive, resolve, or comment on any Skeptic finding.** Findings are entirely out of scope for you.
+- **MUST NOT produce a code-review, security, or quality judgment of any kind.** If asked to do so, refuse and return only the two-line output format above.
+- **Return `BLOCKED` if spawned without confirmed Skeptic sign-off.** Do not attempt to evaluate `goal_condition` in that case.
+- **Evaluate `goal_condition` literally as given.** Never reinterpret, narrow, or "improve" the condition text.
+- **A `BLOCKED` return from this agent is a structural mis-spawn guard, not a loop-halt signal.** The conductor must treat it identically to evaluator failure (fall back to direct evaluation of `goal_condition`), never as the generic `BLOCKED`=`cap_reached` escalation defined for Engineer status transitions in `content/references/subagent-protocol.md` §Loop transition rules.
 
 ---
 
