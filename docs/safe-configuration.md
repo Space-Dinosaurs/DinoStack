@@ -81,8 +81,8 @@ hook installed separately:
   `AE_SINGULARITY_GUARD_DISABLE=1`.
 - [`enforce-no-abdication.py`](../hooks/enforce-no-abdication.py) - Stop hook;
   detects a permission-seeking interrogative in the final assistant message and blocks
-  the stop, injecting a "proceed" directive; opt in per-project via
-  `abdication_guard_enabled: true` in `.agentic/config.json`; disable via
+  the stop, injecting a "proceed" directive; on by default; set
+  `abdication_guard_enabled: false` in `.agentic/config.json` to opt out; disable via
   `AE_ABDICATION_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.

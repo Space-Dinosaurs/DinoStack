@@ -41,8 +41,8 @@ Downstream consumers: Claude Code hook runner (Stop event, matcher "*"). Wired
 Failure modes:
     - Malformed stdin: fail-open (exit 0, emit nothing). Hook bugs must never
       brick the session - fail-open preserves default CC behavior.
-    - Missing or malformed config.json: fail-open (exit 0). Default is opt-out
-      (abdication_guard_enabled not exactly true = exit 0).
+    - Missing or malformed config.json: fail-open (exit 0). Guard is on by default
+      (abdication_guard_enabled defaults to true); corrupt/missing config fails open.
     - Missing transcript file or unparseable JSONL: fail-open (exit 0).
     - Any exception: fail-open via outer try/except (exit 0).
     - stop_hook_active=true: exit 0 immediately (primary re-entrancy guard).
@@ -401,8 +401,8 @@ def main() -> None:
         if not cwd:
             sys.exit(0)
 
-        # Read project config. Default off (abdication_guard_enabled not exactly
-        # true = exit 0). Fail-open on any read/parse error.
+        # Read project config. Default on (abdication_guard_enabled defaults to
+        # true). Fail-open on any read/parse error.
         config_path = os.path.join(cwd, ".agentic", "config.json")
         try:
             with open(config_path, "r") as f:
