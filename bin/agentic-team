@@ -83,9 +83,12 @@ except ImportError:
     _HAVE_YAML = False
 
 # ---------------------------------------------------------------------------
-# Load _role_spec from the same bin/ directory (no .py extension sibling)
+# Load _role_spec from the same bin/ directory (no .py extension sibling).
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-team ->
+# repo bin/agentic-team, as created by install.sh) back to the real bin/
+# directory so _role_spec.py is found on a bare `agentic-team` invocation.
 # ---------------------------------------------------------------------------
-_rs_path = Path(__file__).parent / "_role_spec.py"
+_rs_path = Path(__file__).resolve().parent / "_role_spec.py"
 _rs_loader = _im.SourceFileLoader("_role_spec", str(_rs_path))
 _rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
 _rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]

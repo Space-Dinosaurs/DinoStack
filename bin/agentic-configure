@@ -44,10 +44,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-# _role_spec lives in the same bin/ directory (no .py extension peer)
+# _role_spec lives in the same bin/ directory (no .py extension peer).
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-configure ->
+# repo bin/agentic-configure, as created by install.sh) back to the real
+# bin/ directory so _role_spec.py is found on a bare `agentic-configure`
+# invocation.
 import importlib.machinery as _im
 import importlib.util as _ilu
-_rs_path = Path(__file__).parent / "_role_spec.py"
+_rs_path = Path(__file__).resolve().parent / "_role_spec.py"
 _rs_loader = _im.SourceFileLoader("_role_spec", str(_rs_path))
 _rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
 _rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
@@ -131,7 +135,9 @@ def _models_suggestions(models_csv: str) -> dict:
     Returns a suggestions dict (same shape as _gather_roles expects) or {}
     on any failure. Non-fatal: callers fall back to sonnet defaults.
     """
-    agentic_models = Path(__file__).parent / "agentic-models"
+    # .resolve() follows a PATH symlink back to the real bin/ directory so
+    # the sibling agentic-models binary is found on a bare invocation.
+    agentic_models = Path(__file__).resolve().parent / "agentic-models"
     if not agentic_models.is_file():
         return {}
     model_list = [m.strip() for m in models_csv.split(",") if m.strip()]
@@ -197,8 +203,10 @@ def _cmd_team(argv: list[str]) -> int:
 
     Resolves agentic-team as a sibling binary in the same bin/ directory.
     Both binaries must be 0755 co-located (standard install layout).
+    .resolve() follows a PATH symlink back to the real bin/ directory so
+    the sibling agentic-team binary is found on a bare invocation.
     """
-    agentic_team = Path(__file__).parent / "agentic-team"
+    agentic_team = Path(__file__).resolve().parent / "agentic-team"
     if not agentic_team.is_file():
         print(
             "agentic-configure team: agentic-team binary not found at "

@@ -50,7 +50,11 @@ from pathlib import Path
 # (same pattern as bin/tests/test_agentic_status.py:23-42)
 # ---------------------------------------------------------------------------
 
-_BIN_DIR = Path(__file__).parent
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-config ->
+# repo bin/agentic-config, as created by install.sh) back to the real bin/
+# directory so both agentic-status and _lib.py are found on a bare
+# `agentic-config` invocation.
+_BIN_DIR = Path(__file__).resolve().parent
 
 _STATUS_PATH = _BIN_DIR / "agentic-status"
 _status_loader = importlib.machinery.SourceFileLoader("agentic_status", str(_STATUS_PATH))
