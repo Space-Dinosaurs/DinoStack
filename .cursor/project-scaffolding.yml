@@ -43,5 +43,5 @@ files:
     purpose: "per-ticket fix-pattern learnings - header-only stub; entries appended by agents"
   - path: ".agentic/skill-candidates.md"
     seed: "templates/.agentic/skill-candidates.md"
-    purpose: "skill-candidate backlog - header-only stub; entries written by Stop hook detector"
+    purpose: "skill-candidate backlog - header-only stub; entries written by wrap-time detector (Stop-hook scan path is dormant)"
 markers: []   # parsed only by /migrate-project --include-destructive; preflight apply IGNORES this key
