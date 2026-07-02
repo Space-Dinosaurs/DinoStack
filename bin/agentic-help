@@ -34,6 +34,7 @@ agentic-engineering - command reference
 
 Inspect & configure
   /agentic-status              Show resolved config (mode, profile, marker) with provenance and a plain-English explainer. Run this first when unsure what the skill is doing.
+  /agentic-config              View and change methodology settings (profile, mode, .agentic/config.json toggles) with guided prompts.
   /agentic-help                This list.
   /agentic-disable             Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out.
   /agentic-cost                Token and wall-time rollups per agent/session/task from .agentic/events.jsonl.
