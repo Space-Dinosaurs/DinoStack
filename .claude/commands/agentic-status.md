@@ -44,8 +44,9 @@ What this means
   Profile 'default': single-file behavioral edits run directly with a self-check;
     multi-file changes, new files, shared utilities, config, and anything risky
     spawn a Worker plus an independent Skeptic review.
-  (relaxed: single-file behavioral edits AND small pure-UI multi-file changes run
-    directly - lighter review, faster iteration.)
+  (relaxed: single-file behavioral edits, small pure-UI multi-file changes, AND
+    bounded 2-3-file behavioral edits (connectivity-bound, <=30 changed lines,
+    zero other Elevated signals) run directly - lighter review, faster iteration.)
   (strict: UI-copy tweaks, file renames, and targeted wording fixes are all treated
     as Elevated and get Worker + Skeptic - broadest review coverage.)
 
