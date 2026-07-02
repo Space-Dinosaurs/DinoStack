@@ -17,7 +17,7 @@
   "deferred_wrap_timeout_minutes": 10,
   "deferred_wrap_inprogress_reclaim_minutes": 30,
   "deferred_wrap_pending_ttl_days": 7,
-  "abdication_guard_enabled": false,
+  "abdication_guard_enabled": true,
   "skill_candidate_detection": true,
   "skill_candidate_nudge": false
 }

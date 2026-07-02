@@ -76,7 +76,7 @@ it manually.
 | `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/init-project` |
 | `commit_telemetry` | `true` | bool | Phase 8 commits the per-developer session-log file as a separate PR commit; set to `false` to opt out |
 | `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/wrap` jobs (tuned by the `deferred_wrap_*` params below) |
-| `abdication_guard_enabled` | `false` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
+| `abdication_guard_enabled` | `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
 | `skill_candidate_detection` | `true` | bool | Master toggle for the skill-candidate detector; `false` disables all layers |
 | `skill_candidate_nudge` | `false` | bool | In-session nudge when a domain crosses the candidate threshold (requires `skill_candidate_detection: true`) |
 | `ticket_driven` | absent-key: `offer` if tracker connected, `off` if not | `"off"`, `"offer"`, `"require"` | Controls ticket-creation gate before first implementer spawn; **absent key resolves based on tracker connection, not to a fixed default** |

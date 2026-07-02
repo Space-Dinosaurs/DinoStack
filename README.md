@@ -176,7 +176,7 @@ The per-project marker only has effect in combination with the global activation
 - `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/init-project`.
 - `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/wrap` jobs; tuned by the `deferred_wrap_*` related keys.
-- `abdication_guard_enabled` - boolean, default `false`. Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
+- `abdication_guard_enabled` - boolean, default `true` (opt-out). Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector; when `true`, the Stop hook surfaces recurring friction patterns as skill candidates at session start.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in in-session nudge; fires when a domain crosses the candidate threshold during the current session (requires `skill_candidate_detection: true`).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, `off` when `TRACKER == none`.
