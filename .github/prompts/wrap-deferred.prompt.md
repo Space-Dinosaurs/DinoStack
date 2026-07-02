@@ -70,4 +70,5 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | `gh pr` open-PR enumeration | omitted |
 | Step 5 `/cleanup-worktrees` | omitted |
 | Step 6 terminal marker transition | omitted; daemon owns `done` |
+| Part F tracker status reconciliation | omitted; daemon has no Bash and spawns nothing |
 | drift-requires-input prompt | omitted; drift -> context.md "Watch Out For" bullet |
