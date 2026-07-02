@@ -594,6 +594,25 @@ def test_dispatch_builds_claude_argv():
     assert "json" in argv
 
 
+def test_dispatch_builds_opencode_argv():
+    """opencode argv is ['opencode', 'run', '<brief>'] with no model flag."""
+    argv = _build_worker_argv("opencode", "test brief")
+    assert argv[0] == HARNESS_BINARY["opencode"]
+    assert argv[1] == "run"
+    assert "test brief" in argv
+    assert "--model" not in argv
+
+
+def test_dispatch_builds_copilot_argv():
+    """copilot argv includes '-p', '--allow-all-tools', '--allow-all-paths'."""
+    argv = _build_worker_argv("copilot", "test brief")
+    assert argv[0] == HARNESS_BINARY["copilot"]
+    assert "-p" in argv
+    assert "test brief" in argv
+    assert "--allow-all-tools" in argv
+    assert "--allow-all-paths" in argv
+
+
 # ---------------------------------------------------------------------------
 # AC5: PATH guardrail shims
 # ---------------------------------------------------------------------------
@@ -847,6 +866,30 @@ def test_collect_falls_back_to_raw_for_unknown_harness(tmp_path):
     assert "Raw kimi output line" in result
 
 
+def test_collect_falls_back_to_raw_for_opencode(tmp_path):
+    """opencode has no known JSON schema -> raw stdout returned."""
+    run_dir = tmp_path / "run6"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("opencode\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    (run_dir / "stdout").write_text("Raw opencode output line\n", encoding="utf-8")
+
+    result = _collect_output(run_dir, "opencode")
+    assert "Raw opencode output line" in result
+
+
+def test_collect_falls_back_to_raw_for_copilot(tmp_path):
+    """copilot has no known JSON schema -> raw stdout returned."""
+    run_dir = tmp_path / "run7"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("copilot\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    (run_dir / "stdout").write_text("Raw copilot output line\n", encoding="utf-8")
+
+    result = _collect_output(run_dir, "copilot")
+    assert "Raw copilot output line" in result
+
+
 # ---------------------------------------------------------------------------
 # run-id determinism note (for reviewer)
 # ---------------------------------------------------------------------------
@@ -1090,9 +1133,30 @@ def test_model_appended_claude_argv_end():
     assert argv[:len(base)] == base
 
 
+def test_model_appended_opencode_argv_end():
+    """opencode argv ends with ['--model', 'X']; brief not displaced."""
+    base = _build_worker_argv("opencode", "BRIEF")
+    argv = _build_worker_argv("opencode", "BRIEF", model="X")
+    assert argv[-2:] == ["--model", "X"], f"opencode must end with --model X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
+def test_model_appended_copilot_argv_end():
+    """copilot argv ends with ['--model', 'X']; brief not displaced."""
+    base = _build_worker_argv("copilot", "BRIEF")
+    argv = _build_worker_argv("copilot", "BRIEF", model="X")
+    assert argv[-2:] == ["--model", "X"], f"copilot must end with --model X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
 def test_no_model_argv_unchanged():
     """(f) no model -> argv identical to pre-change behavior (no model flag)."""
-    for harness in ("codex", "gemini", "claude", "cursor-agent", "kimi", "pi", "omp"):
+    for harness in (
+        "codex", "gemini", "claude", "cursor-agent", "kimi", "pi", "omp",
+        "opencode", "copilot",
+    ):
         argv = _build_worker_argv(harness, "BRIEF")
         assert "-m" not in argv, f"{harness}: no -m when model is None"
         assert "--model" not in argv, f"{harness}: no --model when model is None"
@@ -1131,7 +1195,9 @@ def test_dispatch_model_rejected_for_kimi_no_side_effect(tmp_path, monkeypatch, 
     assert "codex" in err and "gemini" in err and "claude" in err
     # No filesystem side effect: teamrun dir never created (fail-fast precedes mkdir).
     assert not teamrun.exists(), "no run dir / teamrun tree may be created on reject"
-    assert _MODEL_FLAG_HARNESSES == frozenset({"codex", "gemini", "claude"})
+    assert _MODEL_FLAG_HARNESSES == frozenset(
+        {"codex", "gemini", "claude", "opencode", "copilot"}
+    )
 
 
 # --- M2a: sibling-gated .active unlink ---------------------------------------
