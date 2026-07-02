@@ -53,9 +53,16 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task", "Agent", or
             "Skill"). Reads JSON from stdin, writes hookSpecificOutput JSON to
             stdout when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, sys, time, pathlib). PyYAML is
-               imported opportunistically inside try/except for team.yml
-               parsing - never a hard dependency; fails open when unavailable.
+Upstream deps: Python 3 stdlib (json, os, sys, time, pathlib, importlib) for
+               core enforcement. PyYAML is imported opportunistically inside
+               try/except for team.yml parsing - never a hard dependency;
+               fails open when unavailable. _known_harnesses() also has a
+               runtime soft-dependency on bin/_role_spec.py (loaded via
+               importlib.machinery.SourceFileLoader to read the canonical
+               KNOWN_HARNESSES set) - if that file is missing or fails to
+               load, _known_harnesses() falls back to an empty/minimal set
+               and the harness is simply treated as unknown, which still
+               fails safe (denies with a generic message; never crashes).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task, Agent,
                       and Skill tools). Wired via ~/.claude/settings.json by
@@ -92,6 +99,18 @@ Failure modes:
     - Agent spawn (no live sentinel, no routing match): always allowed (exits 0
       at the enforcement gate - run_in_background is not present in the real
       harness payload).
+    - Resolved harness not in _known_harnesses() (unknown/typo'd harness in
+      team.yml, or bin/_role_spec.py failed to load): deny with a generic,
+      fully-static message that names the unknown harness but never
+      references the `model` field - no code path in the unknown-harness
+      branch interpolates untrusted team.yml text.
+    - Resolved harness known: deny message names the (allowlist-validated)
+      harness and a `bin/agentic-team dispatch` command, but the free-text
+      `model` value from team.yml is NEVER interpolated into the message -
+      not even sanitized/truncated. The suggested dispatch command uses a
+      literal `--model <model-from-team.yml>` placeholder so a malicious
+      team.yml cannot inject arbitrary text into the LLM-facing deny
+      message via the model field.
 
 Performance: < 5 ms per call (in-memory JSON parse + optional YAML parse of two
              small config files + optional stat/proc check, no network I/O).
@@ -330,15 +349,18 @@ def main() -> None:
                                     "dispatch via bin/agentic-team."
                                 )
                             else:
-                                safe_model = _safe_display(model)
-                                model_note = f" (model {safe_model})" if safe_model else ""
-                                model_flag = f" --model {safe_model}" if safe_model else ""
+                                # model is untrusted free text from team.yml
+                                # (project-controlled, e.g. a malicious PR) -
+                                # never interpolate it into an LLM-facing
+                                # message. Reference team.yml generically
+                                # instead; harness is allowlist-validated
+                                # above so it may stay verbatim.
                                 _deny(
                                     f"cross-harness team active: role '{role}' is assigned to "
-                                    f"harness '{harness}'{model_note}. Dispatch with: "
+                                    f"harness '{harness}'. Dispatch with: "
                                     f"bin/agentic-team dispatch --harness {harness} --role {role} "
-                                    f"--brief <file> --workdir <dir>{model_flag} - then poll "
-                                    "status/collect."
+                                    "--brief <file> --workdir <dir> --model <model-from-team.yml> "
+                                    "- then poll status/collect."
                                 )
                 except Exception:
                     # Fail-open: any config-load/resolution error allows the
