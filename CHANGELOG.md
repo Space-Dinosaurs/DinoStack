@@ -3,6 +3,28 @@
 
 # Changelog
 
+## 2026-07-01
+
+### Features
+
+- **#377** [snapshot hooks to a session-stable dir so a git pull can't rewire live sessions (DS-54 Tier 2, Unit 1)](https://github.com/Space-Dinosaurs/DinoStack/pull/377) - tyson-solara6
+- **#373** [warn when a git pull changes hooks/ (DS-54)](https://github.com/Space-Dinosaurs/DinoStack/pull/373) - tyson-solara6
+- **#367** [universality (works-for-everyone) North Star pillar + scope /ticket-triage no-args to configured project/team](https://github.com/Space-Dinosaurs/DinoStack/pull/367) - tyson-solara6
+
+### Documentation
+
+- **#378** [repurpose hooks-changed advisory for the snapshot model + Step 4.5 refresh (DS-54 Tier 2, Units 2-3)](https://github.com/Space-Dinosaurs/DinoStack/pull/378) - tyson-solara6
+- **#372** [per-setting config cards with descriptions (replaces table)](https://github.com/Space-Dinosaurs/DinoStack/pull/372) - tyson-solara6
+- **#371** [lead Configuration Layer with a settings-at-a-glance table](https://github.com/Space-Dinosaurs/DinoStack/pull/371) - tyson-solara6
+- **#370** [add configuration-reference quick-reference (every setting + default)](https://github.com/Space-Dinosaurs/DinoStack/pull/370) - tyson-solara6
+- **#369** [sync #profiles with preset alias + token-spend note](https://github.com/Space-Dinosaurs/DinoStack/pull/369) - tyson-solara6
+- **#368** [add token-spend / right-sizing section + preset alias](https://github.com/Space-Dinosaurs/DinoStack/pull/368) - tyson-solara6
+
+### Uncategorized
+
+- **#375** [DS-48 Lever 9 Unit B: presence-aware profile resolver (deprecate session preset)](https://github.com/Space-Dinosaurs/DinoStack/pull/375) - tyson-solara6
+- **#374** [DS-48 Wave 1: mechanical small-unit metric for loop-cost de-escalation](https://github.com/Space-Dinosaurs/DinoStack/pull/374) - tyson-solara6
+
 ## 2026-06-30
 
 ### Features
