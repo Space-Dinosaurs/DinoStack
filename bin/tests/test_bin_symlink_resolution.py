@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
 Shared regression guard (DS-66) for the install.sh PATH-symlink invocation
-path, across every `_lib.py`-dependent python CLI in bin/.
+path, across every python CLI in bin/ that resolves a sibling file or
+sibling binary (bin/_lib.py, bin/_role_spec.py, or another bin/agentic-*
+binary) relative to its own __file__.
 
 install.sh symlinks bin/agentic-* into ~/.local/bin but never symlinks
-_lib.py alongside them. When Python resolves __file__ for a symlinked
+their sibling dependencies (_lib.py, _role_spec.py, other bin/agentic-*
+binaries) alongside them. When Python resolves __file__ for a symlinked
 entrypoint it reports the SYMLINK's path, so a bare `Path(__file__).parent`
-sibling-file lookup lands in ~/.local/bin/ where _lib.py (and, for
-agentic-config, the sibling agentic-status binary) does not exist -
-raising FileNotFoundError at import time, before argument parsing even
-runs. The fix is `Path(__file__).resolve().parent`, which follows the
+sibling-file lookup lands in ~/.local/bin/ where the sibling does not
+exist - raising FileNotFoundError at import time, before argument parsing
+even runs (or, for agentic-configure's --models/team subcommands, at first
+use). The fix is `Path(__file__).resolve().parent`, which follows the
 symlink back to the real bin/ directory (a no-op when not symlinked).
 
 This must be exercised via a real subprocess THROUGH an os.symlink (not an
@@ -18,14 +21,14 @@ actually resolves __file__ to a symlink path - in-process importlib loading
 never exercises it.
 
 `--help` is used as the invocation because argparse imports the module
-(where the _lib shim runs at module scope) before printing usage and
-exiting - exercising the exact bug surface with zero side effects. Note
-bin/agentic-config is a hand-rolled parser (not argparse) that treats
-`--help` as an unrecognized positional and exits 2 with a clean usage
-message - which is fine, since the shim still runs at import time and
-still needs to be verified clean of the symlink-resolution bug; its
-expected exit code is captured separately below rather than assuming 0
-for every CLI.
+(where the sibling-resolution shim runs at module scope) before printing
+usage and exiting - exercising the exact bug surface with zero side
+effects. Note bin/agentic-config is a hand-rolled parser (not argparse)
+that treats `--help` as an unrecognized positional and exits 2 with a
+clean usage message - which is fine, since the shim still runs at import
+time and still needs to be verified clean of the symlink-resolution bug;
+its expected exit code is captured separately below rather than assuming
+0 for every CLI.
 
 Run with: python3 -m pytest bin/tests/test_bin_symlink_resolution.py -x
 """
@@ -44,12 +47,14 @@ REPO_BIN = Path(__file__).resolve().parent.parent
 # (cli name, args, expected exit code)
 # agentic-config has no argparse --help; its hand-rolled parser treats
 # --help as an unrecognized positional and exits 2 with a usage message.
-# The other three are argparse-based and exit 0 on --help.
+# The rest are argparse-based and exit 0 on --help.
 CASES = [
     ("agentic-identity", ["--help"], 0),
     ("agentic-migrate", ["--help"], 0),
     ("agentic-config", ["--help"], 2),
     ("agentic-feedback", ["--help"], 0),
+    ("agentic-configure", ["--help"], 0),
+    ("agentic-team", ["--help"], 0),
 ]
 
 
