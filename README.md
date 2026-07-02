@@ -135,7 +135,7 @@ Agents need uninterrupted access to Bash, Edit, and Write - constant permission 
 - **Deny list** (safety net for destructive commands) - `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `sudo rm`, `dd if=`, `shutdown`, `reboot`
 - **Additional directories** - `~/.claude/projects` for cross-session context
 
-The deny list merges with any existing deny rules. See [.claude/README.md](.claude/README.md#permissions) for details and [.cursor/README.md](.cursor/README.md), [.codex/README.md](.codex/README.md), [.gemini/README.md](.gemini/README.md) for the equivalent setup in other adapters. For Codex specifically, see [docs/codex-permissions.md](docs/codex-permissions.md) for the recommended trusted-work config and its tradeoffs.
+The deny list merges with any existing deny rules. See [.claude/README.md](.claude/README.md#permissions) for details and [.cursor/README.md](.cursor/README.md), [.codex/README.md](.codex/README.md), [.gemini/README.md](.gemini/README.md) for the equivalent setup in other adapters.
 
 ## Initialize a project
 
@@ -176,8 +176,8 @@ The per-project marker only has effect in combination with the global activation
 - `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/init-project`.
 - `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/wrap` jobs; tuned by the `deferred_wrap_*` related keys.
-- `abdication_guard_enabled` - boolean, default `false`. Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
-- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector; when `true`, the wrap-time path (`/wrap` Part D) detects recurring friction patterns and surfaces them as skill candidates at session start (Stop-hook scan path exists but is dormant).
+- `abdication_guard_enabled` - boolean, default `true` (opt-out). Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector; when `true`, the Stop hook surfaces recurring friction patterns as skill candidates at session start.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in in-session nudge; fires when a domain crosses the candidate threshold during the current session (requires `skill_candidate_detection: true`).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, `off` when `TRACKER == none`.
 
@@ -222,11 +222,11 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
 - Cross-harness agent teams - `agentic-team` CLI, team.yml schema, cross-harness dispatch and collection
 
-**Agents** (18) - named specialist roles:
-adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, goal-condition-evaluator, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
+**Agents** (17) - named specialist roles:
+adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
 
-**Commands** (20) - workflow shortcuts:
-agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, feedback-triage (triage captured session friction from `~/.agentic/feedback.jsonl` into tracker tickets), implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
+**Commands** (19) - workflow shortcuts:
+agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
