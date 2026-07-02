@@ -198,7 +198,7 @@ Named <code>worktree-agent-*</code>. Created automatically by the Agent tool whe
 </div>
 <div class="card">
 <strong>Feature worktrees</strong><br/>
-Named <code>feature/*</code>, <code>fix/*</code>, or <code>chore/*</code>. Used for longer-lived branches where the conductor coordinates multiple units or cross-session work. Created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br/><br/>
+Named <code>feature/*</code>, <code>fix/*</code>, or <code>chore/*</code>. Created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br/><br/>
 <strong>Cleanup trigger:</strong> removed after the PR is merged. The merge (not the PR open) is the trigger.
 </div>
 </div>
@@ -225,10 +225,7 @@ Two classes, two distinct cleanup triggers. Getting the trigger wrong leaves sta
 - qa-engineer spawns require isolation
 - release-orchestrator spawns require isolation
 
-```bash
-# Create an isolation worktree (conductor preflight before spawn):
-git worktree add .agentic/worktrees/<branch-name> -b <branch-name> HEAD
-```
+The Agent tool creates isolation worktrees automatically when `isolation: "worktree"` is set on the spawn call. No manual `git worktree add` is needed or correct for isolation worktrees - that command is for manually-managed feature/subagent worktrees only.
 
 The version floor matters: on Claude Code builds predating the isolated-worktree own-file fix, an isolated engineer self-denies on its own files and deadlocks. The fix is a hard floor for the delegation model.
 

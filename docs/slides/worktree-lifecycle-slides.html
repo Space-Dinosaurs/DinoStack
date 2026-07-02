@@ -480,7 +480,7 @@ Named <code>worktree-agent-*</code>. Created automatically by the Agent tool whe
 </div>
 <div class="card">
 <strong>Feature worktrees</strong><br />
-Named <code>feature/*</code>, <code>fix/*</code>, or <code>chore/*</code>. Used for longer-lived branches where the conductor coordinates multiple units or cross-session work. Created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br /><br />
+Named <code>feature/*</code>, <code>fix/*</code>, or <code>chore/*</code>. Created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br /><br />
 <strong>Cleanup trigger:</strong> removed after the PR is merged. The merge (not the PR open) is the trigger.
 </div>
 </div>
@@ -646,9 +646,7 @@ hr {
 <li>qa-engineer spawns require isolation</li>
 <li>release-orchestrator spawns require isolation</li>
 </ul>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash"><span class="hljs-comment"># Create an isolation worktree (conductor preflight before spawn):</span>
-git worktree add .agentic/worktrees/&lt;branch-name&gt; -b &lt;branch-name&gt; HEAD
-</code></pre>
+<p>The Agent tool creates isolation worktrees automatically when <code>isolation: &quot;worktree&quot;</code> is set on the spawn call. No manual <code>git worktree add</code> is needed or correct for isolation worktrees - that command is for manually-managed feature/subagent worktrees only.</p>
 <p>The version floor matters: on Claude Code builds predating the isolated-worktree own-file fix, an isolated engineer self-denies on its own files and deadlocks. The fix is a hard floor for the delegation model.</p>
 <div class="callout">
 "Conductor never edits the shippable tree directly" is not a convention. It is the mechanism that prevents scaffolding files from appearing in PRs.
