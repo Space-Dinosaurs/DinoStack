@@ -2,7 +2,8 @@
 
 Every user-facing setting in the agentic-engineering methodology, with its
 default value and where to set it. This is the complete catalog - if you only
-want to tune Skeptic overhead, you need only `profile`. See
+want to tune Skeptic overhead, you need only `profile`. Change settings
+interactively with `/agentic-config` (guided prompts). See
 [safe-configuration.md](safe-configuration.md) for the cost/rigor tradeoff
 and recommended starting points.
 
