@@ -1,6 +1,6 @@
 # bin/
 
-Fourteen CLI entry points (11 Python, 1 Bash, 2 Node) that the agentic-engineering
+Fifteen CLI entry points (12 Python, 1 Bash, 2 Node) that the agentic-engineering
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
@@ -16,6 +16,7 @@ module-group map, not a duplicate of those manifests.
 | `agentic-disable` | Python | Append the opt-out marker to `AGENTS.md`; optionally update the global config. |
 | `agentic-doctor` | Python | Inspect and repair global install health (symlinks, bin wrappers, hook paths in `settings.json`). |
 | `agentic-emit` | Bash | Append one structured JSON event to `.agentic/events.jsonl` at orchestration boundaries. |
+| `agentic-feedback` | Python | Manage the home-dir feedback store (`~/.agentic/feedback.jsonl`) - append/list/mark operator and agent friction items. |
 | `agentic-help` | Python | Print the static slash-command reference to stdout. Zero file I/O; never fails. |
 | `agentic-identity` | Python | Manage per-developer identity files used by the Stop hook for session telemetry attribution. |
 | `agentic-memory` | Python | Query `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md`; return compact Markdown summaries. |
@@ -37,7 +38,7 @@ module-group map, not a duplicate of those manifests.
 
 ## Downstream consumers
 
-`content/commands/` slash-command specs; adapter install scripts (`.claude/install.sh`, `.codex/install.sh`, etc.) that symlink these onto `PATH`; `hooks/stop-context.js` for `agentic-identity` helpers; Activation preflight Step 6 for `agentic-migrate`.
+`content/commands/` slash-command specs; adapter install scripts (`.claude/install.sh`, `.codex/install.sh`, etc.) that symlink these onto `PATH`; `hooks/stop-context.js` for `agentic-identity` helpers; Activation preflight Step 6 for `agentic-migrate`; `content/commands/wrap.md` Part D.5 and `content/commands/feedback-triage.md` for `agentic-feedback`.
 
 ## Failure-mode discipline
 
