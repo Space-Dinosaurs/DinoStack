@@ -57,9 +57,9 @@ Performance: Standard (single file write + optional binary shell-out).
 
    **Notice text (verbatim, single line, printed to stdout when create succeeds):**
    ```
-   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>, preset=<preset or 'none'>). Run /agentic-status to inspect, /agentic-disable to opt out.
+   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>). Run /agentic-status to inspect, /agentic-disable to opt out.
    ```
-   Values come from the resolver outputs of Steps 1-3. The literal JSON `null` for `preset` is rendered as the string `none`.
+   Values come from the resolver outputs of Steps 1-3.
 
 ## Step 6: Scaffolding-Sync Check
 

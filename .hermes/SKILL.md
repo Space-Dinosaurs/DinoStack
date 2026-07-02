@@ -32,11 +32,13 @@ A portable methodology for AI-assisted software development. Provides structured
 
 Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to three file reads with no subagent spawn and no LLM reasoning. **Exception:** Step 6 (Scaffolding-sync check) is the single authorized side-effecting exception to this invariant. It calls `bin/agentic-migrate` as a bounded shell-out; the binary is methodology-owned, failure is swallowed, and it never blocks activation.
 
-1. **Read the global mode, profile, and preset.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default`. The `preset` field is optional; when present and non-null, it RESOLVES to a profile via the preset table below and overrides the direct `profile` field. When `preset` is null or missing, the direct `profile` field is used (back-compat).
+1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset subsection below for the fallback path when `profile` is genuinely absent rather than merely invalid).
 
    Also read the **effective identity** for this session. Check `<cwd>/.agentic/identity.yml` first, then fall back to `~/.agentic/identity.yml`. Use the first file that exists, resolving by the 4-tier confirmation ordering: project-confirmed > global-confirmed > project-provisional > global-provisional > none. In practice this is a two-file read: if the project file exists and is confirmed (no `provisional: true`), use it. If the project file is provisional, also read the global file; if the global is confirmed, prefer the global. Otherwise use the project file. Record `developer_id` and `provisional` from whichever file wins. Absent file or absent `provisional` field = confirmed identity (Python `.get('provisional', False)`; JS `provisional === true`). **This is a read-only field parse - no prompt, no shell-out, no LLM reasoning. The "fast, silent" preflight invariant is preserved.** When `provisional: true` is recorded on the effective identity, the conductor surfaces a non-blocking confirmation notice at its first user-facing turn (see §Session Context and Memory in `content/rules/conventions.md`).
 
-   **Preset table (session-wide risk profile preset):**
+   **Deprecated legacy preset (read-only compat).** Older configs may still carry a session-wide `preset` field (`lean` | `standard` | `strict`) at either scope. It is a read-only fallback used ONLY when `profile` is genuinely ABSENT at that scope - check key presence, not truthiness. An invalid `profile` value is treated identically to absent for this purpose (a valid legacy `preset` may then apply); if nothing validates anywhere, terminate at `default`.
+
+   Legacy preset table:
 
    | Preset    | Resolves to profile |
    |-----------|---------------------|
@@ -44,14 +46,18 @@ Run this check once at the top of the first skill invocation in a session (and a
    | standard  | default             |
    | strict    | strict              |
 
-   Note: this session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below. The session-wide preset is a tone setting; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
+   Precedence chain (replaces the old "preset wins on collision" rule): project `profile` > project `preset` (legacy, only if project profile absent) > global `profile` > global `preset` (legacy, only if global profile absent) > hardcoded `"default"`.
+
+   Presence of a legacy `preset` key at either scope fires a deprecation notice regardless of whether it wins resolution (see §Session Context and Memory in `content/rules/conventions.md` for the two notice templates).
+
+   Note: this deprecated session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below - that mechanism is unaffected by this deprecation. The session-wide preset was a legacy tone-setting alias; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
 2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
 3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
    - `agentic-engineering: opt-in`
    - `agentic-engineering: opt-out`
    If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
-   Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the global profile.
-   Also scan for `agentic-engineering-preset: <value>`. If present, it overrides the resolved global preset for this project. Valid values: `lean`, `standard`, `strict`. The project preset is resolved through the same preset table (above) to a profile; that resolved profile overrides any direct `agentic-engineering-profile:` line in the same file (preset wins on collision because it is the higher-level knob). Any other value falls back to the global preset/profile resolution.
+   Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the precedence chain in the deprecated legacy preset subsection above (project preset, then global profile, then global preset, then default).
+   Also scan for `agentic-engineering-preset: <value>` (deprecated legacy alias). If present, it resolves through the legacy preset table above ONLY when no valid `agentic-engineering-profile:` line is present in the same file - it is a fallback below the project profile, not an override that wins on collision. Any other value falls back to the next step in the precedence chain (global profile, then global preset, then default). Presence of this marker fires a deprecation notice regardless of whether it wins.
 4. **Activation decision.**
    - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
@@ -844,6 +850,21 @@ Telemetry is buffered (not lost) until confirmed.
 
 The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
 
+**Deprecated-preset first-user-turn notice.** When the preflight (Step 1 in `content/sections/01-activation-preflight.md`) finds a legacy session-wide `preset` key present at either scope - `~/.claude/agentic-engineering.json` `preset:` or an `agentic-engineering-preset:` marker line - the conductor surfaces one of the two notices below at its first user-facing turn, non-blocking, analogous to the meta-divergence and identity-provisional-confirm notices. Fire on PRESENCE of the key regardless of whether it wins resolution; use the first template when the legacy preset won at that scope, the second when it was present but overridden by a `profile` elsewhere in the precedence chain:
+
+```
+# Legacy preset WON resolution at this scope:
+DEPRECATED: preset key '{value}' ({scope}) resolved to profile={resolved}; migrate by setting
+profile={resolved} directly - preset support will be removed after the deprecation window.
+
+# Legacy preset PRESENT but did NOT win (coexistence / cross-scope override):
+DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - effective profile is
+'{effective}' (source: {source}). Remove the stale preset key/marker - it has no effect and
+will be rejected after the deprecation window.
+```
+
+This is the 4th stacked first-user-turn notice (alongside meta-divergence, skill-candidate, and identity-provisional-confirm); ordering among the four is immaterial.
+
 **Telemetry is BUFFERED, not lost.** While identity is unconfirmed (provisional or absent), the Stop hook writes session telemetry to a pending buffer (`~/.agentic/session-log/.pending/<uuid>.json`) rather than directly to the session log. Pending sessions are flushed and attributed when `agentic-identity confirm` (or `init --force`) runs. No session is silently dropped.
 
 **TEAM dimension.** `agentic-cost team` aggregates all `.agentic/session-log/*.jsonl` files found locally. Session-logs are committed to git via the Phase 8 telemetry commit (when `commit_telemetry: true` and identity is confirmed), so `team` reflects sessions from any developer whose telemetry has landed on the current branch via pull after merge.
@@ -973,9 +994,9 @@ Performance: Standard (single file write + optional binary shell-out).
 
    **Notice text (verbatim, single line, printed to stdout when create succeeds):**
    ```
-   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>, preset=<preset or 'none'>). Run /agentic-status to inspect, /agentic-disable to opt out.
+   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>). Run /agentic-status to inspect, /agentic-disable to opt out.
    ```
-   Values come from the resolver outputs of Steps 1-3. The literal JSON `null` for `preset` is rendered as the string `none`.
+   Values come from the resolver outputs of Steps 1-3.
 
 ## Step 6: Scaffolding-Sync Check
 
@@ -4732,7 +4753,7 @@ Performance: Standard.
 
 # Spawn presets - full reference
 
-A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate. They are distinct from the session-wide `preset` field in `~/.claude/agentic-engineering.json` (which is a tone setting that maps to a risk profile - see Activation preflight Step 1). Same word, different scope.
+A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared on a single line at spawn time. Presets pre-package common spawn shapes so the conductor does not repeat boilerplate.
 
 **Declaration format (optional line, immediately below `Tier:`):**
 ```
@@ -10149,8 +10170,8 @@ The script resolves the project `AGENTS.md` (following `CLAUDE.md`
 Updates `~/.claude/agentic-engineering.json` with `mode=opt-out` and a
 fresh `set_at` ISO8601 UTC timestamp. **Preserves existing keys
 verbatim**: the helper writes back the same set of keys it read; absent
-keys remain absent. The script will not invent `profile`, `preset`, or
-any other key not already present in the file.
+keys remain absent. The script will not invent any key not already
+present in the file.
 
 If the config file is missing, it is created with the minimal shape
 `{"mode": "opt-out", "set_at": "<iso>"}`.
@@ -10531,7 +10552,7 @@ migration and continue to work without change.
 # /agentic-status
 
 Read-only inspection of the agentic-engineering activation resolver.
-Dumps the resolved global config, project marker, profile, preset, and
+Dumps the resolved global config, project marker, profile, and
 first-activation sentinel state. Writes nothing. Always exits 0.
 
 Implementation: `bin/agentic-status` (Python 3 stdlib).
@@ -10556,13 +10577,16 @@ agentic-engineering status
   global config: /Users/<you>/.claude/agentic-engineering.json (found)
   mode: opt-out (source: global config)
   profile: default (source: global)
-  preset: none (source: none)
   set_at: 2026-04-15T12:00:00Z
   project marker file: /path/to/project/AGENTS.md
   marker: none
   active: yes (mode=opt-out + marker=none -> active: opt-out activates everywhere unless a project opts out)
   sentinel: .agentic/.activated (present)
   deferred_wrap_daemon: false (source: .agentic/config.json; out-of-session daemon for deferred /wrap jobs)
+
+DEPRECATED example (only shown when a legacy preset key is present at some scope):
+  DEPRECATED: preset key 'strict' (global) resolved to profile=strict; migrate by setting
+  profile=strict directly - preset support will be removed after the deprecation window.
 
 What this means
   Active here: yes. The methodology governs how work gets done in this project.
@@ -10581,29 +10605,32 @@ How to adjust
     edit /Users/<you>/.claude/agentic-engineering.json  ->  "profile": "relaxed" | "default" | "strict"
   Turn the skill OFF for this project:        /agentic-disable
   Turn it off EVERYWHERE:                      /agentic-disable --global
-  Use a preset instead of a raw profile:
-    project: agentic-engineering-preset: lean|standard|strict in AGENTS.md
-    global:  "preset": "lean" | "standard" | "strict" in the JSON config
   See every command:                           /agentic-help
 
 Note: deleting the sentinel re-arms the first-activation notice only.
 To opt out, use /agentic-disable.
 ```
 
-The `source` annotation on `mode`, `profile`, and `preset` records where
+The `source` annotation on `mode` and `profile` records where
 the effective value came from:
 
 - `mode` source: `global config` - the mode was read from a valid
   `~/.claude/agentic-engineering.json`; `global config (default; file missing)`
   - the config file is missing or malformed, so `mode` falls back to its
   `opt-out` default.
-- `global` - the profile or preset value comes from
+- `global` - the profile value comes from a valid `profile:` key in
   `~/.claude/agentic-engineering.json`.
-- `project` - the value comes from an `agentic-engineering-profile:` or
-  `agentic-engineering-preset:` line in `AGENTS.md`.
-- `preset-resolved` - the profile was resolved from a preset (e.g.
-  `lean -> relaxed`).
-- `none` - no preset is in effect.
+- `project` - the value comes from a valid `agentic-engineering-profile:`
+  line in `AGENTS.md`.
+- `global (legacy preset)` - no valid `profile` key at global scope, but a
+  legacy `preset:` key resolved to this value via the deprecated preset
+  table (see the DEPRECATED notice, which fires on presence of the legacy
+  key regardless of whether it wins).
+- `project (legacy preset)` - no valid `agentic-engineering-profile:` line
+  in `AGENTS.md`, but a legacy `agentic-engineering-preset:` marker resolved
+  to this value.
+- `global (default; unset)` - nothing valid at any scope; falls back to the
+  hardcoded `default`.
 - `.agentic/config.json` - the `deferred_wrap_daemon` line comes from the
   project config file; when the file or the key is absent, the line prints the
   documented default (`false`).
@@ -10613,8 +10640,9 @@ the `(mode=... + marker=... -> active|inactive: <reason>)` clause - so it is
 self-explanatory why the project is or is not governed. The "What this means"
 block then explains the resolved profile's review behavior (with the other
 two profiles shown as parenthetical contrast), and the "How to adjust" block
-lists the exact edits to change the profile, swap to a preset, or turn the
-skill off.
+lists the exact edits to change the profile or turn the skill off. A
+DEPRECATED line appears whenever a legacy `preset` key is present at either
+scope, independent of whether it won resolution.
 
 ## Sentinel as reset
 
@@ -13545,7 +13573,7 @@ Scaffold a new project with the standard AGENTS.md hierarchy, CLI tool config, a
 
 **0a. Global activation mode** — read this before any other discovery work.
 
-Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "preset": "lean" | "standard" | "strict" | null, "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out`, `profile=default`, and `preset=null`. The `preset` field is optional and back-compat - when null/missing, the direct `profile` field is used. When writing this file during init (if creating it for the first time), include `"preset": "standard"` as a sensible default that maps to `profile=default` via the preset table in `METHODOLOGY.md`.
+Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. If missing or unreadable, assume `mode=opt-out` and `profile=default`. When writing this file during init (if creating it for the first time), include `"profile": "default"` as a sensible default.
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 

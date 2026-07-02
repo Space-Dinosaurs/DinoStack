@@ -1035,13 +1035,6 @@
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
-    <h4 style="color: var(--cyan);">Preset (profile alias)</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Session-wide shorthand that resolves to a risk profile; an alias, not extra capability. Wins over <code>profile</code> when both are set.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>lean</code> / <code>standard</code> / <code>strict</code> &nbsp; <strong>Default:</strong> none</p>
-    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>preset</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering-preset:</code> in AGENTS.md</p>
-  </div>
-
-  <div class="rel-card" style="margin-bottom: 10px;">
     <h4 style="color: var(--cyan);">Activation mode</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the methodology runs everywhere by default (opt-out) or stays dormant until a project opts in (opt-in).</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>opt-out</strong></code> / <code>opt-in</code> &nbsp; <strong>Default:</strong> <code>opt-out</code></p>
@@ -1130,7 +1123,7 @@
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
     <strong>Activation modes:</strong> the installer writes <code>~/.claude/agentic-engineering.json</code> with <code>{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "&lt;ISO8601&gt;" }</code>. <code>opt-out</code> (default) runs the methodology everywhere except projects that declare <code>agentic-engineering: opt-out</code> in their root <code>AGENTS.md</code>. <code>opt-in</code> keeps the methodology dormant until a project declares <code>agentic-engineering: opt-in</code>. The per-project marker is a single case-insensitive line, matched as a whole line with optional leading <code>- </code>. A short Activation preflight at the top of every skill and <code>/</code>-command reads the config plus the project marker; if the combination says inactive, the skill no-ops silently and falls back to default tool behavior for that session. Missing config or missing <code>AGENTS.md</code> both resolve to "mode=opt-out, marker=none" - the methodology proceeds, preserving behavior for users who installed before this feature existed. The <code>profile</code> field controls Skeptic overhead - see <a href="#profiles">Risk Profiles</a> below.
     <br><br>
-    <strong>First-activation notice (Step 5):</strong> on first activation in a TTY session, the preflight prints a one-line notice naming the resolved <code>mode</code>, <code>marker</code>, <code>profile</code>, and <code>preset</code>, and points users at <code>/agentic-status</code> and <code>/agentic-disable</code>. The notice is gated on a race-safe per-project sentinel at <code>.agentic/.activated</code> - exactly one of N concurrent subagents wins the create-only write and prints; losers stay silent. The TTY/QUIET gate (<code>AGENTIC_QUIET=1</code> or <code>not sys.stdout.isatty()</code>) suppresses BOTH the notice and the sentinel write in CI, headless, and eval-harness contexts. Deleting the sentinel re-arms the notice only - it does not change activation state.
+    <strong>First-activation notice (Step 5):</strong> on first activation in a TTY session, the preflight prints a one-line notice naming the resolved <code>mode</code>, <code>marker</code>, and <code>profile</code>, and points users at <code>/agentic-status</code> and <code>/agentic-disable</code>. The notice is gated on a race-safe per-project sentinel at <code>.agentic/.activated</code> - exactly one of N concurrent subagents wins the create-only write and prints; losers stay silent. The TTY/QUIET gate (<code>AGENTIC_QUIET=1</code> or <code>not sys.stdout.isatty()</code>) suppresses BOTH the notice and the sentinel write in CI, headless, and eval-harness contexts. Deleting the sentinel re-arms the notice only - it does not change activation state.
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and importable by Claude Code via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
@@ -1735,7 +1728,7 @@
       <div class="rel-card">
         <h4 style="color: var(--green);">Utilities &amp; setup</h4>
         <ul>
-          <li><strong>/agentic-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, preset, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
+          <li><strong>/agentic-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
           <li><strong>/agentic-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
           <li><strong>/agentic-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
           <li><strong>/agentic-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
@@ -2226,31 +2219,6 @@
     agentic-engineering-profile: strict
   </div>
 
-  <div class="rel-card" style="margin-top: 16px;">
-    <h4 style="color: var(--text-secondary);">The <code>preset</code> alias</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><code>preset</code> is a session-wide shorthand that resolves to a profile. It is an alias, not extra capability - <code>preset: lean</code> and <code>profile: relaxed</code> have identical effect. When both are set, preset wins (it is the higher-level knob).</p>
-    <table style="font-size: 13px; border-collapse: collapse; width: 100%; margin-bottom: 12px;">
-      <thead>
-        <tr>
-          <th style="text-align: left; padding: 4px 12px 4px 0; color: var(--text-secondary); font-weight: 600;">Preset</th>
-          <th style="text-align: left; padding: 4px 0; color: var(--text-secondary); font-weight: 600;">Resolves to profile</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td style="padding: 3px 12px 3px 0;"><code>lean</code></td><td><code>relaxed</code></td></tr>
-        <tr><td style="padding: 3px 12px 3px 0;"><code>standard</code></td><td><code>default</code></td></tr>
-        <tr><td style="padding: 3px 12px 3px 0;"><code>strict</code></td><td><code>strict</code></td></tr>
-      </tbody>
-    </table>
-    <div class="code-block" style="margin-top: 8px;">
-      <span class="cb-label">setting preset</span>
-      <span class="cb-keyword"># Global: ~/.claude/agentic-engineering.json</span><br>
-      { "preset": "lean" }<br>
-      <br>
-      <span class="cb-keyword"># Per-project: root AGENTS.md  (overrides global preset and any profile: line)</span><br>
-      agentic-engineering-preset: lean
-    </div>
-  </div>
   <p style="margin-top: 14px; font-size: 13px; color: var(--text-muted);">For a complete list of every setting and its default, see <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 </div>
 

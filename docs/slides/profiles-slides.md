@@ -293,26 +293,6 @@ agentic-engineering-profile: strict
 
 ---
 
-## How to set your profile (cont.)
-
-<style scoped>
-  pre { font-size: 0.6em; background: #04070F; border-radius: 8px; padding: 0.22em 0.65em; margin: 0.06em 0; }
-  p { font-size: 0.74em; margin: 0.06em 0; }
-  strong { font-size: 0.8em; }
-</style>
-
-Or use `preset` to override `profile` (preset wins):
-```json
-{ "mode": "opt-out", "preset": "strict" }
-```
-```
-agentic-engineering-preset: strict
-```
-
-Resolution: `lean` -> relaxed, `standard` -> default, `strict` -> strict. Set a global default in `agentic-engineering.json`, override per-project in `AGENTS.md`.
-
----
-
 <!-- _class: lead -->
 
 # Start with default. Switch when it fits.
