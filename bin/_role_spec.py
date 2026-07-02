@@ -29,6 +29,7 @@ _KNOWN_KEYS = frozenset({"model", "effort", "reasoning"})
 # both agentic-configure and agentic-team; neither file declares its own copy.
 KNOWN_HARNESSES: frozenset[str] = frozenset({
     "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
+    "opencode", "copilot",
 })
 
 # Canonical set of known role names (mirrors ROLES in agentic-configure).

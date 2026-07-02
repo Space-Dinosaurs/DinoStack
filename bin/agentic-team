@@ -71,7 +71,6 @@ import signal
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 from pathlib import Path
 
@@ -107,6 +106,8 @@ HARNESS_BINARY: dict[str, str] = {
     "pi":           "pi",
     "omp":          "omp",
     "claude":       "claude",
+    "opencode":     "opencode",
+    "copilot":      "copilot",
 }
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,8 @@ HARNESS_INVOCATION_FAMILY: dict[str, str] = {
     "pi":           "pi-prompt",
     "omp":          "omp-prompt",
     "claude":       "claude-p",
+    "opencode":     "opencode-run",
+    "copilot":      "copilot-p",
 }
 
 # ---------------------------------------------------------------------------
@@ -135,6 +138,8 @@ HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG: dict[str, str | None] = {
     "pi":           None,
     "omp":          None,
     "claude":       None,
+    "opencode":     None,
+    "copilot":      None,
 }
 
 GLOBAL_TEAM_YML = Path(os.path.expanduser("~/.agentic/team.yml"))
@@ -656,13 +661,15 @@ _LEAF_WORKER_CLAUSE = (
 # this is a guardrail, NOT a security sandbox).
 _SHIM_TARGETS: tuple[str, ...] = (
     "git", "omc", "codex", "gemini", "cursor-agent", "kimi", "kimi-cli",
-    "pi", "omp", "claude",
+    "pi", "omp", "claude", "opencode", "copilot",
 )
 
 # Harnesses with a CONFIRMED non-interactive --model/-m flag. dispatch --model
 # is forwarded only for these; supplying --model for any other harness is
 # rejected fail-fast (no silent drop). cursor-agent/kimi/pi/omp are NOT here.
-_MODEL_FLAG_HARNESSES: frozenset[str] = frozenset({"codex", "gemini", "claude"})
+_MODEL_FLAG_HARNESSES: frozenset[str] = frozenset(
+    {"codex", "gemini", "claude", "opencode", "copilot"}
+)
 
 # Harnesses that need stdin from /dev/null to avoid hangs (AC8 / plan table).
 _STDIN_DEVNULL_HARNESSES: frozenset[str] = frozenset({"cursor-agent"})
@@ -747,6 +754,21 @@ def _build_worker_argv(
     if harness == "claude":
         # claude -p "<brief>" --output-format json
         argv = [binary, "-p", brief_text, "--output-format", "json"]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    if harness == "opencode":
+        # opencode run "<brief>" --model <provider/model>
+        argv = [binary, "run", brief_text]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    if harness == "copilot":
+        # copilot -p "<brief>" --allow-all-tools --allow-all-paths --model <m>
+        # --allow-all-tools is required for non-interactive mode (per --help).
+        argv = [binary, "-p", brief_text, "--allow-all-tools", "--allow-all-paths"]
         if model:
             argv += ["--model", model]
         return argv
@@ -1084,7 +1106,7 @@ def _collect_output(run_dir: Path, harness: str) -> str:
     - codex   --json             : last JSONL event's message field
     - cursor-agent --output-format json: parse .response or .message
     - claude  --output-format json: parse .result or .message
-    - kimi/pi/omp: raw stdout
+    - kimi/pi/omp/opencode/copilot: raw stdout
     """
     stdout_file = run_dir / "stdout"
     try:
@@ -1132,7 +1154,7 @@ def _collect_output(run_dir: Path, harness: str) -> str:
         except (json.JSONDecodeError, AttributeError):
             return raw
 
-    # kimi / pi / omp: raw stdout
+    # kimi / pi / omp / opencode / copilot: raw stdout
     return raw
 
 
