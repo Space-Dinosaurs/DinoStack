@@ -63,11 +63,11 @@ write_fake_cache() {
 # Extract the repo path from the notice line:
 #   "... Run: agentic-update (shell) or /pull-and-install (in session). No PATH? <PATH>/update.sh"
 #
-# NOTE: do not anchor on "or " - the notice text has multiple "or " phrases
-# (e.g. "agentic-update (shell) or /pull-and-install (in session)"), so a
-# greedy ".*or " match swallows the wrong segment. Anchor on the fixed
-# "No PATH? " marker instead, which sits directly before the path and is
-# stable even if another "or ..." phrase is added to the notice later.
+# NOTE: do not anchor on "or " - since PR #322 the path no longer follows
+# "or " directly (the notice gained "/pull-and-install (in session). No
+# PATH? " between them), so a greedy ".*or " capture swallows that
+# intervening text. Anchor on the fixed "No PATH? " marker instead, which
+# sits directly before the path and stays stable if more wording is added.
 extract_path_from_notice() {
   local notice="$1"
   # The path appears between "No PATH? " and the trailing "/update.sh".
