@@ -30,6 +30,8 @@
 - [ ] Pi coding agent
 - [ ] Pi oh-my-pi
 - [ ] Hermes
+- [ ] OpenClaw
+- [ ] VS Code Copilot
 - [ ] None (methodology / docs only)
 
 ## Before/after transcript
