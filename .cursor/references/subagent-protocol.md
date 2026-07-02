@@ -38,7 +38,7 @@ When the conductor spawns workers for a multi-unit plan with task-state tracking
 
 The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
 
-"Looks simple" is not a Low signal. The uncertainty rule applies: when in doubt, classify as Elevated and spawn a Worker. When in doubt between Trivial and Elevated, choose Elevated.
+"Looks simple" is not a Low signal. The uncertainty rule applies: when in doubt, classify as Elevated and spawn a Worker. When in doubt between Trivial and Elevated, choose Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
 **Trivial escape hatch:** If a Worker spawned for a Trivial task discovers mid-execution that the change is not actually Trivial (e.g., the target file turns out to be a shared token file, or the change requires touching a second file), it must stop immediately, report the finding to the conductor, and the conductor re-classifies the task as Elevated and applies the full Worker + Skeptic flow from that point.
 
@@ -187,8 +187,8 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Architecture decision that constrains future choices | No | **Yes** |
 | Modifies protocol or infrastructure files | No | **Yes** |
 | Production or shared state | No | **Yes** |
-| Multi-file change (any size) | No | **Yes** |
-| New file creation | No | **Yes** |
+| Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
+| New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated regardless of profile) | No | **Yes** |
 | Touches external APIs or services | No | **Yes** |
 | Unfamiliar codebase area | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
@@ -202,9 +202,9 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Clarification - Trivial vs. the "1-2 line edit" row:** For cosmetic, copy, or Tailwind-class edits, the Trivial disqualifier checklist (ALL signals must hold) takes precedence over the older "1-2 line edit" row. A conductor must not bypass the Trivial disqualifier gate by invoking the "1-2 line" row - if an edit looks cosmetic, run the Trivial checklist first. Only if ALL Trivial signals hold does the Trivial path apply. If any disqualifier is present (e.g., the file is a shared token file, or the change touches 2+ files), the task is Elevated regardless of line count.
 
-**Default rule:** when in doubt, classify as Elevated and spawn a Worker. Direct action is the narrow exception.
+**Default rule:** when in doubt, classify as Elevated and spawn a Worker. Direct action is the narrow exception. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
-**Footnote — new file creation:** The 1–2 line direct-action exception applies exclusively to modifications of existing files. New file creation always requires a Worker regardless of line count.
+**Footnote — new file creation:** The 1–2 line direct-action exception applies exclusively to modifications of existing files. New file creation always requires a Worker regardless of line count. This footnote is distinct from the new-file colocated-test qualifier on the "New file creation" signal above (Section 3 table): that qualifier governs whether new-file creation triggers Elevated risk classification at all; this footnote governs only the separate 1–2 line direct-action carve-out for edits to existing files, which never applies to new files regardless of any qualifier above.
 
 ---
 
