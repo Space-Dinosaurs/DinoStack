@@ -40,7 +40,7 @@ Changes to the methodology itself - conductor rules, the Skeptic protocol, risk 
 
 ### Adapter compatibility declaration
 
-Every PR must declare which adapters it affects. The PR template includes a checklist - tick all that apply (Claude Code, Cursor, Codex CLI, Gemini CLI, Kimi Code, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, or "None" for methodology / docs-only changes). For changes that touch `content/` (the single source of truth), assume all adapters are affected unless the change is scoped to adapter-specific files. For agent-behavior changes, include a short before/after transcript in the PR body so reviewers can see the effect without re-running the scenario locally.
+Every PR must declare which adapters it affects. The PR template includes a checklist - tick all that apply (Claude Code, Cursor, Codex CLI, Gemini CLI, Kimi Code, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw, VS Code Copilot, or "None" for methodology / docs-only changes). For changes that touch `content/` (the single source of truth), assume all adapters are affected unless the change is scoped to adapter-specific files. For agent-behavior changes, include a short before/after transcript in the PR body so reviewers can see the effect without re-running the scenario locally.
 
 ## Before editing
 
