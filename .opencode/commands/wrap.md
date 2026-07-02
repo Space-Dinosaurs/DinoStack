@@ -188,6 +188,7 @@ Zero-substance procedure:
 - Skip Step 4 Parts A, B, C entirely
 - Skip Part D (no session activity to extract skill-candidate signals from)
 - Skip Part E (nothing changed, nothing to compress)
+- Skip Part F (no session activity means no ticket-referencing commits to detect)
 - Still run Step 5 (worktree cleanup) - that is always useful
 - Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
 
@@ -204,7 +205,8 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 5. Run Part D (skill-candidate wrap-time signal) - the light path still ran a session worth extracting from.
 6. Skip Part E entirely (nothing changed, nothing to compress).
 7. Run Step 5 (worktree cleanup) as normal.
-8. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
+8. Run Step 6 as normal, including Part F (tracker status reconciliation) - a light-path session can still have committed ticket-referencing work even with no memory/AGENTS.md updates to review.
+9. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
 
 **Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
 
@@ -547,7 +549,27 @@ Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired hel
 
 - **Full success** (context.md written + Part B/C applied + Part E settled, no escalation outstanding): set this session's marker `status: done` AND stamp `wrapped_at: <now ISO8601 UTC>` and RETAIN the marker (do NOT unlink it). The retained `done` tombstone prevents this same session being re-staged after `.agentic/wrap/last-wrap` rolls to a different session; the daemon janitor reaps it after `deferred_wrap_pending_ttl_days`. A partial or escalated run leaves the marker in its pre-Step-6 state so the daemon can complete it later.
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false). Also include the cleanup summary if Step 5 ran.
+**Part F - Tracker status reconciliation.**
+
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before. Tracker/gh API calls (ticket queries, `gh pr list`, comment posts) are slow and must not extend how long `/wrap` holds `.agentic/wrap/lock` - other conductors and `wrap-ticket` invocations queue behind that lock. Purpose: give conductor-led ticket work (a session that touched a ticket outside `/implement-ticket` - e.g. a direct fix committed to `BASE_BRANCH`) a tracker footprint, so the ticket's tracker column doesn't silently lag behind shipped work.
+
+Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session activity means no ticket-referencing commits to detect. Part F runs on the light path and the standard path, same as Part D.
+
+**Gate.** Resolve `TRACKER` and `TICKET_PREFIX` using the SAME resolution chain as `/implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections). If `TRACKER == none`, skip Part F silently - no output, no log line.
+
+**Detect ticket keys referenced in this session's work (cheap, bounded).**
+1. Ticket-key-shaped tokens (`<TICKET_PREFIX>-<n>`) already visible in the commit messages of any commit the conductor made this session - already known from this session's own tool-call history, no extra call needed.
+2. One bounded `git log` call on `BASE_BRANCH` to catch keys in commits whose recorded message differs from what the conductor typed (e.g. a squash-merge commit rewritten by the merge tool): `git log <BASE_BRANCH> --oneline -20 --grep -E "<TICKET_PREFIX>-[0-9]+"` - capped at the last 20 commits, one call.
+3. If the session worked on a not-yet-merged feature/fix/chore branch, also scan that branch's own commits: `git log <BASE_BRANCH>..<branch> --oneline` - naturally bounded to the session's own branch work.
+4. Union and dedupe the resulting keys. If none found, skip the rest of Part F silently.
+
+**Reconcile each detected key.** For each detected ticket key, run the `/ticket-status-sync` single-ticket "Resolution algorithm (single ticket)" (`content/commands/ticket-status-sync.md`) - do NOT duplicate that algorithm here. On a warranted transition, fire the Tracker Writeback Helper (`content/commands/implement-ticket.md` `## Tracker Writeback Helper`) with `forward_only_guard: true`, exactly as `/ticket-status-sync` does. Post the same evidence comment (PR number(s) + commit SHA(s)) that `/ticket-status-sync`'s tracker-wide sweep requires, and print one operator-visible line per transition:
+
+    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit <sha>) - transitioned
+
+**Soft-fail (absolute).** Any error anywhere in Part F - tracker resolution failure, git call failure, MCP/gh API failure, subagent spawn failure - is swallowed with a one-line stderr log (`[wrap: Part F] <error>`), and Part F moves on to the next key or exits cleanly. Part F NEVER breaks, delays, retries-with-backoff, or blocks `/wrap`'s return to the user. It runs once, best-effort, after the lock is already released - a slow or failing tracker call costs the user nothing beyond Part F's own runtime.
+
+Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
