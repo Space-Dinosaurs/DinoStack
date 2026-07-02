@@ -21,7 +21,7 @@
 #                is not executable) fails the test. A temporary fake HOME is
 #                used to stand in for ~/.codex/hooks.json -> the real HOME
 #                is never touched. Only the path-resolution expression
-#                inside each command is evaluated (via bash arithmetic
+#                inside each command is evaluated (via bash command
 #                substitution) - the interpreter is never actually invoked,
 #                so this test has no side effects even if a resolved script
 #                has some.
@@ -96,7 +96,7 @@ for cmd in "${COMMANDS[@]}"; do
   # Each command has the shape:
   #   <interpreter> "<path-expression-with-$(...)-substitutions>"
   # Extract just the quoted path expression and evaluate it under FAKE_HOME
-  # (arithmetic-only - never invokes the interpreter itself).
+  # (command-substitution-only - never invokes the interpreter itself).
   if [[ "$cmd" =~ ^[a-zA-Z0-9_]+[[:space:]]+\"(.+)\"$ ]]; then
     path_expr="${BASH_REMATCH[1]}"
   else
