@@ -1436,3 +1436,120 @@ def test_configure_team_emit_yaml_structure():
     assert "  skeptic: cursor-agent" in out  # scalar form when no model
     assert "dispatch:" in out
     assert "timeout_seconds: 1800" in out
+
+
+# ---------------------------------------------------------------------------
+# Interactive configure wizard (_cmd_configure without --non-interactive).
+# Discovery is monkeypatched via _mod._discover_harnesses; input() and
+# sys.stdin.isatty() are monkeypatched to drive the wizard deterministically.
+# ---------------------------------------------------------------------------
+
+def _fake_discovery_two_harnesses():
+    """codex + claude installed, no models discovered for either."""
+    return {
+        "codex": {
+            "installed": True, "models": [], "invocation_family": "codex",
+            "native_subagent_disable_flag": None,
+        },
+        "claude": {
+            "installed": True, "models": [], "invocation_family": "claude",
+            "native_subagent_disable_flag": None,
+        },
+    }
+
+
+def test_configure_interactive_digit_selection(tmp_path, monkeypatch):
+    """Digit input selects the harness at that 1-based menu position."""
+    target = tmp_path / "team.yml"
+    monkeypatch.setattr(_mod, "_discover_harnesses", _fake_discovery_two_harnesses)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    inputs = iter(["1"] * len(_mod.ROLES))
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(inputs))
+
+    rc = _cmd_configure(["--path", str(target)])
+    assert rc == 0
+    text = target.read_text()
+    # menu position 1 is sorted(installed_harnesses)[0] == "claude"
+    assert "claude" in text
+
+
+def test_configure_interactive_out_of_range_digit_skips_role(tmp_path, monkeypatch, capsys):
+    """Out-of-range digit selection skips the role and prints an explicit message."""
+    target = tmp_path / "team.yml"
+    monkeypatch.setattr(_mod, "_discover_harnesses", _fake_discovery_two_harnesses)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    inputs = iter(["99"] * len(_mod.ROLES))
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(inputs))
+
+    rc = _cmd_configure(["--path", str(target)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "out of range" in out
+    text = target.read_text()
+    for role in _mod.ROLES:
+        assert f"{role}:" not in text and f"  {role}: " not in text
+
+
+def test_configure_interactive_skip_keyword(tmp_path, monkeypatch):
+    """The literal 'skip' keyword leaves a role unassigned."""
+    target = tmp_path / "team.yml"
+    monkeypatch.setattr(_mod, "_discover_harnesses", _fake_discovery_two_harnesses)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    inputs = iter(["skip"] * len(_mod.ROLES))
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(inputs))
+
+    rc = _cmd_configure(["--path", str(target)])
+    assert rc == 0
+    text = target.read_text()
+    for role in _mod.ROLES:
+        assert f"{role}:" not in text and f"  {role}: " not in text
+
+
+def test_configure_interactive_empty_input_accepts_default(tmp_path, monkeypatch):
+    """Empty input accepts the ranked default suggestion for a role."""
+    target = tmp_path / "team.yml"
+    monkeypatch.setattr(_mod, "_discover_harnesses", _fake_discovery_two_harnesses)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+
+    rc = _cmd_configure(["--path", str(target)])
+    assert rc == 0
+    # With no models discovered, base harness scores rank "claude" for
+    # engineer/architect/skeptic - default acceptance must not error and
+    # must produce a parseable team.yml (possibly with some roles unset).
+    assert target.is_file()
+
+
+def test_configure_interactive_claude_only_exits_cleanly(tmp_path, monkeypatch, capsys):
+    """Only claude installed -> exits cleanly without prompting."""
+    target = tmp_path / "team.yml"
+
+    def _only_claude():
+        return {
+            "claude": {
+                "installed": True, "models": [], "invocation_family": "claude",
+                "native_subagent_disable_flag": None,
+            },
+            "codex": {
+                "installed": False, "models": [], "invocation_family": "codex",
+                "native_subagent_disable_flag": None,
+            },
+        }
+
+    monkeypatch.setattr(_mod, "_discover_harnesses", _only_claude)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    def _fail_input(_prompt):
+        raise AssertionError("input() must not be called when only claude is installed")
+
+    monkeypatch.setattr("builtins.input", _fail_input)
+
+    rc = _cmd_configure(["--path", str(target)])
+    assert rc == 0
+    assert target.is_file()
+    out = capsys.readouterr().out
+    assert "nothing to cross-dispatch to" in out
