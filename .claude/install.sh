@@ -473,7 +473,7 @@ RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
     "Elevated = spawn Worker + Skeptic in background. "
     "Direct action ONLY for: reads, answering from memory, screenshots, "
-    "synthesizing subagent results, diagnostic-only logging. "
+    "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
     "When in doubt, classify Elevated.'"
 )
 
@@ -728,6 +728,34 @@ upsert_hook(
     {"type": "command", "command": ENFORCE_AUQ_CMD, "timeout": 5},
     "PreToolUse AskUserQuestion default-enforcement hook",
 )
+
+# ---- PreToolUse planning-artifact advisory hook (Write + Edit matchers) ----
+# Surfaces a non-blocking advisory when a docs/planning/ file is written
+# without a recent architect spawn on record. WARN ONLY - never blocks writes.
+# Kill-switch: AE_PLANNING_GUARD_DISABLE=1. Wired on both "Write" and "Edit"
+# matchers; uses the same idempotent upsert pattern as the AUQ block above.
+ENFORCE_PLANNING_CMD = f"python3 {hooks_root}/hooks/enforce-planning-artifact-spawn.py"
+
+for file_matcher in ("Write", "Edit"):
+    # Find or create a matcher block for this tool name.
+    ptu_file_block = None
+    for block in ptu_list:
+        if block.get("matcher") == file_matcher:
+            ptu_file_block = block
+            break
+
+    if ptu_file_block is None:
+        ptu_file_block = {"matcher": file_matcher, "hooks": []}
+        ptu_list.append(ptu_file_block)
+
+    ptu_file_block.setdefault("hooks", [])
+
+    upsert_hook(
+        ptu_file_block["hooks"],
+        "enforce-planning-artifact-spawn.py",
+        {"type": "command", "command": ENFORCE_PLANNING_CMD, "timeout": 5},
+        f"PreToolUse({file_matcher}) planning-artifact advisory hook",
+    )
 
 # ---- Write back -------------------------------------------------------------
 with open(settings_path, "w") as f:

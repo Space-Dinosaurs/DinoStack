@@ -177,9 +177,9 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 |---|---|---|
 | Read a single known file | Yes | No |
 | `git status` / `git log` / `git diff` (read-only) | Yes | No |
-| Answer from memory/context | Yes | No |
+| Answer from memory/context | Yes - but producing a new doc/plan/analysis/recommendation from context is 'Document synthesis' (Elevated) | No |
 | Take a screenshot or snapshot | Yes | No |
-| Synthesize already-returned subagent results | Yes | No |
+| Synthesize already-returned subagent results | Yes - but a new doc/spec/plan/recommendation built from those results is 'Document synthesis' (Elevated) | No |
 | 1–2 line edit, single file, correct output apparent, no Elevated signals | Yes | No |
 | Trivial risk (ALL qualifying signals hold) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
