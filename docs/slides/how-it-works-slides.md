@@ -335,6 +335,7 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
   .columns-3 .card:nth-child(15) { border-left-color: #b06bff; }
   .columns-3 .card:nth-child(16) { border-left-color: #4ea3ff; }
   .columns-3 .card:nth-child(17) { border-left-color: #ff5d73; }
+  .columns-3 .card:nth-child(18) { border-left-color: #b06bff; }
   h2 { margin-bottom: 0.3em; }
 </style>
 
@@ -356,6 +357,7 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <div class="card"><strong>learning-extractor</strong><br/>Mines resolved loops for learnings</div>
 <div class="card"><strong>learnings-agent</strong><br/>Captures learnings ad-hoc</div>
 <div class="card"><strong>wrap-ticket</strong><br/>Closes out a ticket end-to-end</div>
+<div class="card"><strong>goal-condition-evaluator</strong><br/>Cheap stop-condition check for open-goal loops</div>
 </div>
 
 ---
