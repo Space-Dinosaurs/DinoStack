@@ -7,8 +7,7 @@ user-invocable: true
 
 Read-only view of the skill-candidate backlog. Displays open and dismissed
 candidates detected from recurring workflow friction - each with its domain,
-count, suggested artifact type, and example note. Points at the `skill-creator`
-skill for open items.
+count, suggested artifact type, and example note.
 
 No writes, no agent spawns, no network calls. Always exits 0.
 
@@ -35,15 +34,14 @@ the detector on first promotion) or `dismissed` (set by a human to suppress).
 **First seen:** YYYY-MM-DD
 **Last seen:** YYYY-MM-DD
 **Status:** open
-**Example:** "<data.note from the triggering event>"
+**Example:** "<one sentence from the triggering session>"
 ```
 
 ## What this shows
 
-The backlog is written by the Stop hook's `runSkillCandidateScan` whenever a
-domain tag accumulates >= 3 occurrences across sessions (from
-`tool_failure_workaround` events and `.agentic/learnings.md` entries). Each
-entry carries:
+The backlog is written at wrap time (via `/wrap` Part D LLM extraction and the
+`hooks/lib/skill-candidate-deep-cluster.js` helper) whenever a domain tag
+accumulates >= 3 occurrences across sessions. Each entry carries:
 
 - **Domain** - the `## <domain>` heading (unique key)
 - **Count** - lifetime occurrence count across sessions
@@ -51,7 +49,11 @@ entry carries:
   (routing taxonomy from the detection signal)
 - **Status** - `open` (not yet dismissed) or `dismissed` (operator suppressed)
 - **First seen / Last seen** - ISO date range of the friction signal
-- **Example** - the `data.note` from the triggering event (illustrative only)
+- **Example** - a concrete note from the triggering session (illustrative only)
+
+The wrap-time path is the active detection mechanism. A secondary path via
+`tool_failure_workaround` events in `.agentic/events.jsonl` exists in the
+codebase but is dormant - those events are not emitted in ad-hoc sessions.
 
 ## Grouping by status
 
@@ -89,7 +91,8 @@ OPEN (already surfaced)
 DISMISSED
   (none)
 
-To create a skill for an open item: run /skill-creator <domain>
+To create a skill for an open item: create a skill for the domain manually,
+  or use your usual skill-authoring flow
 To dismiss a candidate: edit .agentic/skill-candidates.md and change
   **Status:** open  to  **Status:** dismissed
 ```
@@ -99,7 +102,7 @@ When `.agentic/skill-candidates.md` is absent:
 ```
 No skill candidates detected yet.
 
-The detector runs at session end (Stop hook) and writes candidates here
+The detector runs at the end of each /wrap call and writes candidates here
 when a domain tag accumulates >= 3 occurrences. Check back after a few
 more sessions, or verify that skill_candidate_detection is true in
 .agentic/config.json.
