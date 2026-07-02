@@ -314,7 +314,7 @@ Sibling to loop-state.json for multi-ticket runs. Same atomic write discipline. 
 </div>
 </div>
 
-**Phase breadcrumbs** accompany every phase transition - the conductor emits `[phase: label]` inline at each boundary. These appear in the session context and serve as the human-readable complement to the machine-readable loop-state.json.
+**Phase breadcrumbs** accompany every phase transition - the conductor emits `[phase: label]` inline at each boundary. Phase breadcrumbs are emitted separately at each phase boundary and appear in the session context.
 
 <div class="callout">
 loop-state.json must not be committed to git. Its presence in the repo would mislead the next developer about what phase the loop is in. Gitignore is the contract; the file is ephemeral state, not project history.
