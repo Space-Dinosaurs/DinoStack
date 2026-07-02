@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: PreToolUse hook that enforces two METHODOLOGY rules on Claude Code:
+Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
          (1) Background-by-default rule - denies any `Task` spawn (LEGACY tool
          name) that lacks run_in_background: true. `Agent` spawns are NOT
          background-enforced here: the Claude Code harness strips
@@ -12,7 +12,18 @@ Purpose: PreToolUse hook that enforces two METHODOLOGY rules on Claude Code:
          there is nothing to enforce; applying the check would brick every Agent
          spawn. Background enforcement therefore applies to the legacy `Task`
          tool name only.
-         (2) Cross-harness team sentinel suppression - when a DinoStack cross-
+         (2) Cross-harness team ROUTING enforcement (proactive) - when an
+         effective team.yml has `enabled: true` and the spawned subagent_type is
+         a dispatchable role (engineer/debugger/qa-engineer/skeptic/
+         security-auditor) whose resolved harness (role entry, else
+         default_harness) is anything OTHER than "claude", the native Task/Agent
+         spawn is denied with an actionable `bin/agentic-team dispatch ...`
+         instruction. This fixes the chicken-and-egg bug where team.yml was
+         silently ignored because the (2)-below sentinel-based suppression only
+         ever activates AFTER the first dispatch. Fail-open on any config load
+         error; escape hatch AE_TEAM_ROUTING_DISABLE=1 skips this branch
+         entirely.
+         (3) Cross-harness team sentinel suppression - when a DinoStack cross-
          harness team run is active (sentinel <cwd>/.agentic/teamrun/.active
          exists and is LIVE), denies Task/Agent spawns outright AND denies Skill
          calls whose skill name starts with "oh-my-claudecode:" (OMC-skill
@@ -23,16 +34,16 @@ Purpose: PreToolUse hook that enforces two METHODOLOGY rules on Claude Code:
          applies to BOTH Task and Agent tool names.
 
          NOTE - Task/Agent rename and run_in_background visibility: Claude Code
-         renamed the subagent-spawn tool from "Task" to "Agent". For sentinel
-         suppression, the hook guards on BOTH names - this is correct and
-         unchanged. For background-spawn enforcement, only `Task` is checked:
-         the harness does NOT pass run_in_background to the hook for Agent
-         spawns, so enforcing it on Agent would deny every Agent call regardless
-         of intent. The settings.json matcher is wired for both names by
-         install.sh (two PreToolUse blocks: one for "Task", one for "Agent") so
-         the hook fires under either name and applies sentinel suppression
-         correctly. Background enforcement applies to the legacy `Task` path
-         only for backward compatibility.
+         renamed the subagent-spawn tool from "Task" to "Agent". For routing
+         enforcement and sentinel suppression, the hook guards on BOTH names -
+         this is correct and unchanged. For background-spawn enforcement, only
+         `Task` is checked: the harness does NOT pass run_in_background to the
+         hook for Agent spawns, so enforcing it on Agent would deny every Agent
+         call regardless of intent. The settings.json matcher is wired for both
+         names by install.sh (two PreToolUse blocks: one for "Task", one for
+         "Agent") so the hook fires under either name and applies routing/
+         sentinel suppression correctly. Background enforcement applies to the
+         legacy `Task` path only for backward compatibility.
 
          Confirmed-supported floor: permissionDecision: "deny" output is stable
          on recent Claude Code builds. The hook fails open on parse error, so
@@ -42,8 +53,9 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task", "Agent", or
             "Skill"). Reads JSON from stdin, writes hookSpecificOutput JSON to
             stdout when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, sys, time, pathlib). No external
-               dependencies.
+Upstream deps: Python 3 stdlib only (json, os, sys, time, pathlib). PyYAML is
+               imported opportunistically inside try/except for team.yml
+               parsing - never a hard dependency; fails open when unavailable.
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task, Agent,
                       and Skill tools). Wired via ~/.claude/settings.json by
@@ -64,17 +76,25 @@ Failure modes:
     - Foreground-exempt subagent_type (FOREGROUND_EXEMPT): allow regardless of
       run_in_background - these agents have a documented blocking-ordering
       requirement (e.g. wrap-ticket holds .agentic/wrap.lock). Exemption is
-      checked FIRST, before sentinel suppression, so an exempt agent is allowed
-      even while a team run is live.
+      checked FIRST, before routing enforcement and sentinel suppression, so an
+      exempt agent is allowed even while a team run is live/configured.
+    - Team routing: missing team.yml (global and project), unreadable file,
+      malformed YAML, PyYAML not importable, `enabled` absent/false, role not in
+      the dispatchable set, or resolved harness == "claude" -> allow (fall
+      through to sentinel suppression / background enforcement). Any exception
+      during config load or resolution -> allow (fail-open).
+    - AE_TEAM_ROUTING_DISABLE=1 -> team routing branch is skipped entirely,
+      unconditionally (env var checked before any file I/O).
     - Sentinel present but PID dead or mtime > 2 h: sentinel treated as expired;
       normal background-spawn enforcement resumes. The sentinel self-expires
       when its conductor PID is dead or its mtime exceeds 2 h; there is no
       manual clear command. Fail-open on sentinel read errors.
-    - Agent spawn (no live sentinel): always allowed (exits 0 at the enforcement
-      gate - run_in_background is not present in the real harness payload).
+    - Agent spawn (no live sentinel, no routing match): always allowed (exits 0
+      at the enforcement gate - run_in_background is not present in the real
+      harness payload).
 
-Performance: < 2 ms per call (pure in-memory JSON parse + optional stat/proc
-             check, no network I/O).
+Performance: < 5 ms per call (in-memory JSON parse + optional YAML parse of two
+             small config files + optional stat/proc check, no network I/O).
 """
 
 import json
@@ -82,6 +102,80 @@ import os
 import sys
 import time
 from pathlib import Path
+
+# Dispatchable roles: only these are subject to team-routing enforcement.
+# Per content/references/cross-harness-teams.md, conductor, investigator,
+# architect, and orchestration-planner always stay native even if team.yml
+# maps them elsewhere (their team.yml entries are advisory only).
+_DISPATCHABLE_ROLES = frozenset({
+    "engineer", "debugger", "qa-engineer", "skeptic", "security-auditor",
+})
+
+_GLOBAL_TEAM_YML_REL = "~/.agentic/team.yml"
+_PROJECT_TEAM_YML_REL = ".agentic/team.yml"
+
+
+def _load_effective_team_config(cwd: str) -> dict:
+    """Load and shallow-merge global + project team.yml (project wins).
+
+    Mirrors bin/agentic-team's _load_team_config merge semantics: read global
+    then project, project overwrites per top-level key. PyYAML is imported
+    locally so a hook-context environment without it degrades to an empty
+    config (fail-open) rather than crashing. Any error anywhere (missing
+    file, unreadable, malformed YAML, import failure) is swallowed and
+    contributes nothing to the merged config - never raises.
+    """
+    try:
+        import yaml  # type: ignore
+    except Exception:
+        print(
+            "enforce-background-spawn: PyYAML unavailable, team-routing "
+            "enforcement no-op (fail-open)",
+            file=sys.stderr,
+        )
+        return {}
+
+    config: dict = {}
+    paths = [
+        Path(os.path.expanduser(_GLOBAL_TEAM_YML_REL)),
+        Path(cwd) / _PROJECT_TEAM_YML_REL,
+    ]
+    for path in paths:
+        try:
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+            parsed = yaml.safe_load(text)
+            if isinstance(parsed, dict):
+                config.update(parsed)
+        except Exception:
+            # Fail-open per-file: a broken global file must not prevent the
+            # project file from loading, and vice versa.
+            continue
+    return config
+
+
+def _resolve_role_harness(config: dict, role: str) -> tuple[str | None, str | None]:
+    """Resolve the effective harness + model for *role* from *config*.
+
+    Role entry (scalar string or {harness, model} mapping) takes precedence;
+    falls back to top-level default_harness (model is None in that case,
+    since default_harness carries no model). Returns (None, None) when
+    neither a role entry nor a default_harness is present.
+    """
+    roles = config.get("roles")
+    entry = roles.get(role) if isinstance(roles, dict) else None
+    if isinstance(entry, str) and entry:
+        return entry, None
+    if isinstance(entry, dict):
+        harness = entry.get("harness")
+        model = entry.get("model")
+        if harness:
+            return harness, model
+    default_harness = config.get("default_harness")
+    if isinstance(default_harness, str) and default_harness:
+        return default_harness, None
+    return None, None
 
 # Documented foreground-exempt agents. wrap-ticket runs foreground/blocking
 # in /implement-ticket Phase 11b: it holds .agentic/wrap.lock and MUST complete
@@ -164,6 +258,38 @@ def main() -> None:
             tinput_early = raw_tinput_early if isinstance(raw_tinput_early, dict) else {}
             if tinput_early.get("subagent_type") in FOREGROUND_EXEMPT:
                 sys.exit(0)
+
+        # ------------------------------------------------------------------ #
+        # Cross-harness team ROUTING enforcement (proactive, fixes the core  #
+        # bug: team.yml was silently ignored until the FIRST dispatch ever   #
+        # created the sentinel). Runs BEFORE sentinel suppression.          #
+        # Escape hatch: AE_TEAM_ROUTING_DISABLE=1 skips this branch          #
+        # unconditionally, before any file I/O.                              #
+        # ------------------------------------------------------------------ #
+        if tool_name in ("Task", "Agent") and os.environ.get("AE_TEAM_ROUTING_DISABLE") != "1":
+            raw_tinput_route = data.get("tool_input")
+            tinput_route = raw_tinput_route if isinstance(raw_tinput_route, dict) else {}
+            role = tinput_route.get("subagent_type")
+            if isinstance(role, str) and role in _DISPATCHABLE_ROLES:
+                cwd_route = data.get("cwd") or os.getcwd()
+                try:
+                    team_config = _load_effective_team_config(cwd_route)
+                    if team_config.get("enabled") is True:
+                        harness, model = _resolve_role_harness(team_config, role)
+                        if harness and harness != "claude":
+                            model_note = f" (model {model})" if model else ""
+                            model_flag = f" --model {model}" if model else ""
+                            _deny(
+                                f"cross-harness team active: role '{role}' is assigned to "
+                                f"harness '{harness}'{model_note}. Dispatch with: "
+                                f"bin/agentic-team dispatch --harness {harness} --role {role} "
+                                f"--brief <file> --workdir <dir>{model_flag} - then poll "
+                                "status/collect."
+                            )
+                except Exception:
+                    # Fail-open: any config-load/resolution error allows the
+                    # native spawn through unchanged.
+                    pass
 
         # ------------------------------------------------------------------ #
         # Cross-harness sentinel suppression                                 #

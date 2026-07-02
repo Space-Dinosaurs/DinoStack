@@ -23,6 +23,14 @@ Test groups:
  18. test_omc_skill_denied_when_sentinel_live_agent_rename      - sentinel-live Skill oh-my-claudecode: -> denied.
  19. test_no_reap_string_in_any_deny_reason                     - sentinel deny reason contains no '--reap'.
 
+Unit D - cross-harness team ROUTING enforcement (proactive, pre-sentinel):
+ 20. test_routing_denies_engineer_mapped_to_omp                 - enabled + engineer->omp -> deny w/ dispatch instruction.
+ 21. test_routing_allows_non_dispatchable_role_architect        - architect->omp -> allow (not dispatchable).
+ 22. test_routing_allows_when_enabled_false                     - enabled:false -> allow.
+ 23. test_routing_allows_when_team_yml_missing                  - no team.yml -> allow.
+ 24. test_routing_allows_on_malformed_yaml                      - malformed YAML -> fail-open, allow.
+ 25. test_routing_escape_hatch_disables_branch                  - AE_TEAM_ROUTING_DISABLE=1 -> allow.
+
 Run with: python3 -m pytest bin/tests/test_enforce_background_spawn.py -x
        or: python3 bin/tests/test_enforce_background_spawn.py
 """
@@ -62,16 +70,28 @@ _SENTINEL_MAX_AGE_S = _mod._SENTINEL_MAX_AGE_S
 # used in test_agentic_configure.py which invokes the scripts directly).
 # ---------------------------------------------------------------------------
 
-def _run_hook(payload: dict) -> tuple[int, dict | None]:
+def _run_hook(payload: dict, extra_env: dict | None = None) -> tuple[int, dict | None]:
     """Invoke the hook script with payload on stdin.
 
     Returns (returncode, parsed_stdout_json_or_None).
+
+    By default AE_TEAM_ROUTING_DISABLE=1 is set so the new team-routing
+    branch (Unit D) never fires for tests that predate it and are not
+    exercising it - this isolates them from a real ~/.agentic/team.yml on
+    the machine running the suite. Team-routing-specific tests pass
+    extra_env WITHOUT that var (and point HOME at an isolated tmp dir) to
+    exercise the branch deliberately.
     """
+    env = dict(os.environ)
+    env.setdefault("AE_TEAM_ROUTING_DISABLE", "1")
+    if extra_env:
+        env.update(extra_env)
     result = subprocess.run(
         [sys.executable, str(_HOOK_PATH)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
+        env=env,
     )
     out = result.stdout.strip()
     parsed = json.loads(out) if out else None
@@ -516,6 +536,126 @@ def test_no_reap_string_in_any_deny_reason():
             assert "--reap" not in _deny_reason(parsed), (
                 f"{tname} deny reason must not reference --reap: {_deny_reason(parsed)}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Unit D: cross-harness team ROUTING enforcement
+# ---------------------------------------------------------------------------
+
+def _write_project_team_yml(cwd: str, content: str) -> None:
+    team_dir = Path(cwd) / ".agentic"
+    team_dir.mkdir(parents=True, exist_ok=True)
+    (team_dir / "team.yml").write_text(content, encoding="utf-8")
+
+
+def _routing_env(isolated_home: str) -> dict:
+    """Env for routing-branch tests: routing branch ENABLED, HOME isolated
+    from the real machine's ~/.agentic/team.yml."""
+    return {"AE_TEAM_ROUTING_DISABLE": "", "HOME": isolated_home}
+
+
+def test_routing_denies_engineer_mapped_to_omp(tmp_path):
+    """team.yml enabled + engineer -> omp -> deny with dispatch instruction."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        _write_project_team_yml(
+            str(tmp_path),
+            "enabled: true\ndefault_harness: claude\nroles:\n"
+            "  engineer:\n    harness: omp\n    model: kimi/kimi-k2.7\n",
+        )
+        payload = {
+            "tool_name": "Task",
+            "cwd": str(tmp_path),
+            "tool_input": {"run_in_background": True, "subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(payload, extra_env=_routing_env(home_dir))
+        assert rc == 0
+        assert _is_denied(parsed), f"Expected routing deny, got: {parsed}"
+        reason = _deny_reason(parsed)
+        assert "bin/agentic-team dispatch" in reason
+        assert "--harness omp" in reason
+        assert "--role engineer" in reason
+        assert "kimi/kimi-k2.7" in reason
+
+
+def test_routing_allows_non_dispatchable_role_architect(tmp_path):
+    """architect mapped to omp is NOT in the dispatchable set -> allow."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        _write_project_team_yml(
+            str(tmp_path),
+            "enabled: true\nroles:\n  architect:\n    harness: omp\n",
+        )
+        payload = {
+            "tool_name": "Task",
+            "cwd": str(tmp_path),
+            "tool_input": {"run_in_background": True, "subagent_type": "architect"},
+        }
+        rc, parsed = _run_hook(payload, extra_env=_routing_env(home_dir))
+        assert rc == 0
+        assert not _is_denied(parsed), f"Expected allow (non-dispatchable role), got: {parsed}"
+
+
+def test_routing_allows_when_enabled_false(tmp_path):
+    """enabled: false -> allow even though engineer maps to a non-claude harness."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        _write_project_team_yml(
+            str(tmp_path),
+            "enabled: false\nroles:\n  engineer:\n    harness: omp\n",
+        )
+        payload = {
+            "tool_name": "Task",
+            "cwd": str(tmp_path),
+            "tool_input": {"run_in_background": True, "subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(payload, extra_env=_routing_env(home_dir))
+        assert rc == 0
+        assert not _is_denied(parsed), f"Expected allow (enabled:false), got: {parsed}"
+
+
+def test_routing_allows_when_team_yml_missing(tmp_path):
+    """No team.yml anywhere -> allow (no config, nothing to enforce)."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        payload = {
+            "tool_name": "Task",
+            "cwd": str(tmp_path),
+            "tool_input": {"run_in_background": True, "subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(payload, extra_env=_routing_env(home_dir))
+        assert rc == 0
+        assert not _is_denied(parsed), f"Expected allow (missing team.yml), got: {parsed}"
+
+
+def test_routing_allows_on_malformed_yaml(tmp_path):
+    """Malformed YAML in project team.yml -> fail-open, allow."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        _write_project_team_yml(str(tmp_path), "enabled: true\nroles: [this is not\n  a mapping")
+        payload = {
+            "tool_name": "Task",
+            "cwd": str(tmp_path),
+            "tool_input": {"run_in_background": True, "subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(payload, extra_env=_routing_env(home_dir))
+        assert rc == 0
+        assert not _is_denied(parsed), f"Expected allow (malformed YAML fail-open), got: {parsed}"
+
+
+def test_routing_escape_hatch_disables_branch(tmp_path):
+    """AE_TEAM_ROUTING_DISABLE=1 -> routing branch skipped even though
+    engineer is mapped to a non-claude harness with enabled: true."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        _write_project_team_yml(
+            str(tmp_path),
+            "enabled: true\nroles:\n  engineer:\n    harness: omp\n",
+        )
+        payload = {
+            "tool_name": "Task",
+            "cwd": str(tmp_path),
+            "tool_input": {"run_in_background": True, "subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(
+            payload, extra_env={"AE_TEAM_ROUTING_DISABLE": "1", "HOME": home_dir}
+        )
+        assert rc == 0
+        assert not _is_denied(parsed), f"Expected allow (escape hatch), got: {parsed}"
 
 
 # ---------------------------------------------------------------------------

@@ -4,19 +4,21 @@ Purpose: Cross-harness team configuration loader, discovery, dispatch, and
          collection tool. Reads team.yml (global ~/.agentic/team.yml then
          project .agentic/team.yml; project wins on per-top-level-key merge)
          and validates the schema. discover subcommand probes installed
-         harnesses (installed/version/invocation_family; models always []).
-         dispatch spawns workers detached; status/collect check and retrieve
-         run output. configure subcommand runs the interactive or
-         non-interactive team-config wizard (ranking via static heuristics,
-         no network).
+         harnesses (installed/version/invocation_family; models best-effort
+         populated for omp and cursor-agent, [] for the rest - no reliable
+         list command confirmed). dispatch spawns workers detached;
+         status/collect check and retrieve run output. configure subcommand
+         runs a discovery-first interactive wizard (per-role menu of
+         installed harnesses only) or the non-interactive wizard.
 
 Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
-            discover   - probe installed harnesses (installed/version/family)
+            discover   - probe installed harnesses (installed/version/family/models)
             dispatch   --harness <h> --role <r> --brief <file> --workdir <dir>
                          [--model <m>]
                          spawn a worker (background); prints run-id to stdout.
-                         --model forwarded to codex/gemini (-m) or claude
-                         (--model); rejected for any other harness.
+                         --model forwarded to every harness using its own flag
+                         spelling (_MODEL_FLAG_BY_HARNESS: codex/gemini -> -m,
+                         all others -> --model).
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
             configure  [--non-interactive] [--assign role=harness:model ...]
@@ -36,13 +38,13 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                Missing or unreadable team.yml -> treated as empty config (no error).
                Malformed YAML -> non-zero exit.
                discover: absent harnesses reported as installed=false, exit 0.
-               discover: models always [] (harness-native discovery not available), exit 0.
+               discover: models probe is best-effort (omp, cursor-agent only;
+                 [] for claude/codex/gemini/kimi/pi - no reliable list command
+                 confirmed); any probe exception -> [], exit 0 unaffected.
                dispatch: unknown harness -> non-zero exit immediately.
                dispatch: workdir not writable -> non-zero exit.
-               dispatch: --model supplied for a harness with no confirmed
-                 --model flag (anything other than codex/gemini/claude) ->
-                 exit 2 fail-fast BEFORE any filesystem side effect (no run
-                 dir, no .active sentinel, no subprocess).
+               dispatch: --model is forwarded for all 7 KNOWN_HARNESSES using
+                 each harness's own flag spelling (_MODEL_FLAG_BY_HARNESS).
                status/collect: unknown run-id -> non-zero exit.
                collect: on terminal status, unlinks the shared .active
                  sentinel ONLY when no sibling run is still live (read-only
@@ -71,7 +73,6 @@ import signal
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 from pathlib import Path
 
@@ -482,7 +483,8 @@ def _cmd_configure(argv: list[str]) -> int:
         target.write_text(_emit_team_yaml(assignments, default_harness), encoding="utf-8")
         return 0
 
-    # Interactive path: discover -> rank -> optionally web-enrich -> present -> write.
+    # Interactive path: discover FIRST -> print summary -> rank -> per-role
+    # menu of installed harnesses only -> write.
     print("agentic-team configure: discovering installed harnesses...")
     discovery = _discover_harnesses()
     if not discovery:
@@ -493,10 +495,29 @@ def _cmd_configure(argv: list[str]) -> int:
         )
         # Still proceed with empty discovery - rankings will be empty.
 
-    assignments = _rank_assignments(discovery)
+    installed_harnesses = [h for h in sorted(discovery) if discovery[h].get("installed")]
 
-    if not sys.stdin.isatty():
-        # Non-TTY without --non-interactive: write best-guess and exit.
+    print("\nInstalled harnesses:")
+    if not installed_harnesses:
+        print("  (none found)")
+    for h in installed_harnesses:
+        info = discovery[h]
+        version = f" v{info['version']}" if info.get("version") else ""
+        model_count = len(info.get("models") or [])
+        models_str = f", {model_count} model(s) discovered" if model_count else ""
+        print(f"  - {h}{version}{models_str}")
+
+    # Only "claude" (the conductor's own harness) installed -> nothing to
+    # cross-dispatch to; say so and exit cleanly.
+    if not sys.stdin.isatty() or not [h for h in installed_harnesses if h != "claude"]:
+        # Non-TTY without --non-interactive, or nothing but claude installed:
+        # write best-guess (possibly empty) and exit.
+        assignments = _rank_assignments(discovery)
+        if sys.stdin.isatty() and not [h for h in installed_harnesses if h != "claude"]:
+            print(
+                "\nagentic-team configure: no non-claude harnesses installed; "
+                "nothing to cross-dispatch to. Exiting without prompting."
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
             _emit_team_yaml(assignments, args.default_harness.strip() or None),
@@ -504,34 +525,66 @@ def _cmd_configure(argv: list[str]) -> int:
         )
         return 0
 
-    # Interactive: present suggestions, let user accept/override per role.
-    print("\nSuggested role assignments (press Enter to accept, type to override):")
-    print("Format: harness[:model]  |  'skip' to leave unset\n")
+    assignments = _rank_assignments(discovery)
+
+    # Interactive: per-role numbered menu of INSTALLED harnesses only, with
+    # the ranked suggestion as default. Optional model free-text prompt when
+    # the chosen harness has discovered models (shown for reference only -
+    # user may type any model id, or leave empty for harness default).
+    print("\nPer-role harness assignment (Enter accepts default, 'skip' to leave unset):\n")
 
     final_assignments: dict[str, tuple[str, str]] = {}
     for role in ROLES:
         pair = assignments.get(role)
-        if pair:
-            harness, model = pair
-            default_str = f"{harness}:{model}" if model else harness
-        else:
-            default_str = ""
+        default_harness = pair[0] if pair and pair[0] in installed_harnesses else None
+        default_model = pair[1] if pair and default_harness else ""
+
+        print(f"  [{role}]")
+        for i, h in enumerate(installed_harnesses, start=1):
+            marker = " (suggested)" if h == default_harness else ""
+            print(f"    {i}. {h}{marker}")
+        default_label = default_harness or "skip"
         try:
-            raw = input(f"  [{role}] [{default_str}]: ").strip()
+            raw = input(f"    harness [{default_label}]: ").strip()
         except EOFError:
             raw = ""
-        val = raw if raw else default_str
-        if not val or val.lower() == "skip":
+        if not raw:
+            chosen = default_harness
+        elif raw.lower() == "skip":
+            chosen = None
+        elif raw.isdigit() and 1 <= int(raw) <= len(installed_harnesses):
+            chosen = installed_harnesses[int(raw) - 1]
+        elif raw.isdigit():
+            print(
+                f"    {raw!r} is out of range (1-{len(installed_harnesses)}); "
+                f"skipping {role}"
+            )
             continue
-        if ":" in val:
-            h, _, m = val.partition(":")
+        elif raw in installed_harnesses:
+            chosen = raw
         else:
-            h, m = val, ""
-        h = h.strip()
-        if h not in KNOWN_HARNESSES:
-            print(f"    unknown harness {h!r}; skipping {role}")
+            print(f"    unknown harness {raw!r}; skipping {role}")
             continue
-        final_assignments[role] = (h, m.strip())
+
+        if not chosen:
+            continue
+
+        model = ""
+        discovered_models = discovery.get(chosen, {}).get("models") or []
+        if discovered_models:
+            preview = ", ".join(discovered_models[:8])
+            if len(discovered_models) > 8:
+                preview += ", ..."
+            print(f"    models for {chosen}: {preview}")
+            try:
+                raw_model = input(
+                    f"    model [{default_model or 'harness default'}]: "
+                ).strip()
+            except EOFError:
+                raw_model = ""
+            model = raw_model or default_model
+
+        final_assignments[role] = (chosen, model)
 
     default_harness_str = args.default_harness.strip() or None
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -570,6 +623,55 @@ def _probe_harness_version(binary: str) -> str | None:
         return None
 
 
+def _probe_harness_models(harness: str, binary: str) -> list[str]:
+    """Best-effort probe of a harness's available model list.
+
+    Only omp (`omp models ls --json`) and cursor-agent (`cursor-agent
+    --list-models`) have a confirmed list command; all other harnesses
+    return [] unconditionally. 10s timeout; any exception (missing binary,
+    timeout, bad JSON, non-zero exit) returns [] - a probe failure must
+    never break discover.
+    """
+    try:
+        if harness == "omp":
+            result = subprocess.run(
+                [binary, "models", "ls", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            # omp may print extension-load warnings on stderr; parse stdout only.
+            data = json.loads(result.stdout)
+            models = data.get("models", [])
+            out = []
+            for m in models:
+                if isinstance(m, str):
+                    out.append(m)
+                elif isinstance(m, dict):
+                    ident = m.get("id") or m.get("selector")
+                    if ident:
+                        out.append(str(ident))
+            return out
+
+        if harness == "cursor-agent":
+            result = subprocess.run(
+                [binary, "--list-models"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return [
+                line.strip()
+                for line in (result.stdout or "").splitlines()
+                if line.strip()
+            ]
+    except Exception:  # noqa: BLE001
+        return []
+
+    # claude/codex/gemini/kimi/pi: no reliable list command confirmed.
+    return []
+
+
 def _discover_harnesses(
     binary_map: dict[str, str] | None = None,
 ) -> dict[str, dict]:
@@ -597,12 +699,14 @@ def _discover_harnesses(
         binary = binary_map.get(harness, harness)
         installed = _probe_binary_installed(binary)
         version: str | None = None
+        models: list[str] = []
         if installed:
             version = _probe_harness_version(binary)
+            models = _probe_harness_models(harness, binary)
         result[harness] = {
             "installed": installed,
             "version": version,
-            "models": [],
+            "models": models,
             "invocation_family": HARNESS_INVOCATION_FAMILY.get(harness, harness),
             "native_subagent_disable_flag": HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(
                 harness
@@ -659,10 +763,22 @@ _SHIM_TARGETS: tuple[str, ...] = (
     "pi", "omp", "claude",
 )
 
-# Harnesses with a CONFIRMED non-interactive --model/-m flag. dispatch --model
-# is forwarded only for these; supplying --model for any other harness is
-# rejected fail-fast (no silent drop). cursor-agent/kimi/pi/omp are NOT here.
-_MODEL_FLAG_HARNESSES: frozenset[str] = frozenset({"codex", "gemini", "claude"})
+# Per-harness --model flag spelling. All 7 KNOWN_HARNESSES have a CONFIRMED
+# non-interactive model-selection flag (verified CLI facts); dispatch forwards
+# --model to every harness using its own flag spelling.
+_MODEL_FLAG_BY_HARNESS: dict[str, str] = {
+    "codex": "-m",
+    "gemini": "-m",
+    "claude": "--model",
+    "cursor-agent": "--model",
+    "kimi": "--model",
+    "pi": "--model",
+    "omp": "--model",
+}
+
+# Back-compat name: existing callers/tests reference "confirmed model-flag
+# harnesses" as a frozenset; now equals KNOWN_HARNESSES since all 7 confirmed.
+_MODEL_FLAG_HARNESSES: frozenset[str] = frozenset(_MODEL_FLAG_BY_HARNESS)
 
 # Harnesses that need stdin from /dev/null to avoid hangs (AC8 / plan table).
 _STDIN_DEVNULL_HARNESSES: frozenset[str] = frozenset({"cursor-agent"})
@@ -710,18 +826,18 @@ def _build_worker_argv(
         currently only used to read native_subagent_disable_flag.
     model:
         Optional model id. When truthy, appended at argv END (after the
-        positional brief and all existing flags) for the confirmed model-flag
-        harnesses only (codex/gemini -> "-m", claude -> "--model"). NEVER
-        inserted before the positional brief, which would make the brief be
-        misparsed as the model value. Harnesses without a confirmed --model
-        flag never reach here with a truthy model (rejected fail-fast in
-        _cmd_dispatch).
+        positional brief and all existing flags) using the harness's own
+        --model flag spelling (see _MODEL_FLAG_BY_HARNESS: codex/gemini ->
+        "-m", all other harnesses -> "--model"). NEVER inserted before the
+        positional brief, which would make the brief be misparsed as the
+        model value.
 
     Returns
     -------
     list[str] suitable for subprocess.Popen args.
     """
     binary = HARNESS_BINARY.get(harness, harness)
+    model_flag = _MODEL_FLAG_BY_HARNESS.get(harness, "--model")
 
     if harness == "codex":
         # codex exec "<brief>" --json --sandbox read-only
@@ -729,41 +845,61 @@ def _build_worker_argv(
         argv = [binary, "exec", brief_text, "--json",
                 "--sandbox", "read-only", "--skip-git-repo-check"]
         if model:
-            argv += ["-m", model]
+            argv += [model_flag, model]
         return argv
 
     if harness == "gemini":
         # gemini -p "<brief>" --output-format json
         argv = [binary, "-p", brief_text, "--output-format", "json"]
         if model:
-            argv += ["-m", model]
+            argv += [model_flag, model]
         return argv
 
     if harness == "cursor-agent":
         # cursor-agent -p --force "<brief>" --output-format json
         # stdin is redirected from /dev/null by the caller (hang workaround).
-        return [binary, "-p", "--force", brief_text, "--output-format", "json"]
+        argv = [binary, "-p", "--force", brief_text, "--output-format", "json"]
+        if model:
+            argv += [model_flag, model]
+        return argv
 
     if harness == "claude":
         # claude -p "<brief>" --output-format json
         argv = [binary, "-p", brief_text, "--output-format", "json"]
         if model:
-            argv += ["--model", model]
+            argv += [model_flag, model]
         return argv
 
-    # kimi / pi / omp: invocation family from discovery; flags are best-effort.
-    # We do NOT hardcode model IDs per plan principle 1 / AC2.
     if harness == "kimi":
-        return [binary, "-p", brief_text]
+        # kimi-cli --print --yolo --final-message-only -p "<brief>"
+        # --print is mandatory (non-interactive, auto-dismisses
+        # AskUserQuestion); bare -p alone is interactive-with-prompt.
+        # --final-message-only keeps collect()'s raw-stdout path clean.
+        argv = [binary, "--print", "--yolo", "--final-message-only", "-p", brief_text]
+        if model:
+            argv += [model_flag, model]
+        return argv
 
     if harness == "pi":
-        return [binary, "-p", brief_text]
+        # pi -p "<brief>" (default text mode; collect() reads raw stdout).
+        argv = [binary, "-p", brief_text]
+        if model:
+            argv += [model_flag, model]
+        return argv
 
     if harness == "omp":
-        return [binary, "-p", brief_text]
+        # omp -p "<brief>" (default text mode; json mode is streaming JSONL,
+        # not worth parsing in v1).
+        argv = [binary, "-p", brief_text]
+        if model:
+            argv += [model_flag, model]
+        return argv
 
     # Fallback: generic -p pattern.
-    return [binary, "-p", brief_text]
+    argv = [binary, "-p", brief_text]
+    if model:
+        argv += [model_flag, model]
+    return argv
 
 
 def _write_shim(shim_dir: Path, binary_name: str, run_dir: Path) -> None:
@@ -883,18 +1019,9 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     # AC5 defense-in-depth: embed leaf-worker clause into the brief.
     augmented_brief = _LEAF_WORKER_CLAUSE + brief_text
 
-    # M2b fail-fast: reject --model for harnesses with no confirmed --model
-    # flag BEFORE any filesystem side effect (no run dir, no sentinel, no
-    # subprocess). Forwarding model to an unconfirmed harness would silently
-    # drop it; reject loudly instead.
-    if getattr(args, "model", None) and harness not in _MODEL_FLAG_HARNESSES:
-        print(
-            f"agentic-team dispatch: --model is not supported for harness {harness!r}. "
-            f"Confirmed model-flag harnesses: {', '.join(sorted(_MODEL_FLAG_HARNESSES))}. "
-            f"Remove --model or assign this role to a confirmed harness.",
-            file=sys.stderr,
-        )
-        return 2
+    # All 7 KNOWN_HARNESSES now have a confirmed --model flag
+    # (_MODEL_FLAG_BY_HARNESS), so no fail-fast reject is needed here -
+    # dispatch already returned 2 above for any harness not in KNOWN_HARNESSES.
 
     run_id = _make_run_id(role)
 

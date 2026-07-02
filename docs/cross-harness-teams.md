@@ -199,7 +199,7 @@ How `agentic-team dispatch` invokes each harness non-interactively:
 | **codex** | `codex exec "<brief>" --json --sandbox read-only --skip-git-repo-check` | `--sandbox read-only` applied by default; JSONL event stream |
 | **gemini** | `gemini -p "<brief>" --output-format json` | Headless on `-p`; slash commands broken headless - full brief inline |
 | **cursor-agent** | `cursor-agent -p --force "<brief>" --output-format json < /dev/null` | `--force` required for file writes; known hang bug - stdin always `/dev/null` + timeout watchdog; marked `experimental` in discover output. Note: `< /dev/null` is presentation shorthand -- the dispatcher sets `stdin=subprocess.DEVNULL` at the `Popen` call; it is not a literal argv element. |
-| **kimi** | `kimi-cli -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); exact flag confirmed at discovery |
+| **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); `--print` required for non-interactive/auto-dismiss behavior |
 | **pi** | `pi -p "<brief>"` | Built-in subagent types exist but suppressed via leaf-worker clause |
 | **omp** | `omp -p "<brief>"` | Same leaf-worker suppression; omp built-in subagents not used as nested spawns |
 | **claude (worker)** | `claude -p "<brief>" --output-format json` | Dispatched as a leaf worker only; does NOT re-enter OMC |
@@ -211,8 +211,13 @@ How `agentic-team dispatch` invokes each harness non-interactively:
 | kimi | `kimi-cli` (the only label/binary mismatch) |
 | all others | same as harness label |
 
-Exact flags for kimi, pi, and omp are probed at discovery time -- not
-hardcoded -- consistent with the "no hardcoded model IDs" stance.
+Non-interactive flags for all 7 harnesses (including kimi, pi, and omp) are
+**confirmed and fixed**, verified live against each CLI -- not probed at
+discovery time. Discovery only probes for available *models* (see the
+per-harness dispatch table note above), never the invocation flags
+themselves; this is consistent with the "no hardcoded model IDs" stance
+(binary names and flag spellings are the one allowed per-harness hardcoded
+fact).
 
 ## Self-containment - what is actually enforced
 
@@ -241,7 +246,26 @@ The guard is layered. Layers are listed strongest to weakest:
    "You are a leaf worker: no sub-agents, no git, no oh-my-claudecode."
    This relies on worker cooperation; it is not a hard fence.
 
-5. **Conductor-side `.active` sentinel.** While
+5. **Proactive team-routing enforcement (fixes the chicken-and-egg bug).**
+   The sentinel below only kicks in once a dispatch has already happened --
+   if the conductor never dispatches (nothing was stopping it from using
+   native `Task`/`Agent`), a `team.yml` with `enabled: true` was previously
+   silently ignored forever. `hooks/enforce-background-spawn.py` closes this
+   gap with a branch that runs BEFORE the sentinel check: it loads the
+   effective `team.yml` (global + project, project wins; PyYAML imported
+   opportunistically, fails open if unavailable) and, when `enabled: true`
+   and the spawned `subagent_type` is one of the five dispatchable roles
+   (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`)
+   whose resolved harness (role entry, else `default_harness`) is anything
+   other than `claude`, denies the native spawn with an actionable
+   `bin/agentic-team dispatch ...` instruction. `conductor`, `investigator`,
+   `architect`, and `orchestration-planner` are never denied by this branch.
+   Fails open on every error path (missing file, unreadable, malformed YAML,
+   import failure) -- a broken or absent `team.yml` never blocks native
+   spawning. Escape hatch: `AE_TEAM_ROUTING_DISABLE=1` skips this branch
+   entirely, before any file I/O.
+
+6. **Conductor-side `.active` sentinel.** While
    `<workdir>/.agentic/teamrun/.active` exists (with a live conductor PID,
    mtime < 2 h), the conductor suppresses native `Task` spawns and OMC skill
    calls. On Claude Code this is hook-enforced
