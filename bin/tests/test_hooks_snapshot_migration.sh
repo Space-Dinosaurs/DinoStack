@@ -284,6 +284,19 @@ else
   _fail "codex: hooks.json symlink target changed on re-run (not idempotent)"
 fi
 
+if HOME="$HOME_CODEX" bash "$REPO_DIR/.codex/uninstall.sh" > "$HOME_CODEX/.uninstall_out" 2>&1; then
+  _pass "codex: uninstall.sh run succeeds"
+else
+  _fail "codex: uninstall.sh exited non-zero"
+  cat "$HOME_CODEX/.uninstall_out" >&2
+fi
+
+if [[ ! -e "$HOME_CODEX/.codex/hooks.json" && ! -L "$HOME_CODEX/.codex/hooks.json" ]]; then
+  _pass "codex: uninstall removes snapshot-backed hooks.json symlink"
+else
+  _fail "codex: uninstall left hooks.json behind: $(readlink "$HOME_CODEX/.codex/hooks.json" 2>/dev/null || echo '<not symlink>')"
+fi
+
 # =============================================================
 # 4. Kimi CLI
 # =============================================================

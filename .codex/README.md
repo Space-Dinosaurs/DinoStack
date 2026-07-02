@@ -3,11 +3,11 @@
 ## What this provides
 
 - **AGENTS.md** - Always-loaded rules: agent methodology, code standards, conventions (combined from 3 source files)
-- **Reference docs** (4) - skeptic protocol, subagent protocol, agent team, design goals
+- **Reference docs** - generated/hardlinked protocol references from `content/references/`
 - **Global skill** - `~/.agents/skills/agentic-engineering/` with SKILL.md and bundled references
 - **Global AGENTS.md** - `~/.codex/AGENTS.md` symlinked to `.codex/AGENTS.md` for global session loading
-- **Named agents** - `~/.codex/agents/` symlinked to `.codex/agents/` - 13 agent TOML files generated from `content/agents/*.md`
-- **Lifecycle hooks** - `~/.codex/hooks.json` symlinked to `.codex/config/hooks.json` - UserPromptSubmit (risk reminder) and Stop (context save)
+- **Named agents** - `~/.codex/agents/` symlinked to `.codex/agents/` - TOML files generated from `content/agents/*.md`
+- **Lifecycle hooks** - `~/.codex/hooks.json` symlinked to a snapshot-backed `.codex/config/hooks.json` - UserPromptSubmit (risk reminder and skill auto-load) and Stop (context save)
 - **Command templates** - `.codex/commands/` contains the workflow templates for `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, and `update-agentic-engineering`
 
 ## Installation
@@ -22,7 +22,7 @@ This:
 2. Symlinks `.codex/skill/` to `~/.agents/skills/agentic-engineering/` (the correct Codex user-scope skill path per Codex docs)
 3. Symlinks `.codex/AGENTS.md` to `~/.codex/AGENTS.md` (global instructions, loaded by Codex in every session)
 4. Symlinks `.codex/agents/` to `~/.codex/agents/` (named agent TOML files, loaded by Codex for subagent spawning)
-5. Symlinks `.codex/config/hooks.json` to `~/.codex/hooks.json` (lifecycle hooks for risk reminder and context save without project-local auto-loading)
+5. Symlinks a snapshot-backed `.codex/config/hooks.json` to `~/.codex/hooks.json` (lifecycle hooks for risk reminder, skill auto-load, and context save without project-local auto-loading)
 6. Adds `codex_hooks = true` under `[features]` in `~/.codex/config.toml` if not already present (required to activate hooks)
 
 If `~/.codex/AGENTS.md` already exists and is not a symlink, the installer backs it up to `~/.codex/AGENTS.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning. The uninstaller restores the most recent backup if one exists.
@@ -80,11 +80,12 @@ Codex also ships three built-in agents (`default`, `worker`, `explorer`). If you
 
 Hooks are shell/JS commands that run at key points in the Codex agentic loop. They are configured in `.codex/config/hooks.json` and symlinked into `~/.codex/hooks.json` by the installer. The source file intentionally lives outside `.codex/hooks.json` so opening this repo in Codex does not auto-register the same hook twice. Re-running the installer migrates legacy installs that still point at the old `.codex/hooks.json` path. Hooks require `codex_hooks = true` under `[features]` in `~/.codex/config.toml` (added automatically by the installer).
 
-Two hooks are wired:
+Three hook commands are wired:
 
 | Hook event | Script | What it does |
 |---|---|---|
 | `UserPromptSubmit` | `.codex/hooks/risk-reminder.sh` | Emits the risk classification reminder as developer context before every prompt |
+| `UserPromptSubmit` | `hooks/skill-auto-load-check.sh` | Emits the Codex skill-load instruction when `skill_auto_load=true` |
 | `Stop` | `.codex/hooks/stop-context-codex.js` | Writes a minimal `context.md` to `~/.codex/projects/[hash]/` on session end |
 
 The `Stop` hook is a thin port of the Claude Code `stop-context.js`. It captures the last assistant message, session ID, model, and cwd. For richer context (paths referenced, tools used, uncommitted changes), use the `wrap` template from `.codex/commands/` before ending a session.
