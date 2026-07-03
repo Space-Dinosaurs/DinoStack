@@ -75,7 +75,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped). `hooks/enforce-background-spawn.py` enforces background-by-default on BOTH `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
+**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness consumes `run_in_background` for its own async routing and strips it from the PreToolUse hook payload (confirmed by live payload capture: hook tool_input keys for an Agent spawn are exactly `['description', 'prompt', 'subagent_type']`). As a result, `hooks/enforce-background-spawn.py` does NOT enforce `run_in_background` on `Agent` - doing so would brick every Agent spawn. Background enforcement is applied to the legacy `Task` tool name only. The hook retains two active responsibilities: (a) `run_in_background` enforcement for the legacy `Task` tool, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
@@ -2016,9 +2016,8 @@ This rule layers conciseness expectations on top of the structural templates in 
 <!--
 Purpose: Documents the cross-harness agent-team layer that lets the conductor
          dispatch leaf workers to entirely different CLIs (codex, gemini,
-         cursor-agent, kimi, pi, omp, opencode, copilot, claude-as-worker)
-         rather than spawning them as native subagents within the conductor's
-         own harness.
+         cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning
+         them as native subagents within the conductor's own harness.
 
 Public API: Read-only reference. Load when configuring team.yml, deciding
             whether to use cross-harness dispatch vs native delegation,
@@ -2051,8 +2050,7 @@ Performance: Standard. Dispatch is background shell-out per worker; no blocking
 # Cross-harness agent teams
 
 This layer lets the conductor dispatch leaf workers to entirely different CLI
-harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, opencode, copilot, or
-claude-as-worker --
+harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, or claude-as-worker --
 rather than spawning native subagents within its own harness. It is **OMC-
 independent**: it does not trigger oh-my-claudecode, nor does it use the
 conductor harness's own built-in subagent mechanism.
@@ -2125,8 +2123,9 @@ dispatch:
 | `enabled` | bool | yes | Set `false` to disable cross-harness dispatch without removing the file. |
 | `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
 | `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
-| `roles[*].harness` | string | yes (if mapping) | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
-| `roles[*].model` | string | no | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
+| `roles[*].harness` | string | yes (if mapping) | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
+| `roles[*].model` | string | no | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 7 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
+| `roles[*].models` | list | no | Round-robin author pool: a list of model handles the role rotates through, one per successive dispatch (cursor persisted under `<workdir>/.agentic/teamrun/.rotation/<role>`). Mutually exclusive with `model`; when both are present `models` wins. Use for co-author roles, e.g. `engineer: { harness: omp, models: [kimi/kimi-k2.7, glm/glm-5.2] }`. Each entry must be a non-empty string or dispatch config validation fails. |
 | `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
 | `dispatch.output_format` | string | no | `json` (default) or `text`. Governs the `collect` demux path. |
 
@@ -2157,47 +2156,15 @@ map in `bin/agentic-team` (the one allowed per-harness hardcoded fact).
 | **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | `--model <model>` | text (final-message-only) | Binary name is `kimi-cli` (not `kimi`); `--print` is mandatory for non-interactive/auto-dismiss-AskUserQuestion behavior -- bare `-p` alone is interactive-with-prompt. No custom slash commands; methodology loaded via inline skill content in the brief. |
 | **pi** | `pi -p "<brief>"` | `--model <model>` | text (default mode) | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Also supports `--mode text\|json\|rpc`; default text mode is used so `collect()`'s raw-stdout path works. |
 | **omp** | `omp -p "<brief>"` | `--model <model>` | text (default mode) | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. `--mode json` emits streaming JSONL `message_update` events (not a single JSON object), not worth parsing in v1, so default text mode is kept. `omp models ls --json` confirmed (used by discovery model probe). |
-| **opencode** | `opencode run "<brief>" --dangerously-skip-permissions` | `--model <model>` | raw stdout | `--dangerously-skip-permissions` required for non-interactive dispatch (detached worker has no TTY for permission prompts); `--model` forwarded only when a model is configured; final message is raw stdout (no demux). |
-| **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths` | `--model <model>` | raw stdout | `--allow-all-tools --allow-all-paths` required for non-interactive file writes (see RISK-ACCEPTED note below); `--model` forwarded only when configured; final message is raw stdout (no demux). |
 | **claude (worker)** | `claude -p "<brief>"` | `--model <model>` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
 
 Discovery (`agentic-team discover`) best-effort populates a `models: [...]`
 list per harness: omp via `omp models ls --json` (stdout parsed, stderr
 extension-load warnings tolerated) and cursor-agent via `cursor-agent
---list-models` (line-per-model text). claude/codex/gemini/kimi/pi/opencode/copilot
-have no reliable list command confirmed and always report `models: []`. Every probe
+--list-models` (line-per-model text). claude/codex/gemini/kimi/pi have no
+reliable list command confirmed and always report `models: []`. Every probe
 has a 10s timeout and fails silently to `[]` on any exception -- a broken
 probe never breaks `discover` as a whole.
-
-**RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
-harness above, copilot is dispatched with `--allow-all-paths` in addition to
-`--allow-all-tools`. Per `copilot --help`, both flags are required to get
-non-interactive operation at all -- copilot exposes no path-scoped equivalent
-(no `--sandbox` flag, no directory allowlist) -- so this is a deliberate
-trade-off of autonomy over sandboxed path-scoping, not an oversight. The
-PATH guardrail (section 3 below) does **not** mitigate this: it only
-intercepts bare-name re-entry to sibling CLIs, it is not a filesystem
-sandbox. `_cmd_dispatch` sets the copilot subprocess's `cwd` to the
-caller-supplied `--workdir` (a throwaway worktree/copy), but setting `cwd`
-only changes how *relative* paths resolve -- it does **not** block
-absolute-path reads or writes (`~/.ssh/id_rsa`, `/etc/...`, any path the
-brief spells out in full), and the subprocess still inherits the full parent
-environment, so ambient credentials in env vars remain reachable. Given the
-threat model is a prompt-influenced `brief_text`, `--allow-all-paths` is a
-genuine, deliberately-accepted risk whenever the brief is not fully trusted
--- it is **not a sandbox**. The disposable workdir limits the *relative*-path
-blast radius and keeps repo mutations isolated to a throwaway tree; it is
-not a filesystem confinement boundary. Operators must still pass a
-genuinely disposable `--workdir` for copilot dispatches and treat the brief
-as untrusted input, since the flag itself enforces nothing.
-
-**Operator opt-in gate.** Because this is the only harness that trades away
-worktree isolation, `_cmd_dispatch` refuses to launch a copilot worker unless
-the operator sets `AGENTIC_TEAM_ALLOW_COPILOT=1`. Merely listing `copilot` in
-`team.yml` is not enough -- dispatch fails fast (exit 2, before any run
-directory is created) with a message naming the env var. This makes the
-`--allow-all-paths` trade-off an explicit, auditable consent rather than an
-implicit side effect of configuration.
 
 **Binary-name map (discovery uses this, not the harness label):**
 
@@ -2209,8 +2176,6 @@ implicit side effect of configuration.
 | kimi | `kimi-cli` |
 | pi | `pi` |
 | omp | `omp` |
-| opencode | `opencode` |
-| copilot | `copilot` |
 | claude | `claude` |
 
 The binary-name map is the only per-harness hardcoded fact in the repo. It maps
@@ -2243,7 +2208,7 @@ process itself, not by a wrapper script.
 
 Each worker launch prepends a wrapper directory to `PATH`. Shims in that
 directory for `git`, `omc`, and all sibling CLI names (`codex`, `gemini`,
-`cursor-agent`, `kimi-cli`, `pi`, `omp`, `opencode`, `copilot`, `claude`) exit 1 and append a line to
+`cursor-agent`, `kimi-cli`, `pi`, `omp`, `claude`) exit 1 and append a line to
 `<workdir>/.agentic/teamrun/<run-id>/violations.log`. The worker's own binary
 is exempt (a codex worker can still run `codex`; its shim is not placed).
 
@@ -2353,8 +2318,6 @@ returns the final message text:
 | cursor-agent | JSON | `jq '.result'` |
 | kimi | raw text (`--final-message-only`) | raw stdout |
 | pi / omp | raw text (default text mode) | raw stdout |
-| opencode | raw stdout | raw stdout, no demux |
-| copilot | raw stdout | raw stdout, no demux |
 | claude (worker) | JSON `{result: ...}` | `jq '.result'` |
 
 Once `collect` returns the final message, **that text is treated identically to
@@ -3837,7 +3800,7 @@ The 5 Mandatory Tier-3 signal categories are untouched by this carve-out and sti
 
 **Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. To seed the file, run `bin/agentic-configure`: the wizard asks you per role and ranks the model names you supply using the hint dictionaries in `bin/agentic-models`. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the per-role ranking heuristics and selection paths.
 
-**Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, opencode, copilot, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
+**Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
 
 ---
 
@@ -12142,28 +12105,6 @@ Helper returns:
 - `CREATED_TICKET_URL` - empty string on failure
 - `CREATE_STATUS` - `created` | `skipped` | `failed`
 - `CREATE_ERROR` - error message string, or null on success
-**Collision pre-check (runs BEFORE the create branches):**
-
-Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, same exported symbols, same DB tables/migrations, or same shared utility/config that the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis that prevents two parallel sessions from colliding on the same file - the failure mode where a boundary gets retrofitted AFTER the ticket already exists instead of at creation time.
-
-Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team and state not in (Done, Cancelled). For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies but relies on the conductor's own scope knowledge rather than a scan).
-
-Decision:
-
-- **No overlap, OR tracker has no query branch:** proceed to the create branches with TICKET_BODY unchanged.
-- **Overlap found:** append a `## Scope boundary` section to TICKET_BODY BEFORE the create call. The section names the overlapping ticket(s) and the file/symbol/table each side owns. Worked example (AUT-301 vs AUT-300, both touching the operator-list surface):
-
-  ```
-  ## Scope boundary
-
-  - AUT-300 owns: packages/qa-auth/src/adapters/admin.ts (prod-DB guard), admin/scripts/seed-qa-operator.ts, and any isTestAccount schema migration if that route is chosen.
-  - This ticket owns: backend/src/operators/index.ts GET /operators WHERE-clause filter only.
-  - Merge order: this ticket is the symptom-fix; AUT-300 is root-cause. If AUT-300 adds an isTestAccount flag, that migration is AUT-300's to own.
-  ```
-
-The boundary section is binding, not advisory: it travels with the ticket into the tracker so the other session sees it on its next pull. If the conductor cannot determine a clean boundary (the two tickets genuinely own the same lines with no split), STOP before creating and surface the conflict to the operator for a manual scope-split.
-
-The scan is a single tracker query (one API roundtrip, paginated to the project/team). It is cheap and runs only at create time - it does not run on every phase transition.
 
 **Branch on TRACKER:**
 
@@ -12303,7 +12244,6 @@ classifiers:
 | Sanity ceiling (>200) | Refused (no prompt; hard exit). |
 
 **Tier:** Tier 2 (conductor-direct, including screenshot read and resolver execution).
-**Collision-awareness backstop (consume-time).** When Phase 0 resolves ticket entries, the conductor reads each ticket body for a `## Scope boundary` section (written by the Create Helper collision pre-check). If present, carry it into the architect brief and engineer execution contract. If absent AND the tracker supports queries, run the same in-flight overlap scan the Create Helper runs before the architect spawns; on overlap, surface the boundary to the operator and append it to the architect brief. Best-effort, never blocks Phase 0 - this catches human-filed tickets that skipped the create-time pre-check.
 
 ---
 

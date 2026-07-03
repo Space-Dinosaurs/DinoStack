@@ -273,6 +273,16 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
                 f"agentic-team: unknown role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_ROLES))})"
             )
+        # Validate a multi-model (round-robin) declaration when present.
+        if isinstance(spec, dict) and "models" in spec:
+            ml = spec.get("models")
+            if not isinstance(ml, (list, tuple)) or not ml or not all(
+                isinstance(m, str) and m for m in ml
+            ):
+                errors.append(
+                    f"agentic-team: role {role!r} 'models' in {source} must be a "
+                    "non-empty list of model-id strings"
+                )
         # Normalize to extract harness
         if isinstance(spec, dict):
             harness = spec.get("harness")
@@ -309,6 +319,83 @@ def _role_entry(spec: object) -> dict:
         entry.update(norm)
         return entry
     return {}
+
+
+def _role_models_list(spec: object) -> list[str]:
+    """Return the ordered list of model handles declared for a role.
+
+    Supports three team.yml forms:
+      model: kimi/kimi-k2.7            -> ["kimi/kimi-k2.7"]
+      models: [kimi/..., glm/...]      -> ["kimi/...", "glm/..."]
+      model: [kimi/..., glm/...]       -> ["kimi/...", "glm/..."]  (list under model)
+    Non-string / empty entries are dropped. Returns [] when none declared.
+    """
+    if not isinstance(spec, dict):
+        return []
+    raw = spec.get("models")
+    if raw is None:
+        raw = spec.get("model")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    if isinstance(raw, (list, tuple)):
+        return [m for m in raw if isinstance(m, str) and m]
+    return []
+
+
+def _rotation_cursor_next(workdir: Path, role: str, n: int) -> int:
+    """Return the next round-robin index for *role* and advance the cursor.
+
+    The cursor is persisted at <workdir>/.agentic/teamrun/.rotation/<role>
+    as a single integer, so successive dispatches of the same role rotate
+    deterministically: index i then (i+1) % n. Any read/parse error resets to
+    0 (fail-safe: worst case a role restarts its rotation).
+    """
+    if n <= 1:
+        return 0
+    rot_dir = workdir / ".agentic" / "teamrun" / ".rotation"
+    cursor_file = rot_dir / role
+    idx = 0
+    try:
+        idx = int(cursor_file.read_text(encoding="utf-8").strip()) % n
+    except (OSError, ValueError):
+        idx = 0
+    try:
+        rot_dir.mkdir(parents=True, exist_ok=True)
+        cursor_file.write_text(str((idx + 1) % n), encoding="utf-8")
+    except OSError:
+        pass
+    return idx
+
+
+def _resolve_role_model(role: str, harness: str, workdir: Path) -> str | None:
+    """Resolve the model for *role* from team.yml (no explicit --model).
+
+    Reads the merged team.yml, matches the role's harness (or default_harness)
+    against the dispatch harness, then returns a single model. When the role
+    declares multiple models (models: [...]), rotates round-robin across them
+    using a per-role cursor under *workdir*. Returns None when there is no
+    team.yml / no entry / no model / harness mismatch, so the worker falls back
+    to its own session default exactly as before.
+    """
+    try:
+        config = _load_team_config()
+    except Exception:
+        return None
+    spec = config.get("roles", {}).get(role)
+    if not spec:
+        return None
+    entry = _role_entry(spec)
+    entry_harness = entry.get("harness") or config.get("default_harness")
+    if entry_harness and entry_harness != harness:
+        return None
+    models = _role_models_list(spec)
+    if not models:
+        return None
+    if len(models) == 1:
+        return models[0]
+    return models[_rotation_cursor_next(workdir, role, len(models))]
 
 
 # ---------------------------------------------------------------------------
@@ -1113,7 +1200,12 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     if disable_flag:
         worker_env[disable_flag] = "1"
 
-    argv = _build_worker_argv(harness, augmented_brief, model=getattr(args, "model", None))
+    # Model resolution: explicit --model wins; else resolve from team.yml,
+    # rotating round-robin when the role declares multiple models (D-2).
+    resolved_model = getattr(args, "model", None) or _resolve_role_model(
+        role, harness, workdir
+    )
+    argv = _build_worker_argv(harness, augmented_brief, model=resolved_model)
 
     stdout_file = run_dir / "stdout"
     stderr_file = run_dir / "stderr"
