@@ -224,15 +224,17 @@ def _is_ours(dst: Path, repo_dir: Path) -> bool:
 
 
 class Doctor:
-    def __init__(self, repo_dir: Path, fix: bool) -> None:
+    def __init__(self, repo_dir: Path, fix: bool, json_mode: bool = False) -> None:
         self.repo_dir = repo_dir
         self.fix = fix  # True only when --fix passed AND --dry-run NOT passed
+        self.json_mode = json_mode
         self.findings: list[tuple[str, str]] = []
         self.unfixable: list[str] = []
 
     def _emit(self, status: str, message: str) -> None:
         self.findings.append((status, message))
-        print(f"{status} {message}")
+        if not self.json_mode:
+            print(f"{status} {message}")
 
     def ok(self, kind: str, detail: str) -> None:
         self._emit("OK", f"{kind}: {detail}")
@@ -242,6 +244,10 @@ class Doctor:
 
     def skip(self, kind: str, dst_or_detail: object, reason: str) -> None:
         self._emit("SKIP", f"{kind}: {dst_or_detail} ({reason})")
+
+    def warn(self, kind: str, detail: str) -> None:
+        """A non-fatal advisory: recorded as a finding but does NOT fail exit."""
+        self._emit("WARN", f"{kind}: {detail}")
 
     def repoint_symlink(self, kind: str, dst: Path, old: str, new: Path) -> None:
         """Announce and (if fix mode) perform a symlink re-point.
@@ -585,6 +591,162 @@ def check_git_precommit(doc: Doctor) -> None:
         doc.skip("git_precommit", git_hook, f"not ours - target {t} exists outside repo_dir")
 
 
+
+# ---------------------------------------------------------------------------
+# Cross-harness team health (team.yml / role-models.yml / harnesses / models)
+# ---------------------------------------------------------------------------
+
+def _load_agentic_team_module():
+    """Import bin/agentic-team as a module to reuse its config helpers."""
+    import importlib.machinery
+    import importlib.util
+    at_path = Path(__file__).resolve().parent / "agentic-team"
+    if not at_path.is_file():
+        return None
+    try:
+        loader = importlib.machinery.SourceFileLoader("_agentic_team", str(at_path))
+        spec = importlib.util.spec_from_loader("_agentic_team", loader)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def _omp_model_handles():
+    """Return the set of model handles known to omp (via `omp models ls`).
+
+    Returns None when omp is unavailable / the command fails, so callers can
+    WARN rather than FAIL (the user may route through a different harness).
+    """
+    import shutil
+    import subprocess
+    if not shutil.which("omp"):
+        return None
+    try:
+        out = subprocess.run(
+            ["omp", "models", "ls"], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    handles = set()
+    for line in out.stdout.splitlines():
+        # Table rows use box-drawing separators (U+2502) or ASCII pipes; the
+        # first cell is the model handle (provider/model). Normalize both.
+        norm = line.replace("\u2502", "|")
+        parts = [c.strip() for c in norm.split("|")]
+        for cell in parts:
+            if cell and "/" in cell and " " not in cell:
+                handles.add(cell)
+                break
+    return handles or None
+
+
+def _installed_harnesses():
+    """Return the set of installed harness labels via `agentic-team discover`."""
+    import shutil
+    import subprocess
+    if not shutil.which("agentic-team"):
+        return None
+    try:
+        out = subprocess.run(
+            ["agentic-team", "discover"], capture_output=True, text=True, timeout=60
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    installed = set()
+    for line in out.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "installed":
+            installed.add(parts[0])
+    return installed or None
+
+
+def check_cross_harness(doc: "Doctor") -> None:
+    """Validate the cross-harness team stack: configs, harnesses, model handles."""
+    at = _load_agentic_team_module()
+    if at is None:
+        doc.warn("cross-harness", "agentic-team module not importable; skipping")
+        return
+
+    # (1) team.yml + role-models.yml parse + schema-valid.
+    try:
+        config = at._load_team_config()
+    except Exception as exc:  # noqa: BLE001
+        doc.fail("team.yml", f"failed to load/parse: {exc}")
+        config = {}
+    if not config:
+        doc.warn("team.yml", "no team.yml found (cross-harness dispatch off)")
+        return
+
+    errors = at._validate_config(config, source="team.yml")
+    if errors:
+        for e in errors:
+            doc.fail("team.yml", e)
+    else:
+        doc.ok("team.yml", "schema valid")
+
+    roles = config.get("roles", {}) or {}
+    default_harness = config.get("default_harness")
+
+    # (2) every referenced harness is installed.
+    installed = _installed_harnesses()
+    referenced = {default_harness} if default_harness else set()
+    for spec in roles.values():
+        entry = at._role_entry(spec)
+        h = entry.get("harness")
+        if h:
+            referenced.add(h)
+    referenced.discard(None)
+    if installed is None:
+        doc.warn("harnesses", "agentic-team discover unavailable; not verified")
+    else:
+        for h in sorted(referenced):
+            if h in installed:
+                doc.ok("harness", f"{h} installed")
+            else:
+                doc.fail("harness", f"{h} referenced in team.yml but NOT installed")
+
+    # (3) every model handle is resolvable via omp (best-effort / WARN).
+    handles = _omp_model_handles()
+    referenced_models = []
+    for role, spec in roles.items():
+        entry = at._role_entry(spec)
+        m = entry.get("model")
+        if isinstance(m, str) and m:
+            referenced_models.append((role, m))
+        # multi-model (D-2) list form, when present
+        getter = getattr(at, "_role_models_list", None)
+        if getter:
+            for mm in getter(spec):
+                referenced_models.append((role, mm))
+    if handles is None:
+        doc.warn("models", "omp models ls unavailable; handles not verified")
+    else:
+        for role, m in referenced_models:
+            # Only omp-routed handles (provider/model) are checked against omp.
+            if "/" not in m:
+                continue
+            if m in handles:
+                doc.ok("model", f"{role} -> {m}")
+            else:
+                doc.warn("model", f"{role} -> {m} not in `omp models ls`")
+
+    # (4) dispatch model-resolution wiring (D-1) present?
+    if getattr(at, "_resolve_role_model", None):
+        doc.ok("dispatch", "per-role model resolution wired (_resolve_role_model)")
+    else:
+        doc.warn(
+            "dispatch",
+            "per-role model resolution not present; dispatch may ignore team.yml "
+            "model unless --model is passed (pending the dispatch-resolution fix)",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
@@ -617,13 +779,26 @@ def main() -> int:
             "Same as no-flag mode (read-only scan)."
         ),
     )
+    parser.add_argument(
+        "--cross-harness",
+        action="store_true",
+        dest="cross_harness",
+        help="Also validate the cross-harness team stack (team.yml, "
+             "role-models.yml, referenced harnesses, model handles).",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_mode",
+        help="Emit findings as a JSON object instead of human-readable lines.",
+    )
     args = parser.parse_args()
 
     # --dry-run takes priority; --fix alone is the live-fix mode
     actually_fix = args.fix and not args.dry_run
 
     repo_dir = _load_repo_dir()
-    doc = Doctor(repo_dir=repo_dir, fix=actually_fix)
+    doc = Doctor(repo_dir=repo_dir, fix=actually_fix, json_mode=args.json_mode)
 
     # (a) repo_dir validity
     check_repo_dir(doc)
@@ -639,6 +814,23 @@ def main() -> int:
 
     # (e) git pre-commit hook
     check_git_precommit(doc)
+
+    # (f) cross-harness team stack (opt-in via --cross-harness)
+    if args.cross_harness:
+        check_cross_harness(doc)
+
+    # JSON output mode: emit structured findings + summary.
+    if args.json_mode:
+        import json as _json
+        counts: dict[str, int] = {}
+        for status, _ in doc.findings:
+            counts[status] = counts.get(status, 0) + 1
+        payload = {
+            "findings": [{"status": s, "message": m} for s, m in doc.findings],
+            "counts": counts,
+            "ok": not doc.has_unresolved_findings() and not doc.has_unfixable(),
+        }
+        print(_json.dumps(payload, indent=2))
 
     # Exit codes
     if actually_fix:
