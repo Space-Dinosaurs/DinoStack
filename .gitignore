@@ -29,6 +29,20 @@ node_modules/
 # team.yml is committed project intent (cross-harness team topology)
 !/.agentic/team.yml
 
+# oh-my-claude runtime/session state - machine-local, never committed
+# (was accidentally committed in #256; leaked a contributor's local paths).
+/.omc/
+
+# wrap-written knowledge file - DinoStack's own knowledge capture stays
+# local, same as the .agentic/ rule above; the carve-outs consumer projects
+# use to track this file do not apply to this repo.
+/decisions.md
+
+# Local harness config for this checkout. settings.local.json above is
+# already ignored; this covers the non-local variant, which is also
+# machine-local here.
+/.claude/settings.json
+
 # Generated Kimi per-command skills (built by .kimi/build.sh from content/commands/)
 .kimi/skills/*/
 !.kimi/skills/agentic-engineering/
