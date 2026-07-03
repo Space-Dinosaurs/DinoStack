@@ -32,6 +32,9 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --config-dir=*)
+      AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
   esac
 done
 
@@ -119,7 +122,7 @@ fi
 write_config "$mode" "$profile"
 echo "  + activation config written to $AE_CONFIG_PATH (mode=$mode, profile=$profile)"
 
-PI_HOME="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+PI_HOME="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}}"
 SKILL_SRC="$REPO_DIR/.pi/skills/agentic-engineering"
 SKILL_DST="$PI_HOME/skills/agentic-engineering"
 PROMPT_SRC="$REPO_DIR/.pi/prompts"

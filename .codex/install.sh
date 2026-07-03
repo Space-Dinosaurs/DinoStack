@@ -42,8 +42,16 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --config-dir=*)
+      AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
   esac
 done
+
+# Codex harness config directory (redirectable for per-profile installs).
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.codex.
+# Shared user state (~/.claude activation config, ~/.local/bin) stays in $HOME.
+CODEX_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.codex}}"
 
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 mkdir -p "$HOME/.claude"
@@ -189,13 +197,13 @@ fi
 
 SKILL_SRC="$REPO_DIR/.codex/skill"
 SKILL_DST="$HOME/.agents/skills/agentic-engineering"
-OLD_SKILL_DST="$HOME/.codex/skills/agentic-engineering"
+OLD_SKILL_DST="$CODEX_CONFIG_DIR/skills/agentic-engineering"
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
-AGENTS_DST="$HOME/.codex/AGENTS.md"
+AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
 
 NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
-NAMED_AGENTS_DST="$HOME/.codex/agents"
+NAMED_AGENTS_DST="$CODEX_CONFIG_DIR/agents"
 
 # ---------------------------------------------------------------------------
 # Run build to ensure artifacts are up to date
@@ -251,7 +259,7 @@ fi
 
 echo "Linking global AGENTS.md..."
 
-mkdir -p "$HOME/.codex"
+mkdir -p "$CODEX_CONFIG_DIR"
 
 if [[ -L "$AGENTS_DST" ]]; then
   current_target="$(readlink "$AGENTS_DST")"
@@ -354,9 +362,9 @@ HOOKS_SRC="$AE_HOOKS_ROOT/.codex/config/hooks.json"
 # moved to the snapshot.
 LEGACY_HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
 LEGACY_HOOKS_SRC2="$REPO_DIR/.codex/config/hooks.json"
-HOOKS_DST="$HOME/.codex/hooks.json"
+HOOKS_DST="$CODEX_CONFIG_DIR/hooks.json"
 
-CONFIG_FILE="$HOME/.codex/config.toml"
+CONFIG_FILE="$CODEX_CONFIG_DIR/config.toml"
 
 canonicalize_path() {
   python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
@@ -453,7 +461,7 @@ else
 fi
 
 # Write a marker file so uninstall.sh knows to remove the flag
-HOOKS_FLAG_MARKER="$HOME/.codex/.agentic-eng-added-codex-hooks-flag"
+HOOKS_FLAG_MARKER="$CODEX_CONFIG_DIR/.agentic-eng-added-codex-hooks-flag"
 if [[ $ADDED_CODEX_HOOKS_FLAG -eq 1 ]]; then
   touch "$HOOKS_FLAG_MARKER"
 fi

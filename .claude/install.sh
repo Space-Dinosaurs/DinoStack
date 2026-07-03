@@ -84,11 +84,20 @@ for arg in "$@"; do
     --dry-run)
       AE_DRY_RUN=true
       ;;
+    --config-dir=*)
+      AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
   esac
 done
 
-AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
-mkdir -p "$HOME/.claude"
+# Harness config directory (redirectable for per-profile installs).
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.claude.
+# Only the per-harness config dir is redirected; shared user state
+# (~/.agentic, ~/.local/bin, ~/.claude.json) always stays in the real $HOME.
+AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.claude}}"
+
+AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
+mkdir -p "$AE_CONFIG_DIR"
 
 AE_EXISTING_MODE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
@@ -233,10 +242,10 @@ AGENTS_SRC="$REPO_DIR/.claude/agents"
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
 SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
 
-AGENTS_DST="$HOME/.claude/agents"
-COMMANDS_DST="$HOME/.claude/commands"
-SKILLS_DST="$HOME/.claude/skills/agentic-engineering"
-SETTINGS="$HOME/.claude/settings.json"
+AGENTS_DST="$AE_CONFIG_DIR/agents"
+COMMANDS_DST="$AE_CONFIG_DIR/commands"
+SKILLS_DST="$AE_CONFIG_DIR/skills/agentic-engineering"
+SETTINGS="$AE_CONFIG_DIR/settings.json"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -423,12 +432,12 @@ export AE_HOOKS_SNAPSHOT_DIR
 # Update settings.json
 # ---------------------------------------------------------------------------
 
-echo "Updating ~/.claude/settings.json..."
+echo "Updating $SETTINGS..."
 
-python3 - <<'PYEOF'
+AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF'
 import json, os, sys
 
-settings_path = os.path.expanduser("~/.claude/settings.json")
+settings_path = os.environ.get("AE_SETTINGS_PATH") or os.path.expanduser("~/.claude/settings.json")
 repo_dir = os.environ.get("REPO_DIR", "")
 # DS-54: hook commands read from the session-stable snapshot when one was
 # successfully synced; otherwise they fall back to the checkout path so
@@ -821,12 +830,12 @@ fi
 # Update ~/.claude/CLAUDE.md
 # ---------------------------------------------------------------------------
 
-echo "Updating ~/.claude/CLAUDE.md..."
+echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
-python3 - <<'PYEOF'
+AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
 import os, re
 
-target = os.path.expanduser("~/.claude/CLAUDE.md")
+target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
@@ -1148,7 +1157,7 @@ echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents us
 
 echo ""
 
-python3 - <<'PYEOF'
+AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF'
 import json, os
 
 def tty_input(prompt: str) -> str:
@@ -1165,7 +1174,7 @@ def tty_input(prompt: str) -> str:
     except OSError:
         return ""
 
-settings_path = os.path.expanduser("~/.claude/settings.json")
+settings_path = os.environ.get("AE_SETTINGS_PATH") or os.path.expanduser("~/.claude/settings.json")
 
 if os.path.exists(settings_path):
     with open(settings_path, "r") as f:

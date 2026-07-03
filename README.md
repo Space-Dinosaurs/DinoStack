@@ -102,6 +102,22 @@ bash .claude/install.sh
 
 For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw, VS Code Copilot), see the install instructions in each adapter's README.
 
+## Multiple profiles
+
+If you run several isolated tenant config dirs per tool (e.g. `~/.claude-solara6`, `~/.codex-crocs`), install into them without relocating shared state. Every harness `install.sh` accepts `--config-dir=<dir>` (or the `AGENTIC_CONFIG_DIR` env var); only the per-harness config directory moves, while shared user state (`~/.agentic`, `~/.local/bin`, `~/.claude.json`) always stays in the real `$HOME`.
+
+```bash
+# one profile, one harness
+bash .claude/install.sh --config-dir=~/.claude-solara6
+
+# all tenants x harnesses (+ the global Cursor install) in one shot
+./scripts/install-profiles.sh \
+  --tenants="crocs express-labs solara6 xrite" \
+  --harnesses="claude codex omp pi"
+```
+
+`install-profiles.sh` only (re)installs into profile dirs that already exist -- it never creates a new tenant tree -- and prints a per-target success/skip/fail summary. Pass `--no-cursor` to skip the global Cursor install; extra flags (`--mode=`, `--profile=`, `--dry-run`) are forwarded to each harness installer.
+
 ## Installation modes
 
 DinoStack supports two global activation modes, chosen at install time and persisted in `~/.claude/agentic-engineering.json`:

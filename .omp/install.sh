@@ -45,8 +45,16 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --config-dir=*)
+      AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
   esac
 done
+
+# omp harness config directory (redirectable for per-profile installs).
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.omp/agent.
+# Shared user state (~/.claude activation config, ~/.local/bin) stays in $HOME.
+OMP_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.omp/agent}}"
 
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 mkdir -p "$HOME/.claude"
@@ -199,7 +207,7 @@ fi
 # ---------------------------------------------------------------------------
 
 SKILL_SRC="$REPO_DIR/.omp/skills/agentic-engineering"
-SKILL_DST="$HOME/.omp/agent/skills/agentic-engineering"
+SKILL_DST="$OMP_CONFIG_DIR/skills/agentic-engineering"
 
 echo ""
 echo "Global skill install (optional)..."
