@@ -760,11 +760,15 @@ def test_dispatch_builds_omp_argv():
 
 
 def test_dispatch_builds_opencode_argv():
-    """opencode argv is ['opencode', 'run', '<brief>'] with no model flag."""
+    """opencode argv is ['opencode', 'run', '<brief>',
+    '--dangerously-skip-permissions'] with no model flag."""
     argv = _build_worker_argv("opencode", "test brief")
     assert argv[0] == HARNESS_BINARY["opencode"]
     assert argv[1] == "run"
     assert "test brief" in argv
+    # Required for detached headless dispatch (no TTY to answer permission
+    # prompts); worker would otherwise hang until the watchdog timeout.
+    assert "--dangerously-skip-permissions" in argv
     assert "--model" not in argv
 
 

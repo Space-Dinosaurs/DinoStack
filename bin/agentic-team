@@ -882,8 +882,13 @@ def _build_worker_argv(
         return argv
 
     if harness == "opencode":
-        # opencode run "<brief>" --model <provider/model>
-        argv = [binary, "run", brief_text]
+        # opencode run "<brief>" --dangerously-skip-permissions --model <m>
+        # --dangerously-skip-permissions is required for non-interactive
+        # dispatch (per `opencode run --help`): workers run detached with no
+        # terminal to answer a tool-use permission prompt, so without it the
+        # worker hangs until the watchdog timeout. Analog of copilot's
+        # --allow-all-tools (see RISK-ACCEPTED note in cross-harness-teams.md).
+        argv = [binary, "run", brief_text, "--dangerously-skip-permissions"]
         if model:
             argv += ["--model", model]
         return argv

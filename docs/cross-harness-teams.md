@@ -202,7 +202,7 @@ How `agentic-team dispatch` invokes each harness non-interactively:
 | **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); `--print` required for non-interactive/auto-dismiss behavior |
 | **pi** | `pi -p "<brief>"` | Built-in subagent types exist but suppressed via leaf-worker clause |
 | **omp** | `omp -p "<brief>"` | Same leaf-worker suppression; omp built-in subagents not used as nested spawns |
-| **opencode** | `opencode run "<brief>" --model <m>` | `--model` forwarded only if configured; final message is raw stdout |
+| **opencode** | `opencode run "<brief>" --dangerously-skip-permissions --model <m>` | `--model` forwarded only if configured; final message is raw stdout |
 | **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths --model <m>` | `--allow-all-tools --allow-all-paths` required for non-interactive file writes; `--model` forwarded only if configured; final message is raw stdout. **RISK-ACCEPTED** -- see note below table |
 | **claude (worker)** | `claude -p "<brief>" --output-format json` | Dispatched as a leaf worker only; does NOT re-enter OMC |
 
