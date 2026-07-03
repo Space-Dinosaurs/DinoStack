@@ -3,6 +3,46 @@
 
 # Changelog
 
+## 2026-07-02
+
+### Features
+
+- **#404** [/agentic-config - interactive in-session settings command](https://github.com/Space-Dinosaurs/DinoStack/pull/404) - tyson-solara6
+- **#391** [DS-62 tracker-wide deterministic sweep + /wrap writeback](https://github.com/Space-Dinosaurs/DinoStack/pull/391) - tyson-solara6
+- **#387** [co-locate anti-rationalization backstops in the risk/delegation tables (DS-60)](https://github.com/Space-Dinosaurs/DinoStack/pull/387) - tyson-solara6
+
+### Fixes
+
+- **#405** [align detection attribution to wrap-time path across sibling docs](https://github.com/Space-Dinosaurs/DinoStack/pull/405) - tyson-solara6
+- **#399** [correct skill-candidate trigger wording + phantom command; rebuild adapters](https://github.com/Space-Dinosaurs/DinoStack/pull/399) - tyson-solara6
+- **#396** [resolve real git hooks dir so pre-commit install/uninstall work from a worktree (DS-58)](https://github.com/Space-Dinosaurs/DinoStack/pull/396) - tyson-solara6
+- **#393** [make skill-auto-load hook resolve to a real script + resolution test (DS-57)](https://github.com/Space-Dinosaurs/DinoStack/pull/393) - tyson-solara6
+- **#392** [update version-check notice extraction for PR #322 phrasing (DS-59)](https://github.com/Space-Dinosaurs/DinoStack/pull/392) - tyson-solara6
+
+### Documentation
+
+- **#410** [DS-56 feedback capture + _lib PATH-symlink gotcha](https://github.com/Space-Dinosaurs/DinoStack/pull/410) - tyson-solara6
+- **#407** ['just ask your session agent' callouts on config cards](https://github.com/Space-Dinosaurs/DinoStack/pull/407) - tyson-solara6
+- **#402** [add Risk Classification (17) and Cross-Session Resume (18) decks](https://github.com/Space-Dinosaurs/DinoStack/pull/402) - tyson-solara6
+- **#400** [add Learnings Pipeline (15) and Worktree Lifecycle (16) decks](https://github.com/Space-Dinosaurs/DinoStack/pull/400) - tyson-solara6
+- **#398** [add trigger-catalog, graphify, and events-log/telemetry pages](https://github.com/Space-Dinosaurs/DinoStack/pull/398) - tyson-solara6
+- **#389** [record DS-48 shipped + fix stale preset example](https://github.com/Space-Dinosaurs/DinoStack/pull/389) - tyson-solara6
+- **#383** [sync adapter/harness counts for opencode+copilot worker-set expansion (Unit 6)](https://github.com/Space-Dinosaurs/DinoStack/pull/383) - bloodf
+- **#382** [tighten conductor contract for harness-neutral dispatch](https://github.com/Space-Dinosaurs/DinoStack/pull/382) - bloodf
+- **#380** [list configure-team in Pi adapter command inventory](https://github.com/Space-Dinosaurs/DinoStack/pull/380) - bloodf
+
+### Uncategorized
+
+- **#411** [DS-66: resolve _lib and sibling paths through PATH symlinks (5 bins)](https://github.com/Space-Dinosaurs/DinoStack/pull/411) - tyson-solara6
+- **#409** [DS-56: add /feedback-triage to command indexes](https://github.com/Space-Dinosaurs/DinoStack/pull/409) - tyson-solara6
+- **#408** [DS-56: wrap Part D.5 feedback capture + /feedback-triage command](https://github.com/Space-Dinosaurs/DinoStack/pull/408) - tyson-solara6
+- **#406** [DS-56: resolve _lib through PATH symlink for agentic-feedback](https://github.com/Space-Dinosaurs/DinoStack/pull/406) - tyson-solara6
+- **#403** [DS-56: add bin/agentic-feedback home-dir feedback store CLI](https://github.com/Space-Dinosaurs/DinoStack/pull/403) - tyson-solara6
+- **#401** [DS-64: goal-condition-evaluator - cheap per-turn stop-condition check for open-goal loops (Tier 1)](https://github.com/Space-Dinosaurs/DinoStack/pull/401) - tyson-solara6
+- **#395** [least-privilege permissions on read-only CI workflows (CodeQL #60-66)](https://github.com/Space-Dinosaurs/DinoStack/pull/395) - tyson-solara6
+- **#388** [DS-48 Wave 2: bounded multi-file Low override (relaxed) + downward tie-break counterweight](https://github.com/Space-Dinosaurs/DinoStack/pull/388) - tyson-solara6
+- **#376** [DS-48 Lever 9 Unit A: remove session-wide preset layer from methodology + docs](https://github.com/Space-Dinosaurs/DinoStack/pull/376) - tyson-solara6
+
 ## 2026-07-01
 
 ### Features
