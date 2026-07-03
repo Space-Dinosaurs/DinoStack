@@ -20,6 +20,7 @@ Additional coverage:
   test_scalar_role_treated_as_harness   - scalar string role value sets harness
   test_dispatch_block_parsed             - dispatch sub-block round-trips
   test_normalize_role_spec_imported      - _role_spec.normalize_role_spec is wired
+  test_dispatch_path_guardrail_shims_opencode_and_copilot - opencode/copilot shims present
 
 Run with: python3 -m pytest bin/tests/test_agentic_team.py -x
 """
@@ -758,6 +759,31 @@ def test_dispatch_builds_omp_argv():
     assert "--mode" not in argv
 
 
+def test_dispatch_builds_opencode_argv():
+    """opencode argv is ['opencode', 'run', '<brief>'] with no model flag."""
+    argv = _build_worker_argv("opencode", "test brief")
+    assert argv[0] == HARNESS_BINARY["opencode"]
+    assert argv[1] == "run"
+    assert "test brief" in argv
+    assert "--model" not in argv
+
+
+def test_dispatch_builds_copilot_argv():
+    """copilot argv includes '-p', '--allow-all-tools', '--allow-all-paths'."""
+    argv = _build_worker_argv("copilot", "test brief")
+    assert argv[0] == HARNESS_BINARY["copilot"]
+    assert "-p" in argv
+    assert "test brief" in argv
+    assert "--allow-all-tools" in argv
+    assert "--allow-all-paths" in argv
+
+
+def test_dispatch_builds_opencode_copilot_argv_empty_brief():
+    """Empty-string brief still parses positionally, not swallowed by flags."""
+    for harness in ("opencode", "copilot"):
+        argv = _build_worker_argv(harness, "")
+        assert "" in argv, f"{harness} argv must retain empty brief positionally"
+
 # ---------------------------------------------------------------------------
 # Section A: --model flag forwarded for all 7 harnesses, after positional brief
 # ---------------------------------------------------------------------------
@@ -772,6 +798,8 @@ def test_dispatch_builds_omp_argv():
         ("kimi", "--model"),
         ("pi", "--model"),
         ("omp", "--model"),
+        ("opencode", "--model"),
+        ("copilot", "--model"),
     ],
 )
 def test_dispatch_model_flag_forwarded_for_all_harnesses(harness, expected_flag):
@@ -792,7 +820,6 @@ def test_dispatch_no_model_flag_when_model_absent():
         assert "--model" not in argv
         assert "-m" not in argv
 
-
 # ---------------------------------------------------------------------------
 # AC5: PATH guardrail shims
 # ---------------------------------------------------------------------------
@@ -805,6 +832,17 @@ def test_dispatch_path_guardrail_shims_git(tmp_path):
     git_shim = shim_dir / "git"
     assert git_shim.exists(), "git shim must be present"
     assert git_shim.stat().st_mode & _stat.S_IEXEC, "git shim must be executable"
+
+
+def test_dispatch_path_guardrail_shims_opencode_and_copilot(tmp_path):
+    """Shim dir contains executable 'opencode' and 'copilot' shims."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shim_dir = _build_shim_dir(run_dir, exempt_binary="codex")
+    for binary_name in ("opencode", "copilot"):
+        shim = shim_dir / binary_name
+        assert shim.exists(), f"{binary_name} shim must be present"
+        assert shim.stat().st_mode & _stat.S_IEXEC, f"{binary_name} shim must be executable"
 
 
 def test_git_shim_exits_nonzero_and_logs(tmp_path):
@@ -1044,6 +1082,30 @@ def test_collect_falls_back_to_raw_for_unknown_harness(tmp_path):
 
     result = _collect_output(run_dir, "kimi")
     assert "Raw kimi output line" in result
+
+
+def test_collect_falls_back_to_raw_for_opencode(tmp_path):
+    """opencode has no known JSON schema -> raw stdout returned."""
+    run_dir = tmp_path / "run6"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("opencode\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    (run_dir / "stdout").write_text("Raw opencode output line\n", encoding="utf-8")
+
+    result = _collect_output(run_dir, "opencode")
+    assert "Raw opencode output line" in result
+
+
+def test_collect_falls_back_to_raw_for_copilot(tmp_path):
+    """copilot has no known JSON schema -> raw stdout returned."""
+    run_dir = tmp_path / "run7"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("copilot\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    (run_dir / "stdout").write_text("Raw copilot output line\n", encoding="utf-8")
+
+    result = _collect_output(run_dir, "copilot")
+    assert "Raw copilot output line" in result
 
 
 # ---------------------------------------------------------------------------
@@ -1289,9 +1351,30 @@ def test_model_appended_claude_argv_end():
     assert argv[:len(base)] == base
 
 
+def test_model_appended_opencode_argv_end():
+    """opencode argv ends with ['--model', 'X']; brief not displaced."""
+    base = _build_worker_argv("opencode", "BRIEF")
+    argv = _build_worker_argv("opencode", "BRIEF", model="X")
+    assert argv[-2:] == ["--model", "X"], f"opencode must end with --model X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
+def test_model_appended_copilot_argv_end():
+    """copilot argv ends with ['--model', 'X']; brief not displaced."""
+    base = _build_worker_argv("copilot", "BRIEF")
+    argv = _build_worker_argv("copilot", "BRIEF", model="X")
+    assert argv[-2:] == ["--model", "X"], f"copilot must end with --model X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
 def test_no_model_argv_unchanged():
     """(f) no model -> argv identical to pre-change behavior (no model flag)."""
-    for harness in ("codex", "gemini", "claude", "cursor-agent", "kimi", "pi", "omp"):
+    for harness in (
+        "codex", "gemini", "claude", "cursor-agent", "kimi", "pi", "omp",
+        "opencode", "copilot",
+    ):
         argv = _build_worker_argv(harness, "BRIEF")
         assert "-m" not in argv, f"{harness}: no -m when model is None"
         assert "--model" not in argv, f"{harness}: no --model when model is None"
@@ -1337,7 +1420,6 @@ def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
     assert rc == 0, f"dispatch with --model on kimi must succeed, got rc={rc}"
     assert "--model" in captured["argv"] and "some-model" in captured["argv"]
     assert _MODEL_FLAG_HARNESSES == frozenset(_mod.KNOWN_HARNESSES)
-
 
 # --- M2a: sibling-gated .active unlink ---------------------------------------
 

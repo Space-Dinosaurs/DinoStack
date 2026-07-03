@@ -167,12 +167,13 @@ def test_known_harnesses_is_frozenset():
 def test_known_harnesses_exact_members():
     expected = frozenset({
         "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
+        "opencode", "copilot",
     })
     assert KNOWN_HARNESSES == expected
 
 
 def test_known_harnesses_count():
-    assert len(KNOWN_HARNESSES) == 7
+    assert len(KNOWN_HARNESSES) == 9
 
 
 # ---------------------------------------------------------------------------
