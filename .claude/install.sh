@@ -1007,37 +1007,12 @@ bash "$REPO_DIR/.cursor/build.sh"
 
 echo "Installing pre-commit hook..."
 
-HOOK_SRC="$REPO_DIR/hooks/pre-commit"
-HOOK_DST="$REPO_DIR/.git/hooks/pre-commit"
-
-if [[ -L "$HOOK_DST" ]]; then
-  current_target="$(readlink "$HOOK_DST")"
-  if [[ "$current_target" == "$HOOK_SRC" ]]; then
-    echo "  = pre-commit hook already linked"
-  elif _ae_is_ours "$HOOK_DST"; then
-    # Stale symlink pointing to another methodology checkout - re-point it.
-    if [[ "$AE_DRY_RUN" == "true" ]]; then
-      echo "  ~ pre-commit hook (would re-point to repo_dir)"
-    else
-      ln -sfn "$HOOK_SRC" "$HOOK_DST"
-      echo "  ~ pre-commit hook (re-pointed to repo_dir)"
-    fi
-  else
-    if [[ "$AE_DRY_RUN" == "true" ]]; then
-      echo "  ! pre-commit hook (would skip: symlink points outside methodology checkout: $current_target)"
-    else
-      echo "  ! pre-commit hook points elsewhere: $current_target - skipping"
-    fi
-  fi
-elif [[ -e "$HOOK_DST" ]]; then
-  echo "  ! pre-commit hook is a real file (not a symlink) - skipping to preserve existing hook"
+if [[ -f "$REPO_DIR/scripts/lib/precommit.sh" ]]; then
+  # shellcheck source=scripts/lib/precommit.sh
+  . "$REPO_DIR/scripts/lib/precommit.sh"
+  install_precommit_hook "$REPO_DIR"
 else
-  if [[ "$AE_DRY_RUN" == "true" ]]; then
-    echo "  + pre-commit hook (would create)"
-  else
-    ln -s "$HOOK_SRC" "$HOOK_DST"
-    echo "  + pre-commit hook installed"
-  fi
+  echo "  ! scripts/lib/precommit.sh not found - pre-commit hook install skipped"
 fi
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 # Inputs: content/rules/*.md, content/references/*.md, content/commands/*.md, content/agents/*.md,
 #         scripts/build-methodology.sh
 # Outputs: .github/copilot-instructions.md (auto-loaded by VS Code Copilot),
-#          .github/agents/*.md (17 agent files for Copilot agent picker),
+#          .github/agents/*.md (18 agent files for Copilot agent picker),
 #          .github/prompts/*.prompt.md (22 slash-prompt files),
 #          .github/instructions/content-engineering.instructions.md,
 #          .github/hooks/* (hook scripts),

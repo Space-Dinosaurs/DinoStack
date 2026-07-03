@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""
+Purpose: Non-interactive CLI writer for agentic-engineering methodology
+         settings. Accepts a setting name, value, and optional scope flag,
+         validates the pair, and atomically writes to the appropriate target
+         file (~/.claude/agentic-engineering.json, .agentic/config.json, or
+         AGENTS.md). The CLI backing for the /agentic-config command.
+
+Public API: agentic-config <setting> <value> [--scope global|project]
+            Exit 0: success (prints "Changed: <setting> = <value> in <file>.
+                    Takes effect at next session start.")
+            Exit 0: qa_default_skip (reserved/inert, prints notice)
+            Exit 1: I/O error (file read/write failure)
+            Exit 2: validation error (unknown setting, invalid value, bad
+                    scope, preset attempted, non-repo-cwd for AGENTS.md)
+
+Upstream deps: Python 3 stdlib only (json, os, sys, re, datetime, pathlib,
+               importlib). Imports _resolve_agents_md, _load_config,
+               _scan_agents_md, _resolve from bin/agentic-status and
+               atomic_write from bin/_lib.py via importlib.machinery.
+               SourceFileLoader (same pattern as test_agentic_status.py).
+
+Downstream consumers: content/commands/agentic-config.md (command spec);
+                      bin/tests/test_agentic_config.py; developers running
+                      settings changes non-interactively.
+
+Failure modes: Missing parent dirs are created before atomic_write.
+               Malformed existing JSON causes exit 2 with a message
+               (user must fix or delete the file first).
+               File permission errors propagate as exit 1 with a message.
+               Non-repo cwd when an AGENTS.md write is needed -> exit 2.
+
+Performance: O(small). Reads one or two files (global config + AGENTS.md).
+             <50ms on cold start.
+"""
+
+from __future__ import annotations
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Import helpers from sibling binaries via SourceFileLoader
+# (same pattern as bin/tests/test_agentic_status.py:23-42)
+# ---------------------------------------------------------------------------
+
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-config ->
+# repo bin/agentic-config, as created by install.sh) back to the real bin/
+# directory so both agentic-status and _lib.py are found on a bare
+# `agentic-config` invocation.
+_BIN_DIR = Path(__file__).resolve().parent
+
+_STATUS_PATH = _BIN_DIR / "agentic-status"
+_status_loader = importlib.machinery.SourceFileLoader("agentic_status", str(_STATUS_PATH))
+_status_spec = importlib.util.spec_from_loader("agentic_status", _status_loader)
+if _status_spec is None:
+    raise RuntimeError(f"Cannot build spec for agentic-status from {_STATUS_PATH}")
+_status_mod = importlib.util.module_from_spec(_status_spec)
+_status_loader.exec_module(_status_mod)
+
+_resolve_agents_md = _status_mod._resolve_agents_md
+_load_config = _status_mod._load_config
+_scan_agents_md = _status_mod._scan_agents_md
+_resolve = _status_mod._resolve
+
+_LIB_PATH = _BIN_DIR / "_lib.py"
+_lib_loader = importlib.machinery.SourceFileLoader("_lib", str(_LIB_PATH))
+_lib_spec = importlib.util.spec_from_loader("_lib", _lib_loader)
+if _lib_spec is None:
+    raise RuntimeError(f"Cannot build spec for _lib from {_LIB_PATH}")
+_lib_mod = importlib.util.module_from_spec(_lib_spec)
+_lib_loader.exec_module(_lib_mod)
+
+atomic_write = _lib_mod.atomic_write
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
+
+
+class _ValidationError(Exception):
+    """Raised by write helpers on validation failures (e.g. malformed JSON)."""
+
+# Footgun warning for global opt-in mode (KNW-20260701-001).
+_OPT_IN_WARNING = (
+    "WARNING (KNW-20260701-001): setting mode=opt-in globally means the "
+    "methodology will be INACTIVE on any repo that does NOT have an "
+    "'agentic-engineering: opt-in' line in its AGENTS.md. "
+    "Repos without the marker will silently fall back to default Claude Code behavior. "
+    "Add the marker to each repo you want governed, or use mode=opt-out (the default) "
+    "which activates everywhere unless a project explicitly opts out."
+)
+
+# ---------------------------------------------------------------------------
+# Writable-setting table
+# ---------------------------------------------------------------------------
+# Mapping from setting name to its metadata:
+#   "target": "global_json" | "project_config" | "agents_activation" | "agents_profile"
+#   "type":   "enum" | "bool" | "int"
+#   "enum_values": set of allowed string values (only for type=enum)
+#   "int_min":     minimum int value (only for type=int)
+
+_SETTINGS: dict[str, dict] = {
+    # Activation / profile (global_json or agents_*)
+    "mode": {
+        "target": "global_json",
+        "type": "enum",
+        "enum_values": {"opt-out", "opt-in"},
+    },
+    "activation": {
+        "target": "agents_activation",
+        "type": "enum",
+        "enum_values": {"opt-in", "opt-out"},
+    },
+    "profile": {
+        "target": "agents_profile",  # default; may be overridden by --scope global
+        "type": "enum",
+        "enum_values": {"relaxed", "default", "strict"},
+    },
+    # .agentic/config.json booleans
+    "debugger_on_failure": {"target": "project_config", "type": "bool"},
+    "auto_merge_on_ci_green": {"target": "project_config", "type": "bool"},
+    "perceptual_diff_enabled": {"target": "project_config", "type": "bool"},
+    "theme_aware": {"target": "project_config", "type": "bool"},
+    "storybook_enabled": {"target": "project_config", "type": "bool"},
+    "motion_aware": {"target": "project_config", "type": "bool"},
+    "commit_telemetry": {"target": "project_config", "type": "bool"},
+    "deferred_wrap_daemon": {"target": "project_config", "type": "bool"},
+    "abdication_guard_enabled": {"target": "project_config", "type": "bool"},
+    "skill_candidate_detection": {"target": "project_config", "type": "bool"},
+    "skill_candidate_nudge": {"target": "project_config", "type": "bool"},
+    # .agentic/config.json enums
+    "model_profile": {
+        "target": "project_config",
+        "type": "enum",
+        "enum_values": {"default", "budget"},
+    },
+    "capability_preflight_mode": {
+        "target": "project_config",
+        "type": "enum",
+        "enum_values": {"advisory", "blocking"},
+    },
+    "ticket_driven": {
+        "target": "project_config",
+        "type": "enum",
+        "enum_values": {"off", "offer", "require"},
+    },
+    "storybook_version": {
+        "target": "project_config",
+        "type": "int",
+        "enum_values": {"6", "7"},  # allowed int values as strings for validation
+        "int_min": 1,
+    },
+    # .agentic/config.json ints (>=1)
+    "deferred_wrap_idle_minutes": {"target": "project_config", "type": "int", "int_min": 1},
+    "deferred_wrap_heartbeat_seconds": {"target": "project_config", "type": "int", "int_min": 1},
+    "deferred_wrap_timeout_minutes": {"target": "project_config", "type": "int", "int_min": 1},
+    "deferred_wrap_inprogress_reclaim_minutes": {"target": "project_config", "type": "int", "int_min": 1},
+    "deferred_wrap_pending_ttl_days": {"target": "project_config", "type": "int", "int_min": 1},
+}
+
+# Settings that are reserved/display-only - exit 0 with a message.
+_RESERVED = {"qa_default_skip"}
+
+# Settings that are explicitly removed.
+_REMOVED = {"preset"}  # removed in DS-48
+
+# Settings that exist but are not writable via this command.
+_NOT_WRITABLE = {"scaffolding_version", "storybook_url"}
+
+
+# ---------------------------------------------------------------------------
+# Value parsers
+# ---------------------------------------------------------------------------
+
+def _parse_bool(raw: str) -> bool:
+    """Parse 'true'/'false'/'1'/'0'/'yes'/'no' -> bool, else raise ValueError."""
+    lower = raw.strip().lower()
+    if lower in ("true", "1", "yes"):
+        return True
+    if lower in ("false", "0", "no"):
+        return False
+    raise ValueError(f"expected boolean (true/false), got: {raw!r}")
+
+
+def _parse_int(raw: str, int_min: int = 1) -> int:
+    """Parse a decimal integer string, validate >= int_min, else raise ValueError."""
+    try:
+        v = int(raw.strip())
+    except ValueError:
+        raise ValueError(f"expected integer, got: {raw!r}")
+    if v < int_min:
+        raise ValueError(f"value must be >= {int_min}, got: {v}")
+    return v
+
+
+# ---------------------------------------------------------------------------
+# Write helpers
+# ---------------------------------------------------------------------------
+
+def _upsert_global_json(setting: str, value: object) -> Path:
+    """Upsert setting + set_at into ~/.claude/agentic-engineering.json.
+
+    Reads the existing file (or starts with {}), sets only the target key
+    and set_at (ISO8601 UTC now), writes atomically with mode 0o644.
+    Creates parent dirs if absent.
+    Returns the path written.
+    """
+    path = CONFIG_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.is_file():
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OSError(f"cannot read {path}: {exc}") from exc
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            raise _ValidationError(
+                f"existing {path} is malformed JSON; fix or delete it first."
+            )
+        if not isinstance(data, dict):
+            raise _ValidationError(
+                f"existing {path} is malformed JSON; fix or delete it first."
+            )
+    else:
+        data = {}
+
+    data[setting] = value
+    data["set_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    atomic_write(path, json.dumps(data, indent=2) + "\n", mode=0o644)
+    return path
+
+
+def _upsert_project_config(setting: str, value: object) -> Path:
+    """Upsert setting into .agentic/config.json.
+
+    Reads the existing file (or starts with {}), sets only the target key
+    (never injects other defaults), writes atomically with mode 0o644.
+    Creates parent dirs if absent.
+    Returns the path written.
+    """
+    path = Path(".agentic/config.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.is_file():
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OSError(f"cannot read {path}: {exc}") from exc
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            raise _ValidationError(
+                f"existing {path} is malformed JSON; fix or delete it first."
+            )
+        if not isinstance(data, dict):
+            raise _ValidationError(
+                f"existing {path} is malformed JSON; fix or delete it first."
+            )
+    else:
+        data = {}
+
+    data[setting] = value
+
+    atomic_write(path, json.dumps(data, indent=2) + "\n", mode=0o644)
+    return path
+
+
+def _is_git_root(directory: Path) -> bool:
+    """Return True if directory is a git repo root (has a .git entry)."""
+    return (directory / ".git").exists()
+
+
+def _upsert_agents_md_marker(marker_type: str, value: str) -> Path:
+    """Upsert an activation or profile marker line in AGENTS.md.
+
+    marker_type must be 'activation' or 'profile'.
+    Replaces the first matching line in place, or appends if absent.
+    Leaves the other marker untouched.
+    Returns the path written.
+
+    Raises SystemExit(2) when no AGENTS.md is found and cwd is not a git root
+    (to avoid seeding a stray AGENTS.md in arbitrary directories).
+    """
+    if marker_type == "activation":
+        new_line = f"agentic-engineering: {value}"
+        match_re = re.compile(
+            r"^\s*(?:-\s+)?agentic-engineering:\s*(opt-in|opt-out)\s*$",
+            re.IGNORECASE,
+        )
+    elif marker_type == "profile":
+        new_line = f"agentic-engineering-profile: {value}"
+        match_re = re.compile(
+            r"^\s*(?:-\s+)?agentic-engineering-profile:\s*\S+\s*$",
+            re.IGNORECASE,
+        )
+    else:
+        raise ValueError(f"Unknown marker_type: {marker_type!r}")
+
+    agents_path = _resolve_agents_md()
+    cwd = Path.cwd()
+
+    if agents_path is None:
+        # No AGENTS.md found. Only seed one if cwd is a git repo root.
+        if not _is_git_root(cwd):
+            print(
+                "Error: no AGENTS.md/CLAUDE.md found here and this is not a git repo root. "
+                "Run from your project root.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        # cwd is a git root - create AGENTS.md here.
+        agents_path = cwd / "AGENTS.md"
+        agents_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(agents_path, new_line + "\n", mode=0o644)
+        return agents_path
+
+    # Read existing content.
+    try:
+        content = agents_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Error reading {agents_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    lines = content.splitlines(keepends=True)
+    replaced = False
+    new_lines: list[str] = []
+    for line in lines:
+        if not replaced and match_re.match(line.rstrip("\n").rstrip("\r")):
+            # Preserve any trailing newline from the original line.
+            eol = "\n" if line.endswith("\n") else ""
+            new_lines.append(new_line + eol)
+            replaced = True
+        else:
+            new_lines.append(line)
+
+    if not replaced:
+        # Append: ensure trailing newline before appending.
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += "\n"
+        new_lines.append(new_line + "\n")
+
+    agents_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(agents_path, "".join(new_lines), mode=0o644)
+    return agents_path
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _usage() -> None:
+    print(
+        "Usage: agentic-config <setting> <value> [--scope global|project]\n"
+        "\n"
+        "Examples:\n"
+        "  agentic-config mode opt-out\n"
+        "  agentic-config profile strict --scope project\n"
+        "  agentic-config abdication_guard_enabled true\n"
+        "  agentic-config deferred_wrap_idle_minutes 30\n",
+        file=sys.stderr,
+    )
+
+
+def main(argv: list[str]) -> int:
+    args = argv[1:]
+
+    # Parse positional + optional --scope flag.
+    scope: str | None = None
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--scope":
+            if i + 1 >= len(args):
+                print("Error: --scope requires a value (global or project).", file=sys.stderr)
+                return 2
+            scope = args[i + 1]
+            i += 2
+        elif args[i].startswith("--scope="):
+            scope = args[i][len("--scope="):]
+            i += 1
+        else:
+            positional.append(args[i])
+            i += 1
+
+    if len(positional) != 2:
+        _usage()
+        return 2
+
+    setting, raw_value = positional[0], positional[1]
+
+    # Validate scope flag.
+    if scope is not None and scope not in ("global", "project"):
+        print(f"Error: --scope must be 'global' or 'project', got: {scope!r}.", file=sys.stderr)
+        return 2
+
+    # --- Special cases ---
+
+    # Reserved/inert settings: exit 0 with notice.
+    if setting in _RESERVED:
+        print(f"{setting}: reserved/inert - cannot be set via this command.")
+        return 0
+
+    # Removed settings: exit 2.
+    if setting == "preset":
+        print(
+            "Error: 'preset' was removed in DS-48; use 'profile' instead.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Not-writable settings: exit 2.
+    if setting in _NOT_WRITABLE:
+        print(
+            f"Error: '{setting}' is not writable via agentic-config "
+            "(managed by installer or other tooling).",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Unknown setting: exit 2.
+    if setting not in _SETTINGS:
+        print(
+            f"Error: unknown setting '{setting}'. "
+            "Run /agentic-config or agentic-config --help for available settings.",
+            file=sys.stderr,
+        )
+        return 2
+
+    meta = _SETTINGS[setting]
+    setting_type = meta["type"]
+
+    # --- Validate and parse value ---
+    parsed_value: object
+    if setting_type == "bool":
+        try:
+            parsed_value = _parse_bool(raw_value)
+        except ValueError as exc:
+            print(f"Error: invalid value for '{setting}': {exc}", file=sys.stderr)
+            return 2
+
+    elif setting_type == "enum":
+        enum_values = meta["enum_values"]
+        if raw_value not in enum_values:
+            print(
+                f"Error: invalid value for '{setting}': {raw_value!r}. "
+                f"Allowed: {', '.join(sorted(enum_values))}.",
+                file=sys.stderr,
+            )
+            return 2
+        # storybook_version is declared as enum (values "6"/"7") but stored as int.
+        if setting == "storybook_version":
+            parsed_value = int(raw_value)
+        else:
+            parsed_value = raw_value
+
+    elif setting_type == "int":
+        int_min = meta.get("int_min", 1)
+        # For storybook_version, also check against enum_values when present.
+        enum_values_for_int = meta.get("enum_values")
+        try:
+            parsed_value = _parse_int(raw_value, int_min=int_min)
+        except ValueError as exc:
+            print(f"Error: invalid value for '{setting}': {exc}", file=sys.stderr)
+            return 2
+        if enum_values_for_int and str(parsed_value) not in enum_values_for_int:
+            print(
+                f"Error: invalid value for '{setting}': {raw_value!r}. "
+                f"Allowed: {', '.join(sorted(enum_values_for_int))}.",
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        print(f"Error: internal error - unknown type {setting_type!r}.", file=sys.stderr)
+        return 1
+
+    # --- Determine effective target (resolve scope overrides) ---
+    effective_target = meta["target"]
+
+    if setting == "mode":
+        # mode is always global JSON. --scope is not applicable; note if passed.
+        effective_target = "global_json"
+        if scope is not None:
+            print(
+                f"note: --scope ignored for 'mode'; written to {CONFIG_PATH}",
+                file=sys.stderr,
+            )
+
+    elif setting == "activation":
+        # activation is always project-scope (AGENTS.md). --scope is not applicable; note if passed.
+        effective_target = "agents_activation"
+        if scope is not None:
+            print(
+                "note: --scope ignored for 'activation'; always written to AGENTS.md",
+                file=sys.stderr,
+            )
+
+    elif setting == "profile":
+        # profile: --scope global -> global JSON; --scope project -> AGENTS.md marker;
+        # no scope -> project (in-repo) or global (out-of-repo).
+        if scope == "global":
+            effective_target = "global_json"
+        elif scope == "project":
+            effective_target = "agents_profile"
+        else:
+            # Auto-detect: in a git repo or has AGENTS.md -> project marker; otherwise global.
+            if _is_git_root(Path.cwd()) or _resolve_agents_md() is not None:
+                effective_target = "agents_profile"
+            else:
+                effective_target = "global_json"
+
+    elif effective_target == "project_config":
+        # config.json settings are inherently project-scope; --scope is not applicable.
+        if scope is not None:
+            print(
+                f"note: --scope ignored for '{setting}'; written to .agentic/config.json",
+                file=sys.stderr,
+            )
+
+    # --- Write ---
+    try:
+        if effective_target == "global_json":
+            written_path = _upsert_global_json(setting, parsed_value)
+            if setting == "mode" and parsed_value == "opt-in":
+                print(_OPT_IN_WARNING)
+
+        elif effective_target == "project_config":
+            written_path = _upsert_project_config(setting, parsed_value)
+
+        elif effective_target == "agents_activation":
+            written_path = _upsert_agents_md_marker("activation", raw_value)
+
+        elif effective_target == "agents_profile":
+            written_path = _upsert_agents_md_marker("profile", raw_value)
+
+        else:
+            print(f"Error: internal error - unknown target {effective_target!r}.", file=sys.stderr)
+            return 1
+
+    except _ValidationError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    except OSError as exc:
+        print(f"Error: I/O failure writing setting: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Changed: {setting} = {raw_value} in {written_path}. Takes effect at next session start.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

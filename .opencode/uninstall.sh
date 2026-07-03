@@ -114,21 +114,12 @@ fi
 
 echo "Removing pre-commit hook..."
 
-HOOK_SRC="$REPO_DIR/hooks/pre-commit"
-HOOK_DST="$REPO_DIR/.git/hooks/pre-commit"
-
-if [[ -L "$HOOK_DST" ]]; then
-  current_target="$(readlink "$HOOK_DST")"
-  if [[ "$current_target" == "$HOOK_SRC" ]]; then
-    rm "$HOOK_DST"
-    echo "  - pre-commit hook removed"
-  else
-    echo "  = pre-commit hook points elsewhere: $current_target - not ours, skipping"
-  fi
-elif [[ -e "$HOOK_DST" ]]; then
-  echo "  = pre-commit hook is a real file - not removing"
+if [[ -f "$REPO_DIR/scripts/lib/precommit.sh" ]]; then
+  # shellcheck source=scripts/lib/precommit.sh
+  . "$REPO_DIR/scripts/lib/precommit.sh"
+  uninstall_precommit_hook "$REPO_DIR"
 else
-  echo "  = pre-commit hook not found - nothing to do"
+  echo "  ! scripts/lib/precommit.sh not found - pre-commit hook removal skipped"
 fi
 
 # ---------------------------------------------------------------------------

@@ -31,4 +31,4 @@ the detector. To dismiss a candidate, change `**Status:** open` to
 
 ## Candidates
 
-<!-- Entries appended by Stop hook (runSkillCandidateScan). -->
+<!-- Entries appended by wrap-time detector (/wrap Part D + skill-candidate-deep-cluster.js). -->

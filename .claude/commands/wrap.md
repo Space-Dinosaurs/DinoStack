@@ -184,7 +184,7 @@ Zero-substance procedure:
 - Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
 - Skip Steps 1-3 entirely (no Worker, no Skeptic)
 - Skip Step 4 Parts A, B, C entirely
-- Skip Part D (no session activity to extract skill-candidate signals from)
+- Skip Part D and Part D.5 (no session activity to extract skill-candidate or feedback signals from)
 - Skip Part E (nothing changed, nothing to compress)
 - Skip Part F (no session activity means no ticket-referencing commits to detect)
 - Still run Step 5 (worktree cleanup) - that is always useful
@@ -200,7 +200,7 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
 3. Proceed to Step 4 Part A with the inline draft.
 4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None).
-5. Run Part D (skill-candidate wrap-time signal) - the light path still ran a session worth extracting from.
+5. Run Part D (skill-candidate wrap-time signal) and Part D.5 (session-feedback capture signal) - the light path still ran a session worth extracting from.
 6. Skip Part E entirely (nothing changed, nothing to compress).
 7. Run Step 5 (worktree cleanup) as normal.
 8. Run Step 6 as normal, including Part F (tracker status reconciliation) - a light-path session can still have committed ticket-referencing work even with no memory/AGENTS.md updates to review.
@@ -463,6 +463,50 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 ```
 
 Where `$REPO_CWD` is the absolute cwd of the project (the same value identified in Step 0). Any failure (non-zero exit, missing node, missing helper) is silently swallowed via `|| true`; the wrap continues normally.
+
+**Part D.5 — Session-feedback capture signal**
+
+Skip Part D.5 on the **zero-substance path** (already skipped Steps 1-3; no session activity to extract feedback signals from) — same skip condition as Part D. Run Part D.5 on the **light path** and the **standard path**, immediately after Part D and still INSIDE the `wrap/lock` window already held from pre-flight. Soft-fail: the whole step is wrapped swallow-all — any error anywhere in Part D.5 is silently swallowed; Part D.5 failure NEVER breaks or delays the wrap. Unlike Part D, **Part D.5 has no config gate** — it is always-on regardless of `skill_candidate_detection` or any other toggle.
+
+**Deterministic evidence gathering.** Each of the four signals below is individually guarded: a missing file, a missing or broken `agentic-feedback` binary, or a read error on any ONE signal must never break or stall the wrap, and must never prevent the remaining signals from being checked. Gather candidates from whichever signals are available; skip any that error or are absent.
+
+1. **Tool-friction signal.** If `.agentic/events.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file). Filter to lines where `event == "tool_failure_workaround"` AND `data.session_uuid == $CLAUDE_CODE_SESSION_ID`. Each match is a candidate: `category = tool-friction`, evidence `"tool_failure_workaround: <tool> (<domain_tag>) - <note>"`.
+2. **Skeptic-loop-stall signal.** If `.agentic/loop-state.json` exists AND its `session_id == $CLAUDE_CODE_SESSION_ID` AND `status == "stalled"`: one candidate, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
+3. **Guardrail-fire signal.** If `.agentic/.abdication-guard-fire-count` exists and its `count >= 1` at wrap time: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`. **Honesty note:** this counter resets to 0 on every genuine new user turn (see `hooks/enforce-no-abdication.py`), so a nonzero count at wrap time reflects only "an abdication-guard loop was present in the session's final turn" — it is NOT a whole-session tally of guardrail fires. State this narrowly in the evidence text; do not describe it as a session-wide count.
+4. **Operator-correction signal.** Using the same session reflection Part D already surveys (no new mechanism — inline LLM reasoning over the transcript), identify up to 5 turns where the operator explicitly corrected, rejected, or expressed frustration with a conductor action this session. Each is a candidate: `category = operator-correction`, evidence = the operator's verbatim correction, trimmed to the relevant sentence(s).
+
+If the combined candidate set across all four signals is empty: emit `[]` and STOP here — no temp file write, no `agentic-feedback` invocation (mirrors Part D's "output `[]` if nothing qualifies"). This keeps Part D.5 latency-free on light and zero-substance sessions where nothing fired.
+
+**Draft extraction (inline LLM reasoning; may merge closely-related candidates):**
+
+For each surviving candidate, produce a draft object `{scope, severity, category, evidence, suggested_title, suggested_body}`. Do NOT include `id`, `ts`, `status`, `repo`, or `session_uuid` — those five fields are CLI-owned and assigned by `agentic-feedback append` itself.
+
+- `category`: copied verbatim from the source signal type above (deterministic, not LLM-judged).
+- `scope`: defaults per source type as listed above (`methodology` for skeptic-loop-stall and guardrail-fire). **Repo-identity override:** if the current repo root contains BOTH `content/commands/wrap.md` AND `METHODOLOGY.md` (i.e. this IS the methodology source repo, not a consumer project), force `scope = methodology` for every draft regardless of source type. Otherwise, for `tool-friction` and `operator-correction` candidates, judge `scope` from the evidence content — AE process or tooling friction is `methodology`; friction with the working project's own feature or code is `project`.
+- `severity`: LLM judgment — `process-escalation` is `high`; `guardrail-fire` or a clearly-mistaken correction is `medium`; a single minor tool-friction instance is `low`.
+- `suggested_title`: one line, ticket-ready.
+- `suggested_body`: 2-4 sentences of markdown, ticket-ready.
+
+Emit a JSON array of 0-5 drafts. The extracted JSON must not emit `__WRAP_FEEDBACK_JSON__` on a line by itself (trivially satisfied — the heredoc below uses that token as its closing delimiter, and no legitimate draft field would ever consist solely of that string).
+
+**Write and invoke (Bash):**
+
+Write the extracted drafts array to a temp file and call `agentic-feedback append`. Use `$CLAUDE_CODE_SESSION_ID` as the session id; if it is unset or empty, skip the invocation entirely (soft no-op). The heredoc uses a distinctive delimiter (`__WRAP_FEEDBACK_JSON__`, not `EOF`) so that verbatim operator-correction text captured by Signal 4 cannot prematurely close the heredoc and truncate the JSON payload — quoted (`<< '__WRAP_FEEDBACK_JSON__'`) so there is still no variable expansion or injection.
+
+```bash
+FEEDBACK_TMP=$(mktemp /tmp/wrap-feedback-XXXXXX.json)
+cat > "$FEEDBACK_TMP" << '__WRAP_FEEDBACK_JSON__'
+[...the extracted drafts array...]
+__WRAP_FEEDBACK_JSON__
+
+# Skip if no session id
+if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
+  agentic-feedback append --repo "$REPO_CWD" --session-uuid "$CLAUDE_CODE_SESSION_ID" --file "$FEEDBACK_TMP" >/dev/null 2>&1 || true
+fi
+rm -f "$FEEDBACK_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the same absolute cwd of the project Part D already uses. Any failure (non-zero exit, missing or broken `agentic-feedback` binary, lock contention) is silently swallowed via `|| true`; the wrap continues normally.
 
 **Part E — Compress always-loaded memory files**
 

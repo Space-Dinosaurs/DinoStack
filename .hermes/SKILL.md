@@ -216,7 +216,16 @@ Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-s
 Preamble:
 *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
 
-**Cross-harness teams (opt-in).** When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. Collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, config schema, self-containment guard, and per-harness dispatch table.
+**Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) - follows the same four-step dispatch contract for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own:
+
+1. **Discover** - run `bin/agentic-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
+2. **Dispatch** - run `bin/agentic-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
+3. **Status poll** - run `bin/agentic-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
+4. **Collect** - run `bin/agentic-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
+
+Once `collect` returns the final message, that text is treated identically to a native Worker return summary: it enters the existing Skeptic/QA gates unchanged - same adversarial review, same `qa_criteria` triggers, same re-route limits. No new gate, no bypass, no special case for cross-harness origin.
+
+**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. A future enhancement will also proactively block a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude`, but that check is not yet merged. On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it. See `content/references/cross-harness-teams.md` for the full decision rule, config schema, self-containment guard, per-harness dispatch table, and the per-harness enforcement-status table.
 
 **Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
 
@@ -1036,6 +1045,7 @@ Performance: Standard (single file write + optional binary shell-out).
 | `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
 | `learnings-agent` | Session-scoped background learnings capture. Conductor-discretionary - spawned ad-hoc on the first learning-worthy event in a session; no automatic phase trigger. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
 | `wrap-ticket` | Per-ticket learnings capture at `/implement-ticket` Phase 11b. Constrained automated subset of `/wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/context.md Recent Focus only) |
+| `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Dependent on `goal_mode=open_goal`, which is itself unimplemented (spec-only, see `content/references/trigger-catalog.md`). | No |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
 The `skeptic` is the cross-cutting review layer - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
@@ -1946,7 +1956,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. The commit makes per-session telemetry team-visible after squash merge. Set to `false` to opt out. No effect when identity is absent or provisional.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/wrap` jobs (idle detection, heartbeat, timeout, reclaim, and pending TTL are tuned by the `deferred_wrap_*` related keys below). The default `false` preserves the in-session synchronous `/wrap` behavior.
 - `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking the user permission to proceed with an obvious non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in `content/sections/02-delegation.md`. Precision-biased classifier (false-negative over false-positive). Two loop-guard layers: `stop_hook_active` flag (primary) and a consecutive-block counter cap (backstop for CC bug #54360). Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. Default `false` because this ships in the open-source methodology; individual projects opt in.
-- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns (clustered by `domain_tag` / `Domain`) and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). Layer 3 (`/skill-candidates` command) is also gated on this toggle. When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking on this project.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, recurring friction patterns are detected at wrap time (`/wrap` Part D LLM extraction via `hooks/lib/skill-candidate-deep-cluster.js`) and candidates are written to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). A secondary Stop-hook scan path exists but is dormant (the events.jsonl signals it reads are not emitted in ad-hoc sessions). Layer 3 (`/skill-candidates` command) is also gated on this toggle. When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking on this project.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. `skill_candidate_nudge` alone (with `skill_candidate_detection: false`) has no effect. Default `false` (matches `deferred_wrap_daemon` opt-in precedent).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when the key is absent from `.agentic/config.json`, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - this makes "tracker connected => offer by default" true with zero migration. An explicit value always wins. `offer`: surface-and-proceed - conductor announces ticket creation and proceeds unless the operator replies STOP within one turn. `require`: hard gate - no implementer spawns before a ticket exists; creation failure surfaces and waits for operator resolution. `off`: gate disabled; no ticket creation attempt. Existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/implement-ticket <ID>`) and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 
@@ -3641,7 +3651,7 @@ The conductor reads `.agentic/config.json` to resolve sixteen project-level orch
 - `commit_telemetry` - boolean, default `true`. When `true`, `/implement-ticket` Phase 8 commits the per-developer session-log file (`.agentic/session-log/<developer_id>.jsonl`) as a separate commit on the PR branch, enabling cross-developer team visibility via `agentic-cost team` after pull. Set to `false` to opt out of telemetry commits on this project.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys (`deferred_wrap_idle_minutes`, `deferred_wrap_heartbeat_seconds`, `deferred_wrap_timeout_minutes`, `deferred_wrap_inprogress_reclaim_minutes`, `deferred_wrap_pending_ttl_days` - see `content/rules/conventions.md` §Project Config). The default `false` preserves the in-session synchronous `/wrap` behavior.
 - `abdication_guard_enabled` - boolean, default `false`. When `true`, a Stop hook detects conductor abdication - ending a turn by asking permission for a non-destructive next step - and blocks the stop, injecting a "proceed" directive. Mechanizes the Proactive autonomy / default-and-proceed rule in §Delegation. Default `false`; individual projects opt in. See `content/rules/conventions.md` §Project Config for full semantics.
-- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking entirely.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, recurring friction patterns are detected at wrap time (`/wrap` Part D via `hooks/lib/skill-candidate-deep-cluster.js`) and candidates are written to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). A secondary Stop-hook scan path exists but is dormant. When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking entirely.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when absent, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - explicit value always wins. `offer`: surface-and-proceed before first-implementer spawn; operator can reply STOP to skip. `require`: hard gate - no implementer spawns before a ticket exists; create failure surfaces and waits. `off`: gate disabled. Existing-ticket arrivals and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 
@@ -3723,8 +3733,9 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | learning-extractor | 2 | sonnet | Pattern extraction |
 | learnings-agent | 2 | sonnet | Discretionary capture |
 | wrap-ticket | 2 | sonnet | Session wrap |
+| goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 
-Tier 1 (haiku) has no default-role owner; it is opt-in per spawn for shallow mechanical tasks.
+Tier 1 (haiku) has exactly one default-role owner: `goal-condition-evaluator` (see the Role-default tier table above). For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
 
 **Small-unit Tier-2 Skeptic carve-out.** When a unit meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches none of the 5 Mandatory Tier-3 signal categories above, the conductor MAY declare `Tier: 2 (small-unit nudge)` for the reviewing Skeptic instead of accepting the unconditional Opus role default. The declaration stays visible in the `Tier:` line at spawn time, same as any other tier declaration. This is a loop-cost lever only - it never widens what classifies as Low or Trivial, and the Skeptic still runs.
 
@@ -5380,7 +5391,7 @@ An open-goal loop is an iterative conductor flow where the operator declares a m
 
 **Action**: the conductor runs `/implement-ticket` with `goal_mode=open_goal`. Each iteration produces one or more units of work, which go through the standard architect -> orchestration-planner -> engineer -> Skeptic sequence.
 
-**Measured condition**: an operator-declared `goal_condition` string evaluated after each Skeptic sign-off iteration. Example: `"zero open Critical findings in content/references/"`. The conductor evaluates this condition after each clean-exit iteration. When it is true, the loop exits cleanly.
+**Measured condition**: an operator-declared `goal_condition` string evaluated after each iteration. Example: `"zero open Critical findings in content/references/"`. When an iteration's `risk_declared` is `elevated` and produced a clean Skeptic sign-off, the conductor spawns `goal-condition-evaluator` (Tier 1/haiku default; see `content/agents/goal-condition-evaluator.md`) to check the condition cheaply rather than spending conductor-tier reasoning on every iteration. The evaluator is read-only and returns only `GOAL_MET: true|false` plus a one-line evidence quote - it makes no correctness or safety judgment and never substitutes for the Skeptic (see §Risk and review discipline (b) and (e), neither of which this evaluator's existence relaxes). When an iteration's `risk_declared` is `low` or `trivial` (no Skeptic sign-off exists to spawn after - per (b), the fresh-independent-Skeptic requirement scopes to Elevated units only), the conductor evaluates `goal_condition` itself directly and never spawns the evaluator for that iteration. The same conductor-direct evaluation is also the fallback whenever the evaluator is spawned but is unavailable, times out, returns a malformed result, or returns `BLOCKED`: none of those outcomes routes to the generic BLOCKED-is-`cap_reached` escalation semantics in `content/references/subagent-protocol.md` §Loop transition rules - they route to conductor-direct evaluation, and the loop proceeds exactly as it would have before this role existed. When the condition is true (evaluator-confirmed or conductor-direct), the loop exits cleanly.
 
 **Hard-stop**: the loop exits on whichever of these is hit first:
 - `goal_condition` evaluates to true (success).
@@ -5393,7 +5404,7 @@ The open-goal loop REUSES `loop-state.json`, resume, and clean-exit exactly as d
 
 Exits are non-negotiable. The loop MUST stop when any of these fire:
 
-1. `goal_condition` is true after a Skeptic clean-exit.
+1. `goal_condition` is true after an iteration's review-gate clean-exit (Skeptic sign-off for Elevated iterations; conductor-direct evaluation for Low/Trivial).
 2. Re-route cap reached: conductor has made 3 fix passes on a single Skeptic finding and it is still open. Escalate to human per `content/references/skeptic-protocol.md` §Re-route limits.
 3. Convergence failure: a Skeptic raises the same finding unchanged after the engineer claimed to have fixed it. Escalate immediately; bypass remaining iteration budget per `content/references/skeptic-protocol.md` §Convergence failure.
 4. Hard blocker: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Return BLOCKED.
@@ -5411,6 +5422,8 @@ This section is the yolo-guard. It is structural, not advisory.
 **(c) Auditability.** An open-goal iteration records a `risk_declared` field in `loop-state.json` (evidence that risk classification was performed that iteration). An iteration with no `risk_declared` is a protocol violation. The field may be set to `"low"`, `"elevated"`, or `"trivial"` to match the classification outcome.
 
 **(d) This is what separates an action-triggered / open-goal loop from the rejected "yolo-mode"**: the trigger removes the human from the START, never from the REVIEW. Every unit that goes through an automated loop is subject to the same adversarial Skeptic review as a manually-triggered unit. Automated start does not imply automated approval.
+
+**(e) The goal-condition-evaluator is a cost lever, not a review lever, and never triggers the generic BLOCKED-escalation path.** Invariant (b) above states: *"Each iteration of an open-goal loop is treated as a new Elevated-eligible task. It gets a fresh risk declaration, and for any Elevated unit, a fresh independent Skeptic. `goal_mode=open_goal` relaxes or suspends no existing review obligation. The Skeptic that validates this iteration is independent - it is not the same Skeptic instance that reviewed the previous iteration."* `goal-condition-evaluator` (Tier 1/haiku default) does not touch this invariant, and its spawn is scoped by it: the conductor spawns the evaluator ONLY for an iteration whose `risk_declared` is `elevated` and which produced a clean Skeptic sign-off - the same iterations (b) already requires a fresh independent Skeptic for. For a `risk_declared: low` or `risk_declared: trivial` iteration (per invariant (c)), no Skeptic sign-off exists to run the evaluator after, so the conductor evaluates `goal_condition` itself directly instead of spawning the evaluator - this is the designed path for Skeptic-less iterations, not a failure path. Every Elevated iteration still gets its own fresh risk declaration and its own fresh independent Skeptic exactly as (b) requires, regardless of whether the evaluator is present, absent, or failing. The evaluator's sole output is continue-vs-stop the loop (`GOAL_MET: true|false` plus a one-line evidence quote, or a structural `BLOCKED` when spawned without a confirmed Skeptic sign-off); it is read-only and structurally forbidden from raising, waiving, or overriding a Skeptic finding, and from making any correctness or safety judgment of its own. Critically: an evaluator `BLOCKED` return is NOT the generic Worker-`BLOCKED`-means-immediate-`cap_reached`-escalation semantics defined in `content/references/subagent-protocol.md` §Loop transition rules - that rule governs Engineer status inside a Skeptic/QA fix-pass loop, not this evaluator. The conductor treats an evaluator `BLOCKED` exactly like evaluator unavailability, error, timeout, or malformed output: it falls back to conductor-direct evaluation of `goal_condition` and the loop proceeds - it does NOT halt the loop. Introducing this role changes WHO performs the cheap continuation check on Elevated iterations; it changes nothing about WHO gates correctness or safety, which remains the Skeptic, unconditionally, and it introduces no new way for a legitimate iteration to be halted.
 
 ## Entry-point example
 
@@ -6999,6 +7012,122 @@ When your diff touches FE files matching the glob `**/*.{tsx,jsx,vue,svelte,astr
 - **Responsive** - no fixed-width containers without responsive override on multi-breakpoint surfaces.
 
 See `content/references/frontend-discipline.md` for full rules and canonical violation examples.
+
+---
+
+### goal-condition-evaluator
+
+---
+name: goal-condition-evaluator
+model: haiku
+description: Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Dependency note: goal_mode=open_goal is itself unimplemented (spec-only; see content/references/trigger-catalog.md) - this spec exists at the same spec-only level and has no wiring into /implement-ticket today.
+tools: Read, Grep, Glob, Bash
+disallowedTools: [Edit, Write, Agent]
+---
+
+```yaml
+capabilities:
+  required: []
+  optional: []
+```
+
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
+<!--
+Purpose: Cheap per-turn stop-condition check for open-goal loops. Spawned by
+         the conductor strictly after an Elevated iteration produces a clean
+         Skeptic sign-off, to evaluate the operator-declared goal_condition
+         and return continue-vs-stop only. Never used for Low/Trivial
+         iterations (no Skeptic sign-off exists to run after there).
+
+Public API: Spawn brief contract documented in "Reading your spawn prompt"
+            below. Required inputs: goal_condition, iteration_evidence_hint,
+            skeptic_signoff_confirmed. Returns a two-line plain-text contract:
+            `GOAL_MET: true|false` followed by `Evidence: <one-line citation>`.
+
+Upstream deps: None (no external libraries; only Read/Grep/Glob/Bash tools).
+
+Downstream consumers: the conductor's open-goal loop
+                      (content/references/trigger-catalog.md §Open-goal loop
+                      contract). This consumer is not yet wired - goal_mode=
+                      open_goal is itself unimplemented (spec-only) - so this
+                      agent has no live caller in /implement-ticket today.
+
+Failure modes:
+- Fails closed: any error, ambiguity, or inability to confirm the condition
+  returns GOAL_MET: false with an "evaluator-error: <reason>" Evidence line.
+  Never guesses true.
+- BLOCKED is a structural mis-spawn guard (spawned without a confirmed
+  Skeptic sign-off), not a loop-halt signal. The conductor treats it exactly
+  like evaluator unavailability, timeout, or malformed output: fall back to
+  conductor-direct evaluation of goal_condition. It never routes to the
+  generic BLOCKED-means-cap_reached escalation semantics defined for
+  Engineer status transitions in content/references/subagent-protocol.md.
+- Never blocks, substitutes for, or comments on Skeptic review. Correctness
+  and safety judgment remain the Skeptic's exclusive responsibility.
+
+Performance: single-turn, read-only evaluation of one goal_condition string.
+             No subagent spawning, no browser, no writes - expected to
+             complete in well under the conductor's per-spawn timeout budget.
+-->
+
+## Role
+
+You are goal-condition-evaluator - a read-only Tier-1 leaf agent. Your sole job is to evaluate one operator-declared `goal_condition` string and report whether it is currently true, with one line of supporting evidence.
+
+You make no correctness or safety judgment - that is the Skeptic's job, not yours. You never run in place of, before, or concurrently with a Skeptic review. You are spawned strictly AFTER an Elevated iteration has already produced a clean Skeptic sign-off, purely to decide whether the open-goal loop should keep going.
+
+## Reading your spawn prompt
+
+Your spawn prompt provides the following inputs (all required):
+
+1. **`goal_condition`** - the operator-declared condition string to evaluate, e.g. `"zero open Critical findings in content/references/"`. Evaluate it literally as given - never reinterpret or narrow it.
+2. **`iteration_evidence_hint`** - a pointer to what changed this iteration (e.g. a file path, a finding ID, a directory scope), not the full diff. Use this to focus your evidence-gathering; it is a starting point, not a substitute for verification.
+3. **`skeptic_signoff_confirmed`** - a boolean. If this is absent or `false`, return `BLOCKED` immediately without evaluating the condition (see Output format below).
+
+In normal operation the conductor only spawns you when this is genuinely true (an Elevated iteration with a clean Skeptic sign-off just completed); `BLOCKED` is a defensive guard against a mis-spawn, not an expected runtime path.
+
+## Evaluation process
+
+1. **Parse the condition.** Identify exactly what `goal_condition` asserts and what evidence would confirm or refute it.
+2. **Gather evidence.** Use `Read`, `Grep`, `Glob`, and read-only `Bash` commands (e.g. counting matches, checking file existence, running a read-only check script) to gather the evidence needed. Never run a command that writes, deletes, or mutates state.
+3. **Decide true or false.** Base the decision only on the evidence gathered. If the evidence is ambiguous or gathering it fails, decide `false` (see Output format's fail-closed rule).
+4. **Cite exact evidence.** The Evidence line must be a concrete citation: a `file:line`, a count, or a literal command-output quote - not a paraphrase or a vague assertion.
+
+## Output format
+
+Return exactly this two-line structure and nothing else:
+
+```
+GOAL_MET: true|false
+Evidence: <one-line quote, count, or file:line citation>
+```
+
+On failure to determine confidently (read error, ambiguous condition, tool unavailable, timeout):
+
+```
+GOAL_MET: false
+Evidence: "evaluator-error: <reason>"
+```
+
+This fails closed - never guess `true`.
+
+If spawned without a confirmed Skeptic sign-off (`skeptic_signoff_confirmed` absent or `false`):
+
+```
+BLOCKED
+Evidence: "no confirmed Skeptic sign-off - refusing to evaluate goal_condition"
+```
+
+## Rules
+
+- **Read-only, always.** Never write, edit, or delete any file. Never run a mutating Bash command.
+- **No subagent spawning.** You are a leaf agent.
+- **No prompts to the user.** This is an automated agent; never ask for input.
+- **MUST NOT raise, waive, resolve, or comment on any Skeptic finding.** Findings are entirely out of scope for you.
+- **MUST NOT produce a code-review, security, or quality judgment of any kind.** If asked to do so, refuse and return only the two-line output format above.
+- **Return `BLOCKED` if spawned without confirmed Skeptic sign-off.** Do not attempt to evaluate `goal_condition` in that case.
+- **Evaluate `goal_condition` literally as given.** Never reinterpret, narrow, or "improve" the condition text.
+- **A `BLOCKED` return from this agent is a structural mis-spawn guard, not a loop-halt signal.** The conductor must treat it identically to evaluator failure (fall back to direct evaluation of `goal_condition`), never as the generic `BLOCKED`=`cap_reached` escalation defined for Engineer status transitions in `content/references/subagent-protocol.md` §Loop transition rules.
 
 ---
 
@@ -9943,6 +10072,124 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 
 These are the standard workflows. In Hermes, invoke them by creating a todo list and working through the steps, or by asking the agent to run the named workflow.
 
+### /agentic-config
+
+# /agentic-config
+
+Interactive command to view and change agentic-engineering settings in-session.
+Reads the current resolved state, prompts for which setting to change and the
+new value, writes the correct file, and confirms what changed and when it takes
+effect.
+
+Implementation: `bin/agentic-config` (Python 3 stdlib; reuses resolver logic
+from `bin/agentic-status`).
+
+## Usage
+
+```
+/agentic-config
+```
+
+No subcommands or flags. Selection is done interactively.
+
+## Behavior
+
+1. **Resolve and display current settings.** Reads `~/.claude/agentic-engineering.json`
+   (mode, profile), the project AGENTS.md markers, and `.agentic/config.json` (toggles).
+   Displays each setting with its current value and source (global / project / marker).
+   Reuses the same resolver as `/agentic-status` so the two commands never diverge.
+
+2. **Setting selection prompt.** Grouped:
+   - Activation and profile settings (mode, profile) - write to `~/.claude/agentic-engineering.json`
+     or AGENTS.md marker, depending on scope prompt.
+   - Project toggles from `.agentic/config.json`: `auto_merge_on_ci_green`,
+     `commit_telemetry`, `capability_preflight_mode`, `abdication_guard_enabled`,
+     `ticket_driven`, and any additional config-file toggles.
+
+3. **Value selection prompt.** Lists valid values for the chosen setting, with the
+   current default marked. For boolean toggles: `true / false`. For enumerated
+   settings: the full set (e.g. `off / offer / require` for `ticket_driven`).
+
+4. **Scope prompt (mode and profile only).** When the chosen setting can live in
+   more than one place, prompt: apply globally (`~/.claude/agentic-engineering.json`)
+   or to this project only (AGENTS.md marker / `.agentic/config.json`). Default =
+   project when running inside a git repo.
+
+5. **Write the file.** Atomic write (tmp + rename) for JSON files. For AGENTS.md
+   markers, appends or updates the relevant `agentic-engineering-profile:` line.
+   Honors the preset-over-profile precedence rule when writing profile changes.
+
+6. **Confirm and state effect timing.**
+   - Activation-time settings (mode, profile) take effect **at the next session
+     start** - the command says this explicitly.
+   - Project toggle changes (`.agentic/config.json`) take effect at the next session
+     start.
+   - Env kill-switch equivalents cannot be applied to the already-running session;
+     the command prints the exact `export <VAR>=1` line for the operator to use.
+
+7. **Loop or exit.** After each change, offer to change another setting or exit.
+
+## Settings coverage
+
+**File-settable (full support):**
+
+| Setting | Key | File |
+|---|---|---|
+| Mode | `mode` | `~/.claude/agentic-engineering.json` |
+| Profile | `profile` | `~/.claude/agentic-engineering.json` or AGENTS.md |
+| Auto-merge on CI | `auto_merge_on_ci_green` | `.agentic/config.json` |
+| Commit telemetry | `commit_telemetry` | `.agentic/config.json` |
+| Capability preflight | `capability_preflight_mode` | `.agentic/config.json` |
+| Abdication guard | `abdication_guard_enabled` | `.agentic/config.json` |
+| Ticket-driven | `ticket_driven` | `.agentic/config.json` |
+
+**Env kill-switches (print-only, not applied to running session):**
+`AE_SINGULARITY_GUARD_DISABLE`, `AE_TIER_GUARD_DISABLE`, `AGENTIC_QUIET`.
+When an equivalent config toggle exists (e.g. `abdication_guard_enabled`
+covers `AE_ABDICATION_GUARD_DISABLE`), offer to set that instead.
+
+**Out of scope:** identity (owned by `/agentic-identity`), `team.yml`
+(v1 deferral), AGENTS.md source-of-truth conflicts across multiple nested files.
+
+## `mode opt-in` footgun handling
+
+Setting `mode` to `opt-in` in `~/.claude/agentic-engineering.json` is the one
+setting that silently disables the methodology on every project that lacks an
+`agentic-engineering: opt-in` marker in its AGENTS.md - which is most projects.
+This is the opposite of the intent when a user just wants "tighter control".
+
+**Pre-write gate (LLM layer).** Before invoking `bin/agentic-config mode opt-in`,
+warn the user that:
+- `opt-in` mode makes the methodology inactive by default in all repos.
+- Any project without `agentic-engineering: opt-in` in its AGENTS.md will
+  silently stop using the methodology after this change.
+- The safer alternative for project-level control is to add an opt-out marker
+  to the specific project (`/agentic-disable`) rather than switching the global
+  default.
+
+Confirm that the user wants to proceed. Only invoke the binary after confirmation.
+Do not run the binary speculatively - the binary writes the file immediately on
+invocation and prints its warning only after the write is committed.
+
+If the user confirms, invoke `bin/agentic-config mode opt-in`. The binary also
+prints a post-write reminder listing the affected repos (any repo without an
+opt-in marker), but the LLM-layer gate is the primary safety check.
+
+## Effect timing
+
+Settings that write to `~/.claude/agentic-engineering.json` or `.agentic/config.json`
+take effect at the **next session start**. The command confirms this explicitly
+after each write. No restart is required for env kill-switch exports (those apply
+to the current shell session when set before launching Claude).
+
+## Exit codes (bin/agentic-config)
+
+- `0` - change applied successfully or operator chose to exit without changes
+- `1` - I/O error (read-only file, permission denied, malformed JSON)
+- `2` - operator aborted at confirmation prompt (no files modified)
+
+---
+
 ### /agentic-cost
 
 # /agentic-cost
@@ -11246,6 +11493,223 @@ Each discovered harness reports its binary path, reachable models, and any auth 
 See `content/references/cross-harness-teams.md` for the full dispatch, status-check, and collect flow.
 
 **Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/team-active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/team-active` as a hard suppression signal regardless of harness.
+
+---
+
+### /feedback-triage
+
+# /feedback-triage
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+Standalone, operator-run batch triage of the home-dir feedback store
+(`~/.agentic/feedback.jsonl`) - the accumulated backlog of tool-friction,
+process-escalation, guardrail-fire, and operator-correction signals that
+`/wrap` Part D.5 appends at the end of sessions across every project on this
+machine. This command reads the open backlog, presents it grouped for
+review, and creates tracker tickets ONLY for items the operator explicitly
+greenlights. Ticket creation is the single deliberate human-in-the-loop
+point in this command - batch, never automatic.
+
+Conductor-direct throughout: a read-queue -> greenlight -> create-ticket
+loop, not a multi-phase pipeline. No subagent spawns, no new config toggles.
+
+## Invocation
+
+`/feedback-triage` - no args, no flags.
+
+## Step 1 - Load open items
+
+Run `agentic-feedback list --status open` (prints a JSON array; empty store
+or file-absent prints `[]`). If the array is empty, print:
+
+```
+No open feedback items in ~/.agentic/feedback.jsonl.
+```
+
+and exit. Nothing further runs.
+
+## Step 2 - Group and present
+
+Group the open items by `scope` (`methodology` first, then `project`). Within
+each group, order by `severity` (`high` > `medium` > `low`) then `category`,
+for readability - this ordering is presentational only, it does not gate
+anything.
+
+Present each item with a stable index number so the operator can reference
+it in Step 3:
+
+```
+Open feedback  (~/.agentic/feedback.jsonl)
+
+METHODOLOGY
+  [1] high   process-escalation   repo: /Users/x/DinoStack
+      evidence: "Skeptic re-route cap hit twice in one session with no escalation surfaced"
+      suggested: "Escalate Skeptic re-route cap to operator before silently continuing"
+      captured: 2026-06-30T14:02:11Z
+
+PROJECT
+  [2] medium tool-friction        repo: /Users/x/some-app
+      evidence: "dev server boot command in qa.md was stale, wasted 3 QA cycles"
+      suggested: "Update qa.md boot command for some-app"
+      captured: 2026-06-29T09:41:03Z
+  [3] low    operator-correction  repo: /Users/x/some-app
+      evidence: "operator corrected the conductor's assumed default twice on the same call site"
+      suggested: "Document the correct default for X in AGENTS.md"
+      captured: 2026-06-28T11:15:47Z
+```
+
+Show `suggested_body` only if the operator asks to expand an item - the
+one-line `suggested_title` plus `evidence` is enough for the greenlight
+decision in the common case.
+
+## Step 3 - Greenlight
+
+Ask the operator which indices to greenlight for ticket creation:
+
+```
+Which items should be triaged into tickets? (comma-separated indices, "all", or "none")
+```
+
+This is a free-form data-selection prompt, not a binary confirmation - do
+not route it through a multiple-choice tool. Wait for the operator's reply.
+Indices not selected here are left untouched (still `open`) and can be
+picked up on a future run, or explicitly dismissed (Step 5).
+
+## Step 4 - Per-item ticket creation
+
+For each greenlit item, in order:
+
+### 4a. Resolve TICKET_TYPE
+
+- `category` is `tool-friction`, `process-escalation`, or `guardrail-fire`:
+  default `TICKET_TYPE=task`. If the evidence clearly describes broken or
+  incorrect behavior rather than friction/process gap, `bug` is a reasonable
+  judgment call instead.
+- `category` is `operator-correction`: judgment call between `feature` (the
+  suggested_title/body describes a new capability or convention that did not
+  exist) and `task` (it describes an adjustment to existing behavior).
+
+### 4b. Resolve the tracker for THIS ITEM - not the invoking project
+
+**This is the critical step.** `~/.agentic/feedback.jsonl` is a global store
+spanning every project the operator has run `/wrap` in. An operator
+triaging their whole backlog from inside one project's session must file
+each item against the tracker of the project it actually came from - never
+the tracker of the project the `/feedback-triage` session happens to be
+running in, and never a hardcoded tracker or workspace (Universality
+pillar).
+
+Resolve `TRACKER` / `TICKET_PREFIX` / `JIRA_BASE_URL` / `LINEAR_WORKSPACE`
+(and the other tracker-config fields) by reading `<item.repo>/AGENTS.md` -
+if that project uses the Claude Code `@AGENTS.md` import pattern, resolve
+through to the actual `AGENTS.md` first, same as the Activation preflight
+does. Then apply the exact same fallback chain `/implement-ticket`'s
+"Setup: Read project config" section uses under "Tracker resolution" (the
+`## Tracker` / `## Linear` section checks, in that priority order), rooted
+at `<item.repo>` instead of the current session's own project. Do this
+resolution independently for every item - items in the same batch can
+legitimately resolve to different trackers.
+
+### 4c. Degrade-to-skip fallback (binding)
+
+If any of the following hold for this item, do NOT create a ticket and do
+NOT change the item's status (it stays `open`). Print one warning line and
+continue to the next greenlit item - a single bad item must never abort the
+rest of the batch:
+
+- `<item.repo>` no longer exists on disk, or is unreadable.
+- `<item.repo>/AGENTS.md` is missing, or has neither a `## Tracker` nor a
+  `## Linear` section (the resolution chain lands on `TRACKER=none`).
+- The Tracker Create Helper (Step 4d) returns `CREATE_STATUS=failed` or
+  `CREATE_STATUS=skipped`.
+
+Warning format:
+
+```
+feedback-triage: skipping item [<index>] (<repo>) - <reason>. Left open for a future run.
+```
+
+### 4d. Create the ticket
+
+Call the Tracker Create Helper (`/implement-ticket` §"Tracker Create
+Helper") by reference - do not reimplement its per-tracker branches here.
+Supply:
+
+- `TICKET_TITLE` = `item.suggested_title`
+- `TICKET_BODY` = `item.suggested_body`, with the following block appended
+  so the ticket stays traceable back to its origin:
+  ```
+
+  ---
+  Evidence: <item.evidence>
+  Source: feedback item <item.id>, captured <item.ts>, session <item.session_uuid>
+  ```
+- `TICKET_TYPE` = resolved in Step 4a
+
+On `CREATE_STATUS=created`: run
+`agentic-feedback mark --id <item.id> --status triaged` and record
+`CREATED_TICKET_URL` for the closing summary. On `failed`/`skipped`: apply
+Step 4c.
+
+## Step 5 - Explicit dismiss (optional)
+
+The operator may dismiss an item without creating a ticket, at any point in
+the session:
+
+```
+agentic-feedback mark --id <id> --status dismissed
+```
+
+This is available for indices the operator reviewed in Step 2 and decided
+are not actionable - distinct from simply not greenlighting them (which
+just leaves them `open` for later).
+
+## Step 6 - Summary
+
+After the batch completes, print:
+
+```
+Feedback triage complete: <N> triaged (tickets created), <M> left open, <K> dismissed.
+```
+
+List each created ticket's ID and URL under the triaged count. List any
+skipped-per-Step-4c items separately so the operator knows which ones need
+manual follow-up before they can be triaged.
+
+## Slice-1 boundary (intentional, not an oversight)
+
+`scope: methodology` items are **not** cross-routed to any maintainer's
+tracker in this slice. They resolve against `<item.repo>/AGENTS.md` exactly
+like `scope: project` items - this preserves the Universality pillar (the
+methodology must not phone home to a hardcoded maintainer workspace).
+Routing methodology-scope feedback to a shared upstream tracker is a
+deferred slice-2 concern, not something this command attempts.
+
+## Edge cases
+
+| Condition | Behavior |
+|---|---|
+| No open items | Print the empty-backlog message and exit (Step 1). |
+| Operator greenlights "none" | Print the Step 6 summary with 0 triaged, 0 dismissed, all items still open. |
+| Item's repo path no longer exists | Degrade-to-skip (Step 4c); item stays `open`. |
+| Item's repo has no tracker configured (`TRACKER=none`) | Degrade-to-skip (Step 4c); item stays `open`. |
+| Tracker Create Helper fails (MCP error) | Degrade-to-skip (Step 4c); item stays `open`; the Helper's own loud failure line is still emitted. |
+| Two greenlit items resolve to different trackers | Handled independently per item (Step 4b) - no batching assumption across items. |
+| Operator dismisses an item never presented for greenlight | Not applicable - dismiss (Step 5) only targets indices shown in Step 2. |
+
+## Non-goals
+
+This command intentionally does NOT:
+
+- Auto-create tickets without explicit per-batch operator greenlight.
+- Cross-route `scope: methodology` items to a maintainer tracker (deferred
+  slice-2; see Slice-1 boundary above).
+- Mutate `~/.agentic/feedback.jsonl` records other than via `agentic-feedback
+  mark` (id/ts/status remain CLI-owned per `bin/agentic-feedback`).
+- Spawn any subagent - the entire flow is conductor-direct.
+- Invoke `/implement-ticket` or any implementation agent on the created
+  tickets. The ticket is created; working it is a separate, later decision.
 
 ---
 
@@ -14467,7 +14931,7 @@ Seed with these documented defaults exactly:
 - `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
 - `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `abdication_guard_enabled` - boolean, default `false` (opt-in). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
-- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
+- `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the wrap-time path (`/wrap` Part D via `skill-candidate-deep-cluster.js`) detects recurring friction patterns and surfaces skill candidates at session start (Layer 1); a secondary Stop-hook scan path exists but is dormant. When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 
@@ -15819,8 +16283,7 @@ Pick the single best match. If multiple apply, use the first match in this list.
 
 Read-only view of the skill-candidate backlog. Displays open and dismissed
 candidates detected from recurring workflow friction - each with its domain,
-count, suggested artifact type, and example note. Points at the `skill-creator`
-skill for open items.
+count, suggested artifact type, and example note.
 
 No writes, no agent spawns, no network calls. Always exits 0.
 
@@ -15847,15 +16310,14 @@ the detector on first promotion) or `dismissed` (set by a human to suppress).
 **First seen:** YYYY-MM-DD
 **Last seen:** YYYY-MM-DD
 **Status:** open
-**Example:** "<data.note from the triggering event>"
+**Example:** "<one sentence from the triggering session>"
 ```
 
 ## What this shows
 
-The backlog is written by the Stop hook's `runSkillCandidateScan` whenever a
-domain tag accumulates >= 3 occurrences across sessions (from
-`tool_failure_workaround` events and `.agentic/learnings.md` entries). Each
-entry carries:
+The backlog is written at wrap time (via `/wrap` Part D LLM extraction and the
+`hooks/lib/skill-candidate-deep-cluster.js` helper) whenever a domain tag
+accumulates >= 3 occurrences across sessions. Each entry carries:
 
 - **Domain** - the `## <domain>` heading (unique key)
 - **Count** - lifetime occurrence count across sessions
@@ -15863,7 +16325,11 @@ entry carries:
   (routing taxonomy from the detection signal)
 - **Status** - `open` (not yet dismissed) or `dismissed` (operator suppressed)
 - **First seen / Last seen** - ISO date range of the friction signal
-- **Example** - the `data.note` from the triggering event (illustrative only)
+- **Example** - a concrete note from the triggering session (illustrative only)
+
+The wrap-time path is the active detection mechanism. A secondary path via
+`tool_failure_workaround` events in `.agentic/events.jsonl` exists in the
+codebase but is dormant - those events are not emitted in ad-hoc sessions.
 
 ## Grouping by status
 
@@ -15901,7 +16367,8 @@ OPEN (already surfaced)
 DISMISSED
   (none)
 
-To create a skill for an open item: run /skill-creator <domain>
+To create a skill for an open item: create a skill for the domain manually,
+  or use your usual skill-authoring flow
 To dismiss a candidate: edit .agentic/skill-candidates.md and change
   **Status:** open  to  **Status:** dismissed
 ```
@@ -15911,7 +16378,7 @@ When `.agentic/skill-candidates.md` is absent:
 ```
 No skill candidates detected yet.
 
-The detector runs at session end (Stop hook) and writes candidates here
+The detector runs at the end of each /wrap call and writes candidates here
 when a domain tag accumulates >= 3 occurrences. Check back after a few
 more sessions, or verify that skill_candidate_detection is true in
 .agentic/config.json.
@@ -17105,7 +17572,7 @@ Zero-substance procedure:
 - Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
 - Skip Steps 1-3 entirely (no Worker, no Skeptic)
 - Skip Step 4 Parts A, B, C entirely
-- Skip Part D (no session activity to extract skill-candidate signals from)
+- Skip Part D and Part D.5 (no session activity to extract skill-candidate or feedback signals from)
 - Skip Part E (nothing changed, nothing to compress)
 - Skip Part F (no session activity means no ticket-referencing commits to detect)
 - Still run Step 5 (worktree cleanup) - that is always useful
@@ -17121,7 +17588,7 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
 3. Proceed to Step 4 Part A with the inline draft.
 4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None).
-5. Run Part D (skill-candidate wrap-time signal) - the light path still ran a session worth extracting from.
+5. Run Part D (skill-candidate wrap-time signal) and Part D.5 (session-feedback capture signal) - the light path still ran a session worth extracting from.
 6. Skip Part E entirely (nothing changed, nothing to compress).
 7. Run Step 5 (worktree cleanup) as normal.
 8. Run Step 6 as normal, including Part F (tracker status reconciliation) - a light-path session can still have committed ticket-referencing work even with no memory/AGENTS.md updates to review.
@@ -17384,6 +17851,50 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 ```
 
 Where `$REPO_CWD` is the absolute cwd of the project (the same value identified in Step 0). Any failure (non-zero exit, missing node, missing helper) is silently swallowed via `|| true`; the wrap continues normally.
+
+**Part D.5 — Session-feedback capture signal**
+
+Skip Part D.5 on the **zero-substance path** (already skipped Steps 1-3; no session activity to extract feedback signals from) — same skip condition as Part D. Run Part D.5 on the **light path** and the **standard path**, immediately after Part D and still INSIDE the `wrap/lock` window already held from pre-flight. Soft-fail: the whole step is wrapped swallow-all — any error anywhere in Part D.5 is silently swallowed; Part D.5 failure NEVER breaks or delays the wrap. Unlike Part D, **Part D.5 has no config gate** — it is always-on regardless of `skill_candidate_detection` or any other toggle.
+
+**Deterministic evidence gathering.** Each of the four signals below is individually guarded: a missing file, a missing or broken `agentic-feedback` binary, or a read error on any ONE signal must never break or stall the wrap, and must never prevent the remaining signals from being checked. Gather candidates from whichever signals are available; skip any that error or are absent.
+
+1. **Tool-friction signal.** If `.agentic/events.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file). Filter to lines where `event == "tool_failure_workaround"` AND `data.session_uuid == $CLAUDE_CODE_SESSION_ID`. Each match is a candidate: `category = tool-friction`, evidence `"tool_failure_workaround: <tool> (<domain_tag>) - <note>"`.
+2. **Skeptic-loop-stall signal.** If `.agentic/loop-state.json` exists AND its `session_id == $CLAUDE_CODE_SESSION_ID` AND `status == "stalled"`: one candidate, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
+3. **Guardrail-fire signal.** If `.agentic/.abdication-guard-fire-count` exists and its `count >= 1` at wrap time: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`. **Honesty note:** this counter resets to 0 on every genuine new user turn (see `hooks/enforce-no-abdication.py`), so a nonzero count at wrap time reflects only "an abdication-guard loop was present in the session's final turn" — it is NOT a whole-session tally of guardrail fires. State this narrowly in the evidence text; do not describe it as a session-wide count.
+4. **Operator-correction signal.** Using the same session reflection Part D already surveys (no new mechanism — inline LLM reasoning over the transcript), identify up to 5 turns where the operator explicitly corrected, rejected, or expressed frustration with a conductor action this session. Each is a candidate: `category = operator-correction`, evidence = the operator's verbatim correction, trimmed to the relevant sentence(s).
+
+If the combined candidate set across all four signals is empty: emit `[]` and STOP here — no temp file write, no `agentic-feedback` invocation (mirrors Part D's "output `[]` if nothing qualifies"). This keeps Part D.5 latency-free on light and zero-substance sessions where nothing fired.
+
+**Draft extraction (inline LLM reasoning; may merge closely-related candidates):**
+
+For each surviving candidate, produce a draft object `{scope, severity, category, evidence, suggested_title, suggested_body}`. Do NOT include `id`, `ts`, `status`, `repo`, or `session_uuid` — those five fields are CLI-owned and assigned by `agentic-feedback append` itself.
+
+- `category`: copied verbatim from the source signal type above (deterministic, not LLM-judged).
+- `scope`: defaults per source type as listed above (`methodology` for skeptic-loop-stall and guardrail-fire). **Repo-identity override:** if the current repo root contains BOTH `content/commands/wrap.md` AND `METHODOLOGY.md` (i.e. this IS the methodology source repo, not a consumer project), force `scope = methodology` for every draft regardless of source type. Otherwise, for `tool-friction` and `operator-correction` candidates, judge `scope` from the evidence content — AE process or tooling friction is `methodology`; friction with the working project's own feature or code is `project`.
+- `severity`: LLM judgment — `process-escalation` is `high`; `guardrail-fire` or a clearly-mistaken correction is `medium`; a single minor tool-friction instance is `low`.
+- `suggested_title`: one line, ticket-ready.
+- `suggested_body`: 2-4 sentences of markdown, ticket-ready.
+
+Emit a JSON array of 0-5 drafts. The extracted JSON must not emit `__WRAP_FEEDBACK_JSON__` on a line by itself (trivially satisfied — the heredoc below uses that token as its closing delimiter, and no legitimate draft field would ever consist solely of that string).
+
+**Write and invoke (Bash):**
+
+Write the extracted drafts array to a temp file and call `agentic-feedback append`. Use `$CLAUDE_CODE_SESSION_ID` as the session id; if it is unset or empty, skip the invocation entirely (soft no-op). The heredoc uses a distinctive delimiter (`__WRAP_FEEDBACK_JSON__`, not `EOF`) so that verbatim operator-correction text captured by Signal 4 cannot prematurely close the heredoc and truncate the JSON payload — quoted (`<< '__WRAP_FEEDBACK_JSON__'`) so there is still no variable expansion or injection.
+
+```bash
+FEEDBACK_TMP=$(mktemp /tmp/wrap-feedback-XXXXXX.json)
+cat > "$FEEDBACK_TMP" << '__WRAP_FEEDBACK_JSON__'
+[...the extracted drafts array...]
+__WRAP_FEEDBACK_JSON__
+
+# Skip if no session id
+if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
+  agentic-feedback append --repo "$REPO_CWD" --session-uuid "$CLAUDE_CODE_SESSION_ID" --file "$FEEDBACK_TMP" >/dev/null 2>&1 || true
+fi
+rm -f "$FEEDBACK_TMP" 2>/dev/null || true
+```
+
+Where `$REPO_CWD` is the same absolute cwd of the project Part D already uses. Any failure (non-zero exit, missing or broken `agentic-feedback` binary, lock contention) is silently swallowed via `|| true`; the wrap continues normally.
 
 **Part E — Compress always-loaded memory files**
 

@@ -2,7 +2,8 @@
 
 Every user-facing setting in the agentic-engineering methodology, with its
 default value and where to set it. This is the complete catalog - if you only
-want to tune Skeptic overhead, you need only `profile`. See
+want to tune Skeptic overhead, you need only `profile`. Change settings
+interactively with `/agentic-config` (guided prompts). See
 [safe-configuration.md](safe-configuration.md) for the cost/rigor tradeoff
 and recommended starting points.
 
@@ -68,7 +69,7 @@ it manually.
 | `qa_default_skip` | reserved/inert | reserved | Schema placeholder only; does not alter QA-gate behavior |
 | `model_profile` | `"default"` | `"default"`, `"budget"` | `budget` routes eligible spawns to Tier 1 to reduce cost; **never applies to `security-auditor` or any mandated Tier-3 spawn** |
 | `auto_merge_on_ci_green` | `false` | bool | When `true`, Phase 12 squash-merges after CI green + ready + no change-requests |
-| `capability_preflight_mode` | `"blocking"` | `"advisory"`, `"blocking"` | `advisory` warns and proceeds on a missing dep; `blocking` refuses the spawn. Default is `blocking` (all agent manifests are populated as of P2). Note: METHODOLOGY.md prose says `advisory` - that text is stale; `blocking` is the canonical default. |
+| `capability_preflight_mode` | `"blocking"` | `"advisory"`, `"blocking"` | `advisory` warns and proceeds on a missing dep; `blocking` refuses the spawn. Default is `blocking` (all agent manifests are populated as of P2). |
 | `perceptual_diff_enabled` | `false` | bool | qa-engineer runs pixelmatch against committed baselines |
 | `theme_aware` | `false` | bool | qa-engineer runs scenarios in both light and dark themes |
 | `storybook_enabled` | `false` | bool | qa-engineer targets Storybook iframe for isolated component verification |

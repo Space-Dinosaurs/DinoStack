@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+permissions:
+  contents: read
 jobs:
   check-adapter-sync:
     runs-on: ubuntu-latest
@@ -28,3 +30,5 @@ jobs:
             echo "::error::Adapter output is out of sync with content/. Run the build scripts locally and commit the regenerated adapter files." >&2
             exit 1
           fi
+      - name: Verify Codex hook commands resolve (DS-57 regression guard)
+        run: bash bin/tests/test_codex_hooks_resolve.sh

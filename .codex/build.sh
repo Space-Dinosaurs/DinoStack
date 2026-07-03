@@ -105,6 +105,26 @@ done
 
 echo "Rebuilt skill/references/ hardlinks"
 
+# ---------------------------------------------------------------------------
+# Build .codex/hooks/skill-auto-load-check.sh
+#
+# .codex/config/hooks.json wires a UserPromptSubmit hook whose command
+# self-locates at runtime via dirname(dirname(realpath(~/.codex/hooks.json)))
+# + "/hooks/<script>" - since ~/.codex/hooks.json symlinks to
+# .codex/config/hooks.json (or its hooks-snapshot copy), this resolves to
+# .codex/hooks/<script>, NOT the repo-root hooks/ directory. The other two
+# Codex hooks (risk-reminder.sh, stop-context-codex.js) are hand-authored
+# directly in .codex/hooks/ because they are Codex-specific. skill-auto-load
+# behavior is adapter-agnostic and its single source of truth is repo-root
+# hooks/skill-auto-load-check.sh - hardlink it into .codex/hooks/ so the
+# already-wired hooks.json command resolves to a real script.
+# ---------------------------------------------------------------------------
+
+mkdir -p "$CODEX_DIR/hooks"
+hardlink_from_content "$REPO_DIR/hooks/skill-auto-load-check.sh" "$CODEX_DIR/hooks/skill-auto-load-check.sh"
+
+echo "Rebuilt hooks/skill-auto-load-check.sh hardlink"
+
 # SKILL.md is a static file maintained in .codex/skill/SKILL.md
 # (not generated - its frontmatter and body are hand-authored for Codex's skill format)
 if [[ ! -f "$SKILL_DST/SKILL.md" ]]; then

@@ -923,6 +923,10 @@
   <a class="deck-index-link" href="slides/quality-assurance-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">12</span> Quality Assurance</a>
   <a class="deck-index-link" href="slides/work-tracking-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">13</span> Work Tracking</a>
   <a class="deck-index-link" href="slides/contributing-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">14</span> Contributing</a>
+  <a class="deck-index-link" href="slides/learnings-pipeline-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">15</span> Learnings Pipeline</a>
+  <a class="deck-index-link" href="slides/worktree-lifecycle-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">16</span> Worktree Lifecycle</a>
+  <a class="deck-index-link" href="slides/risk-classification-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">17</span> Risk Classification</a>
+  <a class="deck-index-link" href="slides/cross-session-resume-slides.html" target="_blank" rel="noopener noreferrer"><span class="deck-ord">18</span> Cross-Session Resume</a>
   <span class="deck-index-label deck-index-label-docs">Docs</span>
   <a class="deck-index-link" href="agentic-engineering-comparison.html" target="_blank" rel="noopener noreferrer">Ecosystem Comparison</a>
   <a class="deck-index-link" href="codex-permissions.md" target="_blank" rel="noopener noreferrer">Codex Permissions</a>
@@ -1027,12 +1031,17 @@
   <div class="section-title" data-num="01"><h2>Configuration Layer <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a> <a class="slide-link" href="slides/agents-md-hierarchy-slides.html" target="_blank" rel="noopener noreferrer">slides: AGENTS.md hierarchy</a></h2><h3>Skill-based entry point auto-triggered for engineering tasks</h3></div>
   <p class="desc" style="margin-bottom: 16px;">Every setting you can tune - what it does, your options, and how to set it. Full list of every key: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
+  <div class="note" style="border-left-color: var(--cyan); margin-bottom: 20px; padding: 12px 16px;">
+    <strong style="color: var(--cyan);">Just ask your session agent.</strong> You can set any of these by describing what you want in plain language - say something like <em>&ldquo;set the risk profile to relaxed&rdquo;</em> and the agent applies it for you via <code>/agentic-config</code> or directly. No config file editing required.
+  </div>
+
   <!-- Activation / profile settings -->
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4 style="color: var(--cyan);">Risk profile</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Controls how aggressively work triggers independent Skeptic review - relaxed means less overhead, strict means broader coverage.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>relaxed</code> / <code><strong>default</strong></code> / <code>strict</code> &nbsp; <strong>Default:</strong> <code>default</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> install - <code>bash .claude/install.sh --profile=&lt;v&gt;</code>; post-install - <code>profile</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering-profile:</code> in AGENTS.md</p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set the risk profile to relaxed&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1040,6 +1049,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the methodology runs everywhere by default (opt-out) or stays dormant until a project opts in (opt-in).</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>opt-out</strong></code> / <code>opt-in</code> &nbsp; <strong>Default:</strong> <code>opt-out</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>mode</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering:</code> marker in AGENTS.md</p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set activation mode to opt-out&rdquo;</span></p>
   </div>
 
   <!-- .agentic/config.json toggles -->
@@ -1048,6 +1058,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the conductor squash-merges a PR automatically once CI passes and it is approved.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>auto_merge_on_ci_green</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn on auto-merge when CI is green&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1055,6 +1066,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether per-developer session logs are committed to the PR branch as a separate commit.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>true</strong></code> / <code>false</code> &nbsp; <strong>Default:</strong> <code>true</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>commit_telemetry</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn off commit telemetry&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1062,6 +1074,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a spawn with missing required agent tools warns and proceeds (advisory) or is refused until the dep is available (blocking).</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>advisory</code> / <code><strong>blocking</strong></code> &nbsp; <strong>Default:</strong> <code>blocking</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>capability_preflight_mode</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set capability preflight to advisory&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1069,6 +1082,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook blocks conductor turns that end by asking permission for a non-destructive next step.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>abdication_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_ABDICATION_GUARD_DISABLE=1</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;enable the abdication guard&rdquo;</span></p>
   </div>
 
   <div class="rel-card" style="margin-bottom: 10px;">
@@ -1076,6 +1090,7 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether new work creates a tracker ticket before the first implementer spawns - off skips the gate, offer prompts with a proceed default, require hard-blocks until a ticket exists.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>off</code> / <code>offer</code> / <code>require</code> &nbsp; <strong>Default:</strong> <code>offer</code> if a tracker is connected, else <code>off</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>ticket_driven</code> in <code>.agentic/config.json</code></p>
+    <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set ticket-driven to require&rdquo;</span></p>
   </div>
 
   <!-- Env kill-switches -->
@@ -1118,7 +1133,7 @@
   </div>
   <div class="note">
     <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
-    <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), Hermes (<code>.hermes/</code>), and OpenClaw (<code>.openclaw/</code>) - the same methodology in each tool's native format.<br>
+    <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), Hermes (<code>.hermes/</code>), OpenClaw (<code>.openclaw/</code>), and VS Code Copilot (<code>.copilot/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
@@ -1205,6 +1220,9 @@
       <div class="node node-protocol"><a href="skill-candidates.md" target="_blank" rel="noopener">skill-candidates.md</a> <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="capability-preflight.md" target="_blank" rel="noopener">capability-preflight.md</a> <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="wrap-deferred.md" target="_blank" rel="noopener">wrap-deferred.md</a> <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol"><a href="trigger-catalog.md" target="_blank" rel="noopener">trigger-catalog.md</a> <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol"><a href="graphify.md" target="_blank" rel="noopener">graphify.md</a> <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol"><a href="events-log-telemetry.md" target="_blank" rel="noopener">events-log-telemetry.md</a> <span class="load-badge on-demand">on demand</span></div>
     </div>
     <p class="desc">Not auto-loaded. Read on-demand when protocols are triggered (e.g., Elevated risk declared, Skeptic review needed).</p>
   </div>
@@ -1475,13 +1493,13 @@
   <div style="margin-bottom: 8px;">
     <div id="proto-agent-team" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">agent-team.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 17 named agents, 5 composed flows, decision rules, and spawn instructions.</div>
+      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Team Playbook - 18 named agents, 5 composed flows, decision rules, and spawn instructions.</div>
     </div>
     <div class="two-col">
       <div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
           <h4 style="color: #b06bff;">The Team</h4>
-          <p class="desc">17 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">18 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, goal-condition-evaluator, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1573,6 +1591,7 @@
           <li><strong>release-orchestrator</strong> - sequences the full release from pre-flight gates through version bump, tag, deploy, and post-deploy verification. Enforces gates; refuses to proceed when any check fails.</li>
           <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
           <li><strong>learning-extractor</strong> - per-ticket learning extraction at Phase 6 clean exit. Reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code>. Tier 1 leaf agent; soft-fail only.</li>
+          <li><strong>goal-condition-evaluator</strong> - cheap Tier-1 stop-condition check for open-goal loops; gates continuation only, never correctness/safety.</li>
           <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/context.md</code> (Recent Focus only). Constrained automated subset of <code>/wrap</code>; soft-fail only.</li>
           <li><strong>learnings-agent</strong> - session-scoped background learnings capture. Spawned when the first learning-worthy event occurs in a session. Receives learning events as messages and writes structured entries to <code>.agentic/learnings.md</code> immediately, with optional MEMORY.md append for project-affecting facts. Tier 1 leaf agent; soft-fail only.</li>
         </ul>
