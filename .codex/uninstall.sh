@@ -1,4 +1,23 @@
 #!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Purpose: Uninstalls the DinoStack Codex adapter by removing only symlinks,
+#          hook config, flags, and legacy prompt links that point back to this
+#          checkout, while restoring user backups where the installer made one.
+#
+# Public API:
+#   bash .codex/uninstall.sh
+#
+# Upstream deps: bash 3.2+, python3, readlink, rm, rmdir, mktemp; optionally
+#   scripts/lib/hooks-snapshot.sh for snapshot-aware hook cleanup.
+#
+# Downstream consumers: developers removing or refreshing the Codex adapter.
+#
+# Failure modes: skips real user files and symlinks not owned by this checkout;
+#   missing marker files prevent automatic config flag removal; backup restore
+#   uses the newest matching backup if present.
+#
+# Performance: local filesystem operations only; normally completes in <1 s.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,6 +34,7 @@ NAMED_AGENTS_DST="$HOME/.codex/agents"
 
 HOOKS_SRC="$REPO_DIR/.codex/config/hooks.json"
 LEGACY_HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
+LEGACY_HOOKS_SRC2="$REPO_DIR/.codex/config/hooks.json"
 HOOKS_DST="$HOME/.codex/hooks.json"
 
 CONFIG_FILE="$HOME/.codex/config.toml"
@@ -25,6 +45,17 @@ LEGACY_PROMPTS_DST="$HOME/.codex/prompts"
 canonicalize_path() {
   python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
 }
+
+SNAPSHOT_HOOKS_SRC=""
+if [[ -f "$REPO_DIR/scripts/lib/hooks-snapshot.sh" ]]; then
+  # shellcheck source=scripts/lib/hooks-snapshot.sh
+  if . "$REPO_DIR/scripts/lib/hooks-snapshot.sh" 2>/dev/null; then
+    SNAPSHOT_DIR="$(hooks_snapshot_dir "$REPO_DIR" 2>/dev/null || true)"
+    if [[ -n "$SNAPSHOT_DIR" ]]; then
+      SNAPSHOT_HOOKS_SRC="$SNAPSHOT_DIR/.codex/config/hooks.json"
+    fi
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Remove the agentic-engineering skill symlink from ~/.agents/skills/
@@ -120,7 +151,15 @@ if [[ -L "$HOOKS_DST" ]]; then
   current_target_canonical="$(canonicalize_path "$current_target")"
   hooks_src_canonical="$(canonicalize_path "$HOOKS_SRC")"
   legacy_hooks_src_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC")"
-  if [[ "$current_target_canonical" == "$hooks_src_canonical" || "$current_target_canonical" == "$legacy_hooks_src_canonical" ]]; then
+  legacy_hooks_src2_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC2")"
+  snapshot_hooks_src_canonical=""
+  if [[ -n "$SNAPSHOT_HOOKS_SRC" ]]; then
+    snapshot_hooks_src_canonical="$(canonicalize_path "$SNAPSHOT_HOOKS_SRC")"
+  fi
+  if [[ "$current_target_canonical" == "$hooks_src_canonical" || \
+        "$current_target_canonical" == "$legacy_hooks_src_canonical" || \
+        "$current_target_canonical" == "$legacy_hooks_src2_canonical" || \
+        ( -n "$snapshot_hooks_src_canonical" && "$current_target_canonical" == "$snapshot_hooks_src_canonical" ) ]]; then
     rm "$HOOKS_DST"
     echo "  - ~/.codex/hooks.json symlink removed"
 
@@ -207,9 +246,17 @@ else
   fi
   hooks_src_canonical="$(canonicalize_path "$HOOKS_SRC")"
   legacy_hooks_src_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC")"
+  legacy_hooks_src2_canonical="$(canonicalize_path "$LEGACY_HOOKS_SRC2")"
+  snapshot_hooks_src_canonical=""
+  if [[ -n "$SNAPSHOT_HOOKS_SRC" ]]; then
+    snapshot_hooks_src_canonical="$(canonicalize_path "$SNAPSHOT_HOOKS_SRC")"
+  fi
   if [[ -f "$CONFIG_FILE" ]] \
      && grep -qE '^[[:space:]]*codex_hooks[[:space:]]*=[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null \
-     && [[ "$hooks_dst_target_canonical" == "$hooks_src_canonical" || "$hooks_dst_target_canonical" == "$legacy_hooks_src_canonical" ]]; then
+     && [[ "$hooks_dst_target_canonical" == "$hooks_src_canonical" || \
+           "$hooks_dst_target_canonical" == "$legacy_hooks_src_canonical" || \
+           "$hooks_dst_target_canonical" == "$legacy_hooks_src2_canonical" || \
+           ( -n "$snapshot_hooks_src_canonical" && "$hooks_dst_target_canonical" == "$snapshot_hooks_src_canonical" ) ]]; then
     echo "  ! Marker file missing; leaving codex_hooks flag in config.toml. Remove manually if desired."
   else
     echo "  = No install marker found - codex_hooks flag was not added by this installer"

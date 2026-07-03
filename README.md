@@ -135,7 +135,7 @@ Agents need uninterrupted access to Bash, Edit, and Write - constant permission 
 - **Deny list** (safety net for destructive commands) - `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `sudo rm`, `dd if=`, `shutdown`, `reboot`
 - **Additional directories** - `~/.claude/projects` for cross-session context
 
-The deny list merges with any existing deny rules. See [.claude/README.md](.claude/README.md#permissions) for details and [.cursor/README.md](.cursor/README.md), [.codex/README.md](.codex/README.md), [.gemini/README.md](.gemini/README.md) for the equivalent setup in other adapters.
+The deny list merges with any existing deny rules. See [.claude/README.md](.claude/README.md#permissions) for details and [.cursor/README.md](.cursor/README.md), [.codex/README.md](.codex/README.md), [.gemini/README.md](.gemini/README.md) for the equivalent setup in other adapters. For Codex specifically, see [docs/codex-permissions.md](docs/codex-permissions.md) for the recommended trusted-work config and its tradeoffs.
 
 ## Initialize a project
 

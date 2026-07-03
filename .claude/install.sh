@@ -471,11 +471,35 @@ def upsert_hook(hook_list, script_basename, expected_entry, label):
 # ---- UserPromptSubmit hook --------------------------------------------------
 RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
-    "Elevated = spawn Worker + Skeptic in background. "
+    "If agentic-engineering is active in this project, the main session is the conductor. "
+    "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
     "Direct action ONLY for: reads, answering from memory, screenshots, "
     "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
     "When in doubt, classify Elevated.'"
 )
+OLD_RISK_CMDS = {
+    (
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "Elevated = spawn Worker + Skeptic in background. "
+        "Direct action ONLY for: reads, answering from memory, screenshots, "
+        "synthesizing subagent results, diagnostic-only logging. "
+        "When in doubt, classify Elevated.'"
+    ),
+    (
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "Elevated = spawn Worker + Skeptic in background. "
+        "Direct action ONLY for: reads, answering from memory, screenshots, "
+        "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
+        "When in doubt, classify Elevated.'"
+    ),
+    (
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "If agentic-engineering is active in this project, the main session is the conductor. "
+        "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
+        "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
+        "When in doubt, classify Elevated.'"
+    )
+}
 
 ups_list = hooks.setdefault("UserPromptSubmit", [])
 
@@ -492,21 +516,31 @@ if ups_star is None:
 
 ups_star.setdefault("hooks", [])
 
-# Risk-classification hook uses full command equality (no path component to go stale)
-already_has_risk = any(
-    entry.get("command") == RISK_CMD
-    for entry in ups_star["hooks"]
+# Risk-classification hook uses command equality, with stale-string migration.
+risk_hook = next(
+    (entry for entry in ups_star["hooks"] if entry.get("command") == RISK_CMD),
+    None
 )
 
-if already_has_risk:
+if risk_hook is not None:
     print("  = UserPromptSubmit risk-classification hook already present")
 else:
-    ups_star["hooks"].append({
-        "type": "command",
-        "command": RISK_CMD,
-        "timeout": 5
-    })
-    print("  + Added UserPromptSubmit risk-classification hook")
+    stale_risk_hook = next(
+        (entry for entry in ups_star["hooks"] if entry.get("command") in OLD_RISK_CMDS),
+        None
+    )
+    if stale_risk_hook is not None:
+        stale_risk_hook["type"] = "command"
+        stale_risk_hook["command"] = RISK_CMD
+        stale_risk_hook["timeout"] = 5
+        print("  ~ UserPromptSubmit risk-classification hook updated stale reminder")
+    else:
+        ups_star["hooks"].append({
+            "type": "command",
+            "command": RISK_CMD,
+            "timeout": 5
+        })
+        print("  + Added UserPromptSubmit risk-classification hook")
 
 SKILL_AUTO_CMD = f"bash {hooks_root}/hooks/skill-auto-load-check.sh"
 
