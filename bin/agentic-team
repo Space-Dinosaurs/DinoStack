@@ -311,6 +311,31 @@ def _role_entry(spec: object) -> dict:
     return {}
 
 
+def _resolve_role_model(role: str, harness: str) -> str | None:
+    """Resolve the model for *role* from team.yml when no explicit --model.
+
+    Reads the merged global+project team.yml, looks up roles[<role>], and
+    returns its model handle ONLY when the entry's harness matches the harness
+    actually being dispatched to (so a team.yml row for a different harness
+    never leaks its model onto this dispatch). Returns None when there is no
+    team.yml, no entry, no model, or a harness mismatch -- in which case the
+    worker uses its own session default, exactly as before.
+    """
+    try:
+        config = _load_team_config()
+    except Exception:
+        return None
+    spec = config.get("roles", {}).get(role)
+    if not spec:
+        return None
+    entry = _role_entry(spec)
+    entry_harness = entry.get("harness") or config.get("default_harness")
+    if entry_harness and entry_harness != harness:
+        return None
+    model = entry.get("model")
+    return model if model else None
+
+
 # ---------------------------------------------------------------------------
 # configure subcommand helpers (moved from agentic-configure)
 # ---------------------------------------------------------------------------
@@ -1028,6 +1053,10 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     PATH guardrail shims, then spawns the process detached in the background.
     Prints the run-id to stdout and returns 0.
 
+    Model selection: an explicit --model wins; otherwise the role's model from
+    team.yml is used when its harness matches the dispatch harness (D-1). With
+    neither, the worker uses its own session default.
+
     AC3 (dispatch contract) + AC5 worker-side fences + AC8 all-harness coverage.
     """
     harness = args.harness
@@ -1113,7 +1142,12 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     if disable_flag:
         worker_env[disable_flag] = "1"
 
-    argv = _build_worker_argv(harness, augmented_brief, model=getattr(args, "model", None))
+    # Model resolution: an explicit --model always wins; otherwise fall back
+    # to the role's model in team.yml (D-1). Without this, a role-only dispatch
+    # silently ran on the harness session default (e.g. omp -> claude-opus-4-8),
+    # which is why cross-harness dispatch "only used Claude models".
+    resolved_model = getattr(args, "model", None) or _resolve_role_model(role, harness)
+    argv = _build_worker_argv(harness, augmented_brief, model=resolved_model)
 
     stdout_file = run_dir / "stdout"
     stderr_file = run_dir / "stderr"
