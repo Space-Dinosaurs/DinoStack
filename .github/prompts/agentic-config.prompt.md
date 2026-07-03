@@ -27,8 +27,8 @@ No subcommands or flags. Selection is done interactively.
    Reuses the same resolver as `/agentic-status` so the two commands never diverge.
 
 2. **Setting selection prompt.** Grouped:
-   - Activation and profile settings (mode, profile) - write to `~/.claude/agentic-engineering.json`
-     or AGENTS.md marker, depending on scope prompt.
+   - Activation and tier settings (mode, tier, profile [legacy alias]) - write to
+     `~/.claude/agentic-engineering.json` or AGENTS.md marker, depending on scope.
    - Project toggles from `.agentic/config.json`: `auto_merge_on_ci_green`,
      `commit_telemetry`, `capability_preflight_mode`, `abdication_guard_enabled`,
      `ticket_driven`, and any additional config-file toggles.
@@ -60,15 +60,24 @@ No subcommands or flags. Selection is done interactively.
 
 **File-settable (full support):**
 
-| Setting | Key | File |
-|---|---|---|
 | Mode | `mode` | `~/.claude/agentic-engineering.json` |
-| Profile | `profile` | `~/.claude/agentic-engineering.json` or AGENTS.md |
+| Tier | `tier` | `~/.claude/agentic-engineering.json` or `.agentic/config.json` (project `agentic_tier`) |
+| Profile (legacy alias) | `profile` | `~/.claude/agentic-engineering.json` or AGENTS.md |
 | Auto-merge on CI | `auto_merge_on_ci_green` | `.agentic/config.json` |
 | Commit telemetry | `commit_telemetry` | `.agentic/config.json` |
 | Capability preflight | `capability_preflight_mode` | `.agentic/config.json` |
 | Abdication guard | `abdication_guard_enabled` | `.agentic/config.json` |
 | Ticket-driven | `ticket_driven` | `.agentic/config.json` |
+
+**Tier values:** `minimal` (default), `medium`, `full`. Tier `minimal` is the smallest
+viable methodology: 3 agents (engineer, skeptic, investigator), inline risk classification,
+no Brief/Plan artifacts, no QA gate, no wrap-ticket, no telemetry, no event log.
+Tier `medium` adds architect + planner + inline Brief + loop-state resume. Tier `full`
+is the legacy behavior: full sections, full kernel, all 18 agents, QA gate, wrap-ticket,
+learning-extractor, capability preflight, telemetry, events log.
+
+When both `tier` and `profile` are set, `tier` wins. Profile mapping for back-compat:
+`relaxed` -> `minimal`, `default` -> `medium`, `strict` -> `full`.
 
 **Env kill-switches (print-only, not applied to running session):**
 `AE_SINGULARITY_GUARD_DISABLE`, `AE_TIER_GUARD_DISABLE`, `AGENTIC_QUIET`.

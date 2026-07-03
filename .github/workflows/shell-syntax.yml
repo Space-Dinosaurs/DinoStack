@@ -1,0 +1,78 @@
+name: shell-syntax
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  bash-n:
+    name: bash -n on tracked shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: bash -n check
+        run: |
+          set -euo pipefail
+          git ls-files '*.sh' | sort > scripts-list.txt
+          if [ ! -s scripts-list.txt ]; then
+            echo "No tracked *.sh files found."
+            exit 0
+          fi
+          echo "Checking $(wc -l < scripts-list.txt) tracked shell scripts:"
+          sed 's/^/  - /' scripts-list.txt
+          failures=0
+          offenders=()
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if ! bash -n "$f" 2>err.tmp; then
+              failures=$((failures + 1))
+              offenders+=("$f")
+              {
+                echo "::error file=$f::bash -n failed"
+                sed 's/^/  /' err.tmp || true
+              } >&2
+            fi
+            : > err.tmp
+          done < scripts-list.txt
+          rm -f err.tmp
+          if [ "$failures" -gt 0 ]; then
+            echo "::error::bash -n failed for ${failures} file(s):"
+            printf '  - %s\n' "${offenders[@]}" >&2
+            exit 1
+          fi
+          echo "OK: bash -n passed for all tracked shell scripts."
+
+  shellcheck:
+    name: shellcheck (severity=error) on tracked shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install shellcheck (fallback if not preinstalled)
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            set -euo pipefail
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
+          shellcheck --version
+      - name: shellcheck (severity=error)
+        run: |
+          set -euo pipefail
+          git ls-files '*.sh' | sort > scripts-list.txt
+          if [ ! -s scripts-list.txt ]; then
+            echo "No tracked *.sh files found."
+            exit 0
+          fi
+          echo "Linting $(wc -l < scripts-list.txt) tracked shell scripts with shellcheck --severity=error."
+          # xargs reads args one per line; --no-run-if-empty guards empty input.
+          # Input redirection (portable across GNU and BSD xargs) replaces GNU-only -a flag.
+          if ! xargs shellcheck --severity=error < scripts-list.txt; then
+            echo "::error::shellcheck severity=error findings above. Fix real errors, or add a targeted '# shellcheck disable=SCxxxx' with reason for false positives. Warnings/info are not in scope."
+            exit 1
+          fi
+          echo "OK: shellcheck severity=error passed for all tracked shell scripts."

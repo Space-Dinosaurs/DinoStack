@@ -57,7 +57,7 @@ bin/agentic-team configure \
   [--path .agentic/team.yml]
 ```
 
-`--assign` accepts `role=harness:model` (model is optional). Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`). All 7 harnesses (`codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`) are valid `--assign` targets and all accept a `model`.
+`--assign` accepts `role=harness:model` (model is optional). Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`). All 9 harnesses (`codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`, `opencode`, `copilot`) are valid `--assign` targets and all accept a `model`.
 
 Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-harness`, or `--non-interactive` used without `--assign`.
 

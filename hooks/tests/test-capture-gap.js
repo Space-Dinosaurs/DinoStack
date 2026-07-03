@@ -69,6 +69,7 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 // shimmed copy still loads the real lib (no behavior change, just resolution).
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
+const libActivationAbs = path.resolve(__dirname, '..', 'lib', 'activation.js');
 const shimmedSource = hookSource
   // Replace the final bare `run();` call so the hook doesn't try to read stdin.
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
@@ -85,6 +86,11 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
     `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
+  // Third re-anchor: the activation guard require added by Unit 10.
+  .replace(
+    /require\(['"]\.\/lib\/activation\.js['"]\)/,
+    `require(${JSON.stringify(libActivationAbs)})`
   )
   + `\n
 // Expose helpers for unit tests via a module-level export shim.

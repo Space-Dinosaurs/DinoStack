@@ -6,8 +6,9 @@ NOT a public CLI - do not invoke directly.
 Purpose: Provide two cross-process primitives reused by multiple CLIs:
   1. acquire_exclusive_lock - fcntl.LOCK_EX context manager with sleep-retry
      until timeout; used for multi-process coordination (e.g. flush lock).
-  2. atomic_write - write content to <path>.tmp then rename; cleans up .tmp on
-     failure; optional chmod mode.
+  2. atomic_write - write content to a uniquely-named temp sibling (mkstemp)
+     then os.replace into place; cleans up the temp file on failure; optional
+     chmod mode.
 
 Public API:
   acquire_exclusive_lock(lock_path, timeout=30.0)
@@ -18,12 +19,14 @@ Public API:
     Caller is responsible for ensuring lock_path and its parent exist before entry.
 
   atomic_write(path, content, mode=0o600)
-    Writes str content to path.with_suffix('<ext>.tmp') then renames into place.
-    When mode is not None, applies os.chmod to the tmp file before rename.
-    On any exception, unlinks the tmp file (missing_ok) and re-raises.
-    path must be a pathlib.Path.
+    Writes str content to a uniquely-named temp sibling (tempfile.mkstemp in
+    path.parent, created 0o600) then os.replace into place. When mode is not
+    None, applies os.chmod to the temp file before the replace. On any
+    exception, unlinks the temp file (missing_ok) and re-raises. The temp name
+    is randomized, so there is no predictable "<path>.tmp" sibling to collide
+    on or pre-plant as a symlink. path must be a pathlib.Path.
 
-Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, time, pathlib).
+Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, tempfile, time, pathlib).
 
 Downstream consumers: bin/agentic-identity (both helpers),
                       bin/agentic-migrate (atomic_write).
@@ -33,11 +36,12 @@ Failure modes:
     with no lock held; the underlying fd is always closed before raising.
     OS errors opening the lock file propagate to the caller unchanged (the file
     must exist before calling; existence is the caller's responsibility).
-  atomic_write: on any write/chmod/rename failure, removes the .tmp file
+  atomic_write: on any write/chmod/replace failure, removes the temp file
     (missing_ok semantics) and re-raises the original exception. The destination
-    file is never partially written. The .tmp suffix is appended to the full
-    filename (e.g. identity.yml -> identity.yml.tmp) to stay in the same
-    directory and on the same filesystem as the destination.
+    file is never partially written. The temp file is created by mkstemp in the
+    destination's directory (same filesystem) with a randomized name
+    (e.g. identity.yml.<rand>.tmp), so concurrent writers cannot collide and a
+    same-user attacker cannot pre-plant a predictable symlink target.
 
 Performance: Standard. acquire_exclusive_lock sleeps 0.1s per retry (~300 retries
   over 30s); atomic_write is a single write + fsync-less rename (same filesystem).
@@ -47,6 +51,8 @@ from __future__ import annotations
 
 import fcntl
 import os
+import stat
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -108,24 +114,46 @@ def acquire_exclusive_lock(
 
 
 def atomic_write(path: Path, content: str, mode: int | None = 0o600) -> None:
-    """Write content to path atomically via a .tmp sibling.
+    """Write content to path atomically via a unique temp sibling.
 
     Steps:
-      1. Write content to <path>.tmp (text, utf-8).
-      2. If mode is not None, chmod <path>.tmp to mode.
-      3. Rename <path>.tmp -> path.
+      1. ``tempfile.mkstemp`` a uniquely-named temp file in path.parent
+         (``<name>.<rand>.tmp``), created 0o600 so the pre-chmod window is not
+         world-readable.
+      2. Write content (text, utf-8).
+      3. If mode is not None, chmod the temp file to mode.
+      4. ``os.replace`` the temp file -> path (atomic, overwrites).
 
-    On any failure, unlinks <path>.tmp (missing_ok) and re-raises. The
-    destination file is never partially overwritten.
+    On any failure, unlinks the temp file (missing_ok) and re-raises. The
+    destination file is never partially overwritten. Using mkstemp avoids the
+    predictable ``<path>.tmp`` sibling name, closing the concurrent-writer
+    collision and same-user symlink-TOCTOU races.
 
     path.parent must already exist (no mkdir here - callers handle that).
     """
-    tmp = path.parent / (path.name + ".tmp")
+    path = Path(path)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    tmp = Path(tmp_name)
     try:
-        tmp.write_text(content, encoding="utf-8")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
         if mode is not None:
             os.chmod(tmp, mode)
-        tmp.rename(path)
+        else:
+            # Preserve the destination's existing perms (race-free); fall back
+            # to 0o644 for brand-new files, matching the old write_text umask
+            # default so mode=None callers (e.g. agentic-migrate) do not
+            # regress to mkstemp's owner-only 0o600.
+            try:
+                os.chmod(tmp, stat.S_IMODE(os.stat(path).st_mode))
+            except FileNotFoundError:
+                os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
     except Exception:
-        tmp.unlink(missing_ok=True)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
         raise

@@ -46,6 +46,9 @@ echo "Removing skill: agentic-engineering..."
 SKILLS_SRC="$REPO_DIR/.opencode/skills/agentic-engineering"
 SKILLS_DST="$HOME/.config/opencode/skills/agentic-engineering"
 
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
+
 if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
@@ -54,6 +57,10 @@ if [[ -L "$SKILLS_DST" ]]; then
   else
     echo "  = agentic-engineering (points to $current_target - not ours, skipping)"
   fi
+elif declare -f ae_is_stub_file >/dev/null 2>&1 && ae_is_stub_file "$SKILLS_DST/SKILL.md"; then
+  # Dormant install created a real dir holding just the stub SKILL.md.
+  rm -rf "$SKILLS_DST"
+  echo "  - agentic-engineering (dormant stub removed)"
 elif [[ -e "$SKILLS_DST" ]]; then
   echo "  = agentic-engineering (real file/directory - not removing)"
 else

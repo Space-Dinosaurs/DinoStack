@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "note": "Curated SUGGESTION POOL for the install-TUI model picker only. It is NOT a routing decision and the methodology stays catalog-free: nothing in content/ or any spawn path reads this file. The picker always offers a Custom entry, and the live OpenAI-compatible provider fetch (P3) is the authoritative source for current model IDs. Edit freely; add/remove models without touching code.",
+  "providers": {
+    "anthropic": {
+      "label": "Anthropic (Claude)",
+      "models": [
+        {"id": "opus", "label": "Claude Opus - most capable", "family": "opus"},
+        {"id": "sonnet", "label": "Claude Sonnet - balanced", "family": "sonnet"},
+        {"id": "haiku", "label": "Claude Haiku - fast / cheap", "family": "haiku"}
+      ]
+    },
+    "openai": {
+      "label": "OpenAI",
+      "models": [
+        {"id": "gpt-5", "label": "GPT-5 - flagship", "family": "gpt-5"},
+        {"id": "gpt-5-mini", "label": "GPT-5 Mini", "family": "gpt-5"},
+        {"id": "o3", "label": "o3 - reasoning", "family": "o3"},
+        {"id": "o4-mini", "label": "o4-mini - reasoning", "family": "o4-mini"}
+      ]
+    },
+    "z.ai": {
+      "label": "Z.AI (GLM)",
+      "models": [
+        {"id": "glm-5.2", "label": "GLM-5.2", "family": "glm-5"},
+        {"id": "glm-5.1", "label": "GLM-5.1", "family": "glm-5"},
+        {"id": "glm-4.7-flash", "label": "GLM-4.7 Flash", "family": "glm-4.7"}
+      ]
+    },
+    "kimi": {
+      "label": "Moonshot Kimi",
+      "models": [
+        {"id": "kimi-k2.7", "label": "Kimi K2.7", "family": "kimi-k2.7"},
+        {"id": "kimi-k2.6", "label": "Kimi K2.6", "family": "kimi-k2.6"},
+        {"id": "kimi-k2.5-thinking", "label": "Kimi K2.5 Thinking", "family": "kimi-k2.5"},
+        {"id": "kimi-latest", "label": "Kimi Latest", "family": "kimi"}
+      ]
+    },
+    "minimax": {
+      "label": "MiniMax",
+      "models": [
+        {"id": "MiniMax-M1", "label": "MiniMax M1", "family": "minimax-m1"},
+        {"id": "abab6.5s-chat", "label": "ABAB 6.5s Chat", "family": "abab6.5"}
+      ]
+    },
+    "mistral": {
+      "label": "Mistral",
+      "models": [
+        {"id": "mistral-large-latest", "label": "Mistral Large (latest)", "family": "mistral-large"},
+        {"id": "mistral-medium-latest", "label": "Mistral Medium (latest)", "family": "mistral-medium"},
+        {"id": "codestral-latest", "label": "Codestral (latest)", "family": "codestral"},
+        {"id": "mistral-small-latest", "label": "Mistral Small (latest)", "family": "mistral-small"}
+      ]
+    },
+    "xai": {
+      "label": "xAI (Grok)",
+      "models": [
+        {"id": "grok-4", "label": "Grok 4", "family": "grok-4"},
+        {"id": "grok-3", "label": "Grok 3", "family": "grok-3"},
+        {"id": "grok-code-fast-1", "label": "Grok Code Fast", "family": "grok-code"}
+      ]
+    }
+  }
+}

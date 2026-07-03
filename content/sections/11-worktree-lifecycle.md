@@ -1,3 +1,4 @@
+<!-- tiers: full medium -->
 ## Worktree Lifecycle
 
 **Two classes of worktree, two cleanup triggers.**

@@ -1,3 +1,4 @@
+<!-- tiers: full -->
 ## Events log
 
 `.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /wrap completion, finding fix). The file is gitignored.

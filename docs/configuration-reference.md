@@ -77,7 +77,7 @@ it manually.
 | `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/init-project` |
 | `commit_telemetry` | `true` | bool | Phase 8 commits the per-developer session-log file as a separate PR commit; set to `false` to opt out |
 | `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/wrap` jobs (tuned by the `deferred_wrap_*` params below) |
-| `abdication_guard_enabled` | `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
+| `abdication_guard_enabled` | `false` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
 | `skill_candidate_detection` | `true` | bool | Master toggle for the skill-candidate detector; `false` disables all layers |
 | `skill_candidate_nudge` | `false` | bool | In-session nudge when a domain crosses the candidate threshold (requires `skill_candidate_detection: true`) |
 | `ticket_driven` | absent-key: `offer` if tracker connected, `off` if not | `"off"`, `"offer"`, `"require"` | Controls ticket-creation gate before first implementer spawn; **absent key resolves based on tracker connection, not to a fixed default** |
@@ -123,10 +123,9 @@ directory; setting it to a non-root path disables the graph risk signal).
 | `developer_id` | none (absent file = no attribution) | string handle |
 | `provisional` | `false` (absent = confirmed) | `true`, `false` |
 
-**Absent file / absent `developer_id`:** no telemetry is attributed; session
-logs are not written. The effective default is no identity. Use
-`agentic-identity auto` to auto-derive a provisional handle from the GitHub
-login (lowest-friction starting point).
+**Absent file / absent `developer_id`:** no telemetry is attributed and session
+logs are not written. The effective default is no identity. Run
+`agentic-identity auto` to derive a provisional handle from your GitHub login.
 
 **4-tier precedence:** project-confirmed > global-confirmed >
 project-provisional > global-provisional > none.
@@ -142,19 +141,53 @@ global), `agentic-identity init <handle> [--scope project]` (manual),
 Committed. Enables dispatching Workers to other CLI harnesses. Absent file =
 feature off.
 
-| Field | Default | Type | Notes |
+| Field | Default (absent key) | Type | Notes |
 |---|---|---|---|
-| `enabled` | `false` (absent file = feature off) | bool | Must be explicitly `true` to activate dispatch; absent file is equivalent to `enabled: false` |
-| `default_harness` | none (absent = no harness fallback) | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`; absent means unrouted roles fall through to native spawn |
-| `roles` | none (absent = empty map, no per-role routing) | map | Maps role name to `{harness, model}` |
-| `dispatch.timeout_seconds` | `1800` | int | Per-Worker timeout |
+| `enabled` | `false` (absent file = feature off) | bool | `true`/`false`; absent file is equivalent to `enabled: false` |
+| `default_harness` | none (unrouted roles fall through to native spawn) | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude` |
+| `roles` | none (empty - all roles use native spawn unless `default_harness` is set) | map | Maps role name to `{harness, model}` |
+| `dispatch.timeout_seconds` | `1800` (30 min) | int | Per-Worker wall-clock hard cap; watchdog kills on expiry. Absent key resolves to agentic-team's own default (`1800`), not `_supervise.py`'s internal 600s fallback (that only applies to callers omitting the param, which agentic-team never does); the generated scaffold writes the same `1800`. |
+| `dispatch.stall_seconds` | per-harness (`120`; `300` for `claude`/`gemini`/`cursor-agent`) | int | Max inactivity before kill. Absent key resolves per-harness; explicit value overrides for all. |
+| `dispatch.retries` | `1` | int | Same-harness re-spawns before failover |
+| `dispatch.failover` | `true` | bool | After retries, try other role models then terminal `claude` |
 | `dispatch.output_format` | `"json"` | `"json"`, `"text"` | Worker output format |
 
 See `content/references/cross-harness-teams.md` for the full dispatch table.
 
 ---
 
-## 7. Permissions: `.claude/settings.json`
+## 7. Activation state & `/ds`
+
+Whether the methodology is active in a directory is resolved from **file-based
+markers**, not from a `.agentic/config.json` key. `bin/_activation.py`'s
+`resolve_state(cwd)` walks six layers in precedence order and returns on the
+first hit:
+
+| # | Layer | Path | Result |
+|---|---|---|---|
+| 1 | active marker | `<cwd>/.agentic/active` | active (`reason: active-file`) |
+| 2 | session marker | `<cwd>/.agentic/active.session` | active (`reason: session-file`) |
+| 3 | tombstone | `<cwd>/.agentic/dormant` | dormant (`reason: tombstone`) |
+| 4 | auto-detect | `<cwd>/.agentic/` dir exists | active (`reason: auto-detect`) |
+| 5 | allowlist | `cwd` in `~/.agentic/activation.list` | active (`reason: allowlist`) |
+| 6 | default | (none of the above) | dormant (`reason: dormant`) |
+
+The active/session markers are JSON (`{tier, activated_at, by[, session_id]}`);
+`tier` is surfaced in the resolve result, `None` for the other layers.
+
+- **Fail-active:** any stat error degrades to `{"active": true, "reason": "error"}`
+  so a broken marker never silently disables the methodology.
+- **Allowlist source of truth** is `~/.agentic/activation.json`; the flat
+  `~/.agentic/activation.list` is a realpath-deduped shell mirror.
+- `/ds` (see `content/commands/ds.md`) toggles these markers: `activate` writes
+  the marker + clears the tombstone + adds to the allowlist; `deactivate` writes
+  the tombstone + removes the active/session markers (project data is kept).
+- `resident_bytes(cwd)` reports the on-disk footprint of the `.agentic/` marker
+  set for a project.
+
+---
+
+## 8. Permissions: `.claude/settings.json`
 
 Covers `defaultMode`, the `permissions.allow` list, and the `permissions.deny`
 list. The recommended configuration, the eight canonical deny rules, and the

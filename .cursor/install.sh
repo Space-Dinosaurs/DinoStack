@@ -108,14 +108,17 @@ config["profile"] = profile
 config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
-    try:
-        with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
-            tty.flush()
-            answer = (tty.readline() or "").strip().lower()
-        config["skill_auto_load"] = answer in ("y", "yes")
-    except OSError:
+    if os.environ.get("AE_NON_INTERACTIVE", "") not in ("", "0", "false", "no"):
         config["skill_auto_load"] = False
+    else:
+        try:
+            with open("/dev/tty", "r+") as tty:
+                tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+                tty.flush()
+                answer = (tty.readline() or "").strip().lower()
+            config["skill_auto_load"] = answer in ("y", "yes")
+        except OSError:
+            config["skill_auto_load"] = False
 # Write back
 with open(path, "w") as f:
     json.dump(config, f, indent=2)

@@ -5,6 +5,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL_DST="$HOME/.kimi/skills/agentic-engineering"
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
+
 removed=()
 skipped=()
 
@@ -26,6 +29,12 @@ remove_if_ours() {
 }
 
 echo "Uninstalling Kimi adapter..."
+
+# Remove a dormant SKILL.md stub (install writes one in place of the symlink).
+if declare -f ae_is_stub_file >/dev/null 2>&1 && ae_is_stub_file "$SKILL_DST/SKILL.md"; then
+  rm "$SKILL_DST/SKILL.md"
+  removed+=("$SKILL_DST/SKILL.md (dormant stub)")
+fi
 
 # Remove global skill symlink
 remove_if_ours "$SKILL_DST" "$REPO_DIR/.kimi/skills/agentic-engineering"

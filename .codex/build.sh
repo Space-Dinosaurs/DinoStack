@@ -184,6 +184,9 @@ mkdir -p "$COMMANDS_DST"
 
 for src in "$CONTENT/commands/"*.md; do
   name="$(basename "$src")"
+  case "$name" in
+    implement-ticket-body.md) continue ;;  # source for scripts/build-commands.sh
+  esac
   hardlink_from_content "$src" "$COMMANDS_DST/$name"
 done
 

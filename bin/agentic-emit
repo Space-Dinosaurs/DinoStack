@@ -13,7 +13,7 @@
 # Upstream deps: bash, date (GNU or BSD), python3 (stdlib only) for safe
 #                JSON assembly. Reads .agentic/loop-state.json if present.
 #
-# Downstream consumers: content/commands/implement-ticket.md (Phase 6, 6b);
+# Downstream consumers: content/commands/implement-ticket-full.md (Phase 6, 6b);
 #                       content/rules/agent-methodology.md trivial-path edits;
 #                       any future command that reaches an instrumented
 #                       boundary.

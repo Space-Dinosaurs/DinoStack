@@ -81,6 +81,18 @@ if [[ -z "$cwd" ]]; then
   cwd="${PWD:-.}"
 fi
 
+# --- Activation guard: dormant projects get no SessionStart wrap. ---
+# Source the shared guard and no-op (exit 0) when the project is dormant.
+# Fail-ACTIVE: a missing lib or any guard error leaves the hook running.
+ACTIVATION_LIB="$SCRIPT_DIR/lib/activation.sh"
+if [[ -f "$ACTIVATION_LIB" ]]; then
+  # shellcheck source=/dev/null
+  source "$ACTIVATION_LIB" 2>/dev/null || true
+  if declare -f ae_is_active >/dev/null 2>&1; then
+    ae_is_active "$cwd" || exit 0
+  fi
+fi
+
 # --- (a) Version-update notice: reuse the existing version-check wrapper ---
 # It emits a JSON object; we want only its `systemMessage` text. Re-feed the
 # original payload on stdin (it drains and ignores it). Fail-open to empty.

@@ -5,6 +5,8 @@
 #          via the agentic-identity binary.
 #
 # Public API:
+#   ae_noninteractive         - returns 0 when AE_NON_INTERACTIVE holds any
+#                               truthy spelling (1/true/yes/...), 1 otherwise.
 #   ae_confirm <prompt>       - TTY-safe y/N prompt; returns 0 for y/Y, 1 otherwise.
 #   _ae_setup_identity        - 7-branch identity resolution (no-identity flag,
 #                               missing binary, existing identity, --identity flag,
@@ -36,6 +38,11 @@
 AE_IDENTITY_FLAG="${AE_IDENTITY_FLAG:-}"
 AE_NO_IDENTITY="${AE_NO_IDENTITY:-false}"
 
+# ae_noninteractive: single truthiness gate for the AE_NON_INTERACTIVE master
+# switch. Any value other than empty/0/false/no counts as ON (so =1, =true,
+# =yes all suppress prompts). Returns 0 when non-interactive, 1 otherwise.
+ae_noninteractive() { case "${AE_NON_INTERACTIVE:-}" in ""|0|false|no) return 1;; *) return 0;; esac; }
+
 # ---------------------------------------------------------------------------
 # ae_confirm: TTY-safe yes/no prompt for optional installs.
 #
@@ -49,7 +56,11 @@ AE_NO_IDENTITY="${AE_NO_IDENTITY:-false}"
 ae_confirm() {
   local prompt="$1"
   local reply=""
-  if [[ -r /dev/tty ]]; then
+  # Master non-interactive switch: behave exactly like the no-TTY path
+  # (default "no", no prompt) even when /dev/tty is readable. Lets a TUI that
+  # already collected every answer drive the adapters with zero follow-up
+  # prompts.
+  if ! ae_noninteractive && [[ -r /dev/tty ]]; then
     read -p "$prompt" -n 1 -r reply </dev/tty || reply=""
     echo
   fi
@@ -95,8 +106,9 @@ _ae_setup_identity() {
     return
   fi
 
-  # Branch 5: non-TTY
-  if [[ ! -r /dev/tty ]]; then
+  # Branch 5: non-TTY or master non-interactive switch (--non-interactive /
+  # AE_NON_INTERACTIVE). Explicit --identity (Branch 4 above) still wins.
+  if [[ ! -r /dev/tty ]] || ae_noninteractive; then
     echo "  - non-interactive install: skipped identity setup (run 'agentic-identity auto' or 'agentic-identity init <handle>')"
     return
   fi

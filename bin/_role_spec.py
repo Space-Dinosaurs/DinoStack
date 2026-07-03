@@ -113,7 +113,7 @@ def resolve_reviewer_model(
         # and the caller wants a clean None rather than a crash.
         try:
             norm = normalize_role_spec(spec)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError):
             return None
         if not isinstance(norm, dict):
             return None

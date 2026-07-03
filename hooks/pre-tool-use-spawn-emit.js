@@ -60,6 +60,16 @@
 const fs = require('fs');
 const path = require('path');
 
+// Activation guard: dormant projects skip the spawn_start emit (no events.jsonl
+// write). Fail-ACTIVE if the lib is missing (a guard bug must never silently
+// kill methodology telemetry for active users).
+let _activation = null;
+try {
+  _activation = require('./lib/activation.js');
+} catch (_) {
+  _activation = null;
+}
+
 /**
  * Main entry point. Reads PreToolUse payload from stdin, emits spawn_start
  * event to events.jsonl, always exits 0.
@@ -80,6 +90,13 @@ function run() {
       ? payload.cwd.trim()
       : null;
     if (!cwd) process.exit(0);
+
+    // Activation guard: dormant projects skip the emit. Fail-ACTIVE on error.
+    if (_activation) {
+      try {
+        if (!_activation.isActive(cwd)) process.exit(0);
+      } catch (_) { /* fail-ACTIVE: fall through */ }
+    }
 
     // Resolve session_id (top-level field on PreToolUse payload).
     const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())

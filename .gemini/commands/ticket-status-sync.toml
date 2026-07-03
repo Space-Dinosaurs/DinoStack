@@ -30,7 +30,7 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                AGENTS.md ## Linear / ## Tracker sections (TRACKER resolution chain, same as implement-ticket.md Setup);
                tracker query tools for the non-terminal ticket set (Jira mcp__mcp-atlassian__jira_search JQL;
                Linear mcp__linear__list_issues);
-               content/commands/implement-ticket.md ## Tracker Writeback Helper (subagent invocation shape, forward-only guard semantics);
+               content/commands/implement-ticket-full.md ## Tracker Writeback Helper (subagent invocation shape, forward-only guard semantics);
                METHODOLOGY.md (activation preflight).
 
 Downstream consumers: operator-invoked only; no programmatic consumers.

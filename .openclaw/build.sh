@@ -10,7 +10,7 @@
 #             Called by install.sh and the adapter-sync CI workflow.
 #
 # Upstream deps: content/commands/*.md, content/agents/*.md,
-#                content/SKILL.md, content/project-scaffolding.yml,
+#                content/SKILL-full.md, content/project-scaffolding.yml,
 #                scripts/build-methodology.sh. Python 3 on PATH.
 #
 # Downstream consumers: .openclaw/skills/ (installed via install.sh to
@@ -242,7 +242,7 @@ print("  + " + cmd_name + "/SKILL.md")
 PYEOF
 
   cmd_count=$((cmd_count + 1))
-done < <(LC_ALL=C find "$CONTENT/commands" -maxdepth 1 -name '*.md' | LC_ALL=C sort)
+done < <(LC_ALL=C find "$CONTENT/commands" -maxdepth 1 -name '*.md' ! -name 'implement-ticket-body.md' | LC_ALL=C sort)
 
 # ---------------------------------------------------------------------------
 # Agent skills (16): one skill dir per agent, prefixed agent-<name>

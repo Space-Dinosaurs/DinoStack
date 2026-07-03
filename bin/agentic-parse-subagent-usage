@@ -16,7 +16,7 @@ Upstream deps: Python 3 stdlib only (json, sys, os, glob, datetime, pathlib).
                the current working directory using Claude Code's
                '/' -> '-' substitution scheme.
 
-Downstream consumers: content/commands/implement-ticket.md spawn_complete
+Downstream consumers: content/commands/implement-ticket-full.md spawn_complete
                       emit sites; bin/agentic-emit (indirectly, via
                       conductor-side composition of the spawn_complete
                       payload).
