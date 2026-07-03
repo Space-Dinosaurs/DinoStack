@@ -23,7 +23,8 @@ except Exception:
 
 if [[ "$skill_auto_load" == "true" ]]; then
   skill_path="$HOME/.claude/skills/agentic-engineering/SKILL.md"
-  if [[ "${AE_ADAPTER:-}" == "codex" ]]; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ "${AE_ADAPTER:-}" == "codex" || "$script_dir" == *"/.codex/hooks" ]]; then
     skill_path="$HOME/.agents/skills/agentic-engineering/SKILL.md"
   fi
   echo "SKILL CHECK [agentic-engineering]: skill_auto_load=true."

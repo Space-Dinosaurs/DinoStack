@@ -18,11 +18,11 @@ trap cleanup EXIT
 
 HOME_CODEX="$TMP_ROOT/home-codex"
 SNAPSHOT="$TMP_ROOT/snapshot"
-mkdir -p "$HOME_CODEX/.claude" "$HOME_CODEX/.codex" "$SNAPSHOT/.codex/config" "$SNAPSHOT/hooks"
+mkdir -p "$HOME_CODEX/.claude" "$HOME_CODEX/.codex" "$SNAPSHOT/.codex/config" "$SNAPSHOT/.codex/hooks"
 
 printf '{"skill_auto_load": true}\n' > "$HOME_CODEX/.claude/agentic-engineering.json"
 cp "$REPO_DIR/.codex/config/hooks.json" "$SNAPSHOT/.codex/config/hooks.json"
-cp "$REPO_DIR/hooks/skill-auto-load-check.sh" "$SNAPSHOT/hooks/skill-auto-load-check.sh"
+cp "$REPO_DIR/.codex/hooks/skill-auto-load-check.sh" "$SNAPSHOT/.codex/hooks/skill-auto-load-check.sh"
 ln -s "$SNAPSHOT/.codex/config/hooks.json" "$HOME_CODEX/.codex/hooks.json"
 
 skill_cmd="$(python3 - "$SNAPSHOT/.codex/config/hooks.json" <<'PYEOF'
@@ -39,16 +39,16 @@ raise SystemExit("skill-auto-load-check command not found")
 PYEOF
 )"
 
-if [[ "$skill_cmd" == *"AE_ADAPTER=codex"* ]]; then
-  pass "codex hook command sets AE_ADAPTER=codex"
+if [[ "$skill_cmd" =~ ^bash[[:space:]]+\".+skill-auto-load-check\.sh\"$ ]]; then
+  pass "codex hook command keeps '<interpreter> \"<path>\"' shape"
 else
-  fail "codex hook command does not set AE_ADAPTER=codex: $skill_cmd"
+  fail "codex hook command does not keep '<interpreter> \"<path>\"' shape: $skill_cmd"
 fi
 
-if [[ "$skill_cmd" == *'/hooks/skill-auto-load-check.sh'* ]]; then
-  pass "codex hook command targets root hooks directory"
+if [[ "$skill_cmd" == *'$(dirname "$(dirname "$(realpath "$HOME/.codex/hooks.json")")")/hooks/skill-auto-load-check.sh'* ]]; then
+  pass "codex hook command targets hooks.json-adjacent codex hook snapshot"
 else
-  fail "codex hook command does not target root hooks directory: $skill_cmd"
+  fail "codex hook command does not target hooks.json-adjacent codex hook snapshot: $skill_cmd"
 fi
 
 out="$(HOME="$HOME_CODEX" bash -c "$skill_cmd" 2>&1)"
