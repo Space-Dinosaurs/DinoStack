@@ -13,25 +13,51 @@ This is a standalone any-harness capability - it is independent of the Pi/oh-my-
 
 ## Step 1 - Configure the team
 
-Run `bin/agentic-team configure` to launch an interactive wizard that walks through role-to-harness assignments and writes `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
+Run `bin/agentic-team configure` to launch a **discovery-first** interactive wizard and write `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
 
 ```bash
 bin/agentic-team configure
 ```
 
-For non-interactive use - useful in scripts or automated onboarding - pass assignments directly:
+The wizard runs `discover` first and prints a summary of installed harnesses (version + discovered model count when available) before asking anything. If only your own harness (e.g. `claude`) is installed - nothing to cross-dispatch to - it says so and exits cleanly without prompting.
+
+For each of the 9 known roles, it presents a numbered menu of **installed harnesses only** (never offers one that isn't installed), with a ranked suggestion as the default. Example on a machine with `omp`, `kimi-cli`, and `pi` installed alongside `claude`:
+
+```
+Installed harnesses:
+  - claude v1.x
+  - kimi v0.x, 0 model(s) discovered
+  - omp v16.2.6, 12 model(s) discovered
+  - pi v0.x
+
+Per-role harness assignment (Enter accepts default, 'skip' to leave unset):
+
+  [engineer]
+    1. claude
+    2. kimi
+    3. omp (suggested)
+    4. pi
+    harness [omp]:
+    models for omp: minimax/MiniMax-M3, kimi/kimi-k2.7, glm/glm-5.2, ...
+    model [harness default]: kimi/kimi-k2.7
+```
+
+Discovered models are shown for reference only - you may type any model id, or leave it empty to use the harness's session default. Type `skip` to leave a role unassigned.
+
+For non-interactive use - useful in scripts or automated onboarding - pass assignments directly (unchanged, back-compat path):
 
 ```bash
 bin/agentic-team configure \
   --non-interactive \
   --assign architect=claude:claude-opus-4-5 \
-  --assign engineer=codex:gpt-5 \
-  --assign skeptic=gemini:gemini-2.5-pro \
+  --assign engineer=omp:kimi/kimi-k2.7 \
+  --assign debugger=kimi:kimi-k2.7 \
+  --assign skeptic=pi \
   [--default-harness claude] \
   [--path .agentic/team.yml]
 ```
 
-`--assign` accepts `role=harness:model`. Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`).
+`--assign` accepts `role=harness:model` (model is optional). Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`). All 7 harnesses (`codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`) are valid `--assign` targets and all accept a `model`.
 
 Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-harness`, or `--non-interactive` used without `--assign`.
 
@@ -49,10 +75,12 @@ For machine-readable output:
 bin/agentic-team discover --json
 ```
 
-Each discovered harness reports its binary path, reachable models, and any auth errors. A harness listed as `--assign` target but absent from discovery output means it is not installed or not authenticated - resolve that before dispatching.
+Each discovered harness reports installed status, version, discovered models (best-effort - populated for `omp` and `cursor-agent`, `[]` for the rest), and invocation family. A harness listed as an `--assign` target but absent from discovery output means it is not installed - resolve that before dispatching.
 
 ## Step 3 - Dispatch a team
 
 See `content/references/cross-harness-teams.md` for the full dispatch, status-check, and collect flow.
 
-**Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/team-active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/team-active` as a hard suppression signal regardless of harness.
+**Routing enforcement (Claude Code, proactive).** On Claude Code, once `.agentic/team.yml` has `enabled: true`, the `hooks/enforce-background-spawn.py` hook proactively denies a native `Task`/`Agent` spawn for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) mapped to a non-`claude` harness - even before any dispatch has happened. The deny message gives the exact `bin/agentic-team dispatch ...` command to run instead. Set `AE_TEAM_ROUTING_DISABLE=1` to disable this check if needed.
+
+**Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/teamrun/.active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/teamrun/.active` as a hard suppression signal regardless of harness.

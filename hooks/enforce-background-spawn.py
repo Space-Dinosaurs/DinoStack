@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: PreToolUse hook that enforces two METHODOLOGY rules on Claude Code:
+Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
          (1) Background-by-default rule - denies any `Task` spawn (LEGACY tool
          name) that lacks run_in_background: true. `Agent` spawns are NOT
          background-enforced here: the Claude Code harness strips
@@ -12,7 +12,18 @@ Purpose: PreToolUse hook that enforces two METHODOLOGY rules on Claude Code:
          there is nothing to enforce; applying the check would brick every Agent
          spawn. Background enforcement therefore applies to the legacy `Task`
          tool name only.
-         (2) Cross-harness team sentinel suppression - when a DinoStack cross-
+         (2) Cross-harness team ROUTING enforcement (proactive) - when an
+         effective team.yml has `enabled: true` and the spawned subagent_type is
+         a dispatchable role (engineer/debugger/qa-engineer/skeptic/
+         security-auditor) whose resolved harness (role entry, else
+         default_harness) is anything OTHER than "claude", the native Task/Agent
+         spawn is denied with an actionable `bin/agentic-team dispatch ...`
+         instruction. This fixes the chicken-and-egg bug where team.yml was
+         silently ignored because the (2)-below sentinel-based suppression only
+         ever activates AFTER the first dispatch. Fail-open on any config load
+         error; escape hatch AE_TEAM_ROUTING_DISABLE=1 skips this branch
+         entirely.
+         (3) Cross-harness team sentinel suppression - when a DinoStack cross-
          harness team run is active (sentinel <cwd>/.agentic/teamrun/.active
          exists and is LIVE), denies Task/Agent spawns outright AND denies Skill
          calls whose skill name starts with "oh-my-claudecode:" (OMC-skill
@@ -23,16 +34,16 @@ Purpose: PreToolUse hook that enforces two METHODOLOGY rules on Claude Code:
          applies to BOTH Task and Agent tool names.
 
          NOTE - Task/Agent rename and run_in_background visibility: Claude Code
-         renamed the subagent-spawn tool from "Task" to "Agent". For sentinel
-         suppression, the hook guards on BOTH names - this is correct and
-         unchanged. For background-spawn enforcement, only `Task` is checked:
-         the harness does NOT pass run_in_background to the hook for Agent
-         spawns, so enforcing it on Agent would deny every Agent call regardless
-         of intent. The settings.json matcher is wired for both names by
-         install.sh (two PreToolUse blocks: one for "Task", one for "Agent") so
-         the hook fires under either name and applies sentinel suppression
-         correctly. Background enforcement applies to the legacy `Task` path
-         only for backward compatibility.
+         renamed the subagent-spawn tool from "Task" to "Agent". For routing
+         enforcement and sentinel suppression, the hook guards on BOTH names -
+         this is correct and unchanged. For background-spawn enforcement, only
+         `Task` is checked: the harness does NOT pass run_in_background to the
+         hook for Agent spawns, so enforcing it on Agent would deny every Agent
+         call regardless of intent. The settings.json matcher is wired for both
+         names by install.sh (two PreToolUse blocks: one for "Task", one for
+         "Agent") so the hook fires under either name and applies routing/
+         sentinel suppression correctly. Background enforcement applies to the
+         legacy `Task` path only for backward compatibility.
 
          Confirmed-supported floor: permissionDecision: "deny" output is stable
          on recent Claude Code builds. The hook fails open on parse error, so
@@ -42,8 +53,16 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task", "Agent", or
             "Skill"). Reads JSON from stdin, writes hookSpecificOutput JSON to
             stdout when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, sys, time, pathlib). No external
-               dependencies.
+Upstream deps: Python 3 stdlib (json, os, sys, time, pathlib, importlib) for
+               core enforcement. PyYAML is imported opportunistically inside
+               try/except for team.yml parsing - never a hard dependency;
+               fails open when unavailable. _known_harnesses() also has a
+               runtime soft-dependency on bin/_role_spec.py (loaded via
+               importlib.machinery.SourceFileLoader to read the canonical
+               KNOWN_HARNESSES set) - if that file is missing or fails to
+               load, _known_harnesses() falls back to an empty/minimal set
+               and the harness is simply treated as unknown, which still
+               fails safe (denies with a generic message; never crashes).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task, Agent,
                       and Skill tools). Wired via ~/.claude/settings.json by
@@ -64,24 +83,161 @@ Failure modes:
     - Foreground-exempt subagent_type (FOREGROUND_EXEMPT): allow regardless of
       run_in_background - these agents have a documented blocking-ordering
       requirement (e.g. wrap-ticket holds .agentic/wrap.lock). Exemption is
-      checked FIRST, before sentinel suppression, so an exempt agent is allowed
-      even while a team run is live.
+      checked FIRST, before routing enforcement and sentinel suppression, so an
+      exempt agent is allowed even while a team run is live/configured.
+    - Team routing: missing team.yml (global and project), unreadable file,
+      malformed YAML, PyYAML not importable, `enabled` absent/false, role not in
+      the dispatchable set, or resolved harness == "claude" -> allow (fall
+      through to sentinel suppression / background enforcement). Any exception
+      during config load or resolution -> allow (fail-open).
+    - AE_TEAM_ROUTING_DISABLE=1 -> team routing branch is skipped entirely,
+      unconditionally (env var checked before any file I/O).
     - Sentinel present but PID dead or mtime > 2 h: sentinel treated as expired;
       normal background-spawn enforcement resumes. The sentinel self-expires
       when its conductor PID is dead or its mtime exceeds 2 h; there is no
       manual clear command. Fail-open on sentinel read errors.
-    - Agent spawn (no live sentinel): always allowed (exits 0 at the enforcement
-      gate - run_in_background is not present in the real harness payload).
+    - Agent spawn (no live sentinel, no routing match): always allowed (exits 0
+      at the enforcement gate - run_in_background is not present in the real
+      harness payload).
+    - Resolved harness not in _known_harnesses() (unknown/typo'd harness in
+      team.yml, or bin/_role_spec.py failed to load): deny with a generic,
+      fully-static message that names the unknown harness but never
+      references the `model` field - no code path in the unknown-harness
+      branch interpolates untrusted team.yml text.
+    - Resolved harness known: deny message names the (allowlist-validated)
+      harness and a `bin/agentic-team dispatch` command, but the free-text
+      `model` value from team.yml is NEVER interpolated into the message -
+      not even sanitized/truncated. The suggested dispatch command uses a
+      literal `--model <model-from-team.yml>` placeholder so a malicious
+      team.yml cannot inject arbitrary text into the LLM-facing deny
+      message via the model field.
 
-Performance: < 2 ms per call (pure in-memory JSON parse + optional stat/proc
-             check, no network I/O).
+Performance: < 5 ms per call (in-memory JSON parse + optional YAML parse of two
+             small config files + optional stat/proc check, no network I/O).
 """
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
+
+# Dispatchable roles: only these are subject to team-routing enforcement.
+# Per content/references/cross-harness-teams.md, conductor, investigator,
+# architect, and orchestration-planner always stay native even if team.yml
+# maps them elsewhere (their team.yml entries are advisory only).
+_DISPATCHABLE_ROLES = frozenset({
+    "engineer", "debugger", "qa-engineer", "skeptic", "security-auditor",
+})
+
+# Mirrors KNOWN_HARNESSES in bin/_role_spec.py (single source of truth for
+# bin/agentic-team + bin/agentic-configure). _known_harnesses() below tries
+# the real module first; this is only the fail-open fallback, kept in sync
+# by hand - matches how _DISPATCHABLE_ROLES above is hand-duplicated too.
+_KNOWN_HARNESSES_FALLBACK = frozenset({
+    "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
+})
+
+
+def _known_harnesses() -> frozenset:
+    """Load the canonical KNOWN_HARNESSES from bin/_role_spec.py.
+
+    Falls back to the hand-kept mirror on any import error (missing file,
+    path layout change, etc.) - team.yml harness validation must never
+    crash the hook.
+    """
+    try:
+        import importlib.machinery as _im
+        import importlib.util as _ilu
+
+        rs_path = Path(__file__).resolve().parent.parent / "bin" / "_role_spec.py"
+        loader = _im.SourceFileLoader("_role_spec", str(rs_path))
+        spec = _ilu.spec_from_loader("_role_spec", loader)
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        loader.exec_module(mod)
+        return mod.KNOWN_HARNESSES
+    except Exception:
+        return _KNOWN_HARNESSES_FALLBACK
+
+
+def _safe_display(value, max_len: int = 40) -> str:
+    """Strip control chars and truncate untrusted display text.
+
+    *value* originates from a project-level team.yml, which a malicious PR
+    can control - it must never carry control characters (e.g. embedded
+    newlines) or unbounded length into an LLM-facing deny message.
+    """
+    if not value:
+        return ""
+    cleaned = re.sub(r"[\x00-\x1f\x7f]", "", str(value))
+    return cleaned[:max_len]
+
+_GLOBAL_TEAM_YML_REL = "~/.agentic/team.yml"
+_PROJECT_TEAM_YML_REL = ".agentic/team.yml"
+
+
+def _load_effective_team_config(cwd: str) -> dict:
+    """Load and shallow-merge global + project team.yml (project wins).
+
+    Mirrors bin/agentic-team's _load_team_config merge semantics: read global
+    then project, project overwrites per top-level key. PyYAML is imported
+    locally so a hook-context environment without it degrades to an empty
+    config (fail-open) rather than crashing. Any error anywhere (missing
+    file, unreadable, malformed YAML, import failure) is swallowed and
+    contributes nothing to the merged config - never raises.
+    """
+    try:
+        import yaml  # type: ignore
+    except Exception:
+        print(
+            "enforce-background-spawn: PyYAML unavailable, team-routing "
+            "enforcement no-op (fail-open)",
+            file=sys.stderr,
+        )
+        return {}
+
+    config: dict = {}
+    paths = [
+        Path(os.path.expanduser(_GLOBAL_TEAM_YML_REL)),
+        Path(cwd) / _PROJECT_TEAM_YML_REL,
+    ]
+    for path in paths:
+        try:
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+            parsed = yaml.safe_load(text)
+            if isinstance(parsed, dict):
+                config.update(parsed)
+        except Exception:
+            # Fail-open per-file: a broken global file must not prevent the
+            # project file from loading, and vice versa.
+            continue
+    return config
+
+
+def _resolve_role_harness(config: dict, role: str) -> tuple[str | None, str | None]:
+    """Resolve the effective harness + model for *role* from *config*.
+
+    Role entry (scalar string or {harness, model} mapping) takes precedence;
+    falls back to top-level default_harness (model is None in that case,
+    since default_harness carries no model). Returns (None, None) when
+    neither a role entry nor a default_harness is present.
+    """
+    roles = config.get("roles")
+    entry = roles.get(role) if isinstance(roles, dict) else None
+    if isinstance(entry, str) and entry:
+        return entry, None
+    if isinstance(entry, dict):
+        harness = entry.get("harness")
+        model = entry.get("model")
+        if harness:
+            return harness, model
+    default_harness = config.get("default_harness")
+    if isinstance(default_harness, str) and default_harness:
+        return default_harness, None
+    return None, None
 
 # Documented foreground-exempt agents. wrap-ticket runs foreground/blocking
 # in /implement-ticket Phase 11b: it holds .agentic/wrap.lock and MUST complete
@@ -164,6 +320,52 @@ def main() -> None:
             tinput_early = raw_tinput_early if isinstance(raw_tinput_early, dict) else {}
             if tinput_early.get("subagent_type") in FOREGROUND_EXEMPT:
                 sys.exit(0)
+
+        # ------------------------------------------------------------------ #
+        # Cross-harness team ROUTING enforcement (proactive, fixes the core  #
+        # bug: team.yml was silently ignored until the FIRST dispatch ever   #
+        # created the sentinel). Runs BEFORE sentinel suppression.          #
+        # Escape hatch: AE_TEAM_ROUTING_DISABLE=1 skips this branch          #
+        # unconditionally, before any file I/O.                              #
+        # ------------------------------------------------------------------ #
+        if tool_name in ("Task", "Agent") and os.environ.get("AE_TEAM_ROUTING_DISABLE") != "1":
+            raw_tinput_route = data.get("tool_input")
+            tinput_route = raw_tinput_route if isinstance(raw_tinput_route, dict) else {}
+            role = tinput_route.get("subagent_type")
+            if isinstance(role, str) and role in _DISPATCHABLE_ROLES:
+                cwd_route = data.get("cwd") or os.getcwd()
+                try:
+                    team_config = _load_effective_team_config(cwd_route)
+                    if team_config.get("enabled") is True:
+                        harness, model = _resolve_role_harness(team_config, role)
+                        if harness and harness != "claude":
+                            if harness not in _known_harnesses():
+                                # harness is untrusted (team.yml is project-
+                                # controlled, e.g. a malicious PR) - do not
+                                # echo it back into an LLM-facing message.
+                                _deny(
+                                    f"cross-harness team active: role '{role}' is "
+                                    "assigned to a non-claude harness in team.yml; "
+                                    "dispatch via bin/agentic-team."
+                                )
+                            else:
+                                # model is untrusted free text from team.yml
+                                # (project-controlled, e.g. a malicious PR) -
+                                # never interpolate it into an LLM-facing
+                                # message. Reference team.yml generically
+                                # instead; harness is allowlist-validated
+                                # above so it may stay verbatim.
+                                _deny(
+                                    f"cross-harness team active: role '{role}' is assigned to "
+                                    f"harness '{harness}'. Dispatch with: "
+                                    f"bin/agentic-team dispatch --harness {harness} --role {role} "
+                                    "--brief <file> --workdir <dir> --model <model-from-team.yml> "
+                                    "- then poll status/collect."
+                                )
+                except Exception:
+                    # Fail-open: any config-load/resolution error allows the
+                    # native spawn through unchanged.
+                    pass
 
         # ------------------------------------------------------------------ #
         # Cross-harness sentinel suppression                                 #
