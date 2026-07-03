@@ -176,6 +176,14 @@ not a filesystem confinement boundary. Operators must still pass a
 genuinely disposable `--workdir` for copilot dispatches and treat the brief
 as untrusted input, since the flag itself enforces nothing.
 
+**Operator opt-in gate.** Because this is the only harness that trades away
+worktree isolation, `_cmd_dispatch` refuses to launch a copilot worker unless
+the operator sets `AGENTIC_TEAM_ALLOW_COPILOT=1`. Merely listing `copilot` in
+`team.yml` is not enough -- dispatch fails fast (exit 2, before any run
+directory is created) with a message naming the env var. This makes the
+`--allow-all-paths` trade-off an explicit, auditable consent rather than an
+implicit side effect of configuration.
+
 **Binary-name map (discovery uses this, not the harness label):**
 
 | Harness label | Binary name |

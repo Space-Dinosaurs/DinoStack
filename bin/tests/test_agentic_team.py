@@ -891,6 +891,7 @@ def _dispatch_via_subprocess(
     brief_file: Path,
     harness: str = "codex",
     role: str = "engineer",
+    extra_env: dict | None = None,
 ) -> tuple[int, str]:
     """Run dispatch as a subprocess with fake_bin_dir prepended to PATH.
 
@@ -899,6 +900,8 @@ def _dispatch_via_subprocess(
     import sys as _sys
     env_patch = dict(_os.environ)
     env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    if extra_env:
+        env_patch.update(extra_env)
     agentic_team_path = str(_BIN / "agentic-team")
     result = _subprocess_mod.run(
         [_sys.executable, agentic_team_path,
@@ -1713,3 +1716,92 @@ def test_configure_interactive_claude_only_exits_cleanly(tmp_path, monkeypatch, 
     assert target.is_file()
     out = capsys.readouterr().out
     assert "nothing to cross-dispatch to" in out
+
+
+# ---------------------------------------------------------------------------
+# Round-5 review: copilot opt-in gate + e2e opencode dispatch + exit-code-
+# independent raw fallback.
+# ---------------------------------------------------------------------------
+
+def test_dispatch_copilot_rejected_without_opt_in(tmp_path):
+    """copilot dispatch fails fast (exit 2) unless AGENTIC_TEAM_ALLOW_COPILOT=1.
+
+    --allow-all-paths + full-env inheritance defeats worktree isolation, so
+    copilot requires explicit operator consent, not just team.yml presence.
+    """
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+    fake_bin_dir = _make_fake_exec(tmp_path, "copilot", "hi")
+    brief_file = _make_brief_file(tmp_path)
+
+    # Ensure the opt-in is NOT set for this run.
+    rc, out = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file,
+        harness="copilot",
+        extra_env={"AGENTIC_TEAM_ALLOW_COPILOT": ""},
+    )
+    assert rc == 2, f"copilot must be rejected without opt-in, got rc={rc}"
+    assert "AGENTIC_TEAM_ALLOW_COPILOT" in out
+    # Fail-fast BEFORE any filesystem side effect: no teamrun tree created.
+    assert not (workdir / ".agentic" / "teamrun").exists(), (
+        "no run dir may be created when copilot is rejected"
+    )
+
+
+def test_dispatch_copilot_allowed_with_opt_in(tmp_path):
+    """AGENTIC_TEAM_ALLOW_COPILOT=1 lets copilot dispatch through to spawn."""
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+    fake_bin_dir = _make_fake_exec(tmp_path, "copilot", "raw copilot ok")
+    brief_file = _make_brief_file(tmp_path)
+
+    rc, run_id = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file,
+        harness="copilot",
+        extra_env={"AGENTIC_TEAM_ALLOW_COPILOT": "1"},
+    )
+    assert rc == 0, f"copilot dispatch must succeed with opt-in, got: {run_id}"
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    _wait_for_exit_file(run_dir, timeout=5.0)
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
+
+
+def test_dispatch_opencode_end_to_end(tmp_path):
+    """e2e: opencode dispatch -> detached worker -> reaper -> collect raw stdout.
+
+    Regression guard for the headless-hang fix: the fake opencode binary must
+    exit cleanly (it would hang if a real permission prompt blocked, which
+    --dangerously-skip-permissions suppresses).
+    """
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+    fake_bin_dir = _make_fake_exec(tmp_path, "opencode", "Raw opencode e2e output")
+    brief_file = _make_brief_file(tmp_path)
+
+    rc, run_id = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file, harness="opencode",
+    )
+    assert rc == 0, f"opencode dispatch failed: {run_id}"
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    _wait_for_exit_file(run_dir, timeout=5.0)
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
+    result = _collect_output(run_dir, "opencode")
+    assert "Raw opencode e2e output" in result
+
+
+def test_collect_raw_fallback_is_exit_code_independent(tmp_path):
+    """raw-stdout passthrough returns stdout regardless of exit code.
+
+    opencode/copilot have no JSON schema; collect must surface stdout even on
+    a non-zero exit so a failing worker's output is not silently dropped.
+    """
+    for i, harness in enumerate(("opencode", "copilot")):
+        run_dir = tmp_path / f"rawrun{i}"
+        run_dir.mkdir()
+        (run_dir / "harness").write_text(harness + "\n", encoding="utf-8")
+        (run_dir / "exit").write_text("3\n", encoding="utf-8")
+        (run_dir / "stdout").write_text(f"partial {harness} output\n", encoding="utf-8")
+        result = _collect_output(run_dir, harness)
+        assert f"partial {harness} output" in result, (
+            f"{harness} raw stdout must be returned even on non-zero exit"
+        )

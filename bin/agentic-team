@@ -1043,6 +1043,26 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # copilot is the only harness that requires --allow-all-tools
+    # --allow-all-paths for non-interactive dispatch (see _build_worker_argv
+    # and the RISK-ACCEPTED note in cross-harness-teams.md). --allow-all-paths
+    # grants unrestricted filesystem access and the worker inherits the full
+    # parent environment, so a copilot worker driven by untrusted brief text
+    # can read absolute paths (~/.ssh, ~/.aws/credentials) outside its
+    # workdir, defeating the worktree-isolation guarantee every other harness
+    # provides. Require explicit operator opt-in so this tradeoff is a
+    # deliberate consent, not an implicit side effect of team.yml presence.
+    if harness == "copilot" and os.environ.get("AGENTIC_TEAM_ALLOW_COPILOT") != "1":
+        print(
+            "agentic-team dispatch: copilot requires explicit operator opt-in. "
+            "It runs with --allow-all-tools --allow-all-paths (unrestricted "
+            "filesystem access) and inherits the full parent environment, which "
+            "defeats the worktree isolation other harnesses rely on. Set "
+            "AGENTIC_TEAM_ALLOW_COPILOT=1 to acknowledge and enable it.",
+            file=sys.stderr,
+        )
+        return 2
+
     if not brief_file.is_file():
         print(f"agentic-team dispatch: brief file not found: {brief_file}", file=sys.stderr)
         return 2

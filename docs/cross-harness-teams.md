@@ -227,6 +227,13 @@ a throwaway tree; it is not a filesystem confinement boundary. Operators
 must still pass a genuinely disposable `--workdir` for copilot dispatches
 and treat the brief as untrusted input.
 
+**Operator opt-in gate.** copilot is the only harness that trades away
+worktree isolation, so `_cmd_dispatch` refuses to launch a copilot worker
+unless `AGENTIC_TEAM_ALLOW_COPILOT=1` is set. Listing `copilot` in `team.yml`
+is not enough -- dispatch fails fast (exit 2, before any run directory is
+created) with a message naming the env var, making the trade-off an explicit,
+auditable consent.
+
 **Binary-name map** (the only hardcoded per-harness fact in the repo):
 
 | Harness label | Binary name |
