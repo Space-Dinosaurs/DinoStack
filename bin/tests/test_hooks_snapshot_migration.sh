@@ -58,7 +58,8 @@ _run_install() {
     # test itself runs from inside a git worktree (`.git` is a file, not a
     # directory), .claude/install.sh's UNRELATED "Installing pre-commit
     # hook" step (ln -s ... "$REPO_DIR/.git/hooks/pre-commit") fails with
-    # "Not a directory". This reproduces identically on a pre-DS-54 checkout
+    # "Not a directory" in a linked worktree or "Operation not permitted" in a
+    # restricted sandbox. This reproduces identically on a pre-DS-54 checkout
     # (verified via `git stash` during authoring) - it is not introduced or
     # fixable by this change. It always fires AFTER the settings.json
     # hook-wiring step this test actually asserts on, so treat it as a
@@ -66,7 +67,7 @@ _run_install() {
     # the config content the run already wrote before hitting it. Any OTHER
     # non-zero exit still fails the test.
     if grep -q "Installing pre-commit hook" "$fake_home/.install_out" 2>/dev/null && \
-       tail -n 5 "$fake_home/.install_out" | grep -q "\.git/hooks/pre-commit: Not a directory"; then
+       tail -n 5 "$fake_home/.install_out" | grep -Eq "\.git/hooks/pre-commit: (Not a directory|Operation not permitted)"; then
       echo "  [warn] $install_sh exited $rc at the known worktree-only pre-commit-hook step (unrelated to DS-54, pre-existing) - tolerated" >&2
       return 0
     fi
@@ -155,6 +156,64 @@ if [[ "$SETTINGS_CLAUDE_1" == "$SETTINGS_CLAUDE_2" ]]; then
   _pass "claude: settings.json unchanged across a re-run (idempotent)"
 else
   _fail "claude: settings.json changed on re-run (not idempotent)"
+fi
+
+HOME_CLAUDE_UNINSTALL="$TMP_ROOT/home-claude-uninstall"
+mkdir -p "$HOME_CLAUDE_UNINSTALL/.claude"
+
+cat > "$HOME_CLAUDE_UNINSTALL/.claude/settings.json" <<'EOF'
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"matcher": "*", "hooks": [
+        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If agentic-engineering is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'", "timeout": 5},
+        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If agentic-engineering is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. When in doubt, classify Elevated.'", "timeout": 5},
+        {"type": "command", "command": "python3 /opt/security/prompt-scan.py", "timeout": 10}
+      ]}
+    ]
+  }
+}
+EOF
+
+if HOME="$HOME_CLAUDE_UNINSTALL" bash "$REPO_DIR/.claude/uninstall.sh" > "$HOME_CLAUDE_UNINSTALL/.uninstall_out" 2>&1; then
+  _pass "claude: uninstall.sh run succeeds"
+else
+  _fail "claude: uninstall.sh exited non-zero"
+  cat "$HOME_CLAUDE_UNINSTALL/.uninstall_out" >&2
+fi
+
+CLAUDE_RISK_COUNT_AFTER_UNINSTALL="$(python3 -c "
+import json
+with open('$HOME_CLAUDE_UNINSTALL/.claude/settings.json') as f:
+    d = json.load(f)
+count = 0
+for block in d.get('hooks', {}).get('UserPromptSubmit', []):
+    for h in block.get('hooks', []):
+        if h.get('command', '').startswith('echo \\'BEFORE ANY ACTION: classify risk first.'):
+            count += 1
+print(count)
+")"
+
+if [[ "$CLAUDE_RISK_COUNT_AFTER_UNINSTALL" == "0" ]]; then
+  _pass "claude: uninstall removes current and migrated risk reminder commands"
+else
+  _fail "claude: uninstall left $CLAUDE_RISK_COUNT_AFTER_UNINSTALL risk reminder command(s)"
+fi
+
+CLAUDE_THIRD_PARTY_AFTER_UNINSTALL="$(python3 -c "
+import json
+with open('$HOME_CLAUDE_UNINSTALL/.claude/settings.json') as f:
+    d = json.load(f)
+for block in d.get('hooks', {}).get('UserPromptSubmit', []):
+    for h in block.get('hooks', []):
+        if h.get('command') == 'python3 /opt/security/prompt-scan.py':
+            print(h['command'])
+")"
+
+if [[ "$CLAUDE_THIRD_PARTY_AFTER_UNINSTALL" == "python3 /opt/security/prompt-scan.py" ]]; then
+  _pass "claude: uninstall preserves unrelated UserPromptSubmit hooks"
+else
+  _fail "claude: uninstall removed or altered unrelated UserPromptSubmit hook"
 fi
 
 # =============================================================

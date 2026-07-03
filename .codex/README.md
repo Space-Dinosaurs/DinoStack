@@ -25,6 +25,8 @@ This:
 5. Symlinks a snapshot-backed `.codex/config/hooks.json` to `~/.codex/hooks.json` (lifecycle hooks for risk reminder, skill auto-load, and context save without project-local auto-loading)
 6. Adds `codex_hooks = true` under `[features]` in `~/.codex/config.toml` if not already present (required to activate hooks)
 
+For sandbox, approval, model, provider, and MCP settings, Codex supports both user-level `~/.codex/config.toml` and trusted project-level `.codex/config.toml` files. DinoStack's installer only manages the user-level hook flag; see `docs/codex-permissions.md` for the recommended trusted-work posture and when to scope it to a project.
+
 If `~/.codex/AGENTS.md` already exists and is not a symlink, the installer backs it up to `~/.codex/AGENTS.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning. The uninstaller restores the most recent backup if one exists.
 Existing installs that still point `~/.codex/hooks.json` at the legacy `.codex/hooks.json` source are migrated automatically on reinstall.
 
@@ -175,7 +177,7 @@ bash .codex/install.sh
 
 | Feature | Claude Code | Codex |
 |---|---|---|
-| Risk reminder | Fires automatically via `UserPromptSubmit` hook before every prompt | Supported via hooks (requires `codex_hooks = true` in config.toml, added by installer). Fires as developer context injection before each prompt. |
+| Risk reminder | Fires automatically via `UserPromptSubmit` hook before every prompt | Supported via hooks (requires `codex_hooks = true` in user config, added by installer). Fires as developer context injection before each prompt. |
 | Session context save | Fires automatically via `Stop` hook on session end | Supported via hooks (thin port - captures last assistant message only). For richer context, use the `wrap` template from `.codex/commands/`. Writes to `~/.codex/projects/[hash]/context.md`. |
 | Slash commands | First-class slash commands (`/skeptic`, `/wrap`, etc.) | Built-in slash commands exist, but this adapter does not install user slash commands. Workflow templates live in `.codex/commands/` and are used manually. |
 | Named agents | `~/.claude/agents/*.md` loaded automatically | Supported. `~/.codex/agents/*.toml` files loaded by Codex. The installer symlinks `~/.codex/agents/` to `.codex/agents/` (generated from `content/agents/*.md`). |

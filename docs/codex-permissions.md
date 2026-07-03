@@ -7,7 +7,11 @@ sandbox_mode = "danger-full-access"
 approval_policy = "never"
 ```
 
-These are top-level keys in `~/.codex/config.toml`.
+These are top-level keys in Codex config. Put them in `~/.codex/config.toml` when you want the trusted-work posture as your personal default, or in a trusted project's `.codex/config.toml` when you want the posture scoped to that repo or subfolder.
+
+Codex resolves config in layers. CLI flags and `--config` overrides win first; trusted project `.codex/config.toml` files win over profile files and the user-level `~/.codex/config.toml`; system config and built-in defaults are lower precedence. If a project is marked untrusted, Codex skips project-scoped `.codex/` layers, including project-local config, hooks, and rules.
+
+The DinoStack Codex installer only manages user-level adapter wiring: global AGENTS.md, named agents, hooks, and `codex_hooks = true` under `[features]` in `~/.codex/config.toml`. It does not write project-level `.codex/config.toml`; add that file yourself when a single repo needs different sandbox, approval, model, provider, or MCP settings.
 
 This posture is intentionally high-trust. It lets Codex run commands, edit files, create worktrees, run checks, and operate the named engineer/Skeptic workflow without permission prompts that stall background work. It is appropriate when you are working in a trusted repository on a machine where you are comfortable letting Codex act with your user permissions.
 

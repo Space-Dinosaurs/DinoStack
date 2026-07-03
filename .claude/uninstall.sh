@@ -154,7 +154,8 @@ RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
     "If agentic-engineering is active in this project, the main session is the conductor. "
     "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
-    "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
+    "Direct action ONLY for: reads, answering from memory, screenshots, "
+    "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
     "When in doubt, classify Elevated.'"
 )
 OLD_RISK_CMDS = {
@@ -163,6 +164,27 @@ OLD_RISK_CMDS = {
         "Elevated = spawn Worker + Skeptic in background. "
         "Direct action ONLY for: reads, answering from memory, screenshots, "
         "synthesizing subagent results, diagnostic-only logging. "
+        "When in doubt, classify Elevated.'"
+    ),
+    (
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "Elevated = spawn Worker + Skeptic in background. "
+        "Direct action ONLY for: reads, answering from memory, screenshots, "
+        "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
+        "When in doubt, classify Elevated.'"
+    ),
+    (
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "If agentic-engineering is active in this project, the main session is the conductor. "
+        "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
+        "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
+        "When in doubt, classify Elevated.'"
+    ),
+    (
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "If agentic-engineering is active in this project, the main session is the conductor. "
+        "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
+        "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
         "When in doubt, classify Elevated.'"
     )
 }

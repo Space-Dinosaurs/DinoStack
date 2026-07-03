@@ -1,4 +1,23 @@
 #!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Purpose: Uninstalls the DinoStack Codex adapter by removing only symlinks,
+#          hook config, flags, and legacy prompt links that point back to this
+#          checkout, while restoring user backups where the installer made one.
+#
+# Public API:
+#   bash .codex/uninstall.sh
+#
+# Upstream deps: bash 3.2+, python3, readlink, rm, rmdir, mktemp; optionally
+#   scripts/lib/hooks-snapshot.sh for snapshot-aware hook cleanup.
+#
+# Downstream consumers: developers removing or refreshing the Codex adapter.
+#
+# Failure modes: skips real user files and symlinks not owned by this checkout;
+#   missing marker files prevent automatic config flag removal; backup restore
+#   uses the newest matching backup if present.
+#
+# Performance: local filesystem operations only; normally completes in <1 s.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

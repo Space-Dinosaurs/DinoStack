@@ -2179,7 +2179,7 @@
   </div>
 
   <div class="note" style="margin-top: 16px;">
-    <strong>Codex trusted-work config:</strong> for trusted DinoStack work, use top-level <code>sandbox_mode = "danger-full-access"</code> and <code>approval_policy = "never"</code> in <code>~/.codex/config.toml</code>, then verify with <code>codex --strict-config doctor</code>. Use stricter sandboxing and approvals for untrusted repositories or prompts. Full guidance: <a href="codex-permissions.md" style="color: var(--cyan);">codex-permissions.md</a>.
+    <strong>Codex trusted-work config:</strong> for trusted DinoStack work, use top-level <code>sandbox_mode = "danger-full-access"</code> and <code>approval_policy = "never"</code> in user-level <code>~/.codex/config.toml</code> or a trusted project's <code>.codex/config.toml</code>, then verify with <code>codex --strict-config doctor</code>. Use stricter sandboxing and approvals for untrusted repositories or prompts. Full guidance: <a href="codex-permissions.md" style="color: var(--cyan);">codex-permissions.md</a>.
   </div>
 </div>
 
@@ -2497,14 +2497,14 @@
         <tr><td><strong>Skill location</strong></td><td><code>~/.agents/skills/agentic-engineering/SKILL.md</code></td></tr>
         <tr><td><strong>Slash commands</strong></td><td>Not first-class. Command files live in <code>.codex/commands/*.md</code> but must be pasted or referenced manually - no auto-invocation via <code>/wrap</code> etc.</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.codex/agents/*.toml</code> - TOML format (different from Claude Code's prompt-based spawn)</td></tr>
-        <tr><td><strong>Hooks</strong></td><td><code>~/.codex/hooks.json</code> - requires <code>codex_hooks = true</code> in <code>~/.codex/config.toml</code> to enable</td></tr>
+        <tr><td><strong>Hooks</strong></td><td><code>~/.codex/hooks.json</code> - requires <code>codex_hooks = true</code> in user config to enable the installer-managed hooks</td></tr>
         <tr><td><strong>Stop hook / context save</strong></td><td><code>stop-context-codex.js</code> writes to <code>~/.codex/projects/[hash]/context.md</code></td></tr>
         <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
         <tr><td><strong>Tier resolution</strong></td><td><code>~/.agentic/tier-map.yml</code> - no built-in Haiku/Sonnet/Opus enum; models resolved from the map</td></tr>
       </tbody>
     </table>
     <div class="note" style="margin-top: 12px; border-left-color: var(--cyan);">
-      <strong>What's different:</strong> Slash commands (<code>/wrap</code>, <code>/init-project</code>, etc.) do not auto-trigger. Reference the command files manually or paste their contents. The hook system is off by default - set <code>codex_hooks = true</code> before expecting Stop-hook context saves.
+      <strong>What's different:</strong> Slash commands (<code>/wrap</code>, <code>/init-project</code>, etc.) do not auto-trigger. Reference the command files manually or paste their contents. The hook system is off by default - set <code>codex_hooks = true</code> in user config before expecting installer-managed Stop-hook context saves.
     </div>
   </div>
 
