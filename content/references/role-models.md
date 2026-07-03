@@ -57,6 +57,9 @@ roles:
 
 reviewers:
   strategy: distinct-from-author   # distinct-from-author | round-robin | by-task
+  by_role:                         # per-authored-role reviewer (wins first)
+    engineer: cx/gpt-5.5
+    architect: cc/claude-opus-4-8
   pool:
     - gpt-5
     - model: glm-4.6
@@ -82,6 +85,7 @@ Supported role keys are exactly: `conductor`, `investigator`, `architect`, `orch
 
 - `strategy:` enum, exactly one of `distinct-from-author`, `round-robin`, or `by-task`. Default when `reviewers:` exists but `strategy:` is absent: `distinct-from-author`.
 - `pool:` ordered list of role-specs (scalar or mapping) the reviewer may use. Required when `strategy` is `distinct-from-author` or `round-robin`. The author-model check compares only the resolved `model` string from each pool entry.
+- `by_role:` map of `<authored-role>: <role-spec>`, optional. Chooses the reviewer model per authored role (e.g. the reviewer for `engineer`-authored code vs `architect`-authored design). Checked FIRST, before `by_task`/`pool`. A `by_role` entry equal to the author model is skipped (distinct-from-author still holds), falling through to the next source.
 - `by_task:` map of `<task-kind>: <role-spec>`, required only when `strategy: by-task`. Task kinds are `security`, `architecture`, `correctness`, and `default`. `default` is the fallback when no specific kind matches.
 - `fallback:` single role-spec used when the strategy cannot pick, such as `distinct-from-author` with the only pool model equal to the author model. Optional; if absent and the strategy cannot pick, the conductor omits `model` and notes the fallback inline.
 

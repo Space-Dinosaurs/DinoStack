@@ -40,6 +40,7 @@ _mod = importlib.util.module_from_spec(_spec)
 _loader.exec_module(_mod)
 
 normalize_role_spec = _mod.normalize_role_spec
+resolve_reviewer_model = _mod.resolve_reviewer_model
 KNOWN_HARNESSES = _mod.KNOWN_HARNESSES
 KNOWN_ROLES = _mod.KNOWN_ROLES
 
@@ -194,3 +195,52 @@ def test_known_roles_exact_members():
 
 def test_known_roles_count():
     assert len(KNOWN_ROLES) == 9
+
+
+# ---------------------------------------------------------------------------
+# D-3: per-role reviewer models (resolve_reviewer_model).
+# ---------------------------------------------------------------------------
+
+def test_reviewer_by_role_hit():
+    rev = {"by_role": {"engineer": "cx/gpt-5.5"}, "pool": ["glm/glm-5.2"]}
+    assert resolve_reviewer_model("engineer", "kimi/kimi-k2.7", rev) == "cx/gpt-5.5"
+
+
+def test_reviewer_by_role_miss_falls_to_pool():
+    rev = {"by_role": {"architect": "cc/claude-opus-4-8"},
+           "pool": ["glm/glm-5.2", "cx/gpt-5.5"]}
+    # engineer not in by_role -> first distinct pool entry
+    assert resolve_reviewer_model("engineer", "kimi/kimi-k2.7", rev) == "glm/glm-5.2"
+
+
+def test_reviewer_by_role_equal_author_falls_through():
+    # by_role picks the author's own model -> must skip to pool
+    rev = {"by_role": {"engineer": "kimi/kimi-k2.7"},
+           "pool": ["kimi/kimi-k2.7", "cx/gpt-5.5"]}
+    assert resolve_reviewer_model("engineer", "kimi/kimi-k2.7", rev) == "cx/gpt-5.5"
+
+
+def test_reviewer_by_role_mapping_form():
+    rev = {"by_role": {"engineer": {"model": "cx/gpt-5.5", "effort": "high"}}}
+    assert resolve_reviewer_model("engineer", "kimi/kimi-k2.7", rev) == "cx/gpt-5.5"
+
+
+def test_reviewer_by_task_after_by_role_miss():
+    rev = {"by_role": {"architect": "x"},
+           "by_task": {"security": "cc/claude-opus-4-8", "default": "glm/glm-5.2"}}
+    assert resolve_reviewer_model("engineer", "kimi", rev, task_kind="security")         == "cc/claude-opus-4-8"
+    # unknown task_kind -> by_task default
+    assert resolve_reviewer_model("engineer", "kimi", rev, task_kind="perf")         == "glm/glm-5.2"
+
+
+def test_reviewer_pool_then_fallback():
+    rev = {"pool": ["kimi"], "fallback": "cx/gpt-5.5"}
+    # only pool entry equals author -> fallback
+    assert resolve_reviewer_model("engineer", "kimi", rev) == "cx/gpt-5.5"
+
+
+def test_reviewer_absent_config_returns_none():
+    assert resolve_reviewer_model("engineer", "kimi", None) is None
+    assert resolve_reviewer_model("engineer", "kimi", {}) is None
+    # no source yields a distinct model
+    assert resolve_reviewer_model("engineer", "kimi", {"pool": ["kimi"]}) is None
