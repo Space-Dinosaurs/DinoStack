@@ -2,12 +2,14 @@
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
          sixteen-toggle project config catalog (behavioral toggles only);
-         the Graph-derived risk signal mechanism + freshness + autonomous
-         refresh; and the full Tier declaration detail including role-default
-         tier table, model-param mapping, mandatory Tier-3 escalation (with
-         enforce-tier.py hook note), frontmatter defaults, enforcement, and
-         adapter-specific routing (Codex/Gemini, Pi/oh-my-pi, cross-harness
-         teams).
+         the Trivial Worked Examples (canonical + NOT-Trivial-even-if-it-
+         feels-small counter-examples, relocated verbatim from the Trivial
+         signals paragraph); the Graph-derived risk signal mechanism +
+         freshness + autonomous refresh; and the full Tier declaration
+         detail including role-default tier table, model-param mapping,
+         mandatory Tier-3 escalation (with enforce-tier.py hook note),
+         frontmatter defaults, enforcement, and adapter-specific routing
+         (Codex/Gemini, Pi/oh-my-pi, cross-harness teams).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/04-risk-classification.md (inline pointers
@@ -80,6 +82,10 @@ Symbol matching is best-effort and bare-name-based (the report uses bare labels 
 **Format coupling.** The pinned strings above are the graphify v8 report format. A future graphify heading change fails safe (no heading match means an empty match set and no escalation); if graphify changes the format, these strings need a follow-up sync.
 
 **GRAPHIFY_OUT.** The conductor reads the repo-root `GRAPH_REPORT.md` and, when refreshing, honors `GRAPHIFY_OUT` to locate the graph directory. A report relocated via `GRAPHIFY_OUT` is treated as "no report present" at the repo root - the signal does not fire and behavior is unchanged. Projects wanting the signal keep the report at the repo root.
+
+## Trivial Worked Examples
+
+Canonical Trivial examples: a hardcoded color, padding, font-size, or spacing value in one component; user-visible copy, button label, heading, or alt text; moving or reordering elements within a single template or component; a typo fix in code, comment, or doc; Tailwind class tweaks on one element. NOT Trivial even if it feels small: edits to `tailwind.config.*`, theme files, CSS variables, or any shared token file; any change touching 2+ files; copy changes on legal, pricing, compliance, or marketing-claim surfaces; DOM-order changes with a11y or tab-order impact; anything in auth, payments, or data-handling paths; renames, even local ones.
 
 ## Tier Declaration Detail
 
