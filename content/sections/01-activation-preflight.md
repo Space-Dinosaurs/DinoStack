@@ -6,21 +6,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
    Also read the **effective identity** for this session. Check `<cwd>/.agentic/identity.yml` first, then fall back to `~/.agentic/identity.yml`. Use the first file that exists, resolving by the 4-tier confirmation ordering: project-confirmed > global-confirmed > project-provisional > global-provisional > none. In practice this is a two-file read: if the project file exists and is confirmed (no `provisional: true`), use it. If the project file is provisional, also read the global file; if the global is confirmed, prefer the global. Otherwise use the project file. Record `developer_id` and `provisional` from whichever file wins. Absent file or absent `provisional` field = confirmed identity (Python `.get('provisional', False)`; JS `provisional === true`). **This is a read-only field parse - no prompt, no shell-out, no LLM reasoning. The "fast, silent" preflight invariant is preserved.** When `provisional: true` is recorded on the effective identity, the conductor surfaces a non-blocking confirmation notice at its first user-facing turn (see §Session Context and Memory in `content/rules/conventions.md`).
 
-   **Deprecated legacy preset (read-only compat).** Older configs may still carry a session-wide `preset` field (`lean` | `standard` | `strict`) at either scope. It is a read-only fallback used ONLY when `profile` is genuinely ABSENT at that scope - check key presence, not truthiness. An invalid `profile` value is treated identically to absent for this purpose (a valid legacy `preset` may then apply); if nothing validates anywhere, terminate at `default`.
-
-   Legacy preset table:
-
-   | Preset    | Resolves to profile |
-   |-----------|---------------------|
-   | lean      | relaxed             |
-   | standard  | default             |
-   | strict    | strict              |
-
-   Precedence chain (replaces the old "preset wins on collision" rule): project `profile` > project `preset` (legacy, only if project profile absent) > global `profile` > global `preset` (legacy, only if global profile absent) > hardcoded `"default"`.
-
-   Presence of a legacy `preset` key at either scope fires a deprecation notice regardless of whether it wins resolution (see §Session Context and Memory in `content/rules/conventions.md` for the two notice templates).
-
-   Note: this deprecated session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below - that mechanism is unaffected by this deprecation. The session-wide preset was a legacy tone-setting alias; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
+   **Deprecated legacy preset (read-only compat).** Older configs may carry a session-wide `preset` (lean/standard/strict). It is a fallback used ONLY when `profile` is absent at that scope (lean->relaxed, standard->default, strict->strict); precedence: project profile > project preset > global profile > global preset > default. Presence of a preset key fires a deprecation notice. Full table, edge rules, and notice templates: `references/activation-detail.md` §Deprecated Legacy Preset.
 2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
 3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
    - `agentic-engineering: opt-in`
