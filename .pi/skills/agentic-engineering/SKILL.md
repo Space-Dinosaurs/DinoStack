@@ -63,14 +63,47 @@ Run `/agentic-help` for the full command inventory.
   wizard, harness-native, pin-by-hand) and the per-role ranking heuristics in
   `bin/agentic-models`; read when seeding `role-models.yml`.
 
-- **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema for
-  orchestrating parallel agent teams across multiple AI harnesses; read when using
-  `agentic-team` or configuring cross-harness dispatch with `team.yml`.
+- **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema, including
+  the discover -> dispatch -> status -> collect Conductor Dispatch Contract, for orchestrating
+  parallel agent teams across multiple AI harnesses; read when using `agentic-team` or
+  configuring cross-harness dispatch with `team.yml`.
 
 - **references/digest-return-pattern.md** - digest-return discipline: when a background
   loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns, the conductor
   reads the structured digest and acts - it does not re-read the internal transcript; read
   when running a multi-unit plan with parallel background loops.
+
+- **references/delegation-detail.md** - Worker Autonomy Contract, Stop-Frequency planning
+  signal, Investigator-Before-Architect Rules, Learnings Pipeline, and the delegation-
+  enforcement mechanics (background-spawn, ticket-offer gate, proactive autonomy, anti-
+  patterns, hard-stop vs choosing, AskUserQuestion precondition, evidence verification,
+  orchestration hooks/fan-out); read when spawning or reviewing Worker autonomy edge cases.
+
+- **references/planning-artifacts.md** - Brief/Plan/ADR tier templates, the promotion
+  ordering rationale and full authoring sequence, product-intent layer, and the canonical
+  `qa_default_skip` definition; read when authoring or promoting a Brief or Plan.
+
+- **references/qa-gate.md** - concurrent and post-sign-off QA gate flows, the full
+  INCONCLUSIVE classification rationale, parallel-by-worktree fan-out, and the dev-server
+  boot pattern; read when running the QA gate on a UI-visible change.
+
+- **references/conventions-detail.md** - the Intent Layer, Project Config toggle catalog,
+  Context Economy, External Comment Discipline, and the four session-start notice templates
+  (meta-divergence, skill-candidate, identity, deprecated-preset); read when resolving
+  session-context or notice-format questions.
+
+- **references/code-standards-detail.md** - per-language strict-default lint/typecheck
+  configs, browser verification, the tool-selection hierarchy, and context-window
+  management via `ctx_*` tools; read when implementing in a specific language or choosing
+  between raw Bash and context-mode tools.
+
+- **references/activation-detail.md** - First-Activation Notice and Scaffolding-Sync Check
+  procedures plus the deprecated legacy-preset table and resolution rules; read on the
+  activation preflight Step 4 proceed branch or when resolving a legacy `preset` key.
+
+- **references/worktree-lifecycle.md** - subagent worktree create/remove commands, isolation
+  and feature worktree cleanup, the session-start prune script, and branch-prune command
+  blocks; read when managing worktree lifecycle.
 
 ## Rules (read on trigger)
 

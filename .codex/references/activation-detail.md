@@ -1,10 +1,11 @@
 <!--
 Purpose: Detailed activation-preflight reference blocks extracted from
-         content/sections/01-activation-preflight.md. Contains: Step 5
-         (first-activation notice - TTY/QUIET gate, sentinel write contract,
-         sentinel body, notice text verbatim) and Step 6 (scaffolding-sync
-         check - agentic-migrate check/apply flow, gitignore patterns,
-         AGENTS.md carve-out).
+         content/sections/01-activation-preflight.md. Contains: Deprecated
+         Legacy Preset (legacy preset table, precedence chain, deprecation-
+         notice-firing rule), Step 5 (first-activation notice - TTY/QUIET
+         gate, sentinel write contract, sentinel body, notice text verbatim)
+         and Step 6 (scaffolding-sync check - agentic-migrate check/apply
+         flow, gitignore patterns, AGENTS.md carve-out).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/01-activation-preflight.md (inline pointers
@@ -30,6 +31,24 @@ Performance: Standard (single file write + optional binary shell-out).
 -->
 
 > Parent section: `content/sections/01-activation-preflight.md`. Read Steps 1-4 and Step 7 there for the activation decision and no-op path.
+
+## Deprecated Legacy Preset
+
+**Deprecated legacy preset (read-only compat).** Older configs may still carry a session-wide `preset` field (`lean` | `standard` | `strict`) at either scope. It is a read-only fallback used ONLY when `profile` is genuinely ABSENT at that scope - check key presence, not truthiness. An invalid `profile` value is treated identically to absent for this purpose (a valid legacy `preset` may then apply); if nothing validates anywhere, terminate at `default`.
+
+Legacy preset table:
+
+| Preset    | Resolves to profile |
+|-----------|---------------------|
+| lean      | relaxed             |
+| standard  | default             |
+| strict    | strict              |
+
+Precedence chain (replaces the old "preset wins on collision" rule): project `profile` > project `preset` (legacy, only if project profile absent) > global `profile` > global `preset` (legacy, only if global profile absent) > hardcoded `"default"`.
+
+Presence of a legacy `preset` key at either scope fires a deprecation notice regardless of whether it wins resolution (see §Session Context and Memory in `content/rules/conventions.md` for the two notice templates).
+
+Note: this deprecated session-wide `preset` field is distinct from the per-spawn `Preset:` declaration introduced in the Tier declaration section below - that mechanism is unaffected by this deprecation. The session-wide preset was a legacy tone-setting alias; the per-spawn preset is a capability bundle. Both terms use "preset" intentionally - context disambiguates.
 
 ## Step 5: First-Activation Notice
 

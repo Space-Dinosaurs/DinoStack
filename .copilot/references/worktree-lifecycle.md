@@ -1,8 +1,10 @@
 <!--
 Purpose: Full reference for worktree and branch lifecycle command blocks
-         extracted from METHODOLOGY.md §Worktree Lifecycle. Contains the
-         isolation worktree cleanup commands, feature worktree cleanup commands,
-         the session-start prune script, and the local-branch prune block.
+         extracted from METHODOLOGY.md §Worktree Lifecycle and from
+         content/rules/conventions.md §Git Workflow. Contains the subagent
+         worktree create/remove commands, the isolation worktree cleanup
+         commands, feature worktree cleanup commands, the session-start
+         prune script, and the local-branch prune block.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -33,6 +35,19 @@ Performance: Standard.
 > Parent section: METHODOLOGY.md §Worktree Lifecycle. Read that section first for the two-class summary, isolation mandate, and session-start prune rule.
 
 # Worktree and Branch Lifecycle - Full Reference
+
+## Subagent worktree create/remove commands
+
+Relocated verbatim from `content/rules/conventions.md` §Git Workflow. Each parallel subagent gets its own worktree, branched from the conductor's current branch, at `.agentic/worktrees/<branch-name>` under the project root:
+
+```bash
+# Create a subagent worktree:
+git worktree add .agentic/worktrees/<branch-name> -b <branch-name> HEAD
+
+# Remove after merge:
+git worktree remove .agentic/worktrees/<branch-name>
+git branch -d <branch-name>
+```
 
 ## Isolation worktree cleanup commands
 
