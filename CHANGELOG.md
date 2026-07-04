@@ -3,6 +3,20 @@
 
 # Changelog
 
+## 2026-07-03
+
+### Fixes
+
+- **#379** [unblock all-7-harness dispatch + proactive routing](https://github.com/Space-Dinosaurs/DinoStack/pull/379) - bloodf
+
+### Maintenance
+
+- **#412** [untrack .omc runtime state, ignore local knowledge/config files](https://github.com/Space-Dinosaurs/DinoStack/pull/412) - tyson-solara6
+
+### Uncategorized
+
+- **#385** [Fix Codex adapter hook paths](https://github.com/Space-Dinosaurs/DinoStack/pull/385) - tyson-solara6
+
 ## 2026-07-02
 
 ### Features
