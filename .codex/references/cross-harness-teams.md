@@ -6,8 +6,11 @@ Purpose: Documents the cross-harness agent-team layer that lets the conductor
 
 Public API: Read-only reference. Load when configuring team.yml, deciding
             whether to use cross-harness dispatch vs native delegation,
-            authoring or reviewing the self-containment guard, or understanding
-            how collected worker output re-enters the Skeptic/QA gates.
+            authoring or reviewing the self-containment guard, following the
+            4-step Conductor Dispatch Contract (discover/dispatch/status-poll/
+            collect) referenced from content/sections/02-delegation.md, or
+            understanding how collected worker output re-enters the
+            Skeptic/QA gates.
 
 Upstream deps: content/sections/02-delegation.md (delegation decision table);
                content/sections/04-risk-classification.md (Tier/role layer);
@@ -69,6 +72,47 @@ no prompt, no degraded mode. Cross-harness is additive and fully opt-in.
 - Spawns where `agentic-team discover` marks the target harness absent.
   (Authentication errors are not a discover state -- they surface at dispatch
   time from the harness's own stderr/exit code.)
+
+## Conductor Dispatch Contract
+
+When `team.yml` is present and `enabled: true`, the conductor -- regardless of
+which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi,
+Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) -- follows the same four-step
+dispatch contract for any dispatchable role (`engineer`, `debugger`,
+`qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves
+to a harness other than its own:
+
+1. **Discover** -- run `bin/agentic-team discover` to confirm the target
+   harness binary is installed and its native sandbox flag (if any). Missing
+   binary -> fall back to native delegation unchanged, no error, no prompt.
+2. **Dispatch** -- run `bin/agentic-team dispatch --role <role> --brief <path>`
+   to spawn the worker in its own throwaway workdir (worktree or directory
+   copy). The conductor never runs git inside the worker's workdir; the
+   conductor remains sole git owner of the live repo.
+3. **Status poll** -- run `bin/agentic-team status <run-id>` until the run
+   reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block
+   synchronously past the configured `dispatch.timeout_seconds` watchdog.
+4. **Collect** -- run `bin/agentic-team collect <run-id>` to demux the
+   harness-specific output shape and extract the final message text.
+
+For how the collected message re-enters the Skeptic/QA gates, see
+§How collected worker output re-enters the Skeptic/QA gates below -- that
+section is the single source, not duplicated here.
+
+**Routing enforcement differs by harness.** Only Claude Code has a mechanical
+`PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by
+`.claude/install.sh`) that enforces background-by-default on legacy `Task`
+spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*`
+Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`)
+is live. A future enhancement will also proactively block a native spawn for a
+dispatchable role whose resolved `team.yml` harness is not `claude`, but that
+check is not yet merged. On every other harness (Codex, Gemini, Cursor, Kimi,
+Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose
+contract, not a mechanically enforced hook** -- the conductor on those
+harnesses must self-apply the discover -> dispatch -> status -> collect
+sequence and must not silently fall back to a native spawn just because no
+hook stops it. See §Self-containment guard above for the full per-harness
+enforcement-status table -- it is not repeated here.
 
 ## Config: `team.yml`
 

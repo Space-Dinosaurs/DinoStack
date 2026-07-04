@@ -1,6 +1,9 @@
 <!--
 Purpose: Detailed conventions reference blocks extracted from
-         content/rules/conventions.md. Contains: the full Intent Layer
+         content/rules/conventions.md. Contains: the four Session-Start
+         Notices (meta-divergence sweep, skill-candidate sweep, identity
+         provisional-confirm, deprecated-preset) with their verbatim
+         templates and pagination mechanics; the full Intent Layer
          section (artifact list, intent debt, Project Overview Layer,
          Project Config toggle prose, and Ubiquitous Language); the Context
          Economy rules; and the External Comment Discipline rules.
@@ -35,6 +38,66 @@ Performance: Standard.
 -->
 
 > Parent rules file: `content/rules/conventions.md`. Read that file first for Writing Style, Project Structure Convention, Session Context and Memory, and Git Workflow rules.
+
+## Session-Start Notices
+
+The four stacked first-user-turn notices referenced from `content/rules/conventions.md` §Session Context and Memory, relocated here verbatim with their trigger conditions, tracker files, and pagination mechanics.
+
+### Meta-divergence sweep
+
+**Meta-divergence sweep at session start.** After reading `.agentic/context.md`, the conductor sweeps `.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `.agentic/.meta-divergence-surfaced`. For each such event with non-empty `data.divergence.critical_missed` or `data.divergence.major_missed`, emit at the next user-facing turn boundary:
+
+```
+META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that original Skeptic missed on <task_id>. Original sign-off stands; review recommended before merging.
+[phase: meta-divergence-critical]
+```
+
+Then append `original_task_id` to the tracker file. The sweep is a standalone scan - not parallel with other startup tool calls. Tracker file format is one `original_task_id` per line, append-only, gitignored under the `.agentic/` umbrella. File-absent equals empty set. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
+
+**Pagination (vicious loop defense):** The sweep MUST NOT read the full `.agentic/events.jsonl` on every boot. It reads only events with `ts` strictly greater than the timestamp stored in `.agentic/.meta-divergence-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), the scan is capped to the most recent 100 lines of the events file. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to the tracker file (atomic: tmp + `mv`). This prevents the vicious loop where growing telemetry consumes ever more context on every session start. See `content/references/skeptic-protocol.md` Section 14 "Session-start sweep pagination" for the full procedure.
+
+### Skill-candidate sweep
+
+**Skill-candidate sweep at session start.** After the meta-divergence sweep, the conductor checks `.agentic/skill-candidates.md` for entries. Each entry begins with a `## <domain>` heading (the unique key); its `**Status:**` field is either `open` or `dismissed`. For each entry whose `**Status:**` is `open` AND whose domain is NOT present in `.agentic/.skill-candidates-surfaced`, emit at the next user-facing turn boundary:
+
+```
+SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - consider creating a skill (suggested artifact: <suggestedArtifact>). Run /skill-candidates for the full backlog.
+[phase: skill-candidate]
+```
+
+Then append the domain (the `## <domain>` heading value, without the `## ` prefix) to `.agentic/.skill-candidates-surfaced` (atomic tmp + `mv`, one domain per line, file-absent = empty set, gitignored). File-absent for `.agentic/skill-candidates.md` = no-op. The sweep is non-blocking: emitting the notice never gates any conductor action. Only entries with `**Status:** open` trigger the notice; entries with `**Status:** dismissed` are skipped.
+
+**Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
+
+### Identity provisional-confirm notice
+
+**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity (Step 1 in `content/sections/01-activation-preflight.md` - project file checked first, then global), the conductor surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
+
+```
+IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
+Telemetry is buffered (not lost) until confirmed.
+  Confirm: agentic-identity confirm
+  Correct: agentic-identity init <handle> --force
+```
+
+The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
+
+### Deprecated-preset notice
+
+**Deprecated-preset first-user-turn notice.** When the preflight (Step 1 in `content/sections/01-activation-preflight.md`) finds a legacy session-wide `preset` key present at either scope - `~/.claude/agentic-engineering.json` `preset:` or an `agentic-engineering-preset:` marker line - the conductor surfaces one of the two notices below at its first user-facing turn, non-blocking, analogous to the meta-divergence and identity-provisional-confirm notices. Fire on PRESENCE of the key regardless of whether it wins resolution; use the first template when the legacy preset won at that scope, the second when it was present but overridden by a `profile` elsewhere in the precedence chain:
+
+```
+# Legacy preset WON resolution at this scope:
+DEPRECATED: preset key '{value}' ({scope}) resolved to profile={resolved}; migrate by setting
+profile={resolved} directly - preset support will be removed after the deprecation window.
+
+# Legacy preset PRESENT but did NOT win (coexistence / cross-scope override):
+DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - effective profile is
+'{effective}' (source: {source}). Remove the stale preset key/marker - it has no effect and
+will be rejected after the deprecation window.
+```
+
+This is the 4th stacked first-user-turn notice (alongside meta-divergence, skill-candidate, and identity-provisional-confirm); ordering among the four is immaterial.
 
 ## The Intent Layer
 

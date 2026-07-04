@@ -1,13 +1,15 @@
 <!--
 Purpose: Full reference for planning-artifact templates, directory layouts, and
          promotion mechanics extracted from METHODOLOGY.md §Planning Artifacts.
-         Contains the Brief template (including outcome_rubric field), Plan-tier
+         Contains the ordering rationale, the authoring sequence (Brief/Plan/ADR
+         tiers), the Brief template (including outcome_rubric field), Plan-tier
          directory layout, verification-gate template (including rubric-resolved
          subsection), promotion mechanics, product-intent layer rules, and the
          canonical qa_default_skip definition.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/03-planning-artifacts.md (Gate semantics pointer),
+            content/sections/03-planning-artifacts.md (Ordering pointer,
+            Gate semantics authoring-sequence pointer),
             content/sections/12-protocol-details.md (Protocol Details entry).
 
 Upstream deps: content/sections/03-planning-artifacts.md (parent section;
@@ -15,11 +17,12 @@ Upstream deps: content/sections/03-planning-artifacts.md (parent section;
                content/rules/module-manifest.md (manifest header contract);
                content/rules/conventions.md §Project Overview Layer.
 
-Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
-                      Plan authoring (Plan tier authoring sequence), cross-session
-                      resume (promotion_tier field); /brief command (rubric synthesis
-                      in Section 3 and PRD extraction in Section 5); /implement-ticket
-                      Phase 3b cross-artifact alignment check; skeptic agent (rubric
+Downstream consumers: Conductor flows: Brief authoring (see §Authoring sequence
+                      (Brief and Plan tiers) step 6 below), Plan authoring (same
+                      section, Plan tier), cross-session resume (promotion_tier
+                      field); /brief command (rubric synthesis in Section 3 and
+                      PRD extraction in Section 5); /implement-ticket Phase 3b
+                      cross-artifact alignment check; skeptic agent (rubric
                       check step 3.5); product-discovery agent (rubric drafting step 5b).
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
@@ -30,9 +33,35 @@ Failure modes: Prose; does not execute. Drift between this file and the parent
 Performance: Standard.
 -->
 
-> Parent section: METHODOLOGY.md §Planning Artifacts. Read that section first for triggers and ordering.
+> Parent section: METHODOLOGY.md §Planning Artifacts. Read that section first for triggers, trigger table, and gate rules (What blocks / What does not block).
 
 # Planning Artifacts - Full Reference
+
+## Ordering rationale
+
+The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known. This mechanical restatement is a comprehension-artifact step: the act of restating the architect and planner output forces the conductor to demonstrate it understood both. The Skeptic reviewing the Brief asks a different question than the Skeptic that reviewed the architect plan - not "is the design sound?" but "did the conductor actually understand what was produced upstream, and is the verification real?" This catches implicit architect assumptions that do not survive being stated plainly, planner units that do not compose coherently when described together, and verification criteria that seemed obvious until someone had to write them down.
+
+## Authoring sequence (Brief and Plan tiers)
+
+**Authoring sequence (Brief tier):**
+1. Architect runs (existing behavior).
+2. Skeptic on architect plan.
+3. Open Questions on architect plan resolved.
+4. Orchestration-planner runs.
+5. Promotion check against the trigger table.
+6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
+7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements — does not replace — the adversarial Skeptic-on-Brief.
+8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
+9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
+
+**Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
+- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
+- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries).
+- Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
+
+### ADR tier
+
+**ADR tier:** ADR is authored alongside the Brief, not after, because the architectural decision shapes the Brief's constraints. ADR review follows the project's existing ADR process; if none exists, the ADR goes through the same "Document synthesis, architecture, and planning" Skeptic review as the Brief.
 
 ## Brief template
 

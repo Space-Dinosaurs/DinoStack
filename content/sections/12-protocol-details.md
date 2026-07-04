@@ -6,8 +6,8 @@ Read `content/references/activation-detail.md` §Step 5: First-Activation Notice
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
 See `content/sections/03-planning-artifacts.md` for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
-**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
-Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
+**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, investigator-before-architect rules, or delegation-enforcement mechanics:
+Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, §Background-Spawn Enforcement Detail, §Ticket-Offer Gate Mechanics, §Proactive Autonomy Enforcement, §Anti-Patterns (worked examples), §Hard-Stop Branch - Executing vs Choosing, §AskUserQuestion Precondition Detail, §Evidence Verification, and §Orchestration Enforcement Hooks and Fan-out Detail.
 
 **Risk config and tiers** - when consulting config toggles, the graph-derived risk signal, or tier declaration detail:
 Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, and §Tier Declaration Detail.
