@@ -21,41 +21,19 @@ Reserve `Bash` for: builds, installs, git operations, network calls, process man
 
 `sg` (AST-grep) for structural symbol-level searches is always run via Bash - no dedicated harness tool wraps it. This is independent of the `Glob`/`Grep` availability question above: Bash-based search is sanctioned generally (via `rg`/`grep`/`find`), and `sg` is the specific tool for structural AST queries. Check availability with `which sg 2>/dev/null` before use.
 
-**Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
-
-**Agent-ergonomic tool selection**
-
-When choosing between tool options for the same job, prefer the option that minimizes token cost and latency for agent consumers:
-
-- **Prefer token-efficient output.** Text and tabular tool output is cheaper for models to consume than JSON dumps with identical semantic content. When a tool offers multiple output formats, pick the one that gives the model the signal it needs with the least surrounding structure.
-- **Prefer CLI over MCP server when the CLI is cheaper.** An MCP server adds a protocol layer that inflates token cost and latency with no functional gain when a CLI covers the same job. Concrete reference: the GitHub MCP server costs approximately 3x the tokens and 2x the latency of the `gh` CLI for the same GitHub operations. AE uses `gh` for all GitHub operations (see AGENTS.md) - this is the principle in action.
-- **Measure before adopting.** Do not assume a new tool or MCP server is cost-neutral. Before integrating either, benchmark its token/latency profile against the alternative. The `ctx_*` context-mode tools earn their place because their token reduction is measured (~98% context savings versus raw Bash output) - not assumed.
-
-These rules complement the existing tool hierarchy above (Read/Glob/Grep over Bash) and the Context Window Management rules below (`ctx_*` over raw Bash for large output). Together they form AE's tool-selection standard: reach for the tool whose output-to-signal ratio is best for the model reading it.
+**Prefer token-efficient formats, CLI over MCP when cheaper (e.g. `gh` over GitHub MCP), and measure before adopting new tools.** See `content/references/code-standards-detail.md` §Tool Selection for detail.
 
 ## Context Window Management
 
-**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
+**Prefer `ctx_execute`/`ctx_batch_execute` over raw `Bash` for output >~20 lines.**
 
-Key tools and their uses:
-- `ctx_execute(language, code)` - run a single script; only stdout enters context
-- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
+> Never use `ctx_execute`/`ctx_execute_file` to create or modify files - analysis only; use `Write`/`Edit`.
 
-> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
-
-- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
-- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
-- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
-
-> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
-
-**Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
-
-**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Glob`/`Grep` tool-discipline above.
+See `content/references/code-standards-detail.md` §Context Window Management (ctx_* tools) for detail.
 
 ## Module Manifests
 
-**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic applies tiered enforcement: missing manifests are **Minor** (does not block sign-off), stale manifests are **Major** (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are **Critical**. See `content/rules/module-manifest.md` for the full policy.
+**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic applies tiered enforcement: missing manifests are **Minor** (does not block sign-off), stale manifests are **Major** (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are **Critical**. See `rules/module-manifest.md` for the full policy.
 
 ## DRY and Abstraction
 
