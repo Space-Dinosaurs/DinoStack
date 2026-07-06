@@ -869,7 +869,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jul 04, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jul 06, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -1716,7 +1716,7 @@
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
   <div class="section-title" data-num="06"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 19 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 25 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1741,6 +1741,8 @@
           <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
           <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
           <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
+          <li><strong>/feedback-triage</strong> - batch triage of the home-dir feedback store (<code>~/.agentic/feedback.jsonl</code>). Reviews the accumulated backlog of tool-friction, process-escalation, guardrail-fire, and operator-correction signals from <code>/wrap</code>, presents them grouped, and creates tracker tickets only for items the operator explicitly approves.</li>
+          <li><strong>/ticket-triage</strong> - strategic triage of a ticket list or tracker input. Analyses dependencies and conflicts, distributes work across parallel lanes, and emits a paste-ready game plan. Plan-only: no code edits, no tracker mutations.</li>
         </ul>
       </div>
     </div>
@@ -1753,6 +1755,10 @@
           <li><strong>/agentic-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
           <li><strong>/agentic-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
           <li><strong>/agentic-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
+          <li><strong>/agentic-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
+          <li><strong>/configure-team</strong> - set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments. Independent of the Pi role-model routing layer.</li>
+          <li><strong>/pull-and-install</strong> - pull the latest DinoStack release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Distinct from <code>/update-agentic-engineering</code> (which pushes upstream edits); this command pulls changes down.</li>
+          <li><strong>/skill-candidates</strong> - read-only view of the skill-candidate backlog. Displays open and dismissed candidates detected from recurring workflow friction — each with its domain, count, suggested artifact type, and example note. Writes nothing; always exits 0.</li>
         </ul>
       </div>
     </div>
