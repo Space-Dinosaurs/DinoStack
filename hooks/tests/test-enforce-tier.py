@@ -61,6 +61,19 @@ def is_deny(returncode: int, stdout: str) -> bool:
         return False
 
 
+def deny_reason(payload: str, extra_env: dict | None = None) -> str | None:
+    """Run the hook and return the parsed permissionDecisionReason string,
+    or None if the call was not a deny / output was unparseable."""
+    rc, stdout, _stderr = run_hook(payload, extra_env)
+    if not is_deny(rc, stdout):
+        return None
+    try:
+        obj = json.loads(stdout)
+        return obj.get("hookSpecificOutput", {}).get("permissionDecisionReason")
+    except Exception:
+        return None
+
+
 cases = [
     # (label, payload_str, expected, extra_env)
 
@@ -279,6 +292,207 @@ cases = [
         "ALLOW",
         None,
     ),
+
+    # --- DS-77: authoring-role Tier-3 escalation (architect / adr-generator /
+    # product-discovery) on Plan+ADR-tier units ---
+
+    # 21: architect + ADR/cross-track brief -> DENY (done-criterion case)
+    (
+        "21: Agent architect model=sonnet + ADR cross-track brief -> DENY",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "author the ADR for this cross-track change",
+            },
+        }),
+        "DENY",
+        None,
+    ),
+    # 22: architect + "architecture decision constraining future choices" -> DENY
+    (
+        "22: Agent architect model=sonnet + architecture-decision-constraining brief -> DENY",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "architecture decision constraining future choices",
+            },
+        }),
+        "DENY",
+        None,
+    ),
+    # 23: architect + routine brief -> ALLOW (routine work must not break)
+    (
+        "23: Agent architect model=sonnet + routine brief -> ALLOW",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "add a null check to the date formatter",
+            },
+        }),
+        "ALLOW",
+        None,
+    ),
+    # 24: architect + model omitted -> ALLOW (omit = Sonnet default; hook must not force Opus)
+    (
+        "24: Agent architect model omitted + ADR brief -> ALLOW (omit=Sonnet default)",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "prompt": "author the ADR",
+            },
+        }),
+        "ALLOW",
+        None,
+    ),
+    # 25: architect + model=opus -> ALLOW (correct escalation)
+    (
+        "25: Agent architect model=opus + ADR brief -> ALLOW (correct escalation)",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "opus",
+                "prompt": "author the ADR",
+            },
+        }),
+        "ALLOW",
+        None,
+    ),
+    # 26: adr-generator + cross-track ADR brief -> DENY
+    (
+        "26: Agent adr-generator model=sonnet + cross-track ADR brief -> DENY",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "adr-generator",
+                "model": "sonnet",
+                "prompt": "generate the ADR for the cross-track decision",
+            },
+        }),
+        "DENY",
+        None,
+    ),
+    # 27: adr-generator + model omitted -> ALLOW
+    (
+        "27: Agent adr-generator model omitted + ADR brief -> ALLOW",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "adr-generator",
+                "prompt": "generate the ADR",
+            },
+        }),
+        "ALLOW",
+        None,
+    ),
+    # 28: product-discovery + haiku downgrade + cross-track architecture brief -> DENY
+    (
+        "28: Agent product-discovery model=haiku + cross-track architecture brief -> DENY",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "product-discovery",
+                "model": "haiku",
+                "prompt": "cross-track architecture decision synthesis",
+            },
+        }),
+        "DENY",
+        None,
+    ),
+    # 29: product-discovery + benign brief -> ALLOW
+    (
+        "29: Agent product-discovery model=sonnet + benign brief -> ALLOW",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "product-discovery",
+                "model": "sonnet",
+                "prompt": "summarize user interview themes",
+            },
+        }),
+        "ALLOW",
+        None,
+    ),
+    # 30: architect + "author" substring-trap guard (\badr\b must not match "author")
+    (
+        "30: Agent architect model=sonnet + 'the author updated the page' -> ALLOW (substring-trap)",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "the author updated the page",
+            },
+        }),
+        "ALLOW",
+        None,
+    ),
+    # 31: legacy "Task" tool name parity for the authoring-role path
+    (
+        "31: Task architect model=sonnet + ADR brief -> DENY (legacy tool name parity)",
+        json.dumps({
+            "tool_name": "Task",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "author the ADR",
+            },
+        }),
+        "DENY",
+        None,
+    ),
+    # 32: kill-switch applies to the authoring-role path too
+    (
+        "32: Agent architect model=sonnet + ADR brief + AE_TIER_GUARD_DISABLE=1 -> ALLOW",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "author the ADR",
+            },
+        }),
+        "ALLOW",
+        {"AE_TIER_GUARD_DISABLE": "1"},
+    ),
+    # 33: architect + "novel architecture" -> DENY (author marker; contrast with
+    # test 20 where the SAME phrase on a skeptic spawn is ALLOW - independent
+    # marker lists, review-role coverage gap does not apply to authoring roles)
+    (
+        "33: Agent architect model=sonnet + novel architecture brief -> DENY (author marker)",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "novel architecture with novel tradeoffs",
+            },
+        }),
+        "DENY",
+        None,
+    ),
+    # 34: hyphenated "architectural-decision" variant must also match
+    # (Skeptic-required Fix 2: \barchitectur\w*[- ]decision\b)
+    (
+        "34: Agent architect model=sonnet + hyphenated architectural-decision brief -> DENY",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {
+                "subagent_type": "architect",
+                "model": "sonnet",
+                "prompt": "architectural-decision constraining future choices",
+            },
+        }),
+        "DENY",
+        None,
+    ),
 ]
 
 failed = 0
@@ -299,10 +513,42 @@ for label, payload, expected, extra_env in cases:
         print(f"         stderr:   {stderr!r}")
         print(f"         expected: {expected}")
 
+# 35 (Skeptic-required Fix 1): lock the AUTHOR branch's deny-message wording.
+# The behavioral ALLOW/DENY cases above can't catch a pure message-wording
+# revert, so this asserts on permissionDecisionReason content directly.
+# POSITIVE: the reason must instruct "pass model: opus". NEGATIVE: the reason
+# must NOT contain "omit the model param to use" - that is the correct
+# remediation phrase on the skeptic/security-auditor branches (those roles
+# default to Opus, so omitting is right), but on the AUTHOR branch it would
+# be WRONG (architect/adr-generator/product-discovery default to Sonnet, so
+# telling the operator to omit would silently defeat the escalation).
+label_35 = "35: Agent architect model=sonnet + ADR brief -> author deny message wording locked"
+reason_35 = deny_reason(json.dumps({
+    "tool_name": "Agent",
+    "tool_input": {
+        "subagent_type": "architect",
+        "model": "sonnet",
+        "prompt": "author the ADR",
+    },
+}))
+ok_35 = (
+    reason_35 is not None
+    and "pass model: opus" in reason_35
+    and "omit the model param to use" not in reason_35
+)
+status_35 = "PASS" if ok_35 else "FAIL"
+if not ok_35:
+    failed += 1
+print(f"  [{status_35}] {label_35}")
+if not ok_35:
+    print(f"         reason:   {reason_35!r}")
+
+total_tests = len(cases) + 1
+
 print()
 if failed == 0:
-    print(f"All {len(cases)} tests passed.")
+    print(f"All {total_tests} tests passed.")
     sys.exit(0)
 else:
-    print(f"{failed}/{len(cases)} tests FAILED.")
+    print(f"{failed}/{total_tests} tests FAILED.")
     sys.exit(1)

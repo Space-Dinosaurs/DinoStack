@@ -307,7 +307,7 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 </div>
 
 <div class="callout">
-<strong>Tier declaration:</strong> every Elevated spawn carries a required <code>Tier:</code> line. Tier 1 = Haiku (opt-in, shallow tasks), Tier 2 = Sonnet (implementation default), Tier 3 = Opus (review default: skeptic, security-auditor). Each agent's frontmatter <code>model:</code> is the default; pass a param only to override.
+<strong>Tier declaration:</strong> every Elevated spawn carries a required <code>Tier:</code> line. Tier 1 = Haiku (opt-in, shallow tasks), Tier 2 = Sonnet (implementation default), Tier 3 = Opus (review default: skeptic, security-auditor). Each agent's frontmatter <code>model:</code> is the default; pass a param only to override. Authoring roles (architect, adr-generator, product-discovery) also escalate to Tier 3 on Plan+ADR-tier units.
 </div>
 
 ---

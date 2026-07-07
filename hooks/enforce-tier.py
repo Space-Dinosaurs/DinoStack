@@ -10,6 +10,14 @@ Purpose: PreToolUse hook that backstops the METHODOLOGY §Risk-Classification
          low-false-positive signal. Escalate-only: it never blocks the
          omit-the-param (role-default) path, and never touches non-review agents.
 
+         As of DS-77, the hook ALSO backstops the "Mandatory Tier-3 authoring
+         escalation (Plan+ADR-tier units)" rule for AUTHORING roles (architect,
+         adr-generator, product-discovery): it denies an explicit sub-Opus
+         model param on those spawns when the brief matches an authoring
+         Tier-3 escalation marker (ADR / cross-track / architecture-decision
+         vocabulary). See the "authoring roles" Failure-modes carve-out below
+         for the important limitations of this backstop.
+
          NOTE - Task/Agent rename: Claude Code renamed the subagent-spawn tool
          from "Task" to "Agent". This hook guards on BOTH names
          (`tool_name in ("Task", "Agent")`). install.sh wires both matcher
@@ -19,7 +27,10 @@ Purpose: PreToolUse hook that backstops the METHODOLOGY §Risk-Classification
          mandates Tier 3 unconditionally). skeptic: an explicit non-opus
          downgrade is denied ONLY when the spawn brief (prompt + description)
          matches a Tier-3 escalation marker - a non-mandated skeptic may
-         legitimately run a cheaper model (e.g. budget mode).
+         legitimately run a cheaper model (e.g. budget mode). architect /
+         adr-generator / product-discovery: an explicit non-opus downgrade is
+         denied ONLY when the spawn brief matches an authoring Tier-3
+         escalation marker (independent marker list from the review-role one).
 
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or "Agent").
             Reads JSON from stdin, writes hookSpecificOutput JSON to stdout when
@@ -41,14 +52,37 @@ Failure modes:
       reading stdin. To disable: set AE_TIER_GUARD_DISABLE=1 in the shell that
       launches Claude Code, or remove the hook from ~/.claude/settings.json.
     - Non-Task/Agent tool_name: passthrough (exit 0).
-    - Non-review subagent_type, absent model param, or any opus model: allow.
-    - Coverage gap (documented, intentional): the "novel architecture
-      constraining future choices" Tier-3 signal is NOT keyword-detectable
-      without over-firing on routine reviews, so it is NOT mechanically caught
-      here. The conductor's explicit model: opus and the skeptic frontmatter
-      default remain the controls for that signal. This hook backstops the other
-      four escalation signal categories (security/auth/crypto/payments/secrets;
-      irreversible; release/deploy/production; high blast radius/shared utility).
+    - Non-review, non-authoring subagent_type, absent model param, or any opus
+      model: allow.
+    - Coverage gap (documented, intentional; scoped to the REVIEW-role /
+      `_MARKERS` path only - see the separate authoring-roles carve-out below
+      for the authoring-role path): the "novel architecture constraining
+      future choices" Tier-3 signal is NOT keyword-detectable without
+      over-firing on routine reviews, so it is NOT mechanically caught here
+      for skeptic/security-auditor spawns. The conductor's explicit
+      model: opus and the skeptic frontmatter default remain the controls for
+      that signal. This hook backstops the other four escalation signal
+      categories for review roles (security/auth/crypto/payments/secrets;
+      irreversible; release/deploy/production; high blast radius/shared
+      utility).
+    - Authoring roles (architect / adr-generator / product-discovery) carve-out
+      (documented, intentional): the true trigger for the "Mandatory Tier-3
+      authoring escalation" rule is a STRUCTURAL signal - the unit reaches
+      Plan+ADR tier (cross-track span, or "architecture decision constraining
+      future choices") per the Planning Artifacts trigger table
+      (content/sections/03-planning-artifacts.md) - computed by the CONDUCTOR,
+      not present anywhere in tool_input. This hook therefore CANNOT
+      deterministically detect an ADR-tier authoring spawn; the PRIMARY
+      control is the conductor passing model: opus explicitly (see
+      content/references/risk-config-and-tiers.md §Mandatory Tier-3 authoring
+      escalation). This hook only BACKSTOPS an explicit sub-Opus downgrade
+      when the brief matches `_AUTHOR_MARKER_PATTERNS` - best-effort, and it
+      WILL MISS an ADR-tier authoring spawn whose brief omits that vocabulary.
+      Critically, an OMITTED model param on an authoring-role spawn resolves
+      to the Sonnet frontmatter default (Role-default tier table) and is
+      ALLOWED by this hook - the omit path is the conductor's responsibility
+      to get right, not this hook's; operators must not over-trust this
+      backstop as a substitute for the conductor's explicit param.
     - Env-var resolution (CLAUDE_CODE_SUBAGENT_MODEL) is intentionally NOT
       guarded: the hook gates the spawn-call param (intent), not the env
       override, which it cannot see in tool_input and which outranks the param.
@@ -67,8 +101,18 @@ import re
 import sys
 
 # Agents whose review quality is mandated Tier 3 (Opus). Source of truth:
-# content/sections/04-risk-classification.md Role-default tier table.
+# content/references/risk-config-and-tiers.md Role-default tier table.
 MANDATED_TIER3 = {"skeptic", "security-auditor"}
+
+# Authoring roles whose Tier-3 escalation is CONDUCTOR-declared (model: opus) on
+# Plan+ADR-tier units (cross-track / architecture-constraining), per the
+# "Mandatory Tier-3 review escalation" rule in
+# content/references/risk-config-and-tiers.md. These roles default to Sonnet/Tier 2
+# (Role-default tier table) - the escalation is a CONDITIONAL rule, not a default.
+# This hook only backstops an explicit sub-Opus downgrade when the brief names the
+# architecture/ADR signal; it CANNOT see the structural Plan+ADR trigger. See the
+# manifest Failure modes "authoring roles" carve-out.
+MANDATED_TIER3_AUTHOR = {"architect", "adr-generator", "product-discovery"}
 
 # Tier-3 escalation markers (case-insensitive, word-boundary anchored) tracking
 # four of the five signals in §Risk-Classification "Mandatory Tier-3 review
@@ -98,10 +142,35 @@ _MARKER_PATTERNS = [
 ]
 _MARKERS = [re.compile(p, re.IGNORECASE) for p in _MARKER_PATTERNS]
 
+# Tier-3 AUTHORING escalation markers (case-insensitive, word-boundary
+# anchored), independent of _MARKER_PATTERNS above - these track the
+# structural "Plan+ADR tier" signal (cross-track / architecture-decision-
+# constraining) from the Planning Artifacts trigger table, not the review-role
+# signal categories. \badr\b is word-boundary anchored so it does not match
+# "author"/"adroit" (substring trap).
+_AUTHOR_MARKER_PATTERNS = [
+    r"\badr\b",
+    r"\bcross[- ]track\b",
+    r"\barchitectur\w*[- ]decision\b",
+    r"\bconstrain\w* future choices\b",
+    r"\bplan\s*\+\s*adr\b",
+    r"\bplan[- ]?tier\b",
+    r"\bnovel architecture\b",
+]
+_AUTHOR_MARKERS = [re.compile(p, re.IGNORECASE) for p in _AUTHOR_MARKER_PATTERNS]
+
 
 def _brief_matches_tier3(brief):
     """Return the first matching marker pattern string, or None."""
     for rx in _MARKERS:
+        if rx.search(brief):
+            return rx.pattern
+    return None
+
+
+def _author_brief_matches(brief):
+    """Return the first matching authoring-escalation marker pattern string, or None."""
+    for rx in _AUTHOR_MARKERS:
         if rx.search(brief):
             return rx.pattern
     return None
@@ -139,7 +208,7 @@ def main():
         tinput = raw_tinput
 
         agent = tinput.get("subagent_type")
-        if agent not in MANDATED_TIER3:
+        if agent not in MANDATED_TIER3 and agent not in MANDATED_TIER3_AUTHOR:
             sys.exit(0)
 
         # Absent / null / non-string model param -> frontmatter default (Opus).
@@ -150,6 +219,12 @@ def main():
         # Any Opus model (alias "opus" or full id like claude-opus-4-8) -> allow.
         if "opus" in model.lower():
             sys.exit(0)
+
+        brief = (
+            str(tinput.get("prompt") or "")
+            + " "
+            + str(tinput.get("description") or "")
+        )
 
         # Explicit non-Opus downgrade on a mandated-Tier-3 agent.
         if agent == "security-auditor":
@@ -164,12 +239,31 @@ def main():
                 "Claude Code."
             )
 
+        # Authoring roles (architect / adr-generator / product-discovery): deny
+        # only when the brief matches an authoring Tier-3 escalation marker.
+        # These roles default to Sonnet - an omitted model param is ALLOWED
+        # (see manifest Failure modes "authoring roles" carve-out). Placed
+        # before the skeptic branch so an author agent never falls through to
+        # skeptic-only logic.
+        if agent in MANDATED_TIER3_AUTHOR:
+            marker = _author_brief_matches(brief)
+            if marker is not None:
+                _deny(
+                    f"{tool_name} spawn blocked: {agent} was spawned with "
+                    f"model={model!r}, an explicit downgrade below Opus, but "
+                    "the brief matches an authoring Tier-3 escalation signal "
+                    f"(pattern {marker!r}). Per the Mandatory Tier-3 review "
+                    "escalation rule, an architect/adr-generator/"
+                    "product-discovery authoring a Plan+ADR-tier (cross-track "
+                    "/ architecture-constraining) unit MUST be Tier 3 (Opus). "
+                    "Fix: pass model: opus on this spawn. (Do NOT omit the "
+                    "model param - these roles default to Sonnet. To disable "
+                    "this guard: set AE_TIER_GUARD_DISABLE=1 and restart "
+                    "Claude Code.)"
+                )
+            sys.exit(0)
+
         # agent == "skeptic": deny only if the brief reads high-stakes.
-        brief = (
-            str(tinput.get("prompt") or "")
-            + " "
-            + str(tinput.get("description") or "")
-        )
         marker = _brief_matches_tier3(brief)
         if marker is not None:
             _deny(
