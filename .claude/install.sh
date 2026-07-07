@@ -840,7 +840,7 @@ fi
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
 AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
-import os, re
+import os, re, sys
 
 target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
@@ -869,17 +869,13 @@ if os.path.exists(target):
 else:
     existing = ""
 
-if begin_marker in existing and end_marker in existing:
-    pattern = re.compile(
-        r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
-        re.DOTALL
-    )
 # Symlink guard: never write through a symlink (open("w") follows it and truncates
 # the real target). PoC verified: symlinking CLAUDE.md to a victim file and running
 # installer overwrites the victim's content through the link.
 if os.path.islink(target):
     sys.stderr.write(f"refusing to write through symlink: {target}\n")
     sys.exit(1)
+
 if begin_marker in existing and end_marker in existing:
     pattern = re.compile(
         r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
@@ -1096,7 +1092,7 @@ sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
 else
   if ae_confirm "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "; then
     python3 - <<'PYEOF'
-import json, os
+import json, os, sys
 
 target = os.path.expanduser("~/.claude.json")
 if os.path.exists(target):
@@ -1140,7 +1136,7 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
 else
   if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
     python3 - <<'PYEOF'
-import json, os
+import json, os, sys
 
 target = os.path.expanduser("~/.claude.json")
 if os.path.exists(target):
@@ -1156,6 +1152,7 @@ if "mcp-atlassian" not in servers:
         "command": "uvx",
         "args": ["mcp-atlassian"],
         "env": {}
+    }
     if os.path.islink(target):
         sys.stderr.write(f"refusing to write through symlink: {target}\n")
         sys.exit(1)
@@ -1182,7 +1179,7 @@ echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents us
 echo ""
 
 AE_SETTINGS_PATH="$SETTINGS" AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
-import json, os
+import json, os, sys
 
 # Config-dir label for permission scopes: use ~ for the default home dir, else
 # the redirected profile dir verbatim, so a --config-dir install grants write

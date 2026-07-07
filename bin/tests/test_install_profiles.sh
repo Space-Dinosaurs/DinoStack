@@ -132,6 +132,12 @@ run_security_tests() {
   bash "$REPO_DIR/.claude/install.sh" --config-dir="$prof" --mode=opt-out --no-identity >/dev/null 2>&1 || true
   grep -q KEEP "$sb/victim" && pass "symlink write blocked" || fail "symlink write truncated victim"
 
+  # 3b) Symlinked settings.json must NOT be written through.
+  local prof2="$sb/prof2"; mkdir -p "$prof2"
+  echo "KEEP" > "$sb/victim2"
+  ln -sf "$sb/victim2" "$prof2/settings.json"
+  bash "$REPO_DIR/.claude/install.sh" --config-dir="$prof2" --mode=opt-out --no-identity >/dev/null 2>&1 || true
+  grep -q KEEP "$sb/victim2" && pass "settings.json symlink write blocked" || fail "settings.json symlink write truncated victim"
   rm -rf "$sb"
 }
 run_security_tests

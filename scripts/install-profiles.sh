@@ -137,6 +137,11 @@ discover_tenants() {
 			fi
 			local tenant="${tenant_dir##*/.${h}-}"
 			[[ "$tenant" == "$h" ]] && continue # malformed, no suffix
+			is_valid_tenant_name "$tenant" || continue
+			if [[ " $seen " != *" $tenant "* ]]; then
+				seen+=" $tenant"
+			fi
+		done
 	done
 	[[ "$shopt_nullglob" == true ]] && shopt -u nullglob
 	echo "${seen# }" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//'
