@@ -43,7 +43,7 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
 - `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
 - `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
-- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; auto-injected by Claude Code at startup. Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
+- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/init-project`). Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
 - `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (conductor-discretionary).
 - `decisions.md` - the project's decision log, where used.
 - `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.

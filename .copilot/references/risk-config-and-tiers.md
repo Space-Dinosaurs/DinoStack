@@ -113,13 +113,15 @@ Spawning security-auditor.
 
 This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Opus `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal). It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
 
+**Mandatory Tier-3 authoring escalation (Plan+ADR-tier units).** When a unit reaches **Plan+ADR tier** - cross-track OR "Architecture decision constraining future choices", per the Planning Artifacts trigger table (`content/sections/03-planning-artifacts.md`) - the AUTHORING agent (architect, adr-generator, or product-discovery) producing the Plan or ADR for that unit MUST be Tier 3 (Opus), regardless of the agent's Sonnet role default. Unlike the reviewing-role escalation above, the Plan+ADR trigger is a **structural, conductor-computed decision** (cross-track span, architecture-constraining signal) that is not present in the spawn's `tool_input` - the PreToolUse hook cannot see it. The PRIMARY control is therefore prose, not mechanical: the conductor passes `model: opus` EXPLICITLY on the architect/adr-generator/product-discovery spawn for a Plan+ADR-tier unit, symmetric to the existing `architect:grill` preset convention. On Claude Code, `hooks/enforce-tier.py` provides a BACKSTOP (not the primary control) mirroring the skeptic marker-gated branch, not the security-auditor unconditional branch: it denies an explicit sub-Opus `model` param on an architect/adr-generator/product-discovery spawn whose brief matches an ADR/architecture marker (e.g. "ADR", "cross-track", "architecture decision constraining future choices", "Plan+ADR", "Plan-tier", "novel architecture"). This backstop is best-effort and has two known limitations: (1) it misses an ADR-tier authoring spawn whose brief does not name the escalation signal in recognizable vocabulary; (2) it does nothing when the `model` param is OMITTED - an omitted param resolves to the Sonnet frontmatter default (per the Role-default tier table below) and the hook ALLOWS it, because omission is indistinguishable from a routine non-ADR authoring spawn. The conductor's explicit `model: opus` param remains the only reliable enforcement mechanism for this rule.
+
 **Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
 
 | Agent | Default tier | Claude `model:` | Rationale |
 |---|---|---|---|
 | skeptic | 3 | opus | Adversarial review quality binds correctness |
 | security-auditor | 3 | opus | Spec-mandated Tier 3; threat-model depth |
-| architect | 2 | sonnet | Standard design; upgrade to Tier 3 per the escalation rule for novel-architecture units |
+| architect | 2 | sonnet | Standard design; upgrade to Tier 3 per the escalation rule for novel-architecture units; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | engineer | 2 | sonnet | Implementation |
 | investigator | 2 | sonnet | Terrain mapping |
 | orchestration-planner | 2 | sonnet | Decomposition |
@@ -128,8 +130,8 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | dependency-auditor | 2 | sonnet | Dependency review |
 | perf-analyst | 2 | sonnet | Performance analysis |
 | release-orchestrator | 2 | sonnet | Release execution; escalate the reviewing Skeptic per the rule above |
-| product-discovery | 2 | sonnet | Requirements synthesis |
-| adr-generator | 2 | sonnet | ADR authoring |
+| product-discovery | 2 | sonnet | Requirements synthesis; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
+| adr-generator | 2 | sonnet | ADR authoring; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-drift-detector | 2 | sonnet | Compliance audit |
 | learning-extractor | 2 | sonnet | Pattern extraction |
 | learnings-agent | 2 | sonnet | Discretionary capture |

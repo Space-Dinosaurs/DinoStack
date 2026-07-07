@@ -40,15 +40,17 @@ Your spawn prompt will contain:
 
 1. **Parse the question.** What specifically needs to be understood? What decision will the conductor make from your output? Knowing the downstream use shapes what depth and breadth you need.
 
-2. **Map the terrain.** Use Glob and Grep to orient quickly when available (otherwise use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable) as normal.
+2. **Retrieve prior learnings.** Grep `.agentic/learnings.md` for entries matching the investigation's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output (citation in the brief).
 
-3. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
+3. **Map the terrain.** Use Glob and Grep to orient quickly when available (otherwise use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable) as normal.
 
-4. **Trace and explore.** Follow the code where the question leads: read implementations, trace call chains, map data flow. Follow the evidence rather than assumptions.
+4. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
 
-5. **Identify blast radius and risks.** What depends on this code? What invariants exist? What would break or need updating if this area changed? Surface non-obvious coupling.
+5. **Trace and explore.** Follow the code where the question leads: read implementations, trace call chains, map data flow. Follow the evidence rather than assumptions.
 
-6. **Graph-assisted blast radius (optional).** For shared-utility, blast-radius, or per-consumer-impact questions, check for a Graphify knowledge graph: `test -f graphify-out/graph.json` (honor a `GRAPHIFY_OUT` override if set). If the graph or the `graphify` binary is absent, enumerate consumers with `grep -rn` exactly as you would otherwise - this is the unchanged floor. If present, run the deterministic CLI:
+6. **Identify blast radius and risks.** What depends on this code? What invariants exist? What would break or need updating if this area changed? Surface non-obvious coupling.
+
+7. **Graph-assisted blast radius (optional).** For shared-utility, blast-radius, or per-consumer-impact questions, check for a Graphify knowledge graph: `test -f graphify-out/graph.json` (honor a `GRAPHIFY_OUT` override if set). If the graph or the `graphify` binary is absent, enumerate consumers with `grep -rn` exactly as you would otherwise - this is the unchanged floor. If present, run the deterministic CLI:
 
    ```bash
    graphify affected "<symbol-or-label>" --depth 2 [--relation <R>] [--graph "${GRAPHIFY_OUT:-graphify-out}/graph.json"]
@@ -68,7 +70,7 @@ Your spawn prompt will contain:
 
    You are read-only: never run `graphify --update`, `graphify update .`, or any other mutating graphify subcommand to refresh the graph. The conductor refreshes an existing graph before spawning you (via autonomous `graphify update .` on its own checkout), so the graph should already be fresh when you run. If your staleness check above still detects the graph is stale, fall back to `grep -rn` as the authoritative consumer enumeration and declare the staleness under "Gaps and unknowns".
 
-7. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
+8. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
 
 ## Output format
 

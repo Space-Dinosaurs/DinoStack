@@ -75,7 +75,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness consumes `run_in_background` for its own async routing and strips it from the PreToolUse hook payload (confirmed by live payload capture: hook tool_input keys for an Agent spawn are exactly `['description', 'prompt', 'subagent_type']`). As a result, `hooks/enforce-background-spawn.py` does NOT enforce `run_in_background` on `Agent` - doing so would brick every Agent spawn. Background enforcement is applied to the legacy `Task` tool name only. The hook retains two active responsibilities: (a) `run_in_background` enforcement for the legacy `Task` tool, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
+**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped). `hooks/enforce-background-spawn.py` enforces background-by-default on BOTH `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
@@ -196,7 +196,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the authoring-role escalation (architect / adr-generator / product-discovery on Plan+ADR-tier units, per risk-config-and-tiers.md): it denies an explicit sub-Opus `model` param on those spawns when the brief matches an authoring escalation signal, but the structural Plan+ADR trigger is conductor-computed and invisible to the hook, so the conductor's explicit `model: opus` remains the primary control. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 **wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
 
 **Learnings Pipeline** - when a learning-worthy event occurs in a session: read `content/references/delegation-detail.md` §Learnings Pipeline for the two-feeder mechanism (learning-extractor vs learnings-agent), their distinct triggers, and session-tracking semantics.
@@ -805,7 +805,7 @@ Never use em dashes (--). Use a regular hyphen (-) instead in all generated text
 
 ## Project Structure Convention
 
-`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a one-line `CLAUDE.md` containing `@AGENTS.md`. Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
+`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a `CLAUDE.md` containing `@AGENTS.md` and `@MEMORY.md` import lines. Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
 
 - **Root `AGENTS.md`** - one-paragraph summary, resolved architecture decisions, cross-cutting conventions, repo structure map. Keep it under ~40 lines. This limit applies to project root AGENTS.md files. The global `~/.claude/CLAUDE.md` is exempt.
 - **Subdirectory `AGENTS.md`** (e.g. `backend/AGENTS.md`, `contracts/AGENTS.md`) - loaded only when working in that directory. Can be as detailed as needed without polluting other contexts.
@@ -843,7 +843,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 **Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
-- `<cwd>/MEMORY.md` - canonical durable facts; committed; auto-injected by Claude Code; written by `/wrap`, wrap-ticket, `/memory-update`.
+- `<cwd>/MEMORY.md` - canonical durable facts; committed; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/init-project`); written by `/wrap`, wrap-ticket, `/memory-update`.
 - `.agentic/memory.md` - `/wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
 - `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (discretionary).
 
@@ -881,7 +881,7 @@ This is the 4th stacked first-user-turn notice (alongside meta-divergence, skill
 
 **TEAM dimension.** `agentic-cost team` aggregates all `.agentic/session-log/*.jsonl` files found locally. Session-logs are committed to git via the Phase 8 telemetry commit (when `commit_telemetry: true` and identity is confirmed), so `team` reflects sessions from any developer whose telemetry has landed on the current branch via pull after merge.
 
-**MEMORY.md** is auto-injected at startup by Claude Code. It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
+**MEMORY.md** is loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/init-project`). It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
 - Remove entries that are no longer true
 - Do not duplicate what is already in `AGENTS.md`
@@ -1045,7 +1045,7 @@ Performance: Standard (single file write + optional binary shell-out).
 | `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
 | `learnings-agent` | Session-scoped background learnings capture. Conductor-discretionary - spawned ad-hoc on the first learning-worthy event in a session; no automatic phase trigger. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
 | `wrap-ticket` | Per-ticket learnings capture at `/implement-ticket` Phase 11b. Constrained automated subset of `/wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/context.md Recent Focus only) |
-| `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Dependent on `goal_mode=open_goal`, which is itself unimplemented (spec-only, see `content/references/trigger-catalog.md`). | No |
+| `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Wired at `content/commands/implement-ticket.md` Phase 6 "Open-goal condition check" for `goal_mode=open_goal` invocations, scoped to elevated-risk iterations with a clean Skeptic sign-off (see `content/references/trigger-catalog.md` §Risk and review discipline (e)). Newly wired as of DS-75 - low field mileage. | No |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
 The `skeptic` is the cross-cutting review layer - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
@@ -1915,7 +1915,7 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
 - `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
 - `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
-- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; auto-injected by Claude Code at startup. Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
+- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/init-project`). Written by `/wrap`, wrap-ticket, and `/memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/wrap`-internal rolling scratch, gitignored).
 - `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (conductor-discretionary).
 - `decisions.md` - the project's decision log, where used.
 - `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
@@ -3791,13 +3791,15 @@ Spawning security-auditor.
 
 This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Opus `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal). It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
 
+**Mandatory Tier-3 authoring escalation (Plan+ADR-tier units).** When a unit reaches **Plan+ADR tier** - cross-track OR "Architecture decision constraining future choices", per the Planning Artifacts trigger table (`content/sections/03-planning-artifacts.md`) - the AUTHORING agent (architect, adr-generator, or product-discovery) producing the Plan or ADR for that unit MUST be Tier 3 (Opus), regardless of the agent's Sonnet role default. Unlike the reviewing-role escalation above, the Plan+ADR trigger is a **structural, conductor-computed decision** (cross-track span, architecture-constraining signal) that is not present in the spawn's `tool_input` - the PreToolUse hook cannot see it. The PRIMARY control is therefore prose, not mechanical: the conductor passes `model: opus` EXPLICITLY on the architect/adr-generator/product-discovery spawn for a Plan+ADR-tier unit, symmetric to the existing `architect:grill` preset convention. On Claude Code, `hooks/enforce-tier.py` provides a BACKSTOP (not the primary control) mirroring the skeptic marker-gated branch, not the security-auditor unconditional branch: it denies an explicit sub-Opus `model` param on an architect/adr-generator/product-discovery spawn whose brief matches an ADR/architecture marker (e.g. "ADR", "cross-track", "architecture decision constraining future choices", "Plan+ADR", "Plan-tier", "novel architecture"). This backstop is best-effort and has two known limitations: (1) it misses an ADR-tier authoring spawn whose brief does not name the escalation signal in recognizable vocabulary; (2) it does nothing when the `model` param is OMITTED - an omitted param resolves to the Sonnet frontmatter default (per the Role-default tier table below) and the hook ALLOWS it, because omission is indistinguishable from a routine non-ADR authoring spawn. The conductor's explicit `model: opus` param remains the only reliable enforcement mechanism for this rule.
+
 **Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
 
 | Agent | Default tier | Claude `model:` | Rationale |
 |---|---|---|---|
 | skeptic | 3 | opus | Adversarial review quality binds correctness |
 | security-auditor | 3 | opus | Spec-mandated Tier 3; threat-model depth |
-| architect | 2 | sonnet | Standard design; upgrade to Tier 3 per the escalation rule for novel-architecture units |
+| architect | 2 | sonnet | Standard design; upgrade to Tier 3 per the escalation rule for novel-architecture units; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | engineer | 2 | sonnet | Implementation |
 | investigator | 2 | sonnet | Terrain mapping |
 | orchestration-planner | 2 | sonnet | Decomposition |
@@ -3806,8 +3808,8 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | dependency-auditor | 2 | sonnet | Dependency review |
 | perf-analyst | 2 | sonnet | Performance analysis |
 | release-orchestrator | 2 | sonnet | Release execution; escalate the reviewing Skeptic per the rule above |
-| product-discovery | 2 | sonnet | Requirements synthesis |
-| adr-generator | 2 | sonnet | ADR authoring |
+| product-discovery | 2 | sonnet | Requirements synthesis; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
+| adr-generator | 2 | sonnet | ADR authoring; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-drift-detector | 2 | sonnet | Compliance audit |
 | learning-extractor | 2 | sonnet | Pattern extraction |
 | learnings-agent | 2 | sonnet | Discretionary capture |
@@ -5278,7 +5280,7 @@ The Subagent Protocol does not replace The Skeptic Protocol — it provides the 
 
 When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `METHODOLOGY.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
 
-The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in 04-risk-classification.md); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3 for a novel-architecture unit, asserting a mandated-Tier-3 Skeptic, or a Tier-1 mechanical task. Claude Code: `haiku`/`opus` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
+The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in `content/references/risk-config-and-tiers.md`); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3 for a novel-architecture unit, asserting a mandated-Tier-3 Skeptic, or a Tier-1 mechanical task. Claude Code: `haiku`/`opus` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
@@ -5468,7 +5470,7 @@ An open-goal loop is an iterative conductor flow where the operator declares a m
 
 **Trigger**: one of the three trigger types above fires the conductor.
 
-**Action**: the conductor runs `/implement-ticket` with `goal_mode=open_goal`. Each iteration produces one or more units of work, which go through the standard architect -> orchestration-planner -> engineer -> Skeptic sequence.
+**Action**: the conductor runs `/implement-ticket` with `goal_mode=open_goal`. Each iteration produces one or more units of work, which go through the standard architect -> orchestration-planner -> engineer -> Skeptic sequence. `goal_mode=open_goal` invocations MUST also declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) - see Hard-stop rule 5. No default; an invocation missing either is refused before Phase 1.
 
 **Measured condition**: an operator-declared `goal_condition` string evaluated after each iteration. Example: `"zero open Critical findings in content/references/"`. When an iteration's `risk_declared` is `elevated` and produced a clean Skeptic sign-off, the conductor spawns `goal-condition-evaluator` (Tier 1/haiku default; see `content/agents/goal-condition-evaluator.md`) to check the condition cheaply rather than spending conductor-tier reasoning on every iteration. The evaluator is read-only and returns only `GOAL_MET: true|false` plus a one-line evidence quote - it makes no correctness or safety judgment and never substitutes for the Skeptic (see §Risk and review discipline (b) and (e), neither of which this evaluator's existence relaxes). When an iteration's `risk_declared` is `low` or `trivial` (no Skeptic sign-off exists to spawn after - per (b), the fresh-independent-Skeptic requirement scopes to Elevated units only), the conductor evaluates `goal_condition` itself directly and never spawns the evaluator for that iteration. The same conductor-direct evaluation is also the fallback whenever the evaluator is spawned but is unavailable, times out, returns a malformed result, or returns `BLOCKED`: none of those outcomes routes to the generic BLOCKED-is-`cap_reached` escalation semantics in `content/references/subagent-protocol.md` §Loop transition rules - they route to conductor-direct evaluation, and the loop proceeds exactly as it would have before this role existed. When the condition is true (evaluator-confirmed or conductor-direct), the loop exits cleanly.
 
@@ -5487,6 +5489,7 @@ Exits are non-negotiable. The loop MUST stop when any of these fire:
 2. Re-route cap reached: conductor has made 3 fix passes on a single Skeptic finding and it is still open. Escalate to human per `content/references/skeptic-protocol.md` §Re-route limits.
 3. Convergence failure: a Skeptic raises the same finding unchanged after the engineer claimed to have fixed it. Escalate immediately; bypass remaining iteration budget per `content/references/skeptic-protocol.md` §Convergence failure.
 4. Hard blocker: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Return BLOCKED.
+5. **Cap exhaustion (mandatory, no default).** The operator MUST declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) at `goal_mode=open_goal` invocation time; an optional `dry_run` boolean (default `false`) may also be declared. Neither cap field has a default - an invocation missing either is refused before Phase 1 with the verbatim message: `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` The loop exits with `termination_reason: cap_reached_iterations` or `cap_reached_wallclock` when EITHER (a) `batch-state.json.open_goal.iteration` reaches `max_iterations`, or (b) wallclock elapsed since `batch-state.json.wallclock_started_at` reaches `max_wallclock_min`. **The outer-loop cursor lives in `batch-state.json`, not `loop-state.json` - `loop-state.json` is cleared every iteration by Phase 12 and cannot hold cross-iteration state.** This cap sits above rules 2-3 (which bound Skeptic/QA fix-passes INSIDE a single iteration).
 
 State is written to `loop-state.json` at every phase transition. On interruption or session exit, `status: "interrupted"` is written and the loop can resume per `content/sections/07-cross-session-loop-resume.md`.
 
@@ -5498,7 +5501,7 @@ This section is the yolo-guard. It is structural, not advisory.
 
 **(b) Each iteration of an open-goal loop is treated as a new Elevated-eligible task.** It gets a fresh risk declaration, and for any Elevated unit, a fresh independent Skeptic. `goal_mode=open_goal` relaxes or suspends no existing review obligation. The Skeptic that validates this iteration is independent - it is not the same Skeptic instance that reviewed the previous iteration.
 
-**(c) Auditability.** An open-goal iteration records a `risk_declared` field in `loop-state.json` (evidence that risk classification was performed that iteration). An iteration with no `risk_declared` is a protocol violation. The field may be set to `"low"`, `"elevated"`, or `"trivial"` to match the classification outcome.
+**(c) Auditability.** An open-goal iteration records a `risk_declared` field in `batch-state.json.open_goal` - the durable outer-loop cursor, not `loop-state.json`, which Phase 12 clears every iteration and therefore cannot hold cross-iteration audit state (evidence that risk classification was performed that iteration). An iteration with no `risk_declared` is a protocol violation. The field may be set to `"low"`, `"elevated"`, or `"trivial"` to match the classification outcome.
 
 **(d) This is what separates an action-triggered / open-goal loop from the rejected "yolo-mode"**: the trigger removes the human from the START, never from the REVIEW. Every unit that goes through an automated loop is subject to the same adversarial Skeptic review as a manually-triggered unit. Automated start does not imply automated approval.
 
@@ -5534,7 +5537,7 @@ jobs:
 
 `auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json` is the companion toggle that enables unsupervised merge when an action-triggered flow completes CI-green. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. Documented in `content/sections/04-risk-classification.md` §Project config.
 
-`content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: `loop-state.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. The `goal_mode`, `goal_condition`, and `risk_declared` fields are contract-level fields introduced by this catalog - they would be added to the `loop-state.json` schema if and when the open-goal mode is implemented; they are not present in sections/07 today.
+`content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: `loop-state.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. As of DS-75 - newly wired, low field mileage - `goal_mode=open_goal` is a live invocation parameter. The outer-loop cursor (`active`, `goal_condition`, `iteration`, `max_iterations`, `risk_declared`, `termination_reason`, `dry_run`) lives in the DURABLE `batch-state.json.open_goal` object, not `loop-state.json` (which Phase 12 clears every iteration), alongside a `mode` discriminator (`"batch" | "open_goal" | "single_ticket_capped"`). See `content/commands/implement-ticket.md` "Phase 0a-open-goal", Phase 6 "Open-goal condition check", and Phase 12a for the wiring. The manual/scheduled/action-triggered TRIGGER plumbing (cron, CI, webhook infrastructure) remains outside AE scope, unchanged.
 
 ---
 
@@ -6305,9 +6308,10 @@ Your spawn prompt will contain:
 
 1. Read the task description carefully. List any ambiguities or unstated assumptions before exploring.
 2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively when available; otherwise use Bash `rg`/`grep`/`find` for the same purpose.
-3. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
-4. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
-5. Write the technical plan using the output format below.
+3. **Retrieve prior learnings.** Grep `.agentic/learnings.md` for entries matching the feature's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output (citation in the plan's Codebase context).
+4. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
+5. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
+6. Write the technical plan using the output format below.
 
 ## Revising a prior plan
 
@@ -6522,7 +6526,7 @@ List every file path, line reference, and symbol name you asserted anywhere in t
 2. **Conductor walks the human through batches** at the human's pace, presenting one batch at a time and collecting answers. This is conductor orchestration, not architect behavior.
 3. **Spawn 2 - plan synthesis.** Once the human signals "enough" or all batches are answered, the conductor re-spawns the architect (`architect:default` is the default choice; `architect:grill` with a follow-up directive is acceptable when more depth is still needed) with the accumulated Q&A as input. Spawn 2 produces the actual technical plan; its Open Questions section should be empty or minimal because depth was reached interactively.
 
-Runs at Tier 3 because grill mode demands the widest design-question aperture; spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the full spawn-preset protocol in `content/references/spawn-presets.md` for the surrounding declaration protocol.
+Runs at Tier 3 because grill mode demands the widest design-question aperture; spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the full spawn-preset protocol in `content/references/spawn-presets.md` for the surrounding declaration protocol. Separately, the architect also escalates to Tier 3 (conductor-declared `model: opus`) when authoring a Plan+ADR-tier unit (cross-track / architecture-constraining) - see the Mandatory Tier-3 authoring escalation rule in `content/references/risk-config-and-tiers.md`.
 
 ---
 
@@ -6572,6 +6576,10 @@ Read the error completely - do not skim. Extract: the error message, the exact f
 ### Phase 2: Look up library docs
 
 If the failure involves library, framework, or SDK behavior (error messages, API usage, configuration), use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming hypotheses. Training data may be outdated — verify API signatures, expected behavior, configuration options, and known issues against current docs. A misdiagnosis based on stale knowledge wastes the entire downstream fix cycle.
+
+### Phase 2.5: Retrieve prior learnings
+
+A prior `LRN-*` entry may name the exact fix pattern for this class of bug. Grep `.agentic/learnings.md` for entries matching the failure's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output (citation in the Fix brief).
 
 ### Phase 3: Pattern Analysis
 
@@ -7099,7 +7107,7 @@ See `content/references/frontend-discipline.md` for full rules and canonical vio
 ---
 name: goal-condition-evaluator
 model: haiku
-description: Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Dependency note: goal_mode=open_goal is itself unimplemented (spec-only; see content/references/trigger-catalog.md) - this spec exists at the same spec-only level and has no wiring into /implement-ticket today.
+description: Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Wired as of DS-75 (newly wired, low field mileage): the conductor spawns this agent at content/commands/implement-ticket.md Phase 6 clean exit, scoped to open-goal iterations whose risk_declared is elevated and which just received a clean Skeptic sign-off - see content/references/trigger-catalog.md §Risk and review discipline (e).
 tools: Read, Grep, Glob, Bash
 disallowedTools: [Edit, Write, Agent]
 ---
@@ -7125,11 +7133,15 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt"
 
 Upstream deps: None (no external libraries; only Read/Grep/Glob/Bash tools).
 
-Downstream consumers: the conductor's open-goal loop
-                      (content/references/trigger-catalog.md §Open-goal loop
-                      contract). This consumer is not yet wired - goal_mode=
-                      open_goal is itself unimplemented (spec-only) - so this
-                      agent has no live caller in /implement-ticket today.
+Downstream consumers: the conductor's open-goal loop, wired at
+                      content/commands/implement-ticket.md Phase 6 'Open-goal
+                      condition check' subsection (spawn scoped to
+                      elevated-risk, clean-sign-off iterations only;
+                      low/trivial iterations are evaluated conductor-direct,
+                      never via this agent). Newly wired as of DS-75 - low
+                      field mileage. See content/references/trigger-catalog.md
+                      §Open-goal loop contract and §Risk and review
+                      discipline (e).
 
 Failure modes:
 - Fails closed: any error, ambiguity, or inability to confirm the condition
@@ -7252,15 +7264,17 @@ Your spawn prompt will contain:
 
 1. **Parse the question.** What specifically needs to be understood? What decision will the conductor make from your output? Knowing the downstream use shapes what depth and breadth you need.
 
-2. **Map the terrain.** Use Glob and Grep to orient quickly when available (otherwise use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable) as normal.
+2. **Retrieve prior learnings.** Grep `.agentic/learnings.md` for entries matching the investigation's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output (citation in the brief).
 
-3. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
+3. **Map the terrain.** Use Glob and Grep to orient quickly when available (otherwise use Bash `rg`/`grep`/`find`): find relevant files, entry points, and key symbols before diving deep. Don't read everything - form a map first. For symbol-level queries (call sites of a function, usages of an exported type, class definitions), prefer `sg` (AST-grep) over text-based Grep when available - it eliminates false positives from comments, string literals, and partial name matches. Run `which sg 2>/dev/null` once at investigation start to check availability; if present, use it via Bash (no dedicated harness tool wraps structural AST search - this is an explicit exception to the Bash-for-search prohibition). Example: `sg --pattern 'myFunction($$$)' --lang ts .` finds all call sites of `myFunction` in TypeScript files (`$$$` matches any argument list). If `sg` is not installed, use Grep (or Bash `rg`/`grep` when Grep is unavailable) as normal.
 
-4. **Trace and explore.** Follow the code where the question leads: read implementations, trace call chains, map data flow. Follow the evidence rather than assumptions.
+4. **Look up library docs.** If the investigation involves library, framework, or SDK behavior, use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming any hypothesis. Training data may be outdated — verify API signatures, configuration options, and behavioral details against current docs.
 
-5. **Identify blast radius and risks.** What depends on this code? What invariants exist? What would break or need updating if this area changed? Surface non-obvious coupling.
+5. **Trace and explore.** Follow the code where the question leads: read implementations, trace call chains, map data flow. Follow the evidence rather than assumptions.
 
-6. **Graph-assisted blast radius (optional).** For shared-utility, blast-radius, or per-consumer-impact questions, check for a Graphify knowledge graph: `test -f graphify-out/graph.json` (honor a `GRAPHIFY_OUT` override if set). If the graph or the `graphify` binary is absent, enumerate consumers with `grep -rn` exactly as you would otherwise - this is the unchanged floor. If present, run the deterministic CLI:
+6. **Identify blast radius and risks.** What depends on this code? What invariants exist? What would break or need updating if this area changed? Surface non-obvious coupling.
+
+7. **Graph-assisted blast radius (optional).** For shared-utility, blast-radius, or per-consumer-impact questions, check for a Graphify knowledge graph: `test -f graphify-out/graph.json` (honor a `GRAPHIFY_OUT` override if set). If the graph or the `graphify` binary is absent, enumerate consumers with `grep -rn` exactly as you would otherwise - this is the unchanged floor. If present, run the deterministic CLI:
 
    ```bash
    graphify affected "<symbol-or-label>" --depth 2 [--relation <R>] [--graph "${GRAPHIFY_OUT:-graphify-out}/graph.json"]
@@ -7280,7 +7294,7 @@ Your spawn prompt will contain:
 
    You are read-only: never run `graphify --update`, `graphify update .`, or any other mutating graphify subcommand to refresh the graph. The conductor refreshes an existing graph before spawning you (via autonomous `graphify update .` on its own checkout), so the graph should already be fresh when you run. If your staleness check above still detects the graph is stale, fall back to `grep -rn` as the authoritative consumer enumeration and declare the staleness under "Gaps and unknowns".
 
-7. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
+8. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
 
 ## Output format
 
@@ -7454,7 +7468,7 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 > durable fix-pattern extracted from a resolved Skeptic finding. Append-only.
 > Committed — project-level knowledge shared across operators.
 
-<!-- Target: under 50 entries. Prune entries whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->
+<!-- Target: under 50 entries. Pruning is DEFERRED until learnings-retrieval is wired into the reading agents and demonstrated - until then keep entries even past the target so retrieval has a corpus to match against. Once retrieval is demonstrated, resume pruning entries whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->
 
 ## [LRN-YYYYMMDD-XXX] <finding-title>
 
@@ -11013,7 +11027,7 @@ Upstream deps: content/sections/03-planning-artifacts.md (Brief template and fie
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
                .agentic/brief-session.json (resume state, includes rubric array);
-               MEMORY.md (prior-decisions scan, auto-injected at session start);
+               MEMORY.md (prior-decisions scan, already in context via the `@MEMORY.md` import in CLAUDE.md);
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/implement-ticket.md Phase 0b (brief_path check);
@@ -11309,7 +11323,7 @@ Full framing review is in scope.
 
 Runs after intent capture, before the gray-area menu.
 
-**MEMORY.md:** already in context (auto-injected at session start). NO file read.
+**MEMORY.md:** already in context (via the `@MEMORY.md` import in the project root `CLAUDE.md`). NO file read.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
@@ -11844,6 +11858,8 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 
 Phase 0 normalizes the input into a canonical ordered list of ticket entries before any other phase runs. Bare-ID, single-issue-URL, and operator-enumerated list invocations bypass the confirmation prompt — backward compatible with the prior single-argument contract.
 
+**Open-goal / wallclock-cap parameters (optional, trailing key=value tokens).** `<input>` may be followed by any of `goal_mode=open_goal`, `goal_condition="<string>"`, `max_iterations=<int>`, `max_wallclock_min=<int>`, `dry_run=true`. Extracted by a trailing-token scan (`\w+=(\S+|"[^"]*")`) BEFORE Phase 0 classification runs; matched tokens are stripped so ticket-reference classification is unaffected. `dry_run` is meaningful ONLY when `goal_mode=open_goal` is also present - on any other invocation shape it is parsed and explicitly ignored (no effect, no error).
+
 ---
 
 ## Conductor responsibilities (irreducible)
@@ -11897,7 +11913,7 @@ This preserves the audit log across overlapping writes and across resume migrati
 
 **Contract C — One batch per project root.**
 
-When Phase 0a is initializing a new `batch-state.json` (invocation where Phase 0 produced ≥ 2 entries) and the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes: REFUSE the new batch with the verbatim message:
+When Phase 0a is initializing a new `batch-state.json` (invocation where Phase 0 produced ≥ 2 entries, OR Phase 0a-open-goal is performing a Fresh init (`goal_mode=open_goal`), OR the Phase 0a-pre single-ticket-capped carve-out is performing its create (`max_wallclock_min` alone, no `goal_mode`)) and the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes: REFUSE the new batch with the verbatim message:
 
 ```
 Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke.
@@ -11927,6 +11943,7 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
   "session_id": "<current session uuid or null>",
   "batch_id": "<first-ticket-prefix>-batch-<ISO8601>-<4hex>",
   "status": "active",
+  "mode": "batch",
   "created_at": "<ISO8601>",
   "updated_at": "<ISO8601>",
   "last_updated_phase": "<phase label>",
@@ -11950,7 +11967,16 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
     }
   ],
   "replan_log": [],
-  "resume_invocation_hint": "/implement-ticket"
+  "resume_invocation_hint": "/implement-ticket",
+  "open_goal": {
+    "active": false,
+    "goal_condition": null,
+    "iteration": 1,
+    "max_iterations": null,
+    "risk_declared": null,
+    "termination_reason": null,
+    "dry_run": false
+  }
 }
 ```
 
@@ -11960,12 +11986,14 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
 - `session_id`: uuid of the conductor session that last wrote the file; null only on legacy files written by a prior version.
 - `batch_id`: stable identifier for the batch. Format `<prefix>-batch-<ISO8601>-<4hex>` where `<prefix>` is the first ticket's `TICKET_PREFIX` (used when tickets span multiple prefixes; the first ticket wins).
 - `status`: enum `active | paused | interrupted | complete | stalled`.
+- `mode`: enum `"batch" | "open_goal" | "single_ticket_capped"`. Absent = `"batch"` (100% back-compat). `"open_goal"` is set by Phase 0a-open-goal's Fresh init; `"single_ticket_capped"` is set by the Phase 0a-pre single-ticket wallclock carve-out - the ONLY N=1 path that creates `batch-state.json`.
 - `interrupt_reason`: enum `unknown | null` — only `unknown` is a writable value (other values reserved for future writers; the Stop hook cannot distinguish rate-limit vs crash at hook time).
-- `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | null` — these three values match the three Phase 12a triggers.
+- `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | open_goal_iteration_cap | null` - these four values match the four Phase 12a triggers. NOTE: `paused_stale_pace` / `paused_operator_request` / `cap_reached_wallclock` / `cap_reached_iterations` / `goal_met` / `blocked` are `open_goal.termination_reason` values, NOT `pause_reason` values - deliberately avoiding a dual-enum collision. Only `open_goal_iteration_cap` was added to `pause_reason`; triggers 1-3 keep their existing `pause_reason` values `stale_pace` / `operator_pause` / `wallclock_cap`.
 - `wallclock_started_at`: set once at Phase 0a init; preserved across resume. The wallclock cap is per-batch lifetime, not per-session.
 - `wallclock_cap_min`: integer minutes. Default `90`. Overridable via env `AGENTIC_BATCH_MAX_WALLCLOCK_MIN`.
 - `tickets[]`: triage-derived executable cursor; contains only lane-assigned tickets (deferred and in-progress-excluded tickets are not included). `status` per-ticket is `pending | in_progress | complete | blocked | skipped_already_merged`.
 - `replan_log[]`: append-only audit log. Each entry: `{ts, action, ticket_id, detail}`. Actions include `drop_merged`, `investigator_rerun`, `re_sequence`. Preserved by Contract B.
+- `open_goal`: present (meaningfully populated) only when `mode == "open_goal"`. `active`: boolean, whether an open-goal loop is currently running. `goal_condition`: operator-declared condition string, set once at Fresh init, read-only thereafter (divergent re-invocation values are warned and ignored - on-disk governs). `iteration`: current iteration number; invariant `iteration == len(tickets[])` from the first synthetic entry onward (SOLE momentary exception: immediately after Fresh init, `iteration=1` but `tickets=[]` - closed the moment Phase 1 of iteration 1 appends its entry). `max_iterations`: operator-declared cap, mandatory at Fresh init, no default. `risk_declared`: this iteration's risk classification (`low | elevated | trivial`), written at Phase 6 clean exit - the DURABLE audit record (see `content/references/trigger-catalog.md` §Risk and review discipline (c)). `termination_reason`: enum `null | cap_reached_iterations | cap_reached_wallclock | goal_met | blocked | paused_stale_pace | paused_operator_request` - partitions TERMINAL (`cap_reached_iterations`, `cap_reached_wallclock`, `goal_met`, `blocked`) from RESUMABLE (`paused_stale_pace`, `paused_operator_request`, or `null` with `status` in `{paused, interrupted}`). `dry_run`: boolean, set once at Fresh init, never changes mid-loop; when `true`, Phases 6b/8-11b are skipped for every iteration (no QA, no ship, no PR) - see Phase 6b and Phase 8 dry-run gates.
 
 ---
 
@@ -12307,11 +12335,83 @@ classifiers:
 
 ---
 
+## Phase 0a-open-goal: Open-goal loop init or resume (conditional)
+
+**Trigger:** invocation carries `goal_mode=open_goal`. Mutually exclusive with Phase 0a-pre/Phase 0a - skip both when this fires; fall through unmodified when it does not.
+
+### Step 0 - resume-vs-fresh classification (before any write). Provably complete partition.
+
+Read `.agentic/batch-state.json` if present.
+
+- Absent, or `mode != "open_goal"`: → Fresh init.
+- `mode == "open_goal"`: classify via `termination_reason` first (authoritative when non-null, regardless of `status`); fall back to `status` sub-partition only when `termination_reason == null`.
+
+  **A. `termination_reason` non-null (6 of 7 buckets; resolved without consulting `status`):**
+  - `cap_reached_iterations` | `cap_reached_wallclock` → TERMINAL; print:
+    ```
+    A prior open-goal loop already terminated (reason: <termination_reason>, iteration <N>/<max_iterations>). Starting fresh clears this state. To continue this goal instead, re-invoke with max_iterations and/or max_wallclock_min set HIGHER than the current values (max_iterations=<X>, max_wallclock_min=<Y>). Confirm: fresh-start (delete + reinit) or raise-caps (continue from iteration <N+1>)? (fresh / raise-caps)
+    ```
+    Offer both `fresh` and `raise-caps`.
+  - `blocked` → TERMINAL, fresh ONLY (raise-caps can't unblock a stuck Skeptic loop); prompt adds: "To resume the specific blocked iteration's stuck work instead, use the ordinary per-ticket Resume check against that iteration's own branch - this phase does not do that."
+  - `goal_met` → TERMINAL, fresh ONLY (nothing to raise).
+  - `paused_stale_pace` | `paused_operator_request` → RESUMABLE.
+
+  **B. `termination_reason == null` (7th bucket; sub-partitioned on `status`, exhaustively):**
+  - `status` in `{paused, interrupted}` → RESUMABLE.
+  - `status == "active"` → apply Contract A's existing per-write `session_id`-mismatch determination to this READ (same 4-way logic Contract A uses to gate every `batch-state.json` WRITE, applied here as read-time classification):
+    - `session_id` non-empty and matches current session → RESUMABLE (same-session continuation; covers crash-mid-advance re-invoked same session).
+    - `session_id` non-empty, differs, AND `last_updated` older than 10 min → RESUMABLE, treated as implicitly interrupted (mirrors Phase 0a-pre "status=active AND last_updated>10min → implicit interrupt"). Covers crash-mid-advance surviving into a later session.
+    - `session_id` non-empty, differs, AND `last_updated` within last 10 min → REFUSE, verbatim Contract C message: `"Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke."` Exit. (live-foreign-session; closes the null+active Contract-C bypass.)
+    - `session_id` null/absent (legacy) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` `yes` → RESUMABLE; `no` → exit/wait.
+  - `status == "complete"` → TERMINAL, fresh ONLY (safe default; unexpected/legacy combo).
+  - `status == "stalled"` → TERMINAL, fresh ONLY (same rationale).
+  - any other/unrecognized `status` → TERMINAL, fresh ONLY (safe default).
+
+**Completeness statement:** every `(termination_reason, status)` pair lands in exactly one of {Fresh init, RESUMABLE, raise-caps-or-fresh (terminal-cap bucket), refuse}. Bucket A resolves 6 of 7 `termination_reason` values without consulting `status`. Bucket B exhaustively covers the 7th value (`null`) across all 5 named `status` enum values + explicit catch-all; `status==active` within bucket B is itself exhaustively partitioned by Contract A's 4-way `session_id`/staleness logic. No pair unclassified.
+
+- On fresh (any TERMINAL branch): delete `batch-state.json` → Fresh init. (force-takeover "no" exits/waits, does NOT go fresh.)
+- On raise-caps: refuse unless declared `max_iterations`/`max_wallclock_min` strictly greater than on-disk: `"raise-caps requires re-invoking with max_iterations and/or max_wallclock_min set higher than the existing values (current: max_iterations=<X>, max_wallclock_min=<Y>). Re-invoke with a higher value, or choose fresh."` On success: Contract A write (update, NO Contract C - update not create) setting raised cap(s), `termination_reason:null`, `status:"active"` → Advance to next iteration (idempotency-checked).
+- On RESUMABLE (any sub-case incl. force-takeover yes): Contract A write `status:"active"`; do NOT reset `iteration` → Advance to next iteration (idempotency-checked).
+- `goal_condition` divergence (unchanged): read from disk on any resume, never re-parsed; differing invocation value prints one-line "on-disk value governs" warning (mirrors Phase 0a-pre GENUINE-divergence pattern), continues.
+
+### Advance to next iteration (idempotency-checked)
+
+Read the last entry in `tickets[]` (if any):
+- `tickets[]` empty OR last entry `status == "complete"`: no next-iteration entry yet → apply the IDENTICAL Contract A+B write Phase 12a "On no trigger, GOAL_MET false" performs (increment `open_goal.iteration`, append pending entry) - reused by reference.
+- last entry `status` is `"pending"` or `"in_progress"`: a next-iteration entry was ALREADY appended (most likely by Phase 12a's advance-write interrupted before Phase 1 - the crash-mid-advance scenario). Do NOT increment `iteration` or append again - use the existing entry as-is. Prevents double-advance (silent skip/dupe of an iteration).
+
+Either way, fall through to Phase 1 for the iteration corresponding to the last `tickets[]` entry.
+
+### Fresh init (only via the branches above - never unconditional)
+
+**Validation (refuse before Phase 1 on failure):**
+- `goal_condition` missing → refuse: `"goal_mode=open_goal requires goal_condition to be declared. Re-invoke with goal_condition set."` Exit.
+- `max_iterations` or `max_wallclock_min` missing/non-positive → refuse verbatim (trigger-catalog.md Hard-stop rule 5): `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` Exit.
+- `dry_run`, if present, must be literal `true`/`false`; absent defaults to `false`. No refusal on absence.
+
+**Contract C check (before any write):** apply the broadened Contract C check above (Fresh init is one of the three triggering create-paths) - refuse verbatim if `batch-state.json` is active/foreign-session/recent. Exit on refusal.
+
+**On successful validation (Contract A fresh write):**
+1. Initialize `.agentic/batch-state.json`: `mode:"open_goal"`, `batch_id:"open-goal-<ISO8601>-<4hex>"`, `wallclock_cap_min:<max_wallclock_min>`, `wallclock_started_at:now`, `tickets:[]`, `open_goal:{active:true, goal_condition:<string>, iteration:1, max_iterations:<int>, risk_declared:null, termination_reason:null, dry_run:<bool>}`.
+2. `loop-state.json` NOT touched here - initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
+3. Breadcrumb: `[phase: open-goal-init | goal_condition="<condition>" | max_iterations=<N> | max_wallclock_min=<M> | dry_run=<bool>]`.
+4. Fall through to Phase 1 for iteration 1.
+
+**Off-by-one note (Minor):** at init, `iteration=1` but `tickets=[]` (len 0) - SOLE momentary exception to `iteration==len(tickets[])`, closed the moment Phase 1 of iteration 1 appends the first synthetic entry. From Phase 1 of iteration 1 onward, the invariant holds continuously.
+
+**Per-iteration ticket lifecycle.** Each iteration's synthetic `tickets[]` entry (`ticket_id:"<goal-slug>-iter-N"`, `cluster_id:"open-goal"`) follows the SAME transition-write pattern ordinary batch tickets use: `pending → in_progress` at Phase 1 start, `in_progress → complete` at Phase 12, or `→ blocked` via "Batch-mode escalation routing" (Phase 6). Every transition applies Contract A + Contract B.
+
+**Interaction with top-level "Resume check (before setup)".** That check reads `loop-state.json` before Phase 0, independent of this phase. A mid-iteration interrupted resume jumps to that iteration's resume entry point; Phase 0a-open-goal is never re-entered that session. Step 0 fires only on a normal Phase 0 pass reaching `goal_mode=open_goal`.
+
+---
+
 ## Phase 0a-pre: Batch resume check
 
 > Run this phase BEFORE the per-ticket Resume check below. This is the composition anchor: batch-level resume picks the ticket cursor first; the per-ticket Resume check then runs unmodified scoped to that ticket's branch and `loop-state.json`.
 
-**Trigger:** Phase 0 normalization produced ≥ 2 entries (same trigger as Phase 0a). Skip otherwise. Single-entry invocations (Phase 0 produced exactly 1 entry, including the bare-ID fast path used by all Trivial single-ticket flows) bypass this phase entirely - no `.agentic/batch-state.json` is read or created.
+**Trigger:** Phase 0 normalization produced ≥ 2 entries (same trigger as Phase 0a). Skip otherwise.
+
+**Single-ticket wallclock carve-out.** Single-entry invocations bypass this phase entirely - no `.agentic/batch-state.json` is read or created - EXCEPT when `max_wallclock_min` is declared on a single-entry invocation with no `goal_mode`. In that case: apply the Contract C refusal check (broadened per the Contract C definition above) ONLY - do NOT also run the separate N=1 foreign-batch warning first; both checks share the identical trigger (active + different session + ≤10min), so the softer warning first would be dead code (Contract C refusal always overrides any yes/proceed). This differs from the ordinary N=1 path, which never creates batch-state and never needs Contract C. On success (Contract A fresh write): create `.agentic/batch-state.json{mode:"single_ticket_capped", tickets:[{ticket_id:<the one entry>, status:"pending", cluster_id:null, depends_on:[]}], wallclock_cap_min:<max_wallclock_min>, wallclock_started_at:now}`. **This is the ONLY N=1 path that creates `batch-state.json`.**
 
 **Read** `.agentic/batch-state.json` if present. Apply the decision table below.
 
@@ -12550,7 +12650,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (auto-injected at session start) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by `/init-project`) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.
@@ -13069,8 +13169,8 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 **Step 3. Termination check:**
 - If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
-- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human (see Escalation section below). Phase 6b does NOT run.
-- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
+- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
 
 **Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
 
@@ -13133,7 +13233,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 **Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
 - Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -13161,6 +13261,19 @@ Recommended action: review the open findings above and either:
 
 Note: the escalation format surfaces findings and history only. The conductor does not synthesize fix suggestions - that would undermine the convergence failure signal.
 
+### Batch-mode escalation routing (mark-blocked-and-continue)
+
+**Trigger:** `.agentic/batch-state.json` exists with `status:"active"`. Skip (fall through to single-ticket "surface and wait for human") when absent/not active.
+
+**Action:**
+1. Print the Escalation format/stalled summary unchanged and visible.
+2. Contract A+B write: find this ticket's/iteration's `tickets[]` entry, set `status:"blocked"`, `last_summary`=one-line synopsis.
+3. Print `"Ticket <ticket_id> marked blocked; advancing to next pending ticket in the batch."`; skip Phases 7-12 for this ticket.
+4. **Batch mode (`mode=="batch"` or absent):** advance to next `pending` ticket, array order, enter at Phase 1.
+5. **Open-goal mode (`mode=="open_goal"`):** do NOT auto-advance - write `open_goal.termination_reason` to the triggering reason (`blocked`, `cap_reached_iterations`, or the equivalent) and STOP the outer loop (surface and wait for human); the `blocked` write in step 2 still happens for audit.
+
+**Single-ticket mode (no active batch-state):** unchanged - surface and wait for human.
+
 ### Findings curator (loop exit)
 
 At Phase 6 loop exit (both clean termination and stalled termination paths), spawn a findings-curator subagent. **Note:** `findings-curator` does not yet exist as a named agent; use `general-purpose` agent type (Tier 1, fire-and-forget) until the named agent is formally added.
@@ -13180,9 +13293,18 @@ Fires exactly once per ticket per `/implement-ticket` invocation.
 
 **Exchange log compression:** After Round 2 sign-off, apply compression when the log would no longer fit in a single spawn prompt alongside the preflight list. Always preserve Round 1 and the most recent round in full. See `content/references/skeptic-protocol.md` Section 3 "Exchange log compression" for the canonical trigger and format.
 
+### Open-goal condition check (clean exit only, `goal_mode=open_goal` invocations only)
+
+1. If `batch-state.json.open_goal.active` is not `true` (or `batch-state.json` absent / `mode != "open_goal"`), skip entirely. **Sole gate scoping the evaluator spawn to open-goal invocations.**
+2. Set `batch-state.json.open_goal.risk_declared` to this iteration's classification (`low | elevated | trivial`) - Contract A+B write. Satisfies invariant (c) on the DURABLE record (see `content/references/trigger-catalog.md` §Risk and review discipline (c)).
+3. **Scope gate (mirrors invariant (e)):** `risk_declared == "elevated"` → spawn `goal-condition-evaluator` (Tier 1/haiku, omit model param) with `goal_condition`, `iteration_evidence_hint` (finding IDs/files + ≤500-char excerpt of this iteration's `quality_gate_results.raw_output` when `goal_condition` plausibly references gate output), `skeptic_signoff_confirmed:true`; no worktree isolation. `low`/`trivial` → no spawn; conductor evaluates directly.
+4. **Return handling:** `GOAL_MET:true` → set `open_goal.termination_reason="goal_met"` (Contract A+B); unit still ships normally UNLESS `dry_run==true`; outer loop exits at Phase 12a. `GOAL_MET:false` → status update only; continue at Phase 12a. `BLOCKED`/unavailable/errored/timeout/malformed → conductor-direct evaluation immediately (invariant (e)); **never** the generic Worker-BLOCKED=`cap_reached` escalation from `content/references/subagent-protocol.md` §Loop transition rules.
+
 ---
 
 ## Phase 6b: QA Gate (conditional)
+
+**Dry-run skip (open-goal only).** If `batch-state.json.open_goal.active == true` AND `batch-state.json.open_goal.dry_run == true`: skip Phase 6b entirely - no qa-engineer spawn, no dev-server boot. Proceed directly to Phase 12. Never fires for ordinary invocations (no `open_goal.dry_run` field to read).
 
 **Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
@@ -13268,8 +13390,8 @@ The following failures were identified and fix attempts were made in earlier ite
 
 **Step 3. Termination check:**
 - If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
-- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
-- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
+- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
+- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
 **QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
 
@@ -13291,7 +13413,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
-- If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
 **Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -13348,7 +13470,7 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
 5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
 6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
-7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
+7. If it still fails: set `status=stalled`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
 **No unbounded loop (default path):** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
 
@@ -13370,7 +13492,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 8. Verify the fix engineer's `quality_gate_results`.
    - If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
    - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.
-   - If it still fails AND cycle count == 3: set `status=stalled`. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
+   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
 
 **Convergence short-circuit (test runners only).** If the quality gate is a test runner (pytest, jest, vitest, cargo test, etc.) AND the set of failing test IDs in `quality_gate_results.failures[]` is identical to the set from the immediately preceding cycle (the engineer made no progress on the failing tests), escalate immediately without consuming remaining cycles. Surface the stalled test IDs and both cycle outputs to the human. This short-circuit applies ONLY to test runners with structured `failures[]` output. For lint (eslint, ruff, etc.) and typecheck (tsc, mypy, pyright, etc.) gates, rely solely on the 3-cycle limit - do not attempt a short-circuit.
 
@@ -13379,6 +13501,8 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 ---
 
 ## Phase 8: Commit and push
+
+**Dry-run skip (open-goal only).** If `batch-state.json.open_goal.active == true` AND `batch-state.json.open_goal.dry_run == true`: skip Phases 8 through 11b entirely - no commit-push, no PR open, no CI wait, no tracker writeback, no wrap-ticket. This iteration's engineer-produced work remains as local, unpushed commits on its worktree-isolated branch. Proceed directly to Phase 12. **What still ran:** Phases 1-7 (understand, read, architect, plan, implement, Skeptic incl. the goal-condition-evaluator spawn at Phase 6, quality gate) - every review-discipline invariant fully exercised; only shipping mechanics skipped, zero external side effects. This is the literal mechanism DC1 exercises: a `dry_run=true` run with `max_iterations=3` performs 3 full review cycles and terminates on the cap with no PR/CI/prompt.
 
 **Sequential path:** Stage specific files and commit as described below.
 
@@ -14105,25 +14229,32 @@ fi
 
 Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
 
+**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). loop-state.json cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+
 ---
 
-## Phase 12a: Handoff evaluation (batch only)
+## Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)
 
-**Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session). Skip when batch-state.json is absent.
+**Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
 
-After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, evaluate the three handoff triggers below. If any one fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
+After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit below, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
 
-**Triggers (exactly THREE; any one fires):**
+**Goal-met short-circuit (open-goal mode, evaluated before triggers 1-4).** If `batch-state.json.mode == "open_goal"` AND `batch-state.json.open_goal.termination_reason == "goal_met"` (set this iteration by Phase 6 "Open-goal condition check"): take the clean COMPLETE exit immediately - set `status: "complete"` on both `batch-state.json` and `loop-state.json` (Contract A), print `OPEN-GOAL LOOP COMPLETE - goal_condition met after N iterations`, and exit the outer loop. Do NOT evaluate triggers 1-4. This guarantees a goal met on the final budgeted iteration (or coincident with a wallclock/iteration cap) records `goal_met`, not `cap_reached_*`, and the operator is not falsely told the goal was unmet. Rationale: `goal_met` is a success terminal state and always takes precedence over any cap/pause trigger that would otherwise fire on the same iteration.
 
-1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`.
-2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`.
+**Triggers (exactly FOUR; any one fires; not evaluated when the goal-met short-circuit above already fired):**
+
+1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`. **In open-goal mode:** applies UNMODIFIED - `tickets[]` accumulates one synthetic entry per completed iteration, so the ≥5-completed threshold is satisfied by the same array. For `max_iterations < 5` (e.g. a dry-run test with `max_iterations=3`), trigger 1 is structurally inert (never reaches 5) - expected/correct (a loop capped below 5 is too short for a meaningful pace signal, matching the threshold's own rationale). **In single-ticket-capped mode:** structurally inert (one entry, no pace signal past a single completion).
+2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`. **In open-goal mode:** applies UNMODIFIED - substring match is orthogonal to mode. **In single-ticket-capped mode:** mode-orthogonal and DOES apply - the operator can still pause a single capped run.
 
    **Invariant (binding).** The conductor MUST NOT write `pause_reason: "operator_pause"` to `batch-state.json` unless the operator's most recent message contains the literal substring `pause the batch` (case-insensitive). Conductor self-doubt about remaining wallclock, context pressure, perceived pace, or "feeling like the operator might want a break" is NOT a valid `operator_pause` trigger. The correct conductor behavior in those subjective cases is to spawn the next ticket and let `wallclock_cap` (trigger 3) fire mechanically if the cap is actually hit. A conductor that paraphrases the operator, infers intent from "I'm tired" / "let's stop soon" / "we're running long", or pauses preemptively to avoid a future cap hit is violating this invariant - the operator's literal words are the authoritative trigger. If an operator phrases a pause request differently (e.g. "stop after this one"), the correct response is to surface a one-line confirmation (`Proceeding to pause the batch after the current ticket - confirm with 'pause the batch' or override with 'continue'.`) and continue executing until the literal substring arrives.
-3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`.
+3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`. **Single-ticket-capped mode:** trigger 3 is the reason this mode exists - same wallclock-blocked-write action as before.
+4. **Open-goal iteration cap** (`mode=="open_goal"` only; inert for `batch`/`single_ticket_capped`). `batch-state.json.open_goal.iteration >= batch-state.json.open_goal.max_iterations`. `pause_reason: "open_goal_iteration_cap"`.
+
+**Single-ticket-capped mode summary:** triggers 1 and 4 are structurally inert (no pace signal past a single entry; no iteration concept). Trigger 2 (operator literal "pause the batch") is mode-orthogonal and DOES apply - the operator can still pause a single capped run. Trigger 3 (wallclock cap) is the reason this mode exists.
 
 (Context-pressure auto-detection is explicitly NOT a trigger; the conductor cannot read its own context %. Operators use trigger 2 if context pressure is observed.)
 
-**On trigger:** apply Contract A + Contract B and write `batch-state.json` with:
+**On trigger - batch and single-ticket-capped modes (`mode != "open_goal"`):** apply Contract A + Contract B and write `batch-state.json` with:
 - `status: "paused"`
 - `paused_at: now`
 - `pause_reason: <trigger>`
@@ -14143,11 +14274,17 @@ Remaining: <N-k> tickets
 Resume: /implement-ticket from this directory
 ```
 
+**Single-ticket-capped mode, trigger 3 only** (triggers 1/4 structurally inert): reuse the "Batch-mode escalation routing" blocked-write, print `SINGLE-TICKET WALLCLOCK CAP REACHED - pause_reason: wallclock_cap`, `status: "paused"`, exit cleanly.
+
 Note: N is the executable-cursor count (lane-assigned tickets only). Deferred and in-progress-excluded tickets were surfaced in Phase 0a step 2 and are not included in N.
 
 Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch-paused | reason=<trigger>]`.
 
-**On no trigger:** continue to the next ticket in the batch.
+**On trigger - open-goal mode (`mode=="open_goal"`), ANY of the four triggers:** in addition to the existing `batch-state.json{status:"paused", paused_at, pause_reason:<trigger>, last_summary}` write (Contract A+B, unchanged, applies to all 4 as above), ALSO write `open_goal.termination_reason`: trigger 1 → `"paused_stale_pace"`, trigger 2 → `"paused_operator_request"`, trigger 3 → `"cap_reached_wallclock"`, trigger 4 → `"cap_reached_iterations"`. Print header (all 4 triggers): `OPEN-GOAL LOOP PAUSED - pause_reason: <trigger>` (replacing `BATCH PAUSED`); resume line: `Resume: /implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`. Single mode-conditional branch covering all four triggers.
+
+**On no trigger, batch and single-ticket-capped modes:** continue to the next ticket in the batch.
+
+**On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
 > Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the Stop hook on session-exit crash. These are two distinct paths; `last_summary` is only populated on graceful pause (the Stop hook cannot synthesize it).
 
@@ -14423,7 +14560,7 @@ Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / e
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
-- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a one-line `CLAUDE.md` containing `@AGENTS.md`.
+- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a `CLAUDE.md` containing `@AGENTS.md` and `@MEMORY.md` import lines.
 - `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
@@ -14436,7 +14573,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
 - `.agentic/config.json` - committed (NOT gitignored) project-level methodology toggles; always created with documented defaults so the conductor has a stable file to read
 - `glossary.md` (root) - the project's Ubiquitous Language; seeded with a header and TODO bullet so the team and agents have a place to record domain terms
-- `MEMORY.md` (root) - canonical durable-facts store, auto-injected by Claude Code at startup; `/init-project` seeds it with a stub if absent
+- `MEMORY.md` (root) - canonical durable-facts store, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`; `/init-project` seeds it with a stub if absent
 - `.gitignore`
 - `docs/overview/vision.md`, `docs/overview/requirements.md`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
 
@@ -14479,9 +14616,9 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 0. **Pre-AGENTS.md migration (CLAUDE.md only)** — runs BEFORE item 1 below. Detect pre-AGENTS.md layout via both:
    - Root `AGENTS.md` is absent, AND
-   - Root `CLAUDE.md` exists and contains more than the single-line pointer `@AGENTS.md` (i.e. has real content — prose, sections, or instructions beyond the pointer).
+   - Root `CLAUDE.md` exists and contains more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines (i.e. has real content — prose, sections, or instructions beyond those imports).
 
-   If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just `@AGENTS.md`, or neither exists), skip item 0 entirely and proceed to item 1.
+   If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just the import pointer line(s) (`@AGENTS.md` and/or `@MEMORY.md`), or neither exists), skip item 0 entirely and proceed to item 1.
 
    **Main agent pre-work (inline, before spawning Worker):** read the existing root `CLAUDE.md` and classify its content into three buckets:
    - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is agentic-engineering's canonical project-instructions surface.
@@ -14494,7 +14631,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - The target `AGENTS.md` structure (from Step 3 template).
    - Instruction to produce three artifacts:
      1. **Proposed `AGENTS.md`** — the agentic-engineering canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
-     2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the single-line `@AGENTS.md` pointer.
+     2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the `@AGENTS.md` and `@MEMORY.md` import pointers (root `MEMORY.md` is already ensured by this run's Step 8 seeding, so the import resolves).
      3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
 
    **Spawn Skeptic** (fresh, background) with the Worker's three artifacts and this adversarial brief verbatim:
@@ -14512,7 +14649,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    [Worker's proposed AGENTS.md content]
 
    ─── Residual CLAUDE.md (AFTER) ─────────────────────────────
-   [Worker's residual CLAUDE.md content, OR "(empty — will be replaced with single-line `@AGENTS.md` pointer)"]
+   [Worker's residual CLAUDE.md content, OR "(empty — will be replaced with the @AGENTS.md and @MEMORY.md import pointers)"]
 
    ─── MEMORY.md additions (APPEND) ───────────────────────────
    [Worker's MEMORY.md entries]
@@ -14521,7 +14658,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    ```
 
    Accept:
-   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the single-line pointer `@AGENTS.md` instead. Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **Enter alone does NOT apply** - this is a destructive three-way write; require an explicit `y`.
+   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the `@AGENTS.md` and `@MEMORY.md` import pointers instead (root `MEMORY.md` is already ensured by Step 8 seeding within this same run, so the import resolves). Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **Enter alone does NOT apply** - this is a destructive three-way write; require an explicit `y`.
    - `n` / `no` / `2` / empty (Enter): abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) — instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /init-project later, or run the greenfield creation flow manually." and exit the command.
    - `edit` / `e`: prompt for a free-form correction nudge ("What should change? One or two sentences."), then re-spawn the Worker with the original CLAUDE.md plus the user's nudge, re-spawn a fresh Skeptic, and present the revised three-way split. **Iteration cap: 3.** After 3 `edit` iterations, fall back to: "Three edit iterations reached. The split still needs manual review. Aborting /init-project; edit CLAUDE.md and AGENTS.md manually, then re-run /init-project." and exit.
 
@@ -14593,6 +14730,13 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
     **Per-track coverage:** apply the same four rules to every per-track path (`<track>/.claude/qa.md` and `<track>/.claude/deploy.md`) for every track detected in Step 0. A project may have a mix of migrated and legacy per-track paths; each is evaluated independently.
     List each planned `git mv` in the diff preview under a `Legacy migration:` heading so the user sees the moves before confirming.
 
+12. **Root `CLAUDE.md` `@MEMORY.md` import upgrade** - ensure an already-scaffolded project loads its durable-facts store:
+    - **If root `CLAUDE.md` exists and no line, after trimming leading/trailing whitespace, equals exactly `@MEMORY.md`**: plan to append a `@MEMORY.md` line at end of file (preceded by one blank line if the file does not already end with a blank line). An indented or space-padded existing `@MEMORY.md` line (e.g. `  @MEMORY.md`) counts as present and is NOT duplicated - the trim happens before comparison, not after. Append regardless of whether an `@AGENTS.md` line is present - a plain inline-prose `CLAUDE.md` with no imports is upgraded the same way.
+    - **If root `CLAUDE.md` exists and already contains an `@MEMORY.md` line**: no action (idempotent - a second run makes no change).
+    - **If root `CLAUDE.md` does not exist** (and item 0's pre-AGENTS.md migration did not just create it): plan to create it with two lines, `@AGENTS.md` then `@MEMORY.md`.
+    - **Dangling-import guard:** if root `MEMORY.md` does not exist, also plan to seed the Step 8 stub (identical content to Step 8) so the `@MEMORY.md` import resolves. Never overwrite an existing `MEMORY.md`.
+    List each planned CLAUDE.md/MEMORY.md change in the diff preview under a `Memory import:` heading.
+
 **Present the diff:**
 
 ```
@@ -14624,7 +14768,7 @@ After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 thro
 
 ### 3. Create or update root `AGENTS.md`
 
-**If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a one-line `CLAUDE.md` at the project root containing `@AGENTS.md` so Claude Code automatically loads the project instructions.
+**If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a `CLAUDE.md` at the project root containing two import lines, `@AGENTS.md` on the first line and `@MEMORY.md` on the second, so Claude Code automatically loads both the project instructions and the durable-facts store at session start. (Step 8 seeds the root `MEMORY.md` stub, so the `@MEMORY.md` import resolves for the first real session.)
 
 **Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator pressed Enter) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
 
@@ -15104,7 +15248,7 @@ Add any project-specific env vars here (e.g. database connection strings, API ke
 
 ### 8. Seed `MEMORY.md`
 
-The canonical MEMORY.md lives at `<cwd>/MEMORY.md` (repo root) and is auto-injected by Claude Code at startup. This is the conductor-managed, human-reviewed durable-facts store. It is distinct from `.agentic/memory.md`, which is `/wrap`-internal rolling scratch (gitignored, not auto-injected).
+The canonical MEMORY.md lives at `<cwd>/MEMORY.md` (repo root) and is loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (written by `/init-project`). This is the conductor-managed, human-reviewed durable-facts store. It is distinct from `.agentic/memory.md`, which is `/wrap`-internal rolling scratch (gitignored, not auto-injected).
 
 If `<cwd>/MEMORY.md` does not already exist, create it:
 
@@ -15401,7 +15545,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
-**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (auto-injected by Claude Code at startup). Pass this path to the Worker as `$MEMORY_PATH`.
+**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`.
 
 **Orphan data warning:** If `<cwd>/.agentic/memory/MEMORY.md` exists, it was written by a prior buggy version of this command. Its content is NOT auto-injected by Claude Code. Surface this to the operator before spawning:
 
@@ -17538,7 +17682,8 @@ Manual `/wrap` is synchronous: there is no in-session auto-enrichment protocol. 
 
 1. **CLAUDE.md → AGENTS.md migration** (per-file, recursive through tracks). For each `CLAUDE.md` in the project (root + every track directory) where a sibling `AGENTS.md` does not already exist:
    - `cp <dir>/CLAUDE.md <dir>/AGENTS.md` to preserve content.
-   - Overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` so Claude Code transparently loads the new file.
+   - **Root directory:** overwrite `<dir>/CLAUDE.md` with two import lines, `@AGENTS.md` then `@MEMORY.md`, so Claude Code transparently loads both the migrated file and the durable-facts store. Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the `/init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4); never overwrite an existing `MEMORY.md`.
+   - **Track directories:** overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` only - tracks do not have their own `MEMORY.md`, so no `@MEMORY.md` import is added.
    - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched).
 
 2. **`.claude/` → `.agentic/` session state migration.** If `<cwd>/.claude/context.md` exists and `<cwd>/.agentic/context.md` does not:
@@ -17560,7 +17705,7 @@ Manual `/wrap` is synchronous: there is no in-session auto-enrichment protocol. 
    - Create `.claude/settings.json` (`{}`) if missing.
    - Create `.claude/settings.local.json` with `autoMemoryDirectory` set to `<cwd>/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value). **Scope note:** `autoMemoryDirectory: <cwd>/.agentic/memory` is intentional - it routes Claude Code's native auto-memory writes to a local gitignored scratch area. The canonical conductor-managed, human-reviewed durable-facts store remains `<cwd>/MEMORY.md` (see the **Memory path (memory.md)** note below).
    - Create `.gitignore` entries for `.claude/settings.local.json` and the `.agentic/` runtime-artifact block (per `/init-project` Step 9) if missing.
-   - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the single-line `@AGENTS.md` pointer, do NOT attempt the Worker+Skeptic three-way split inline — that migration requires user confirmation of the proposed split, and /wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in context.md: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run /init-project to run the Worker+Skeptic split and migrate.`
+   - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines, do NOT attempt the Worker+Skeptic three-way split inline — that migration requires user confirmation of the proposed split, and /wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in context.md: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run /init-project to run the Worker+Skeptic split and migrate.`
 
 6. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /wrap. Instead, record a bullet under "Watch Out For" in the context.md output noting which scaffolding items are still incomplete. The user can address these later by running `/init-project` interactively. Specific drift kinds that always require user input and must be listed here:
    - **CLAUDE.md split** — the pre-AGENTS.md migration requires the user to review and accept the three-way split (AGENTS.md / residual CLAUDE.md / MEMORY.md). /wrap cannot perform this silently; it points at `/init-project`.
@@ -17890,7 +18035,7 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 **Output path (context.md):** `<cwd>/.agentic/context.md`. Project-local. The file lives next to the code it describes and is gate-free (no sensitive-file check). The Stop hook writes to the same path. Create the `<cwd>/.agentic/` directory if it does not exist.
 
-**Memory path (memory.md):** `<cwd>/.agentic/memory.md`. Same directory as context.md. `.agentic/memory.md` is /wrap-internal rolling scratch (written exclusively by /wrap). It is gitignored and is NOT the canonical durable-facts store. The canonical durable-facts store is `<cwd>/MEMORY.md`, auto-injected by Claude Code.
+**Memory path (memory.md):** `<cwd>/.agentic/memory.md`. Same directory as context.md. `.agentic/memory.md` is /wrap-internal rolling scratch (written exclusively by /wrap). It is gitignored and is NOT the canonical durable-facts store. The canonical durable-facts store is `<cwd>/MEMORY.md`, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/init-project`).
 
 **Migration note:** Earlier versions of this skill wrote to `~/.claude/projects/[hash]/{context,memory}.md`. If those files exist for the current project but the project-local files do not, copy them once into `<cwd>/.agentic/` before merging. Symlinks at the old hashed location pointing at the new project paths are acceptable - they preserve any platform mechanism that auto-loads from the legacy path while keeping writes gate-free.
 

@@ -72,8 +72,9 @@ hook installed separately:
 - [`enforce-askuserquestion-default.py`](../hooks/enforce-askuserquestion-default.py)
   - PreToolUse; denies a co-equal multiple-choice prompt with no recommended default.
 - [`enforce-background-spawn.py`](../hooks/enforce-background-spawn.py)
-  - PreToolUse (Task/Agent); (a) denies `Task` spawns missing `run_in_background: true`
-  (legacy Task tool - harness strips this field from Agent payloads before the hook fires);
+  - PreToolUse (Task/Agent); (a) enforces background-by-default on both `Task` and `Agent`
+  with an asymmetric rule - `Task` denies unless `run_in_background: true`; `Agent` denies only
+  an explicit `run_in_background: false` (absent allows, since Agent backgrounds by default);
   (b) sentinel suppression: denies Task/Agent spawns and `oh-my-claudecode:*` Skill calls
   when `.agentic/teamrun/.active` is live. Foreground-exempt agents (wrap-ticket) bypass both.
 - [`enforce-orchestrator-singularity.py`](../hooks/enforce-orchestrator-singularity.py)

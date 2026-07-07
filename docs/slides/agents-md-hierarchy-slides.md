@@ -218,14 +218,15 @@ The hierarchy gives agents the right context at the right time - broad rules glo
   .columns .card { padding: 0.7em 0.9em; font-size: 0.85em; }
 </style>
 
-**`AGENTS.md` is the single source of project instructions** - the cross-tool standard supported natively by OpenAI Codex CLI and readable by Claude Code via a one-line import.
+**`AGENTS.md` is the single source of project instructions** - the cross-tool standard supported natively by OpenAI Codex CLI and readable by Claude Code via `@`-import lines in `CLAUDE.md`.
 
 <div class="columns">
 <div class="card" style="border-left-color: #4ea3ff;">
 <strong>Claude Code users</strong><br/><br/>
-Create <code>CLAUDE.md</code> at the repo root containing exactly one line:<br/>
-<code>@AGENTS.md</code><br/><br/>
-Claude Code imports <code>AGENTS.md</code> transparently. No duplication needed.
+Create <code>CLAUDE.md</code> at the repo root containing two import lines:<br/>
+<code>@AGENTS.md</code><br/>
+<code>@MEMORY.md</code><br/><br/>
+Claude Code imports both <code>AGENTS.md</code> and <code>MEMORY.md</code> transparently. No duplication needed.
 </div>
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Codex CLI users</strong><br/><br/>
@@ -336,7 +337,7 @@ Drift between code and these files is <strong>intent debt</strong> - distinct fr
 ```
 myproject/
   AGENTS.md              ← root (under 40 lines)
-  CLAUDE.md              ← one line: @AGENTS.md  (Claude Code loader)
+  CLAUDE.md              ← imports: @AGENTS.md + @MEMORY.md  (Claude Code loader)
   api/AGENTS.md          ← backend track detail
   web/AGENTS.md          ← frontend track detail
   .claude/settings.json  ← MCP servers, shared config
