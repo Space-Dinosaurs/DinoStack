@@ -14,13 +14,13 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 Run `agentic-update` from anywhere, no arguments.
 
-| Path | Command | When |
-|---|---|---|
-| Shell (recommended) | `agentic-update` | Default; from any directory, no TTY |
-| In-session | `/pull-and-install` | Inside Claude Code, any project |
-| TUI | `./update.sh` | Interactive adapter selection |
-| CI / scripts | `git pull && ./install-all.sh` | Non-interactive |
-| Repair drift | `agentic-doctor --fix` | Fix broken symlinks/hooks (e.g. after moving the repo) |
+| Path                | Command                        | When                                                   |
+| ------------------- | ------------------------------ | ------------------------------------------------------ |
+| Shell (recommended) | `agentic-update`               | Default; from any directory, no TTY                    |
+| In-session          | `/pull-and-install`            | Inside Claude Code, any project                        |
+| TUI                 | `./update.sh`                  | Interactive adapter selection                          |
+| CI / scripts        | `git pull && ./install-all.sh` | Non-interactive                                        |
+| Repair drift        | `agentic-doctor --fix`         | Fix broken symlinks/hooks (e.g. after moving the repo) |
 
 Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
 
@@ -104,19 +104,28 @@ For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, 
 
 ## Multiple profiles
 
-If you run several isolated tenant config dirs per tool (e.g. `~/.claude-solara6`, `~/.codex-crocs`), install into them without relocating shared state. Every harness `install.sh` accepts `--config-dir=<dir>` (or the `AGENTIC_CONFIG_DIR` env var); only the per-harness config directory moves, while shared user state (`~/.agentic`, `~/.local/bin`, `~/.claude.json`) always stays in the real `$HOME`.
+If you run several isolated tenant config dirs per tool (e.g. `~/.claude-projectA`, `~/.codex-projectB`), install into them without relocating shared state. Every harness `install.sh` accepts `--config-dir=<dir>` (or the `AGENTIC_CONFIG_DIR` env var); only the per-harness config directory moves, while shared user state (`~/.agentic`, `~/.local/bin`, `~/.claude.json`) always stays in the real `$HOME`.
 
 ```bash
 # one profile, one harness
-bash .claude/install.sh --config-dir=~/.claude-solara6
+bash .claude/install.sh --config-dir=~/.claude-<tenant>
 
-# all tenants x harnesses (+ the global Cursor install) in one shot
+# discover existing profiles from disk and reinstall all of them
+./scripts/install-profiles.sh
+
+# explicit tenant list (still supported)
 ./scripts/install-profiles.sh \
-  --tenants="crocs express-labs solara6 xrite" \
+  --tenants="acme beta" \
   --harnesses="claude codex omp pi"
+
+# create a new profile and install into it (opt-in, gated by a pre-flight check)
+./scripts/install-profiles.sh --create-profile=<tenant>
+
+# check whether a new profile can be created without creating anything
+./scripts/install-profiles.sh --create-profile=<tenant> --check-only
 ```
 
-`install-profiles.sh` only (re)installs into profile dirs that already exist -- it never creates a new tenant tree -- and prints a per-target success/skip/fail summary. Pass `--no-cursor` to skip the global Cursor install; extra flags (`--mode=`, `--profile=`, `--dry-run`) are forwarded to each harness installer.
+By default `install-profiles.sh` discovers tenants from existing `~/.<harness>-*` directories on disk, so it works for any tenant names. It never creates new profile directories unless you explicitly pass `--create-profile=<tenant>`. That path is gated by a pre-flight check that reports `creatable: yes/no` before creating anything, and it refuses to create a directory that already exists. Pass `--no-cursor` to skip the global Cursor install; extra flags (`--mode=`, `--profile=`, `--dry-run`) are forwarded to each harness installer.
 
 ## Installation modes
 
@@ -203,30 +212,32 @@ Full field reference including related tuning keys (`storybook_url`, `deferred_w
 
 The same methodology is packaged for multiple tools. Each adapter lives in its own directory with tool-specific formats:
 
-| Tool | Adapter | Setup |
-|---|---|---|
-| Claude Code | `.claude/` | See [.claude/README.md](.claude/README.md) |
-| Cursor | `.cursor/` | See [.cursor/README.md](.cursor/README.md) |
-| Codex CLI | `.codex/` | See [.codex/README.md](.codex/README.md) |
-| Gemini CLI | `.gemini/` | See [.gemini/README.md](.gemini/README.md) |
-| Kimi Code CLI | `.kimi/` | See [.kimi/README.md](.kimi/README.md) |
-| OpenCode | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
-| Pi coding agent | `.pi/` | See [.pi/README.md](.pi/README.md) |
-| Pi (oh-my-pi) | `.omp/` | See [.omp/README.md](.omp/README.md) |
-| Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
-| OpenClaw | `.openclaw/` | See [.openclaw/README.md](.openclaw/README.md) |
-| VS Code Copilot | `.copilot/` | See [.copilot/README.md](.copilot/README.md) |
+| Tool            | Adapter      | Setup                                          |
+| --------------- | ------------ | ---------------------------------------------- |
+| Claude Code     | `.claude/`   | See [.claude/README.md](.claude/README.md)     |
+| Cursor          | `.cursor/`   | See [.cursor/README.md](.cursor/README.md)     |
+| Codex CLI       | `.codex/`    | See [.codex/README.md](.codex/README.md)       |
+| Gemini CLI      | `.gemini/`   | See [.gemini/README.md](.gemini/README.md)     |
+| Kimi Code CLI   | `.kimi/`     | See [.kimi/README.md](.kimi/README.md)         |
+| OpenCode        | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
+| Pi coding agent | `.pi/`       | See [.pi/README.md](.pi/README.md)             |
+| Pi (oh-my-pi)   | `.omp/`      | See [.omp/README.md](.omp/README.md)           |
+| Hermes Agent    | `.hermes/`   | See [.hermes/README.md](.hermes/README.md)     |
+| OpenClaw        | `.openclaw/` | See [.openclaw/README.md](.openclaw/README.md) |
+| VS Code Copilot | `.copilot/`  | See [.copilot/README.md](.copilot/README.md)   |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
 ## What's included
 
 **Rules** (3 files) - the core methodology:
+
 - Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
 **Reference docs** (20 files) - detailed protocol specs loaded on trigger:
+
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
@@ -319,7 +330,6 @@ DinoStack/
   CONTRIBUTING.md       How to contribute via pull requests
   README.md             This file
 ```
-
 
 ## Documentation
 
