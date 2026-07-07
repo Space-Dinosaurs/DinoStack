@@ -102,6 +102,13 @@ done
 AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.claude}}"
 
 AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
+# Symlink guard: refuse to traverse through a symlinked config dir. mkdir -p
+# would silently follow the symlink and any subsequent writes land outside
+# the intended per-profile tree (CWE-59 directory-level).
+if [[ -L "$AE_CONFIG_DIR" ]]; then
+  echo "  ! refusing to install through symlinked config dir: $AE_CONFIG_DIR" >&2
+  exit 1
+fi
 mkdir -p "$AE_CONFIG_DIR"
 
 # Safe JSON-key reader: path/key/default passed as argv (NOT interpolated into

@@ -246,7 +246,14 @@ for tenant in $TENANTS; do
 		fi
 		base="$(profile_base_dir "$harness" "$tenant")"
 		label="$harness-$tenant"
-		if [[ ! -d "$base" ]]; then
+		# Symlink guard (CWE-59): a symlinked profile dir would let the harness
+		# installer silently follow and clobber outside the intended per-tenant
+		# tree. Refuse with a clear error instead of installing through it.
+		if [[ -L "$base" ]]; then
+			echo "  ! refusing $label: profile dir is a symlink ($base)" >&2
+			FAILED+=("$label")
+			continue
+		elif [[ ! -d "$base" ]]; then
 			echo "  ~ skip $label: profile dir $base does not exist"
 			SKIPPED+=("$label")
 			continue

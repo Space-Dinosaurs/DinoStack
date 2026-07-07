@@ -58,7 +58,13 @@ OMP_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.omp/agent}}"
 # Public API note: --config-dir=<dir> / AGENTIC_CONFIG_DIR redirects this
 # harness config dir for per-profile installs; shared state stays in $HOME.
 
+# Activation config path defaults to the shared $HOME location but is also
+# redirectable via --config-dir so multi-tenant installs do not clobber each
+# other or the shared $HOME/.claude/agentic-engineering.json across harnesses.
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
+if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+  AE_CONFIG_PATH="$OMP_CONFIG_DIR/agentic-engineering.json"
+fi
 
 # Safe JSON-key reader: path/key/default via argv, never interpolated into the
 # Python source (defense-in-depth against quotes/metacharacters, CWE-94).
@@ -72,6 +78,11 @@ try:
 except Exception:
     print(default)
 PYEOF
+}
+# Symlink guard: refuse if ~/.claude is a symlinked dir (CWE-59).
+[[ -L "$HOME/.claude" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $HOME/.claude" >&2
+  exit 1
 }
 mkdir -p "$HOME/.claude"
 
@@ -102,7 +113,12 @@ else:
 # Update only the fields ae_write_mode controls
 config["mode"] = mode
 config["profile"] = config.get("profile", "default")
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+# Symlink guard: refuse to write through a symlinked JSON path. open("w")
+# silently follows the link and truncates the real target (CWE-59). Mirror of
+# .claude/install.sh ae_write_mode guard.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -139,6 +155,11 @@ if "skill_auto_load" not in config:
     except OSError:
         config["skill_auto_load"] = False
 # Write back
+# Symlink guard: refuse to write through a symlinked JSON path (CWE-59).
+# Mirror of .claude/install.sh ae_write_config guard.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -200,6 +221,11 @@ SKILL_DST="$OMP_CONFIG_DIR/skills/agentic-engineering"
 echo ""
 echo "Global skill install (optional)..."
 
+# Symlink guard: refuse if the harness config dir is a symlink (CWE-59).
+[[ -L "$OMP_CONFIG_DIR" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $OMP_CONFIG_DIR" >&2
+  exit 1
+}
 mkdir -p "$SKILL_DST"
 
 # Copy SKILL.md so it survives branch switches

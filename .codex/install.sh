@@ -55,7 +55,13 @@ CODEX_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.codex}}"
 # Public API note: --config-dir=<dir> / AGENTIC_CONFIG_DIR redirects this
 # harness config dir for per-profile installs; shared state stays in $HOME.
 
+# Activation config path defaults to the shared $HOME location but is also
+# redirectable via --config-dir so multi-tenant installs (one profile per
+# harness-tenant pair) do not clobber each other or the shared default.
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
+if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+  AE_CONFIG_PATH="$CODEX_CONFIG_DIR/agentic-engineering.json"
+fi
 
 # Safe JSON-key reader: path/key/default via argv, never interpolated into the
 # Python source (defense-in-depth against quotes/metacharacters, CWE-94).
@@ -69,6 +75,11 @@ try:
 except Exception:
     print(default)
 PYEOF
+}
+# Symlink guard: refuse if ~/.claude is a symlinked dir (CWE-59).
+[[ -L "$HOME/.claude" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $HOME/.claude" >&2
+  exit 1
 }
 mkdir -p "$HOME/.claude"
 
@@ -140,7 +151,6 @@ if "skill_auto_load" not in config:
         config["skill_auto_load"] = answer in ("y", "yes")
     except OSError:
         config["skill_auto_load"] = False
-    config["skill_auto_load"] = False
 # Write back
 # Symlink guard (see ae_write_mode).
 if os.path.islink(path):
@@ -257,6 +267,11 @@ fi
 
 echo "Linking global AGENTS.md..."
 
+# Symlink guard: refuse if harness config dir is a symlink (CWE-59).
+[[ -L "$CODEX_CONFIG_DIR" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $CODEX_CONFIG_DIR" >&2
+  exit 1
+}
 mkdir -p "$CODEX_CONFIG_DIR"
 
 if [[ -L "$AGENTS_DST" ]]; then
@@ -435,6 +450,12 @@ if [[ -f "$CONFIG_FILE" ]]; then
   else
     # File exists, flag is missing. Add it safely.
     # Check if [features] section exists
+    # Symlink guard: refuse to write through a symlinked config.toml. A
+    # `mv`/`printf >` redirect silently follows and truncates the real target.
+    [[ -L "$CONFIG_FILE" ]] && {
+      echo "  ! refusing to write through symlink: $CONFIG_FILE" >&2
+      exit 1
+    }
     if grep -q "^\[features\]" "$CONFIG_FILE" 2>/dev/null; then
       # [features] section exists - insert the flag after the FIRST match only
       # Use a temp file to avoid in-place issues
@@ -453,6 +474,11 @@ if [[ -f "$CONFIG_FILE" ]]; then
 else
   # Config file does not exist - create it with only the feature flag
   mkdir -p "$(dirname "$CONFIG_FILE")"
+  # Symlink guard: refuse to write through a symlinked config.toml.
+  [[ -L "$CONFIG_FILE" ]] && {
+    echo "  ! refusing to write through symlink: $CONFIG_FILE" >&2
+    exit 1
+  }
   printf '[features]\ncodex_hooks = true\n' > "$CONFIG_FILE"
   echo "  + Created $CONFIG_FILE with [features] codex_hooks = true"
   ADDED_CODEX_HOOKS_FLAG=1

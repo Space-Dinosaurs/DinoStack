@@ -85,6 +85,120 @@ bash "$REPO_DIR/.claude/install.sh" \
   || fail "default install did NOT target \$HOME/.claude"
 rm -rf "$SANDBOX3"
 
+# ---------------------------------------------------------------------------
+# Test 4: per-harness --config-dir isolation across all 4 harnesses
+# (regression for PR #416 review finding 4: AE_CONFIG_PATH must follow
+# --config-dir for codex/omp/pi, not collapse to $HOME/.claude).
+# ---------------------------------------------------------------------------
+SX="$(mktemp -d)"
+export HOME="$SX/home"; mkdir -p "$HOME"
+PROF_TENANT_A="$SX/.harness-a"
+PROF_TENANT_B="$SX/.harness-b"
+mkdir -p "$PROF_TENANT_A" "$PROF_TENANT_B"
+for harness in claude codex omp pi; do
+  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$PROF_TENANT_A" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$PROF_TENANT_B" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+  if [[ -f "$PROF_TENANT_A/agentic-engineering.json" && -f "$PROF_TENANT_B/agentic-engineering.json" ]]; then
+    pass "$harness: both tenants wrote agentic-engineering.json"
+  else
+    fail "$harness: agentic-engineering.json NOT present in both tenants"
+  fi
+  if [[ -f "$HOME/.claude/agentic-engineering.json" ]]; then
+    fail "$harness: --config-dir wrote into shared \$HOME/.claude (regression F4)"
+  else
+    pass "$harness: --config-dir did NOT touch shared \$HOME/.claude"
+  fi
+done
+rm -rf "$SX"
+
+# ---------------------------------------------------------------------------
+# Test 5: symlinked config FILE refusal (PR #416 review finding 1+2)
+# ---------------------------------------------------------------------------
+SYMT="$(mktemp -d)"
+export HOME="$SYMT/home"; mkdir -p "$HOME"
+echo "KEEP" > "$SYMT/victim_a"
+ln -sf "$SYMT/victim_a" "$HOME/victim_a.json"
+
+SY_O="$SYMT/omp_prof"; mkdir -p "$SY_O"
+ln -sf "$SYMT/victim_a" "$SY_O/agentic-engineering.json"
+bash "$REPO_DIR/.omp/install.sh" --config-dir="$SY_O" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+grep -q KEEP "$SYMT/victim_a" && pass "omp JSON symlink write blocked" || fail "omp JSON symlink write truncated victim"
+
+SY_PI="$SYMT/pi_prof"; mkdir -p "$SY_PI"
+ln -sf "$SYMT/victim_a" "$SY_PI/agentic-engineering.json"
+bash "$REPO_DIR/.pi/install.sh" --config-dir="$SY_PI" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+grep -q KEEP "$SYMT/victim_a" && pass "pi JSON symlink write blocked" || fail "pi JSON symlink write truncated victim"
+
+SY_CX="$SYMT/codex_prof"; mkdir -p "$SY_CX"
+mkdir -p "$SYMT/victim_b"
+echo "KEEP" > "$SYMT/victim_b/inside.txt"
+ln -sf "$SYMT/victim_b" "$SY_CX/config.toml"
+bash "$REPO_DIR/.codex/install.sh" --config-dir="$SY_CX" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+keep_b_kept=false
+if [[ -f "$SYMT/victim_b/inside.txt" ]]; then
+  if grep -q KEEP "$SYMT/victim_b/inside.txt"; then
+    keep_b_kept=true
+  fi
+fi
+if [[ "$keep_b_kept" == "true" ]]; then
+  pass "codex config.toml symlink write blocked"
+else
+  fail "codex config.toml symlink write truncated victim"
+fi
+rm -rf "$SYMT"
+
+# ---------------------------------------------------------------------------
+# Test 6: symlinked config DIRECTORY refusal (PR #416 review finding 3)
+# ---------------------------------------------------------------------------
+SYMD="$(mktemp -d)"
+export HOME="$SYMD/home"; mkdir -p "$HOME"
+mkdir -p "$SYMD/real_dir"
+echo "KEEP_DIR" > "$SYMD/real_dir/inside.txt"
+for harness in claude codex omp pi; do
+  link="$SYMD/.${harness}-victim"
+  ln -sfn "$SYMD/real_dir" "$link"
+  rc=0
+  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$link" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    pass "$harness: refused symlinked config dir (rc=$rc)"
+  else
+    fail "$harness: did NOT refuse symlinked config dir (rc=0)"
+  fi
+  contents_ok=false
+  if [[ -f "$SYMD/real_dir/inside.txt" ]]; then
+    if grep -q KEEP_DIR "$SYMD/real_dir/inside.txt"; then
+      contents_ok=true
+    fi
+  fi
+  if [[ "$contents_ok" == "true" ]]; then
+    pass "$harness: real_dir intact after refusal"
+  else
+    fail "$harness: real_dir corrupted"
+  fi
+done
+rm -rf "$SYMD"
+
+# ---------------------------------------------------------------------------
+# Test 7: install-profiles.sh refuses symlinked profile base dir
+# (PR #416 review finding 3 - per-tenant loop guard).
+# ---------------------------------------------------------------------------
+SYP="$(mktemp -d)"
+export HOME="$SYP/home"; mkdir -p "$HOME"
+mkdir -p "$SYP/realprof"
+echo "KEEP_PROF" > "$SYP/realprof/inside.txt"
+ln -sfn "$SYP/realprof" "$HOME/.claude-victim"
+out="$($REPO_DIR/scripts/install-profiles.sh --tenants=victim --no-cursor --no-identity --mode=opt-out --profile=default 2>&1 || true)"
+if echo "$out" | grep -q "refusing.*symlink"; then
+  pass "install-profiles refused symlinked profile dir"
+else
+  fail "install-profiles did not refuse symlinked profile dir"
+fi
+if [[ -f "$SYP/realprof/inside.txt" ]] && grep -q KEEP_PROF "$SYP/realprof/inside.txt"; then
+  pass "install-profiles preserved realprof contents"
+else
+  fail "install-profiles corrupted realprof contents"
+fi
+rm -rf "$SYP"
 if [[ "$FAILS" -gt 0 ]]; then
   echo "FAILED: $FAILS assertion(s)"; exit 1
 fi

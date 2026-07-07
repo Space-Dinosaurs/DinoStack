@@ -43,8 +43,27 @@ done
 echo "Building Pi coding agent adapter..."
 bash "$REPO_DIR/.pi/build.sh"
 
+# Activation config path defaults to the shared $HOME location but is also
+# redirectable via --config-dir so multi-tenant installs do not clobber each
+# other or the shared $HOME/.claude/agentic-engineering.json across harnesses.
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
-mkdir -p "$(dirname "$AE_CONFIG_PATH")"
+# Resolve the harness config dir up-front (this var is also used later for
+# SKILL_DST / PROMPT_DST / EXT_DST). Default mirrors PI_CODING_AGENT_DIR
+# and the --config-dir / AGENTIC_CONFIG_DIR redirect (set later in this file
+# at the skill-install section, but needed here too to compute the redirect
+# target for AE_CONFIG_PATH).
+PI_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}}"
+if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-}}}" ]]; then
+  AE_CONFIG_PATH="$PI_CONFIG_DIR/agentic-engineering.json"
+fi
+# Symlink guard: refuse if the activation config dir is a symlinked dir.
+# mkdir -p silently follows dir symlinks (CWE-59).
+target_dir="$(dirname "$AE_CONFIG_PATH")"
+[[ -L "$target_dir" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $target_dir" >&2
+  exit 1
+}
+mkdir -p "$target_dir"
 
 json_get() {
   local key="$1"
@@ -89,6 +108,12 @@ if "skill_auto_load" not in data:
     except OSError:
         data["skill_auto_load"] = False
 # Write back
+# Symlink guard: refuse to write through a symlinked JSON path. open("w")
+# silently follows the link and truncates the real target (CWE-59). Mirror of
+# .claude/install.sh ae_write_config guard.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
@@ -124,7 +149,7 @@ fi
 write_config "$mode" "$profile"
 echo "  + activation config written to $AE_CONFIG_PATH (mode=$mode, profile=$profile)"
 
-PI_HOME="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}}"
+PI_HOME="$PI_CONFIG_DIR"
 SKILL_SRC="$REPO_DIR/.pi/skills/agentic-engineering"
 SKILL_DST="$PI_HOME/skills/agentic-engineering"
 PROMPT_SRC="$REPO_DIR/.pi/prompts"
@@ -132,6 +157,12 @@ PROMPT_DST="$PI_HOME/prompts"
 EXT_SRC="$REPO_DIR/.pi/extensions/agentic-engineering"
 EXT_DST="$PI_HOME/extensions/agentic-engineering"
 
+# Symlink guard: refuse if the pi harness config dir is a symlinked dir.
+# mkdir -p silently follows dir symlinks (CWE-59).
+[[ -L "$PI_HOME" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $PI_HOME" >&2
+  exit 1
+}
 mkdir -p "$SKILL_DST" "$PROMPT_DST" "$EXT_DST"
 cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
 cp "$SKILL_SRC/METHODOLOGY.md" "$SKILL_DST/METHODOLOGY.md"
