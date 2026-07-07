@@ -706,17 +706,26 @@ def check_cross_harness(doc: "Doctor") -> None:
         config = at._load_team_config()
     except (OSError, ValueError, ImportError) as exc:
         doc.fail("team.yml", f"failed to load/parse: {exc}")
-        config = {}
+        return  # don't fall through into "no team.yml" warning on real failure
     if not config:
         doc.warn("team.yml", "no team.yml found (cross-harness dispatch off)")
         return
 
-    errors = at._validate_config(config, source="team.yml")
+    # Validate schema — wrap in broad try/except so a structural surprise
+    # (e.g. _validate_config AttributeError on `roles: "string"`) becomes a
+    # FAIL finding rather than crashing the whole doctor process.
+    try:
+        errors = at._validate_config(config, source="team.yml")
+    except Exception as exc:
+        doc.fail("team.yml", f"validator crashed on structurally invalid config: {type(exc).__name__}: {exc}")
+        errors = []
     if errors:
         for e in errors:
             doc.fail("team.yml", e)
     else:
         doc.ok("team.yml", "schema valid")
+
+
 
     # (1b) role-models.yml (optional): if present, it must parse as YAML.
     import os as _os
