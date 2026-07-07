@@ -66,6 +66,17 @@ if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
   AE_CONFIG_PATH="$OMP_CONFIG_DIR/agentic-engineering.json"
 fi
 
+# Ensure the config dir exists before the first ae_write_* call. Without this,
+# a redirected --config-dir pointing at a not-yet-existing directory makes
+# open(path, "w") raise FileNotFoundError. Guard the dir symlink first: mkdir -p
+# silently follows dir symlinks (CWE-59). Mirrors .pi/install.sh and .claude/install.sh.
+AE_CONFIG_TARGET_DIR="$(dirname "$AE_CONFIG_PATH")"
+[[ -L "$AE_CONFIG_TARGET_DIR" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $AE_CONFIG_TARGET_DIR" >&2
+  exit 1
+}
+mkdir -p "$AE_CONFIG_TARGET_DIR"
+
 # Safe JSON-key reader: path/key/default via argv, never interpolated into the
 # Python source (defense-in-depth against quotes/metacharacters, CWE-94).
 ae_read_json_key() {

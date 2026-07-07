@@ -157,6 +157,9 @@ echo "KEEP_DIR" > "$SYMD/real_dir/inside.txt"
 for harness in claude codex omp pi; do
   link="$SYMD/.${harness}-victim"
   ln -sfn "$SYMD/real_dir" "$link"
+  # Snapshot the symlink target's contents so we can detect a file planted
+  # through the followed symlink (a refusal that still writes is not a refusal).
+  before_count="$(find "$SYMD/real_dir" -mindepth 1 | wc -l | tr -d ' ')"
   rc=0
   bash "$REPO_DIR/.$harness/install.sh" --config-dir="$link" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || rc=$?
   if [[ "$rc" -ne 0 ]]; then
@@ -174,6 +177,14 @@ for harness in claude codex omp pi; do
     pass "$harness: real_dir intact after refusal"
   else
     fail "$harness: real_dir corrupted"
+  fi
+  # Stronger than exit-code + pre-existing-file: assert NO new file was planted
+  # inside the symlink target through the followed link (round-6 review gap).
+  after_count="$(find "$SYMD/real_dir" -mindepth 1 | wc -l | tr -d ' ')"
+  if [[ "$after_count" -eq "$before_count" ]]; then
+    pass "$harness: no file planted through symlinked config dir"
+  else
+    fail "$harness: file planted inside symlink target ($before_count -> $after_count)"
   fi
 done
 rm -rf "$SYMD"
@@ -199,6 +210,27 @@ else
   fail "install-profiles corrupted realprof contents"
 fi
 rm -rf "$SYP"
+
+# --- Standalone --config-dir pointing at a not-yet-existing directory ---
+# Regression guard: each installer must mkdir -p its config dir before the first
+# ae_write_* call. Previously .omp and .codex crashed with FileNotFoundError when
+# --config-dir named a nested directory that did not exist yet (masked in the
+# orchestrated install-profiles flow because it pre-creates tenant dirs).
+NX="$(mktemp -d)"
+export HOME="$NX/home"; mkdir -p "$HOME"
+for harness in claude codex omp pi; do
+  # Deliberately deep + nonexistent: neither the leaf nor its parent exist yet.
+  target="$NX/fresh-$harness/nested/agent"
+  rc=0
+  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$target" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 && -f "$target/agentic-engineering.json" ]]; then
+    pass "$harness: created config in not-yet-existing --config-dir (no crash)"
+  else
+    fail "$harness: failed on not-yet-existing --config-dir (rc=$rc, file=$([[ -f "$target/agentic-engineering.json" ]] && echo present || echo missing))"
+  fi
+done
+rm -rf "$NX"
+
 if [[ "$FAILS" -gt 0 ]]; then
   echo "FAILED: $FAILS assertion(s)"; exit 1
 fi
