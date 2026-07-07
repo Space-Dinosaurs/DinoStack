@@ -109,8 +109,8 @@ dispatch:
 |---|---|---|---|---|
 | `enabled` | bool | yes | `false` (absent file = feature off) | Set `false` to disable cross-harness dispatch without removing the file. Absent file is equivalent to `enabled: false`. |
 | `default_harness` | string | no | none (unrouted roles fall through to native spawn) | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
-| `roles` | map | no | none (empty — all roles use native spawn unless `default_harness` is set) | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
-| `roles[*].harness` | string | yes (if mapping) | — | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
+| `roles` | map | no | none (empty - all roles use native spawn unless `default_harness` is set) | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
+| `roles[*].harness` | string | yes (if mapping) | n/a | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
 | `roles[*].model` | string | no | none (harness uses its own session default) | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
 | `dispatch.timeout_seconds` | int | no | `1800` (30 min) | Per-worker wall-clock timeout. Watchdog kills the process on expiry. |
 | `dispatch.output_format` | string | no | `"json"` | `json` or `text`. Governs the `collect` demux path. |
