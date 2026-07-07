@@ -105,15 +105,15 @@ dispatch:
 
 **Field notes:**
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `enabled` | bool | yes | Set `false` to disable cross-harness dispatch without removing the file. |
-| `default_harness` | string | no | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
-| `roles` | map | no | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
-| `roles[*].harness` | string | yes (if mapping) | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
-| `roles[*].model` | string | no | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
-| `dispatch.timeout_seconds` | int | no | Per-worker wall-clock timeout. Default 1800 (30 min). Watchdog kills the process on expiry. |
-| `dispatch.output_format` | string | no | `json` (default) or `text`. Governs the `collect` demux path. |
+| Field | Type | Required | Default (absent key) | Notes |
+|---|---|---|---|---|
+| `enabled` | bool | yes | `false` (absent file = feature off) | Set `false` to disable cross-harness dispatch without removing the file. Absent file is equivalent to `enabled: false`. |
+| `default_harness` | string | no | none (unrouted roles fall through to native spawn) | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
+| `roles` | map | no | none (empty — all roles use native spawn unless `default_harness` is set) | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
+| `roles[*].harness` | string | yes (if mapping) | — | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
+| `roles[*].model` | string | no | none (harness uses its own session default) | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
+| `dispatch.timeout_seconds` | int | no | `1800` (30 min) | Per-worker wall-clock timeout. Watchdog kills the process on expiry. |
+| `dispatch.output_format` | string | no | `"json"` | `json` or `text`. Governs the `collect` demux path. |
 
 The scalar-or-mapping normalize logic for role-spec entries is shared with
 `bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
