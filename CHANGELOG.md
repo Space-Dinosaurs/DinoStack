@@ -3,6 +3,16 @@
 
 # Changelog
 
+## 2026-07-06
+
+### Features
+
+- **#381** [add opencode and copilot as supported harnesses](https://github.com/Space-Dinosaurs/DinoStack/pull/381) - bloodf
+
+### Documentation
+
+- **#421** [reconcile command count and enumeration (DS-67)](https://github.com/Space-Dinosaurs/DinoStack/pull/421) - tyson-solara6
+
 ## 2026-07-03
 
 ### Fixes
