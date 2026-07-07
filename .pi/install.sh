@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Purpose: Install the native Pi coding agent adapter globally while keeping project-local discovery working.
 # Public API: `bash .pi/install.sh [--mode=opt-in|--mode=opt-out] [--profile=relaxed|default|strict]`.
+#   Also accepts --config-dir=<dir> / AGENTIC_CONFIG_DIR / PI_CODING_AGENT_DIR
+#   to redirect the pi config dir for per-profile installs (default ~/.pi/agent).
 # Upstream deps: .pi/build.sh, ~/.pi/agent resource directories.
 # Downstream consumers: Pi startup resource discovery.
 # Failure modes: exits non-zero if build fails or destination conflicts with non-owned files.

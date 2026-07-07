@@ -13,6 +13,11 @@
 # Public API:
 #   bash .claude/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
 #                           [--identity=<handle>] [--no-identity] [--dry-run]
+#                           [--config-dir=<dir>]
+#   --config-dir=<dir> (or AGENTIC_CONFIG_DIR env): redirect the per-harness
+#     config dir (agents/commands/skills/settings/CLAUDE.md/agentic-engineering.json)
+#     to <dir> for per-profile installs. Shared state (~/.agentic, ~/.local/bin,
+#     ~/.claude.json) always stays in the real $HOME. Default: ~/.claude.
 #   --dry-run: print symlink actions and repo_dir write intent without executing
 #              them. Hook wiring, build, and permission phases still execute.
 #
@@ -99,28 +104,29 @@ AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.claude}}"
 AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
 mkdir -p "$AE_CONFIG_DIR"
 
+# Safe JSON-key reader: path/key/default passed as argv (NOT interpolated into
+# the Python source), so a config dir containing quotes or other shell/Python
+# metacharacters can never break out of the string literal (CWE-94 fix).
+ae_read_json_key() {
+  python3 - "$1" "$2" "$3" <<'PYEOF' 2>/dev/null
+import json, sys
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as f:
+        print(json.load(f).get(key, default))
+except Exception:
+    print(default)
+PYEOF
+}
+
 AE_EXISTING_MODE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "")"
 fi
 
 AE_EXISTING_PROFILE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_PROFILE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('profile', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_PROFILE="$(ae_read_json_key "$AE_CONFIG_PATH" profile "")"
 fi
 
 ae_write_mode() {
@@ -141,6 +147,11 @@ else:
 config["mode"] = mode
 config["profile"] = config.get("profile", "default")
 config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+# Symlink guard: never write through a symlink (open("w") would follow it and
+# truncate the real target). If the config path is a symlink, refuse.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -177,6 +188,11 @@ if "skill_auto_load" not in config:
     except OSError:
         config["skill_auto_load"] = False
 # Write back
+# Symlink guard: never write through a symlink (open("w") would follow it and
+# truncate the real target). If the config path is a symlink, refuse.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -212,27 +228,13 @@ fi
 echo ""
 echo "Risk profile..."
 if [[ -n "$AE_PROFILE_FLAG" ]]; then
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
   ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
   echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
   echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
 else
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
   ae_write_config "$AE_CURRENT_MODE" "default"
   echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
   echo "    Override with: bash .claude/install.sh --profile=relaxed|default|strict"
@@ -1157,8 +1159,15 @@ echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents us
 
 echo ""
 
-AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF'
+AE_SETTINGS_PATH="$SETTINGS" AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
 import json, os
+
+# Config-dir label for permission scopes: use ~ for the default home dir, else
+# the redirected profile dir verbatim, so a --config-dir install grants write
+# to its OWN profile tree, not the real ~/.claude.
+_cfg_dir = os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+_home = os.path.expanduser("~")
+_cfg_label = "~/.claude" if _cfg_dir == os.path.join(_home, ".claude") else _cfg_dir
 
 def tty_input(prompt: str) -> str:
     """Read a line from the controlling terminal.
@@ -1187,11 +1196,11 @@ perms = settings.get("permissions", {})
 recommended_allow = [
     "Bash(*)",
     "Write",
-    "Write(~/.claude/**)",
+    f"Write({_cfg_label}/**)",
     "Edit",
-    "Edit(~/.claude/**)",
-    "Write(~/.claude/projects/**)",
-    "Edit(~/.claude/projects/**)"
+    f"Edit({_cfg_label}/**)",
+    f"Write({_cfg_label}/projects/**)",
+    f"Edit({_cfg_label}/projects/**)"
 ]
 recommended_deny = [
     "Bash(git push --force*)",
@@ -1212,14 +1221,14 @@ if already_bypass:
     existing_deny = set(perms.get("deny", []))
     missing_allow = set(recommended_allow) - existing_allow
     missing_deny = set(recommended_deny) - existing_deny
-    missing_dir = "~/.claude/projects" not in perms.get("additionalDirectories", [])
+    missing_dir = f"{_cfg_label}/projects" not in perms.get("additionalDirectories", [])
 
     if missing_allow or missing_deny or missing_dir:
         perms["allow"] = list(existing_allow | set(recommended_allow))
         perms["deny"] = list(existing_deny | set(recommended_deny))
         perms.setdefault("additionalDirectories", [])
-        if "~/.claude/projects" not in perms["additionalDirectories"]:
-            perms["additionalDirectories"].append("~/.claude/projects")
+        if f"{_cfg_label}/projects" not in perms["additionalDirectories"]:
+            perms["additionalDirectories"].append(f"{_cfg_label}/projects")
         settings["permissions"] = perms
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)
@@ -1245,8 +1254,8 @@ else:
         perms["deny"] = list(existing_deny | set(recommended_deny))
         perms["defaultMode"] = "bypassPermissions"
         perms.setdefault("additionalDirectories", [])
-        if "~/.claude/projects" not in perms["additionalDirectories"]:
-            perms["additionalDirectories"].append("~/.claude/projects")
+        if f"{_cfg_label}/projects" not in perms["additionalDirectories"]:
+            perms["additionalDirectories"].append(f"{_cfg_label}/projects")
 
         settings["permissions"] = perms
 

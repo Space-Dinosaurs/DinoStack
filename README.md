@@ -108,7 +108,7 @@ If you run several isolated tenant config dirs per tool (e.g. `~/.claude-project
 
 ```bash
 # one profile, one harness
-bash .claude/install.sh --config-dir=~/.claude-<tenant>
+bash .claude/install.sh --config-dir=$HOME/.claude-<tenant>
 
 # discover existing profiles from disk and reinstall all of them
 ./scripts/install-profiles.sh

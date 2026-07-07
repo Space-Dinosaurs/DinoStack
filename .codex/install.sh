@@ -52,32 +52,34 @@ done
 # Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.codex.
 # Shared user state (~/.claude activation config, ~/.local/bin) stays in $HOME.
 CODEX_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.codex}}"
+# Public API note: --config-dir=<dir> / AGENTIC_CONFIG_DIR redirects this
+# harness config dir for per-profile installs; shared state stays in $HOME.
 
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
+
+# Safe JSON-key reader: path/key/default via argv, never interpolated into the
+# Python source (defense-in-depth against quotes/metacharacters, CWE-94).
+ae_read_json_key() {
+  python3 - "$1" "$2" "$3" <<'PYEOF' 2>/dev/null
+import json, sys
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as f:
+        print(json.load(f).get(key, default))
+except Exception:
+    print(default)
+PYEOF
+}
 mkdir -p "$HOME/.claude"
 
 AE_EXISTING_MODE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_MODE="$(python3 -c "
-import json
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "")"
 fi
 
 AE_EXISTING_PROFILE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_PROFILE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('profile', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_PROFILE="$(ae_read_json_key "$AE_CONFIG_PATH" profile "")"
 fi
 
 ae_write_mode() {
@@ -169,27 +171,13 @@ fi
 echo ""
 echo "Risk profile..."
 if [[ -n "$AE_PROFILE_FLAG" ]]; then
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "opt-out")"
   ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
   echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
   echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
 else
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "opt-out")"
   ae_write_config "$AE_CURRENT_MODE" "default"
   echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
   echo "    Override with: bash .codex/install.sh --profile=relaxed|default|strict"

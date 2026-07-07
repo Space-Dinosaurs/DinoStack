@@ -105,3 +105,33 @@ if [[ "$FAILS" -gt 0 ]]; then
 	exit 1
 fi
 echo "All install-profiles tests passed."
+
+# --- Security regression tests (PR #416 review: CWE-94 / CWE-22 / symlink) ---
+run_security_tests() {
+  local sb; sb="$(mktemp -d)"
+  export HOME="$sb/home"; mkdir -p "$HOME"
+
+  # 1) Code injection via --config-dir single-quote payload must NOT execute.
+  rm -f "$sb/pwned"
+  local evil="$sb/x'+__import__(\"os\").system(\"touch $sb/pwned\")+'"
+  bash "$REPO_DIR/.claude/install.sh" --config-dir="$evil" --no-identity >/dev/null 2>&1 || true
+  [[ -f "$sb/pwned" ]] && fail "CWE-94 injection executed" || pass "config-dir injection blocked"
+
+  # 2) Path traversal via --harnesses must be rejected (not bash-executed).
+  mkdir -p "$sb/evilbin"; echo "touch $sb/traversed" > "$sb/evilbin/install.sh"
+  rm -f "$sb/traversed"
+  mkdir -p "$HOME/.claude-t1"
+  bash "$REPO_DIR/scripts/install-profiles.sh" --tenants="t1" \
+       --harnesses="../../../../../../../$sb/evilbin" --no-cursor >/dev/null 2>&1 || true
+  [[ -f "$sb/traversed" ]] && fail "CWE-22 traversal executed" || pass "harness traversal blocked"
+
+  # 3) Symlinked config path must NOT be written through.
+  local prof="$sb/prof"; mkdir -p "$prof"
+  echo "KEEP" > "$sb/victim"
+  ln -sf "$sb/victim" "$prof/agentic-engineering.json"
+  bash "$REPO_DIR/.claude/install.sh" --config-dir="$prof" --mode=opt-out --no-identity >/dev/null 2>&1 || true
+  grep -q KEEP "$sb/victim" && pass "symlink write blocked" || fail "symlink write truncated victim"
+
+  rm -rf "$sb"
+}
+run_security_tests

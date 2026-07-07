@@ -99,6 +99,20 @@ is_valid_tenant_name() {
 	[[ -n "$name" && "$name" =~ ^[a-zA-Z0-9_-]+$ ]]
 }
 
+# Fixed whitelist of installable harnesses. A harness name is used to build a
+# filesystem path ($REPO_DIR/.<harness>/install.sh) that is then executed, so
+# it MUST be validated against this enum before any path construction to
+# prevent path traversal / arbitrary-script execution (CWE-22).
+KNOWN_INSTALL_HARNESSES="claude codex omp pi"
+
+is_known_harness() {
+	local h="$1" known
+	for known in $KNOWN_INSTALL_HARNESSES; do
+		[[ "$h" == "$known" ]] && return 0
+	done
+	return 1
+}
+
 # Discover tenant names from existing profile base dirs on disk.
 # Scans every harness prefix and returns the sorted union of suffixes.
 discover_tenants() {
@@ -129,6 +143,7 @@ check_profile_creatable() {
 	local tenant="$1" h base parent issues=0
 	echo "Pre-flight check: profile '$tenant'"
 	for h in $HARNESSES; do
+		is_known_harness "$h" || { echo "  $h: skipped (unknown harness)"; continue; }
 		base="$(profile_base_dir "$h" "$tenant")"
 		parent="$(dirname "$base")"
 		if [[ -e "$base" ]]; then
@@ -156,6 +171,7 @@ check_profile_creatable() {
 create_profile_dirs() {
 	local tenant="$1" h base
 	for h in $HARNESSES; do
+		is_known_harness "$h" || continue
 		base="$(profile_base_dir "$h" "$tenant")"
 		mkdir -p "$base"
 		if [[ "$h" == "omp" ]]; then
@@ -214,6 +230,10 @@ for tenant in $TENANTS; do
 		continue
 	fi
 	for harness in $HARNESSES; do
+		if ! is_known_harness "$harness"; then
+			echo "  ! skip harness '$harness': unknown (allowed: $KNOWN_INSTALL_HARNESSES)" >&2
+			continue
+		fi
 		base="$(profile_base_dir "$harness" "$tenant")"
 		label="$harness-$tenant"
 		if [[ ! -d "$base" ]]; then
