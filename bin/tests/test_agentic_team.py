@@ -1649,32 +1649,71 @@ def test_role_models_list_forms():
     assert _role_models_list("omp") == []
 
 
+def _use_tmp_rotation(monkeypatch, tmp_path):
+    """Point the durable rotation dir at tmp so tests are hermetic."""
+    monkeypatch.setattr(_mod, "ROTATION_DIR", tmp_path / "rotation")
+
+
 def test_single_model_unchanged(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
     _patch_team_config_d2(monkeypatch, {
         "default_harness": "omp",
         "roles": {"engineer": {"harness": "omp", "model": "kimi/kimi-k2.7"}},
     })
     for _ in range(3):
-        assert _resolve_role_model("engineer", "omp", tmp_path) == "kimi/kimi-k2.7"
+        assert _resolve_role_model("engineer", "omp") == "kimi/kimi-k2.7"
 
 
 def test_round_robin_rotation_is_deterministic(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
     _patch_team_config_d2(monkeypatch, {
         "default_harness": "omp",
         "roles": {"engineer": {"harness": "omp",
                                "models": ["kimi/kimi-k2.7", "glm/glm-5.2"]}},
     })
-    seq = [_resolve_role_model("engineer", "omp", tmp_path) for _ in range(4)]
+    seq = [_resolve_role_model("engineer", "omp") for _ in range(4)]
     assert seq == ["kimi/kimi-k2.7", "glm/glm-5.2", "kimi/kimi-k2.7", "glm/glm-5.2"]
 
 
 def test_round_robin_cursor_persists_across_calls(tmp_path):
     # n=3: indices 0,1,2,0
-    got = [_rotation_cursor_next(tmp_path, "qa-engineer", 3) for _ in range(4)]
+    rot = tmp_path / "rotation"
+    got = [_rotation_cursor_next("qa-engineer", 3, rotation_dir=rot) for _ in range(4)]
     assert got == [0, 1, 2, 0]
 
 
+def test_round_robin_cursor_survives_separate_processes(tmp_path):
+    """The durable cursor must advance across genuinely separate invocations.
+
+    Models the real production case: each dispatch is a fresh process with a
+    throwaway workdir. The cursor lives in a stable ~/.agentic/rotation dir, so
+    a second process picks up where the first left off. Simulated here by
+    invoking the module in two separate python subprocesses that share only the
+    rotation dir (not any in-memory state or workdir).
+    """
+    import sys as _sys
+    rot = tmp_path / "rotation"
+    prog = (
+        "import importlib.machinery, importlib.util, sys;"
+        "l=importlib.machinery.SourceFileLoader('t', %r);"
+        "s=importlib.util.spec_from_loader('t', l);"
+        "m=importlib.util.module_from_spec(s); l.exec_module(m);"
+        "from pathlib import Path;"
+        "print(m._rotation_cursor_next('engineer', 2, rotation_dir=Path(%r)))"
+        % (str(_BIN / "agentic-team"), str(rot))
+    )
+    outs = []
+    for _ in range(4):
+        r = _subprocess_mod.run([_sys.executable, "-c", prog],
+                                capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        outs.append(r.stdout.strip())
+    # Separate processes still rotate 0,1,0,1 because the cursor is durable.
+    assert outs == ["0", "1", "0", "1"], outs
+
+
 def test_round_robin_per_role_independent(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
     _patch_team_config_d2(monkeypatch, {
         "default_harness": "omp",
         "roles": {
@@ -1682,17 +1721,18 @@ def test_round_robin_per_role_independent(monkeypatch, tmp_path):
             "qa-engineer": {"harness": "omp", "models": ["x", "y"]},
         },
     })
-    assert _resolve_role_model("engineer", "omp", tmp_path) == "a"
-    assert _resolve_role_model("qa-engineer", "omp", tmp_path) == "x"
-    assert _resolve_role_model("engineer", "omp", tmp_path) == "b"
-    assert _resolve_role_model("qa-engineer", "omp", tmp_path) == "y"
+    assert _resolve_role_model("engineer", "omp") == "a"
+    assert _resolve_role_model("qa-engineer", "omp") == "x"
+    assert _resolve_role_model("engineer", "omp") == "b"
+    assert _resolve_role_model("qa-engineer", "omp") == "y"
 
 
 def test_models_list_harness_mismatch_returns_none(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
     _patch_team_config_d2(monkeypatch, {
         "roles": {"engineer": {"harness": "codex", "models": ["a", "b"]}},
     })
-    assert _resolve_role_model("engineer", "omp", tmp_path) is None
+    assert _resolve_role_model("engineer", "omp") is None
 
 
 def test_validate_rejects_bad_models_list(tmp_path):
