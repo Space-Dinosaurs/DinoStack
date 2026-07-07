@@ -904,7 +904,7 @@
   <p class="byline">by Tyson Hummel</p>
   <p class="repo-link"><a href="https://github.com/Space-Dinosaurs/DinoStack" target="_blank" rel="noopener noreferrer">github.com/Space-Dinosaurs/DinoStack</a></p>
   <p class="epigraph">Operator attention is the scarce resource. Agents aren't. This architecture is an attempt to run as much of the process without you as possible - so the attention you do spend goes where judgment is load-bearing.</p>
-  <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex reads it natively; Claude Code loads it via a one-line <code>CLAUDE.md</code> containing <code>@AGENTS.md</code>. The patterns translate to any agentic framework.</p>
+  <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex reads it natively; Claude Code loads it via a <code>CLAUDE.md</code> containing <code>@AGENTS.md</code> and <code>@MEMORY.md</code> import lines. The patterns translate to any agentic framework.</p>
 </div>
 
 <nav id="decks" class="deck-index" aria-label="Slide decks">
@@ -1143,7 +1143,7 @@
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and importable by Claude Code via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
-    <strong>Claude Code users:</strong> create a <code>CLAUDE.md</code> at the repo root containing exactly one line - <code>@AGENTS.md</code> - and Claude Code will import <code>AGENTS.md</code> transparently.<br>
+    <strong>Claude Code users:</strong> create a <code>CLAUDE.md</code> at the repo root containing two import lines - <code>@AGENTS.md</code> and <code>@MEMORY.md</code> - and Claude Code will import both <code>AGENTS.md</code> and <code>MEMORY.md</code> transparently.<br>
     <strong>Codex CLI users:</strong> Codex reads <code>AGENTS.md</code> natively with no extra setup.<br>
     <strong>Result:</strong> one content source drives all adapters. No duplication.
   </div>
@@ -1786,7 +1786,7 @@
       <div class="rel-card">
         <h4>Persistence Hierarchy</h4>
         <ul>
-          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and auto-injected into every conversation at startup. Stable architecture, key paths, and preferences with rationale.</li>
+          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Stable architecture, key paths, and preferences with rationale.</li>
           <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
