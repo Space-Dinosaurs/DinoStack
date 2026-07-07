@@ -75,7 +75,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness consumes `run_in_background` for its own async routing and strips it from the PreToolUse hook payload (confirmed by live payload capture: hook tool_input keys for an Agent spawn are exactly `['description', 'prompt', 'subagent_type']`). As a result, `hooks/enforce-background-spawn.py` does NOT enforce `run_in_background` on `Agent` - doing so would brick every Agent spawn. Background enforcement is applied to the legacy `Task` tool name only. The hook retains two active responsibilities: (a) `run_in_background` enforcement for the legacy `Task` tool, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
+**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped). `hooks/enforce-background-spawn.py` enforces background-by-default on BOTH `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because it must block on `wrap.lock` before Phase 12 cleanup proceeds; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
@@ -3800,7 +3800,7 @@ The 5 Mandatory Tier-3 signal categories are untouched by this carve-out and sti
 
 **Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. To seed the file, run `bin/agentic-configure`: the wizard asks you per role and ranks the model names you supply using the hint dictionaries in `bin/agentic-models`. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the per-role ranking heuristics and selection paths.
 
-**Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
+**Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, opencode, copilot, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
 
 ---
 
@@ -12105,6 +12105,28 @@ Helper returns:
 - `CREATED_TICKET_URL` - empty string on failure
 - `CREATE_STATUS` - `created` | `skipped` | `failed`
 - `CREATE_ERROR` - error message string, or null on success
+**Collision pre-check (runs BEFORE the create branches):**
+
+Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, same exported symbols, same DB tables/migrations, or same shared utility/config that the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis that prevents two parallel sessions from colliding on the same file - the failure mode where a boundary gets retrofitted AFTER the ticket already exists instead of at creation time.
+
+Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team and state not in (Done, Cancelled). For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies but relies on the conductor's own scope knowledge rather than a scan).
+
+Decision:
+
+- **No overlap, OR tracker has no query branch:** proceed to the create branches with TICKET_BODY unchanged.
+- **Overlap found:** append a `## Scope boundary` section to TICKET_BODY BEFORE the create call. The section names the overlapping ticket(s) and the file/symbol/table each side owns. Worked example (AUT-301 vs AUT-300, both touching the operator-list surface):
+
+  ```
+  ## Scope boundary
+
+  - AUT-300 owns: packages/qa-auth/src/adapters/admin.ts (prod-DB guard), admin/scripts/seed-qa-operator.ts, and any isTestAccount schema migration if that route is chosen.
+  - This ticket owns: backend/src/operators/index.ts GET /operators WHERE-clause filter only.
+  - Merge order: this ticket is the symptom-fix; AUT-300 is root-cause. If AUT-300 adds an isTestAccount flag, that migration is AUT-300's to own.
+  ```
+
+The boundary section is binding, not advisory: it travels with the ticket into the tracker so the other session sees it on its next pull. If the conductor cannot determine a clean boundary (the two tickets genuinely own the same lines with no split), STOP before creating and surface the conflict to the operator for a manual scope-split.
+
+The scan is a single tracker query (one API roundtrip, paginated to the project/team). It is cheap and runs only at create time - it does not run on every phase transition.
 
 **Branch on TRACKER:**
 
@@ -12244,6 +12266,7 @@ classifiers:
 | Sanity ceiling (>200) | Refused (no prompt; hard exit). |
 
 **Tier:** Tier 2 (conductor-direct, including screenshot read and resolver execution).
+**Collision-awareness backstop (consume-time).** When Phase 0 resolves ticket entries, the conductor reads each ticket body for a `## Scope boundary` section (written by the Create Helper collision pre-check). If present, carry it into the architect brief and engineer execution contract. If absent AND the tracker supports queries, run the same in-flight overlap scan the Create Helper runs before the architect spawns; on overlap, surface the boundary to the operator and append it to the architect brief. Best-effort, never blocks Phase 0 - this catches human-filed tickets that skipped the create-time pre-check.
 
 ---
 
