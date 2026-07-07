@@ -315,7 +315,7 @@ If either gate fails, drop to SHOULD or SKIP. MUST is genuinely rare.
 Three distinct knowledge stores - each with a different writer and lifecycle:
 
 - **`.agentic/learnings.md`** - primary destination. Committed to git. Written by `learning-extractor` (LRN) and `learnings-agent` (LRN + KNW). Teammates inherit it on pull after merge.
-- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Auto-injected by Claude Code at every session start. KNW entries are promoted here at `/wrap` when they stabilize.
+- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. KNW entries are promoted here at `/wrap` when they stabilize.
 - **`.agentic/memory.md`** - `/wrap`-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`.
 
 ```
@@ -325,7 +325,7 @@ learnings-agent    ──> KNW entry ──> .agentic/learnings.md ──> MEMOR
 ```
 
 <div class="callout">
-Three stores, three writers, three audiences. Mixing them corrupts the auto-injection contract that keeps MEMORY.md clean for every session start.
+Three stores, three writers, three audiences. Mixing them corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.
 </div>
 
 ---

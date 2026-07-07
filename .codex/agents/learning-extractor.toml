@@ -110,7 +110,7 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 > durable fix-pattern extracted from a resolved Skeptic finding. Append-only.
 > Committed — project-level knowledge shared across operators.
 
-<!-- Target: under 50 entries. Prune entries whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->
+<!-- Target: under 50 entries. Pruning is DEFERRED until learnings-retrieval is wired into the reading agents and demonstrated - until then keep entries even past the target so retrieval has a corpus to match against. Once retrieval is demonstrated, resume pruning entries whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->
 
 ## [LRN-YYYYMMDD-XXX] <finding-title>
 

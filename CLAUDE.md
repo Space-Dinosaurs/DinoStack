@@ -10,3 +10,5 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 ## Conventions
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
+
+@MEMORY.md

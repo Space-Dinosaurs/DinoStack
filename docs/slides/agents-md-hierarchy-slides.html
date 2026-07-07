@@ -560,13 +560,14 @@ code {
 ;" data-marpit-pagination-total="9">
 <h2 id="agentsmd-the-cross-tool-standard">AGENTS.md: the cross-tool standard</h2>
 
-<p><strong><code>AGENTS.md</code> is the single source of project instructions</strong> - the cross-tool standard supported natively by OpenAI Codex CLI and readable by Claude Code via a one-line import.</p>
+<p><strong><code>AGENTS.md</code> is the single source of project instructions</strong> - the cross-tool standard supported natively by OpenAI Codex CLI and readable by Claude Code via <code>@</code>-import lines in <code>CLAUDE.md</code>.</p>
 <div class="columns">
 <div class="card">
 <strong>Claude Code users</strong><br /><br />
-Create <code>CLAUDE.md</code> at the repo root containing exactly one line:<br />
-<code>@AGENTS.md</code><br /><br />
-Claude Code imports <code>AGENTS.md</code> transparently. No duplication needed.
+Create <code>CLAUDE.md</code> at the repo root containing two import lines:<br />
+<code>@AGENTS.md</code><br />
+<code>@MEMORY.md</code><br /><br />
+Claude Code imports both <code>AGENTS.md</code> and <code>MEMORY.md</code> transparently. No duplication needed.
 </div>
 <div class="card">
 <strong>Codex CLI users</strong><br /><br />
@@ -1399,7 +1400,7 @@ code {
 </ol>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>myproject/
   AGENTS.md              ← root (under 40 lines)
-  CLAUDE.md              ← one line: @AGENTS.md  (Claude Code loader)
+  CLAUDE.md              ← imports: @AGENTS.md + @MEMORY.md  (Claude Code loader)
   api/AGENTS.md          ← backend track detail
   web/AGENTS.md          ← frontend track detail
   .claude/settings.json  ← MCP servers, shared config
