@@ -802,7 +802,12 @@ for file_matcher in ("Write", "Edit"):
         f"PreToolUse({file_matcher}) planning-artifact advisory hook",
     )
 
-# ---- Write back -------------------------------------------------------------
+# Symlink guard: never write through a symlink (open("w") follows it and truncates
+# the real target). PoC verified: symlinking settings.json to a victim file and
+# running installer overwrites the victim's content through the link.
+if os.path.islink(settings_path):
+    sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
+    sys.exit(1)
 with open(settings_path, "w") as f:
     json.dump(settings, f, indent=2)
     f.write("\n")
@@ -864,6 +869,17 @@ if os.path.exists(target):
 else:
     existing = ""
 
+if begin_marker in existing and end_marker in existing:
+    pattern = re.compile(
+        r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
+        re.DOTALL
+    )
+# Symlink guard: never write through a symlink (open("w") follows it and truncates
+# the real target). PoC verified: symlinking CLAUDE.md to a victim file and running
+# installer overwrites the victim's content through the link.
+if os.path.islink(target):
+    sys.stderr.write(f"refusing to write through symlink: {target}\n")
+    sys.exit(1)
 if begin_marker in existing and end_marker in existing:
     pattern = re.compile(
         r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
@@ -1095,8 +1111,12 @@ if "chrome-devtools" not in servers:
         "type": "stdio",
         "command": "npx",
         "args": ["chrome-devtools-mcp@latest"],
+
         "env": {}
     }
+    if os.path.islink(target):
+        sys.stderr.write(f"refusing to write through symlink: {target}\n")
+        sys.exit(1)
     with open(target, "w") as f:
         json.dump(data, f, indent=2)
     print("  + chrome-devtools MCP configured in ~/.claude.json")
@@ -1136,7 +1156,9 @@ if "mcp-atlassian" not in servers:
         "command": "uvx",
         "args": ["mcp-atlassian"],
         "env": {}
-    }
+    if os.path.islink(target):
+        sys.stderr.write(f"refusing to write through symlink: {target}\n")
+        sys.exit(1)
     with open(target, "w") as f:
         json.dump(data, f, indent=2)
     print("  + mcp-atlassian MCP configured in ~/.claude.json")
@@ -1226,10 +1248,9 @@ if already_bypass:
     if missing_allow or missing_deny or missing_dir:
         perms["allow"] = list(existing_allow | set(recommended_allow))
         perms["deny"] = list(existing_deny | set(recommended_deny))
-        perms.setdefault("additionalDirectories", [])
-        if f"{_cfg_label}/projects" not in perms["additionalDirectories"]:
-            perms["additionalDirectories"].append(f"{_cfg_label}/projects")
-        settings["permissions"] = perms
+        if os.path.islink(settings_path):
+            sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
+            sys.exit(1)
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
@@ -1259,10 +1280,14 @@ else:
 
         settings["permissions"] = perms
 
+        if os.path.islink(settings_path):
+            sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
+            sys.exit(1)
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
         print("  + Configured bypassPermissions mode with recommended allow/deny rules")
+
     else:
         print("  - skipped permissions configuration")
 PYEOF

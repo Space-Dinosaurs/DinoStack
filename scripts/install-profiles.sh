@@ -125,13 +125,18 @@ discover_tenants() {
 	for h in $HARNESSES; do
 		for d in "$HOME/.$h-"*; do
 			[[ -d "$d" ]] || continue
-			tenant="${d##*-}"
-			[[ "$tenant" == "$h" ]] && continue # malformed, no suffix
-			is_valid_tenant_name "$tenant" || continue
-			if [[ ! "$seen" =~ (^|[[:space:]])"$tenant"($|[[:space:]]) ]]; then
-				seen="$seen $tenant"
+			# Tenant = the suffix of the profile dir basename after ".<harness>-".
+			# Strip only that prefix (NOT the last-hyphen ${d##*-}, which would
+			# mangle multi-hyphen tenant names like "foo-bar"). For omp, the profile
+			# dir ends in "/agent", so strip that first to expose the parent dir.
+			local tenant_dir
+			if [[ "$h" == "omp" ]]; then
+				tenant_dir="${d%/agent}"
+			else
+				tenant_dir="$d"
 			fi
-		done
+			local tenant="${tenant_dir##*/.${h}-}"
+			[[ "$tenant" == "$h" ]] && continue # malformed, no suffix
 	done
 	[[ "$shopt_nullglob" == true ]] && shopt -u nullglob
 	echo "${seen# }" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//'

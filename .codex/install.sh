@@ -100,6 +100,11 @@ else:
 config["mode"] = mode
 config["profile"] = config.get("profile", "default")
 config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+# Symlink guard: refuse to write through a symlink (open("w") follows it and
+# truncates the real target). PoC verified for config.toml writer.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -135,7 +140,12 @@ if "skill_auto_load" not in config:
         config["skill_auto_load"] = answer in ("y", "yes")
     except OSError:
         config["skill_auto_load"] = False
+    config["skill_auto_load"] = False
 # Write back
+# Symlink guard (see ae_write_mode).
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
