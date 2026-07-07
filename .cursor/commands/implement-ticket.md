@@ -20,7 +20,7 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 
 Phase 0 normalizes the input into a canonical ordered list of ticket entries before any other phase runs. Bare-ID, single-issue-URL, and operator-enumerated list invocations bypass the confirmation prompt — backward compatible with the prior single-argument contract.
 
-**Open-goal / wallclock-cap parameters (optional, trailing key=value tokens).** `<input>` may be followed by any of `goal_mode=open_goal`, `goal_condition="<string>"`, `max_iterations=<int>`, `max_wallclock_min=<int>`, `dry_run=true`. Extracted by a trailing-token scan (`\w+=(\S+|"[^"]*")`) BEFORE Phase 0 classification runs; matched tokens are stripped so ticket-reference classification is unaffected. `dry_run` is meaningful ONLY when `goal_mode=open_goal` is also present — on any other invocation shape it is parsed and explicitly ignored (no effect, no error).
+**Open-goal / wallclock-cap parameters (optional, trailing key=value tokens).** `<input>` may be followed by any of `goal_mode=open_goal`, `goal_condition="<string>"`, `max_iterations=<int>`, `max_wallclock_min=<int>`, `dry_run=true`. Extracted by a trailing-token scan (`\w+=(\S+|"[^"]*")`) BEFORE Phase 0 classification runs; matched tokens are stripped so ticket-reference classification is unaffected. `dry_run` is meaningful ONLY when `goal_mode=open_goal` is also present - on any other invocation shape it is parsed and explicitly ignored (no effect, no error).
 
 ---
 
@@ -150,7 +150,7 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
 - `status`: enum `active | paused | interrupted | complete | stalled`.
 - `mode`: enum `"batch" | "open_goal" | "single_ticket_capped"`. Absent = `"batch"` (100% back-compat). `"open_goal"` is set by Phase 0a-open-goal's Fresh init; `"single_ticket_capped"` is set by the Phase 0a-pre single-ticket wallclock carve-out - the ONLY N=1 path that creates `batch-state.json`.
 - `interrupt_reason`: enum `unknown | null` — only `unknown` is a writable value (other values reserved for future writers; the Stop hook cannot distinguish rate-limit vs crash at hook time).
-- `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | open_goal_iteration_cap | null` — these four values match the four Phase 12a triggers. NOTE: `paused_stale_pace` / `paused_operator_request` / `cap_reached_wallclock` / `cap_reached_iterations` / `goal_met` / `blocked` are `open_goal.termination_reason` values, NOT `pause_reason` values - deliberately avoiding a dual-enum collision. Only `open_goal_iteration_cap` was added to `pause_reason`; triggers 1-3 keep their existing `pause_reason` values `stale_pace` / `operator_pause` / `wallclock_cap`.
+- `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | open_goal_iteration_cap | null` - these four values match the four Phase 12a triggers. NOTE: `paused_stale_pace` / `paused_operator_request` / `cap_reached_wallclock` / `cap_reached_iterations` / `goal_met` / `blocked` are `open_goal.termination_reason` values, NOT `pause_reason` values - deliberately avoiding a dual-enum collision. Only `open_goal_iteration_cap` was added to `pause_reason`; triggers 1-3 keep their existing `pause_reason` values `stale_pace` / `operator_pause` / `wallclock_cap`.
 - `wallclock_started_at`: set once at Phase 0a init; preserved across resume. The wallclock cap is per-batch lifetime, not per-session.
 - `wallclock_cap_min`: integer minutes. Default `90`. Overridable via env `AGENTIC_BATCH_MAX_WALLCLOCK_MIN`.
 - `tickets[]`: triage-derived executable cursor; contains only lane-assigned tickets (deferred and in-progress-excluded tickets are not included). `status` per-ticket is `pending | in_progress | complete | blocked | skipped_already_merged`.
@@ -499,9 +499,9 @@ classifiers:
 
 ## Phase 0a-open-goal: Open-goal loop init or resume (conditional)
 
-**Trigger:** invocation carries `goal_mode=open_goal`. Mutually exclusive with Phase 0a-pre/Phase 0a — skip both when this fires; fall through unmodified when it does not.
+**Trigger:** invocation carries `goal_mode=open_goal`. Mutually exclusive with Phase 0a-pre/Phase 0a - skip both when this fires; fall through unmodified when it does not.
 
-### Step 0 — resume-vs-fresh classification (before any write). Provably complete partition.
+### Step 0 - resume-vs-fresh classification (before any write). Provably complete partition.
 
 Read `.agentic/batch-state.json` if present.
 
@@ -532,7 +532,7 @@ Read `.agentic/batch-state.json` if present.
 **Completeness statement:** every `(termination_reason, status)` pair lands in exactly one of {Fresh init, RESUMABLE, raise-caps-or-fresh (terminal-cap bucket), refuse}. Bucket A resolves 6 of 7 `termination_reason` values without consulting `status`. Bucket B exhaustively covers the 7th value (`null`) across all 5 named `status` enum values + explicit catch-all; `status==active` within bucket B is itself exhaustively partitioned by Contract A's 4-way `session_id`/staleness logic. No pair unclassified.
 
 - On fresh (any TERMINAL branch): delete `batch-state.json` → Fresh init. (force-takeover "no" exits/waits, does NOT go fresh.)
-- On raise-caps: refuse unless declared `max_iterations`/`max_wallclock_min` strictly greater than on-disk: `"raise-caps requires re-invoking with max_iterations and/or max_wallclock_min set higher than the existing values (current: max_iterations=<X>, max_wallclock_min=<Y>). Re-invoke with a higher value, or choose fresh."` On success: Contract A write (update, NO Contract C — update not create) setting raised cap(s), `termination_reason:null`, `status:"active"` → Advance to next iteration (idempotency-checked).
+- On raise-caps: refuse unless declared `max_iterations`/`max_wallclock_min` strictly greater than on-disk: `"raise-caps requires re-invoking with max_iterations and/or max_wallclock_min set higher than the existing values (current: max_iterations=<X>, max_wallclock_min=<Y>). Re-invoke with a higher value, or choose fresh."` On success: Contract A write (update, NO Contract C - update not create) setting raised cap(s), `termination_reason:null`, `status:"active"` → Advance to next iteration (idempotency-checked).
 - On RESUMABLE (any sub-case incl. force-takeover yes): Contract A write `status:"active"`; do NOT reset `iteration` → Advance to next iteration (idempotency-checked).
 - `goal_condition` divergence (unchanged): read from disk on any resume, never re-parsed; differing invocation value prints one-line "on-disk value governs" warning (mirrors Phase 0a-pre GENUINE-divergence pattern), continues.
 
@@ -540,26 +540,26 @@ Read `.agentic/batch-state.json` if present.
 
 Read the last entry in `tickets[]` (if any):
 - `tickets[]` empty OR last entry `status == "complete"`: no next-iteration entry yet → apply the IDENTICAL Contract A+B write Phase 12a "On no trigger, GOAL_MET false" performs (increment `open_goal.iteration`, append pending entry) - reused by reference.
-- last entry `status` is `"pending"` or `"in_progress"`: a next-iteration entry was ALREADY appended (most likely by Phase 12a's advance-write interrupted before Phase 1 - the crash-mid-advance scenario). Do NOT increment `iteration` or append again — use the existing entry as-is. Prevents double-advance (silent skip/dupe of an iteration).
+- last entry `status` is `"pending"` or `"in_progress"`: a next-iteration entry was ALREADY appended (most likely by Phase 12a's advance-write interrupted before Phase 1 - the crash-mid-advance scenario). Do NOT increment `iteration` or append again - use the existing entry as-is. Prevents double-advance (silent skip/dupe of an iteration).
 
 Either way, fall through to Phase 1 for the iteration corresponding to the last `tickets[]` entry.
 
-### Fresh init (only via the branches above — never unconditional)
+### Fresh init (only via the branches above - never unconditional)
 
 **Validation (refuse before Phase 1 on failure):**
 - `goal_condition` missing → refuse: `"goal_mode=open_goal requires goal_condition to be declared. Re-invoke with goal_condition set."` Exit.
 - `max_iterations` or `max_wallclock_min` missing/non-positive → refuse verbatim (trigger-catalog.md Hard-stop rule 5): `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` Exit.
 - `dry_run`, if present, must be literal `true`/`false`; absent defaults to `false`. No refusal on absence.
 
-**Contract C check (before any write):** apply the broadened Contract C check above (Fresh init is one of the three triggering create-paths) — refuse verbatim if `batch-state.json` is active/foreign-session/recent. Exit on refusal.
+**Contract C check (before any write):** apply the broadened Contract C check above (Fresh init is one of the three triggering create-paths) - refuse verbatim if `batch-state.json` is active/foreign-session/recent. Exit on refusal.
 
 **On successful validation (Contract A fresh write):**
 1. Initialize `.agentic/batch-state.json`: `mode:"open_goal"`, `batch_id:"open-goal-<ISO8601>-<4hex>"`, `wallclock_cap_min:<max_wallclock_min>`, `wallclock_started_at:now`, `tickets:[]`, `open_goal:{active:true, goal_condition:<string>, iteration:1, max_iterations:<int>, risk_declared:null, termination_reason:null, dry_run:<bool>}`.
-2. `loop-state.json` NOT touched here — initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
+2. `loop-state.json` NOT touched here - initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
 3. Breadcrumb: `[phase: open-goal-init | goal_condition="<condition>" | max_iterations=<N> | max_wallclock_min=<M> | dry_run=<bool>]`.
 4. Fall through to Phase 1 for iteration 1.
 
-**Off-by-one note (Minor):** at init, `iteration=1` but `tickets=[]` (len 0) — SOLE momentary exception to `iteration==len(tickets[])`, closed the moment Phase 1 of iteration 1 appends the first synthetic entry. From Phase 1 of iteration 1 onward, the invariant holds continuously.
+**Off-by-one note (Minor):** at init, `iteration=1` but `tickets=[]` (len 0) - SOLE momentary exception to `iteration==len(tickets[])`, closed the moment Phase 1 of iteration 1 appends the first synthetic entry. From Phase 1 of iteration 1 onward, the invariant holds continuously.
 
 **Per-iteration ticket lifecycle.** Each iteration's synthetic `tickets[]` entry (`ticket_id:"<goal-slug>-iter-N"`, `cluster_id:"open-goal"`) follows the SAME transition-write pattern ordinary batch tickets use: `pending → in_progress` at Phase 1 start, `in_progress → complete` at Phase 12, or `→ blocked` via "Batch-mode escalation routing" (Phase 6). Every transition applies Contract A + Contract B.
 
@@ -2401,7 +2401,7 @@ Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true
 
 After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit below, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
 
-**Goal-met short-circuit (open-goal mode, evaluated before triggers 1-4).** If `batch-state.json.mode == "open_goal"` AND `batch-state.json.open_goal.termination_reason == "goal_met"` (set this iteration by Phase 6 "Open-goal condition check"): take the clean COMPLETE exit immediately - set `status: "complete"` on both `batch-state.json` and `loop-state.json` (Contract A), print `OPEN-GOAL LOOP COMPLETE — goal_condition met after N iterations`, and exit the outer loop. Do NOT evaluate triggers 1-4. This guarantees a goal met on the final budgeted iteration (or coincident with a wallclock/iteration cap) records `goal_met`, not `cap_reached_*`, and the operator is not falsely told the goal was unmet. Rationale: `goal_met` is a success terminal state and always takes precedence over any cap/pause trigger that would otherwise fire on the same iteration.
+**Goal-met short-circuit (open-goal mode, evaluated before triggers 1-4).** If `batch-state.json.mode == "open_goal"` AND `batch-state.json.open_goal.termination_reason == "goal_met"` (set this iteration by Phase 6 "Open-goal condition check"): take the clean COMPLETE exit immediately - set `status: "complete"` on both `batch-state.json` and `loop-state.json` (Contract A), print `OPEN-GOAL LOOP COMPLETE - goal_condition met after N iterations`, and exit the outer loop. Do NOT evaluate triggers 1-4. This guarantees a goal met on the final budgeted iteration (or coincident with a wallclock/iteration cap) records `goal_met`, not `cap_reached_*`, and the operator is not falsely told the goal was unmet. Rationale: `goal_met` is a success terminal state and always takes precedence over any cap/pause trigger that would otherwise fire on the same iteration.
 
 **Triggers (exactly FOUR; any one fires; not evaluated when the goal-met short-circuit above already fired):**
 
@@ -2436,13 +2436,13 @@ Remaining: <N-k> tickets
 Resume: /implement-ticket from this directory
 ```
 
-**Single-ticket-capped mode, trigger 3 only** (triggers 1/4 structurally inert): reuse the "Batch-mode escalation routing" blocked-write, print `SINGLE-TICKET WALLCLOCK CAP REACHED — pause_reason: wallclock_cap`, `status: "paused"`, exit cleanly.
+**Single-ticket-capped mode, trigger 3 only** (triggers 1/4 structurally inert): reuse the "Batch-mode escalation routing" blocked-write, print `SINGLE-TICKET WALLCLOCK CAP REACHED - pause_reason: wallclock_cap`, `status: "paused"`, exit cleanly.
 
 Note: N is the executable-cursor count (lane-assigned tickets only). Deferred and in-progress-excluded tickets were surfaced in Phase 0a step 2 and are not included in N.
 
 Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch-paused | reason=<trigger>]`.
 
-**On trigger - open-goal mode (`mode=="open_goal"`), ANY of the four triggers:** in addition to the existing `batch-state.json{status:"paused", paused_at, pause_reason:<trigger>, last_summary}` write (Contract A+B, unchanged, applies to all 4 as above), ALSO write `open_goal.termination_reason`: trigger 1 → `"paused_stale_pace"`, trigger 2 → `"paused_operator_request"`, trigger 3 → `"cap_reached_wallclock"`, trigger 4 → `"cap_reached_iterations"`. Print header (all 4 triggers): `OPEN-GOAL LOOP PAUSED — pause_reason: <trigger>` (replacing `BATCH PAUSED`); resume line: `Resume: /implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`. Single mode-conditional branch covering all four triggers.
+**On trigger - open-goal mode (`mode=="open_goal"`), ANY of the four triggers:** in addition to the existing `batch-state.json{status:"paused", paused_at, pause_reason:<trigger>, last_summary}` write (Contract A+B, unchanged, applies to all 4 as above), ALSO write `open_goal.termination_reason`: trigger 1 → `"paused_stale_pace"`, trigger 2 → `"paused_operator_request"`, trigger 3 → `"cap_reached_wallclock"`, trigger 4 → `"cap_reached_iterations"`. Print header (all 4 triggers): `OPEN-GOAL LOOP PAUSED - pause_reason: <trigger>` (replacing `BATCH PAUSED`); resume line: `Resume: /implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`. Single mode-conditional branch covering all four triggers.
 
 **On no trigger, batch and single-ticket-capped modes:** continue to the next ticket in the batch.
 
