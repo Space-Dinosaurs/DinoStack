@@ -65,12 +65,12 @@ Running `install.sh` copies the skill to `~/.omp/agent/skills/` so the methodolo
 bash .omp/build.sh
 ```
 
-This verifies symlinks from `content/`. Run this after editing files in `content/`.
+This assembles `METHODOLOGY.md` from `content/sections/` and regenerates `SKILL.md` from `content/SKILL.md` (frontmatter + body), in addition to verifying symlinks from `content/`. Run this after editing files in `content/`.
 
 ## Limitations
 
 - **No custom markdown commands**: Pi commands are implemented in TypeScript, not markdown. The skill provides natural language access to methodology commands instead.
 - **Agent definitions are reference material**: Pi's built-in subagent types (`explore`, `plan`, `designer`, `reviewer`, `task`, `quick_task`) are used directly. The named agent roles from `content/agents/` are mapped to these types with detailed prompts.
 - **No lifecycle hooks**: Pi does not have a hook system. The risk classification reminder and session context save are embedded in the skill content instead.
-- **Global install copies SKILL.md**: The installer copies `SKILL.md` to `~/.omp/agent/skills/` and uses absolute symlinks for `content/`. This makes the global skill survive git branch switches, but means you must re-run `install.sh` after updating `SKILL.md` itself.
+- **Global install copies SKILL.md and METHODOLOGY.md**: The installer copies both files to `~/.omp/agent/skills/` and uses absolute symlinks for `content/`. This makes the global skill survive git branch switches, but means you must re-run `install.sh` after regenerating either file with `build.sh`.
 - **Universal config discovery**: Pi may already pick up `.claude/` configs via universal discovery. The `.omp/` adapter ensures native `.omp/` skill loading for Pi-specific behavior.

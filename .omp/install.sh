@@ -206,9 +206,11 @@ echo "Global skill install (optional)..."
 
 mkdir -p "$SKILL_DST"
 
-# Copy SKILL.md so it survives branch switches
+# Copy SKILL.md and METHODOLOGY.md so they survive branch switches
 cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
 echo "  + SKILL.md copied to ~/.omp/agent/skills/agentic-engineering/"
+cp "$SKILL_SRC/METHODOLOGY.md" "$SKILL_DST/METHODOLOGY.md"
+echo "  + METHODOLOGY.md copied to ~/.omp/agent/skills/agentic-engineering/"
 
 # Absolute symlinks for content dirs so they resolve from ~/.omp/agent/skills/
 link_abs() {
