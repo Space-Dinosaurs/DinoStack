@@ -18,7 +18,12 @@ Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
                          spawn a worker (background); prints run-id to stdout.
                          --model forwarded to every harness using its own flag
                          spelling (_MODEL_FLAG_BY_HARNESS: codex/gemini -> -m,
-                         all others -> --model).
+                         all others -> --model). When --model is omitted,
+                         the model is resolved from team.yml
+                         roles[<role>].model (honoring --global-config /
+                         --project-config) IFF the role's harness (or
+                         default_harness) matches the dispatch harness;
+                         otherwise the worker uses its own session default.
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
             configure  [--non-interactive] [--assign role=harness:model ...]
@@ -311,26 +316,42 @@ def _role_entry(spec: object) -> dict:
     return {}
 
 
-def _resolve_role_model(role: str, harness: str) -> str | None:
+def _resolve_role_model(
+    role: str,
+    harness: str,
+    global_path: Path = GLOBAL_TEAM_YML,
+    project_path: Path = PROJECT_TEAM_YML,
+) -> str | None:
     """Resolve the model for *role* from team.yml when no explicit --model.
 
-    Reads the merged global+project team.yml, looks up roles[<role>], and
-    returns its model handle ONLY when the entry's harness matches the harness
-    actually being dispatched to (so a team.yml row for a different harness
-    never leaks its model onto this dispatch). Returns None when there is no
-    team.yml, no entry, no model, or a harness mismatch -- in which case the
-    worker uses its own session default, exactly as before.
+    Reads the merged global+project team.yml (honoring any --global-config /
+    --project-config overrides threaded from main), looks up roles[<role>], and
+    returns its model handle ONLY when the role's resolved harness matches the
+    harness actually being dispatched to. The role's harness is its own entry
+    harness, else default_harness; if NEITHER is set the config is ambiguous
+    and we return None rather than forwarding the model to an arbitrary
+    harness (a team.yml row with no harness and no default_harness must not
+    leak its model). Returns None when there is no team.yml, no entry, no
+    model, or a harness mismatch/ambiguity -- the worker then uses its own
+    session default, exactly as before.
     """
     try:
-        config = _load_team_config()
-    except Exception:
+        config = _load_team_config(global_path=global_path, project_path=project_path)
+    except (OSError, ValueError, ImportError) as exc:  # narrow: I/O + parse
+        print(
+            f"agentic-team: could not load team.yml for model resolution: {exc}",
+            file=sys.stderr,
+        )
+        return None
         return None
     spec = config.get("roles", {}).get(role)
     if not spec:
         return None
     entry = _role_entry(spec)
     entry_harness = entry.get("harness") or config.get("default_harness")
-    if entry_harness and entry_harness != harness:
+    # Require a POSITIVE harness match. If the role has no harness and there is
+    # no default_harness, entry_harness is None (ambiguous) -> do not forward.
+    if entry_harness != harness:
         return None
     model = entry.get("model")
     return model if model else None
@@ -1146,7 +1167,12 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     # to the role's model in team.yml (D-1). Without this, a role-only dispatch
     # silently ran on the harness session default (e.g. omp -> claude-opus-4-8),
     # which is why cross-harness dispatch "only used Claude models".
-    resolved_model = getattr(args, "model", None) or _resolve_role_model(role, harness)
+    resolved_model = getattr(args, "model", None) or _resolve_role_model(
+        role,
+        harness,
+        global_path=Path(getattr(args, "global_config", None) or GLOBAL_TEAM_YML),
+        project_path=Path(getattr(args, "project_config", None) or PROJECT_TEAM_YML),
+    )
     argv = _build_worker_argv(harness, augmented_brief, model=resolved_model)
 
     stdout_file = run_dir / "stdout"

@@ -649,6 +649,26 @@ _LEAF_WORKER_CLAUSE = _mod._LEAF_WORKER_CLAUSE
 HARNESS_BINARY = _mod.HARNESS_BINARY
 
 
+def _make_argv_recording_exec(tmp_path: Path, binary_name: str, argv_out: Path) -> Path:
+    """Fake binary that appends its full argv (one arg per line) to *argv_out*.
+
+    Lets an end-to-end dispatch assert exactly which flags the worker binary
+    was invoked with (e.g. that --model <team.yml value> was forwarded).
+    """
+    bin_dir = tmp_path / f"rec_bin_{binary_name}"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / binary_name
+    out = _subprocess_mod.list2cmdline([str(argv_out)])
+    lines = [
+        "#!/bin/sh",
+        f'for a in "$@"; do printf \'%s\\n\' "$a" >> ' + out + ";done",
+        "exit 0",
+    ]
+    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    script.chmod(script.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+    return bin_dir
+
+
 def _make_fake_exec(tmp_path: Path, binary_name: str, stdout_payload: str) -> Path:
     """Write a tiny fake binary that echoes *stdout_payload* and exits 0.
 
@@ -1672,19 +1692,56 @@ def test_resolve_role_model_absent_returns_none(monkeypatch):
     assert _resolve_role_model("engineer", "omp") is None
 
 
-def test_dispatch_forwards_team_yml_model(tmp_path, monkeypatch):
-    """End-to-end: a role-only dispatch forwards the team.yml model to argv."""
-    _patch_team_config(monkeypatch, {
-        "default_harness": "omp",
-        "roles": {"engineer": {"harness": "omp", "model": "kimi/kimi-k2.7"}},
-    })
+def test_dispatch_forwards_team_yml_model_end_to_end(tmp_path):
+    """Real e2e: agentic-team dispatch (no --model) forwards the team.yml model.
+
+    Drives the actual `dispatch` subcommand as a subprocess with a project
+    team.yml and an argv-recording fake `omp`, then asserts the worker was
+    invoked with `--model kimi/kimi-k2.7` -- covering _cmd_dispatch ->
+    _resolve_role_model -> _build_worker_argv end to end (not re-derived).
+    """
+    proj = tmp_path / "proj"; proj.mkdir()
+    (proj / ".agentic").mkdir()
+    (proj / ".agentic" / "team.yml").write_text(
+        "enabled: true\n"
+        "default_harness: omp\n"
+        "roles:\n"
+        "  engineer:\n"
+        "    harness: omp\n"
+        "    model: kimi/kimi-k2.7\n",
+        encoding="utf-8",
+    )
     workdir = tmp_path / "wd"; workdir.mkdir()
-    fake_bin_dir = _make_fake_exec(tmp_path, "omp", "ok")
+    argv_out = tmp_path / "omp_argv.txt"
+    fake_bin_dir = _make_argv_recording_exec(tmp_path, "omp", argv_out)
     brief_file = _make_brief_file(tmp_path)
-    # capture argv via the builder directly with the resolved model
-    resolved = _resolve_role_model("engineer", "omp")
-    argv = _mod._build_worker_argv("omp", "brief", model=resolved)
-    assert "--model" in argv and "kimi/kimi-k2.7" in argv
+
+    import sys as _sys
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    result = _subprocess_mod.run(
+        [_sys.executable, str(_BIN / "agentic-team"),
+         "--project-config", str(proj / ".agentic" / "team.yml"),
+         "dispatch", "--harness", "omp", "--role", "engineer",
+         "--brief", str(brief_file), "--workdir", str(workdir)],
+        capture_output=True, text=True, cwd=str(proj), env=env_patch,
+    )
+    assert result.returncode == 0, result.stderr
+    _wait_for_exit_file(workdir / ".agentic" / "teamrun"
+                        / result.stdout.strip(), timeout=10.0)
+    recorded = argv_out.read_text(encoding="utf-8") if argv_out.exists() else ""
+    assert "--model" in recorded and "kimi/kimi-k2.7" in recorded, (
+        f"worker argv did not carry the team.yml model:\n{recorded}"
+    )
+
+
+def test_resolve_role_model_no_harness_no_default_returns_none(monkeypatch):
+    """A role with no harness AND no default_harness must NOT leak its model."""
+    _patch_team_config(monkeypatch, {
+        "roles": {"engineer": {"model": "kimi/kimi-k2.7"}},  # no harness, no default
+    })
+    assert _resolve_role_model("engineer", "omp") is None
+    assert _resolve_role_model("engineer", "codex") is None
 
 
 def test_explicit_model_overrides_team_yml(monkeypatch):
