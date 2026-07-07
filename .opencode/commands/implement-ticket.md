@@ -24,6 +24,8 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 
 Phase 0 normalizes the input into a canonical ordered list of ticket entries before any other phase runs. Bare-ID, single-issue-URL, and operator-enumerated list invocations bypass the confirmation prompt — backward compatible with the prior single-argument contract.
 
+**Open-goal / wallclock-cap parameters (optional, trailing key=value tokens).** `<input>` may be followed by any of `goal_mode=open_goal`, `goal_condition="<string>"`, `max_iterations=<int>`, `max_wallclock_min=<int>`, `dry_run=true`. Extracted by a trailing-token scan (`\w+=(\S+|"[^"]*")`) BEFORE Phase 0 classification runs; matched tokens are stripped so ticket-reference classification is unaffected. `dry_run` is meaningful ONLY when `goal_mode=open_goal` is also present - on any other invocation shape it is parsed and explicitly ignored (no effect, no error).
+
 ---
 
 ## Conductor responsibilities (irreducible)
@@ -77,7 +79,7 @@ This preserves the audit log across overlapping writes and across resume migrati
 
 **Contract C — One batch per project root.**
 
-When Phase 0a is initializing a new `batch-state.json` (invocation where Phase 0 produced ≥ 2 entries) and the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes: REFUSE the new batch with the verbatim message:
+When Phase 0a is initializing a new `batch-state.json` (invocation where Phase 0 produced ≥ 2 entries, OR Phase 0a-open-goal is performing a Fresh init (`goal_mode=open_goal`), OR the Phase 0a-pre single-ticket-capped carve-out is performing its create (`max_wallclock_min` alone, no `goal_mode`)) and the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes: REFUSE the new batch with the verbatim message:
 
 ```
 Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke.
@@ -107,6 +109,7 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
   "session_id": "<current session uuid or null>",
   "batch_id": "<first-ticket-prefix>-batch-<ISO8601>-<4hex>",
   "status": "active",
+  "mode": "batch",
   "created_at": "<ISO8601>",
   "updated_at": "<ISO8601>",
   "last_updated_phase": "<phase label>",
@@ -130,7 +133,16 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
     }
   ],
   "replan_log": [],
-  "resume_invocation_hint": "/implement-ticket"
+  "resume_invocation_hint": "/implement-ticket",
+  "open_goal": {
+    "active": false,
+    "goal_condition": null,
+    "iteration": 1,
+    "max_iterations": null,
+    "risk_declared": null,
+    "termination_reason": null,
+    "dry_run": false
+  }
 }
 ```
 
@@ -140,12 +152,14 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
 - `session_id`: uuid of the conductor session that last wrote the file; null only on legacy files written by a prior version.
 - `batch_id`: stable identifier for the batch. Format `<prefix>-batch-<ISO8601>-<4hex>` where `<prefix>` is the first ticket's `TICKET_PREFIX` (used when tickets span multiple prefixes; the first ticket wins).
 - `status`: enum `active | paused | interrupted | complete | stalled`.
+- `mode`: enum `"batch" | "open_goal" | "single_ticket_capped"`. Absent = `"batch"` (100% back-compat). `"open_goal"` is set by Phase 0a-open-goal's Fresh init; `"single_ticket_capped"` is set by the Phase 0a-pre single-ticket wallclock carve-out - the ONLY N=1 path that creates `batch-state.json`.
 - `interrupt_reason`: enum `unknown | null` — only `unknown` is a writable value (other values reserved for future writers; the Stop hook cannot distinguish rate-limit vs crash at hook time).
-- `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | null` — these three values match the three Phase 12a triggers.
+- `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | open_goal_iteration_cap | null` - these four values match the four Phase 12a triggers. NOTE: `paused_stale_pace` / `paused_operator_request` / `cap_reached_wallclock` / `cap_reached_iterations` / `goal_met` / `blocked` are `open_goal.termination_reason` values, NOT `pause_reason` values - deliberately avoiding a dual-enum collision. Only `open_goal_iteration_cap` was added to `pause_reason`; triggers 1-3 keep their existing `pause_reason` values `stale_pace` / `operator_pause` / `wallclock_cap`.
 - `wallclock_started_at`: set once at Phase 0a init; preserved across resume. The wallclock cap is per-batch lifetime, not per-session.
 - `wallclock_cap_min`: integer minutes. Default `90`. Overridable via env `AGENTIC_BATCH_MAX_WALLCLOCK_MIN`.
 - `tickets[]`: triage-derived executable cursor; contains only lane-assigned tickets (deferred and in-progress-excluded tickets are not included). `status` per-ticket is `pending | in_progress | complete | blocked | skipped_already_merged`.
 - `replan_log[]`: append-only audit log. Each entry: `{ts, action, ticket_id, detail}`. Actions include `drop_merged`, `investigator_rerun`, `re_sequence`. Preserved by Contract B.
+- `open_goal`: present (meaningfully populated) only when `mode == "open_goal"`. `active`: boolean, whether an open-goal loop is currently running. `goal_condition`: operator-declared condition string, set once at Fresh init, read-only thereafter (divergent re-invocation values are warned and ignored - on-disk governs). `iteration`: current iteration number; invariant `iteration == len(tickets[])` from the first synthetic entry onward (SOLE momentary exception: immediately after Fresh init, `iteration=1` but `tickets=[]` - closed the moment Phase 1 of iteration 1 appends its entry). `max_iterations`: operator-declared cap, mandatory at Fresh init, no default. `risk_declared`: this iteration's risk classification (`low | elevated | trivial`), written at Phase 6 clean exit - the DURABLE audit record (see `content/references/trigger-catalog.md` §Risk and review discipline (c)). `termination_reason`: enum `null | cap_reached_iterations | cap_reached_wallclock | goal_met | blocked | paused_stale_pace | paused_operator_request` - partitions TERMINAL (`cap_reached_iterations`, `cap_reached_wallclock`, `goal_met`, `blocked`) from RESUMABLE (`paused_stale_pace`, `paused_operator_request`, or `null` with `status` in `{paused, interrupted}`). `dry_run`: boolean, set once at Fresh init, never changes mid-loop; when `true`, Phases 6b/8-11b are skipped for every iteration (no QA, no ship, no PR) - see Phase 6b and Phase 8 dry-run gates.
 
 ---
 
@@ -487,11 +501,83 @@ classifiers:
 
 ---
 
+## Phase 0a-open-goal: Open-goal loop init or resume (conditional)
+
+**Trigger:** invocation carries `goal_mode=open_goal`. Mutually exclusive with Phase 0a-pre/Phase 0a - skip both when this fires; fall through unmodified when it does not.
+
+### Step 0 - resume-vs-fresh classification (before any write). Provably complete partition.
+
+Read `.agentic/batch-state.json` if present.
+
+- Absent, or `mode != "open_goal"`: → Fresh init.
+- `mode == "open_goal"`: classify via `termination_reason` first (authoritative when non-null, regardless of `status`); fall back to `status` sub-partition only when `termination_reason == null`.
+
+  **A. `termination_reason` non-null (6 of 7 buckets; resolved without consulting `status`):**
+  - `cap_reached_iterations` | `cap_reached_wallclock` → TERMINAL; print:
+    ```
+    A prior open-goal loop already terminated (reason: <termination_reason>, iteration <N>/<max_iterations>). Starting fresh clears this state. To continue this goal instead, re-invoke with max_iterations and/or max_wallclock_min set HIGHER than the current values (max_iterations=<X>, max_wallclock_min=<Y>). Confirm: fresh-start (delete + reinit) or raise-caps (continue from iteration <N+1>)? (fresh / raise-caps)
+    ```
+    Offer both `fresh` and `raise-caps`.
+  - `blocked` → TERMINAL, fresh ONLY (raise-caps can't unblock a stuck Skeptic loop); prompt adds: "To resume the specific blocked iteration's stuck work instead, use the ordinary per-ticket Resume check against that iteration's own branch - this phase does not do that."
+  - `goal_met` → TERMINAL, fresh ONLY (nothing to raise).
+  - `paused_stale_pace` | `paused_operator_request` → RESUMABLE.
+
+  **B. `termination_reason == null` (7th bucket; sub-partitioned on `status`, exhaustively):**
+  - `status` in `{paused, interrupted}` → RESUMABLE.
+  - `status == "active"` → apply Contract A's existing per-write `session_id`-mismatch determination to this READ (same 4-way logic Contract A uses to gate every `batch-state.json` WRITE, applied here as read-time classification):
+    - `session_id` non-empty and matches current session → RESUMABLE (same-session continuation; covers crash-mid-advance re-invoked same session).
+    - `session_id` non-empty, differs, AND `last_updated` older than 10 min → RESUMABLE, treated as implicitly interrupted (mirrors Phase 0a-pre "status=active AND last_updated>10min → implicit interrupt"). Covers crash-mid-advance surviving into a later session.
+    - `session_id` non-empty, differs, AND `last_updated` within last 10 min → REFUSE, verbatim Contract C message: `"Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke."` Exit. (live-foreign-session; closes the null+active Contract-C bypass.)
+    - `session_id` null/absent (legacy) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` `yes` → RESUMABLE; `no` → exit/wait.
+  - `status == "complete"` → TERMINAL, fresh ONLY (safe default; unexpected/legacy combo).
+  - `status == "stalled"` → TERMINAL, fresh ONLY (same rationale).
+  - any other/unrecognized `status` → TERMINAL, fresh ONLY (safe default).
+
+**Completeness statement:** every `(termination_reason, status)` pair lands in exactly one of {Fresh init, RESUMABLE, raise-caps-or-fresh (terminal-cap bucket), refuse}. Bucket A resolves 6 of 7 `termination_reason` values without consulting `status`. Bucket B exhaustively covers the 7th value (`null`) across all 5 named `status` enum values + explicit catch-all; `status==active` within bucket B is itself exhaustively partitioned by Contract A's 4-way `session_id`/staleness logic. No pair unclassified.
+
+- On fresh (any TERMINAL branch): delete `batch-state.json` → Fresh init. (force-takeover "no" exits/waits, does NOT go fresh.)
+- On raise-caps: refuse unless declared `max_iterations`/`max_wallclock_min` strictly greater than on-disk: `"raise-caps requires re-invoking with max_iterations and/or max_wallclock_min set higher than the existing values (current: max_iterations=<X>, max_wallclock_min=<Y>). Re-invoke with a higher value, or choose fresh."` On success: Contract A write (update, NO Contract C - update not create) setting raised cap(s), `termination_reason:null`, `status:"active"` → Advance to next iteration (idempotency-checked).
+- On RESUMABLE (any sub-case incl. force-takeover yes): Contract A write `status:"active"`; do NOT reset `iteration` → Advance to next iteration (idempotency-checked).
+- `goal_condition` divergence (unchanged): read from disk on any resume, never re-parsed; differing invocation value prints one-line "on-disk value governs" warning (mirrors Phase 0a-pre GENUINE-divergence pattern), continues.
+
+### Advance to next iteration (idempotency-checked)
+
+Read the last entry in `tickets[]` (if any):
+- `tickets[]` empty OR last entry `status == "complete"`: no next-iteration entry yet → apply the IDENTICAL Contract A+B write Phase 12a "On no trigger, GOAL_MET false" performs (increment `open_goal.iteration`, append pending entry) - reused by reference.
+- last entry `status` is `"pending"` or `"in_progress"`: a next-iteration entry was ALREADY appended (most likely by Phase 12a's advance-write interrupted before Phase 1 - the crash-mid-advance scenario). Do NOT increment `iteration` or append again - use the existing entry as-is. Prevents double-advance (silent skip/dupe of an iteration).
+
+Either way, fall through to Phase 1 for the iteration corresponding to the last `tickets[]` entry.
+
+### Fresh init (only via the branches above - never unconditional)
+
+**Validation (refuse before Phase 1 on failure):**
+- `goal_condition` missing → refuse: `"goal_mode=open_goal requires goal_condition to be declared. Re-invoke with goal_condition set."` Exit.
+- `max_iterations` or `max_wallclock_min` missing/non-positive → refuse verbatim (trigger-catalog.md Hard-stop rule 5): `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` Exit.
+- `dry_run`, if present, must be literal `true`/`false`; absent defaults to `false`. No refusal on absence.
+
+**Contract C check (before any write):** apply the broadened Contract C check above (Fresh init is one of the three triggering create-paths) - refuse verbatim if `batch-state.json` is active/foreign-session/recent. Exit on refusal.
+
+**On successful validation (Contract A fresh write):**
+1. Initialize `.agentic/batch-state.json`: `mode:"open_goal"`, `batch_id:"open-goal-<ISO8601>-<4hex>"`, `wallclock_cap_min:<max_wallclock_min>`, `wallclock_started_at:now`, `tickets:[]`, `open_goal:{active:true, goal_condition:<string>, iteration:1, max_iterations:<int>, risk_declared:null, termination_reason:null, dry_run:<bool>}`.
+2. `loop-state.json` NOT touched here - initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
+3. Breadcrumb: `[phase: open-goal-init | goal_condition="<condition>" | max_iterations=<N> | max_wallclock_min=<M> | dry_run=<bool>]`.
+4. Fall through to Phase 1 for iteration 1.
+
+**Off-by-one note (Minor):** at init, `iteration=1` but `tickets=[]` (len 0) - SOLE momentary exception to `iteration==len(tickets[])`, closed the moment Phase 1 of iteration 1 appends the first synthetic entry. From Phase 1 of iteration 1 onward, the invariant holds continuously.
+
+**Per-iteration ticket lifecycle.** Each iteration's synthetic `tickets[]` entry (`ticket_id:"<goal-slug>-iter-N"`, `cluster_id:"open-goal"`) follows the SAME transition-write pattern ordinary batch tickets use: `pending → in_progress` at Phase 1 start, `in_progress → complete` at Phase 12, or `→ blocked` via "Batch-mode escalation routing" (Phase 6). Every transition applies Contract A + Contract B.
+
+**Interaction with top-level "Resume check (before setup)".** That check reads `loop-state.json` before Phase 0, independent of this phase. A mid-iteration interrupted resume jumps to that iteration's resume entry point; Phase 0a-open-goal is never re-entered that session. Step 0 fires only on a normal Phase 0 pass reaching `goal_mode=open_goal`.
+
+---
+
 ## Phase 0a-pre: Batch resume check
 
 > Run this phase BEFORE the per-ticket Resume check below. This is the composition anchor: batch-level resume picks the ticket cursor first; the per-ticket Resume check then runs unmodified scoped to that ticket's branch and `loop-state.json`.
 
-**Trigger:** Phase 0 normalization produced ≥ 2 entries (same trigger as Phase 0a). Skip otherwise. Single-entry invocations (Phase 0 produced exactly 1 entry, including the bare-ID fast path used by all Trivial single-ticket flows) bypass this phase entirely - no `.agentic/batch-state.json` is read or created.
+**Trigger:** Phase 0 normalization produced ≥ 2 entries (same trigger as Phase 0a). Skip otherwise.
+
+**Single-ticket wallclock carve-out.** Single-entry invocations bypass this phase entirely - no `.agentic/batch-state.json` is read or created - EXCEPT when `max_wallclock_min` is declared on a single-entry invocation with no `goal_mode`. In that case: apply the Contract C refusal check (broadened per the Contract C definition above) ONLY - do NOT also run the separate N=1 foreign-batch warning first; both checks share the identical trigger (active + different session + ≤10min), so the softer warning first would be dead code (Contract C refusal always overrides any yes/proceed). This differs from the ordinary N=1 path, which never creates batch-state and never needs Contract C. On success (Contract A fresh write): create `.agentic/batch-state.json{mode:"single_ticket_capped", tickets:[{ticket_id:<the one entry>, status:"pending", cluster_id:null, depends_on:[]}], wallclock_cap_min:<max_wallclock_min>, wallclock_started_at:now}`. **This is the ONLY N=1 path that creates `batch-state.json`.**
 
 **Read** `.agentic/batch-state.json` if present. Apply the decision table below.
 
@@ -1249,8 +1335,8 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 **Step 3. Termination check:**
 - If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
-- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human (see Escalation section below). Phase 6b does NOT run.
-- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
+- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
 
 **Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
 
@@ -1313,7 +1399,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 **Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
 - Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -1341,6 +1427,19 @@ Recommended action: review the open findings above and either:
 
 Note: the escalation format surfaces findings and history only. The conductor does not synthesize fix suggestions - that would undermine the convergence failure signal.
 
+### Batch-mode escalation routing (mark-blocked-and-continue)
+
+**Trigger:** `.agentic/batch-state.json` exists with `status:"active"`. Skip (fall through to single-ticket "surface and wait for human") when absent/not active.
+
+**Action:**
+1. Print the Escalation format/stalled summary unchanged and visible.
+2. Contract A+B write: find this ticket's/iteration's `tickets[]` entry, set `status:"blocked"`, `last_summary`=one-line synopsis.
+3. Print `"Ticket <ticket_id> marked blocked; advancing to next pending ticket in the batch."`; skip Phases 7-12 for this ticket.
+4. **Batch mode (`mode=="batch"` or absent):** advance to next `pending` ticket, array order, enter at Phase 1.
+5. **Open-goal mode (`mode=="open_goal"`):** do NOT auto-advance - write `open_goal.termination_reason` to the triggering reason (`blocked`, `cap_reached_iterations`, or the equivalent) and STOP the outer loop (surface and wait for human); the `blocked` write in step 2 still happens for audit.
+
+**Single-ticket mode (no active batch-state):** unchanged - surface and wait for human.
+
 ### Findings curator (loop exit)
 
 At Phase 6 loop exit (both clean termination and stalled termination paths), spawn a findings-curator subagent. **Note:** `findings-curator` does not yet exist as a named agent; use `general-purpose` agent type (Tier 1, fire-and-forget) until the named agent is formally added.
@@ -1360,9 +1459,18 @@ Fires exactly once per ticket per `/implement-ticket` invocation.
 
 **Exchange log compression:** After Round 2 sign-off, apply compression when the log would no longer fit in a single spawn prompt alongside the preflight list. Always preserve Round 1 and the most recent round in full. See `content/references/skeptic-protocol.md` Section 3 "Exchange log compression" for the canonical trigger and format.
 
+### Open-goal condition check (clean exit only, `goal_mode=open_goal` invocations only)
+
+1. If `batch-state.json.open_goal.active` is not `true` (or `batch-state.json` absent / `mode != "open_goal"`), skip entirely. **Sole gate scoping the evaluator spawn to open-goal invocations.**
+2. Set `batch-state.json.open_goal.risk_declared` to this iteration's classification (`low | elevated | trivial`) - Contract A+B write. Satisfies invariant (c) on the DURABLE record (see `content/references/trigger-catalog.md` §Risk and review discipline (c)).
+3. **Scope gate (mirrors invariant (e)):** `risk_declared == "elevated"` → spawn `goal-condition-evaluator` (Tier 1/haiku, omit model param) with `goal_condition`, `iteration_evidence_hint` (finding IDs/files + ≤500-char excerpt of this iteration's `quality_gate_results.raw_output` when `goal_condition` plausibly references gate output), `skeptic_signoff_confirmed:true`; no worktree isolation. `low`/`trivial` → no spawn; conductor evaluates directly.
+4. **Return handling:** `GOAL_MET:true` → set `open_goal.termination_reason="goal_met"` (Contract A+B); unit still ships normally UNLESS `dry_run==true`; outer loop exits at Phase 12a. `GOAL_MET:false` → status update only; continue at Phase 12a. `BLOCKED`/unavailable/errored/timeout/malformed → conductor-direct evaluation immediately (invariant (e)); **never** the generic Worker-BLOCKED=`cap_reached` escalation from `content/references/subagent-protocol.md` §Loop transition rules.
+
 ---
 
 ## Phase 6b: QA Gate (conditional)
+
+**Dry-run skip (open-goal only).** If `batch-state.json.open_goal.active == true` AND `batch-state.json.open_goal.dry_run == true`: skip Phase 6b entirely - no qa-engineer spawn, no dev-server boot. Proceed directly to Phase 12. Never fires for ordinary invocations (no `open_goal.dry_run` field to read).
 
 **Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
@@ -1448,8 +1556,8 @@ The following failures were identified and fix attempts were made in earlier ite
 
 **Step 3. Termination check:**
 - If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
-- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
-- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Escalate to human with convergence note.
+- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
+- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
 **QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
 
@@ -1471,7 +1579,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
 
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
-- If `Status: BLOCKED`: set `termination_reason: blocked`. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
 **Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
@@ -1528,7 +1636,7 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
 5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
 6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
-7. If it still fails: set `status=stalled`. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
+7. If it still fails: set `status=stalled`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
 **No unbounded loop (default path):** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
 
@@ -1550,7 +1658,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 8. Verify the fix engineer's `quality_gate_results`.
    - If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
    - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.
-   - If it still fails AND cycle count == 3: set `status=stalled`. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
+   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
 
 **Convergence short-circuit (test runners only).** If the quality gate is a test runner (pytest, jest, vitest, cargo test, etc.) AND the set of failing test IDs in `quality_gate_results.failures[]` is identical to the set from the immediately preceding cycle (the engineer made no progress on the failing tests), escalate immediately without consuming remaining cycles. Surface the stalled test IDs and both cycle outputs to the human. This short-circuit applies ONLY to test runners with structured `failures[]` output. For lint (eslint, ruff, etc.) and typecheck (tsc, mypy, pyright, etc.) gates, rely solely on the 3-cycle limit - do not attempt a short-circuit.
 
@@ -1559,6 +1667,8 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 ---
 
 ## Phase 8: Commit and push
+
+**Dry-run skip (open-goal only).** If `batch-state.json.open_goal.active == true` AND `batch-state.json.open_goal.dry_run == true`: skip Phases 8 through 11b entirely - no commit-push, no PR open, no CI wait, no tracker writeback, no wrap-ticket. This iteration's engineer-produced work remains as local, unpushed commits on its worktree-isolated branch. Proceed directly to Phase 12. **What still ran:** Phases 1-7 (understand, read, architect, plan, implement, Skeptic incl. the goal-condition-evaluator spawn at Phase 6, quality gate) - every review-discipline invariant fully exercised; only shipping mechanics skipped, zero external side effects. This is the literal mechanism DC1 exercises: a `dry_run=true` run with `max_iterations=3` performs 3 full review cycles and terminates on the cap with no PR/CI/prompt.
 
 **Sequential path:** Stage specific files and commit as described below.
 
@@ -2285,25 +2395,32 @@ fi
 
 Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
 
+**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). loop-state.json cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+
 ---
 
-## Phase 12a: Handoff evaluation (batch only)
+## Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)
 
-**Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session). Skip when batch-state.json is absent.
+**Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
 
-After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, evaluate the three handoff triggers below. If any one fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
+After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit below, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
 
-**Triggers (exactly THREE; any one fires):**
+**Goal-met short-circuit (open-goal mode, evaluated before triggers 1-4).** If `batch-state.json.mode == "open_goal"` AND `batch-state.json.open_goal.termination_reason == "goal_met"` (set this iteration by Phase 6 "Open-goal condition check"): take the clean COMPLETE exit immediately - set `status: "complete"` on both `batch-state.json` and `loop-state.json` (Contract A), print `OPEN-GOAL LOOP COMPLETE - goal_condition met after N iterations`, and exit the outer loop. Do NOT evaluate triggers 1-4. This guarantees a goal met on the final budgeted iteration (or coincident with a wallclock/iteration cap) records `goal_met`, not `cap_reached_*`, and the operator is not falsely told the goal was unmet. Rationale: `goal_met` is a success terminal state and always takes precedence over any cap/pause trigger that would otherwise fire on the same iteration.
 
-1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`.
-2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`.
+**Triggers (exactly FOUR; any one fires; not evaluated when the goal-met short-circuit above already fired):**
+
+1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`. **In open-goal mode:** applies UNMODIFIED - `tickets[]` accumulates one synthetic entry per completed iteration, so the ≥5-completed threshold is satisfied by the same array. For `max_iterations < 5` (e.g. a dry-run test with `max_iterations=3`), trigger 1 is structurally inert (never reaches 5) - expected/correct (a loop capped below 5 is too short for a meaningful pace signal, matching the threshold's own rationale). **In single-ticket-capped mode:** structurally inert (one entry, no pace signal past a single completion).
+2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`. **In open-goal mode:** applies UNMODIFIED - substring match is orthogonal to mode. **In single-ticket-capped mode:** mode-orthogonal and DOES apply - the operator can still pause a single capped run.
 
    **Invariant (binding).** The conductor MUST NOT write `pause_reason: "operator_pause"` to `batch-state.json` unless the operator's most recent message contains the literal substring `pause the batch` (case-insensitive). Conductor self-doubt about remaining wallclock, context pressure, perceived pace, or "feeling like the operator might want a break" is NOT a valid `operator_pause` trigger. The correct conductor behavior in those subjective cases is to spawn the next ticket and let `wallclock_cap` (trigger 3) fire mechanically if the cap is actually hit. A conductor that paraphrases the operator, infers intent from "I'm tired" / "let's stop soon" / "we're running long", or pauses preemptively to avoid a future cap hit is violating this invariant - the operator's literal words are the authoritative trigger. If an operator phrases a pause request differently (e.g. "stop after this one"), the correct response is to surface a one-line confirmation (`Proceeding to pause the batch after the current ticket - confirm with 'pause the batch' or override with 'continue'.`) and continue executing until the literal substring arrives.
-3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`.
+3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`. **Single-ticket-capped mode:** trigger 3 is the reason this mode exists - same wallclock-blocked-write action as before.
+4. **Open-goal iteration cap** (`mode=="open_goal"` only; inert for `batch`/`single_ticket_capped`). `batch-state.json.open_goal.iteration >= batch-state.json.open_goal.max_iterations`. `pause_reason: "open_goal_iteration_cap"`.
+
+**Single-ticket-capped mode summary:** triggers 1 and 4 are structurally inert (no pace signal past a single entry; no iteration concept). Trigger 2 (operator literal "pause the batch") is mode-orthogonal and DOES apply - the operator can still pause a single capped run. Trigger 3 (wallclock cap) is the reason this mode exists.
 
 (Context-pressure auto-detection is explicitly NOT a trigger; the conductor cannot read its own context %. Operators use trigger 2 if context pressure is observed.)
 
-**On trigger:** apply Contract A + Contract B and write `batch-state.json` with:
+**On trigger - batch and single-ticket-capped modes (`mode != "open_goal"`):** apply Contract A + Contract B and write `batch-state.json` with:
 - `status: "paused"`
 - `paused_at: now`
 - `pause_reason: <trigger>`
@@ -2323,10 +2440,16 @@ Remaining: <N-k> tickets
 Resume: /implement-ticket from this directory
 ```
 
+**Single-ticket-capped mode, trigger 3 only** (triggers 1/4 structurally inert): reuse the "Batch-mode escalation routing" blocked-write, print `SINGLE-TICKET WALLCLOCK CAP REACHED - pause_reason: wallclock_cap`, `status: "paused"`, exit cleanly.
+
 Note: N is the executable-cursor count (lane-assigned tickets only). Deferred and in-progress-excluded tickets were surfaced in Phase 0a step 2 and are not included in N.
 
 Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch-paused | reason=<trigger>]`.
 
-**On no trigger:** continue to the next ticket in the batch.
+**On trigger - open-goal mode (`mode=="open_goal"`), ANY of the four triggers:** in addition to the existing `batch-state.json{status:"paused", paused_at, pause_reason:<trigger>, last_summary}` write (Contract A+B, unchanged, applies to all 4 as above), ALSO write `open_goal.termination_reason`: trigger 1 → `"paused_stale_pace"`, trigger 2 → `"paused_operator_request"`, trigger 3 → `"cap_reached_wallclock"`, trigger 4 → `"cap_reached_iterations"`. Print header (all 4 triggers): `OPEN-GOAL LOOP PAUSED - pause_reason: <trigger>` (replacing `BATCH PAUSED`); resume line: `Resume: /implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`. Single mode-conditional branch covering all four triggers.
+
+**On no trigger, batch and single-ticket-capped modes:** continue to the next ticket in the batch.
+
+**On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
 > Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the Stop hook on session-exit crash. These are two distinct paths; `last_summary` is only populated on graceful pause (the Stop hook cannot synthesize it).
