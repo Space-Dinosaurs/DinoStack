@@ -106,7 +106,17 @@ def resolve_reviewer_model(
         return None
 
     def _model_of(spec: object) -> str | None:
-        norm = normalize_role_spec(spec) if spec else {}
+        if not spec:
+            return None
+        # Malformed config (e.g. int/float in pool/by_role/by_task) must not
+        # raise TypeError -- normalize_role_spec has no contract to handle it,
+        # and the caller wants a clean None rather than a crash.
+        try:
+            norm = normalize_role_spec(spec)
+        except (TypeError, ValueError) as exc:
+            return None
+        if not isinstance(norm, dict):
+            return None
         m = norm.get("model")
         return m if isinstance(m, str) and m else None
 
@@ -167,44 +177,6 @@ def resolve_reviewer_model(
             return cand
 
     # Fallback (all strategies).
-    cand = _model_of(reviewers.get("fallback"))
-    if cand and cand != author:
-        return cand
-    return None
-
-    def _model_of(spec: object) -> str | None:
-        norm = normalize_role_spec(spec) if spec else {}
-        m = norm.get("model")
-        return m if isinstance(m, str) and m else None
-
-    author = author_model if isinstance(author_model, str) else None
-
-    # 1. Per-role reviewer (new).
-    by_role = reviewers.get("by_role")
-    if isinstance(by_role, dict):
-        cand = _model_of(by_role.get(authored_role))
-        if cand and cand != author:
-            return cand
-
-    # 2. Per-task-kind reviewer.
-    by_task = reviewers.get("by_task")
-    if task_kind and isinstance(by_task, dict):
-        cand = _model_of(by_task.get(task_kind))
-        if cand and cand != author:
-            return cand
-        cand = _model_of(by_task.get("default"))
-        if cand and cand != author:
-            return cand
-
-    # 3. Pool: first entry distinct from the author.
-    pool = reviewers.get("pool")
-    if isinstance(pool, (list, tuple)):
-        for entry in pool:
-            cand = _model_of(entry)
-            if cand and cand != author:
-                return cand
-
-    # 4. Fallback.
     cand = _model_of(reviewers.get("fallback"))
     if cand and cand != author:
         return cand
