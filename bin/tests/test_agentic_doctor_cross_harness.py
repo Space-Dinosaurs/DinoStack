@@ -133,28 +133,65 @@ def test_dispatch_resolver_absent_warns(monkeypatch):
     assert any(s == "WARN" and "model resolution not present" in m for s, m in doc.findings)
 
 
-def test_omp_handle_parser_box_drawing():
-    # The real omp table uses U+2502 separators; the parser must handle them.
+def test_omp_handle_parser_uses_json(monkeypatch):
+    """_omp_model_handles parses `omp models ls --json` (id/selector/name)."""
     import subprocess
+    import shutil
+    import json as _json
+
+    payload = {"models": [
+        {"id": "cc/claude-fable-5", "selector": "9router/cc/claude-fable-5",
+         "name": "cc/claude-fable-5"},
+        {"id": "kimi/kimi-k2.7"},
+        {"id": "provider/model with space"},  # must NOT be dropped
+    ]}
 
     class _R:
         returncode = 0
-        stdout = (
-            "│ cc/claude-fable-5   │ 200K │\n"
-            "│ kimi/kimi-k2.7      │ 256K │\n"
-            "| ascii/pipe-model | 1M |\n"
-        )
+        stdout = _json.dumps(payload)
 
-    orig = subprocess.run
-    subprocess.run = lambda *a, **k: _R()  # type: ignore[assignment]
-    try:
-        import shutil
-        _which = shutil.which
-        shutil.which = lambda name: "/usr/bin/omp"  # type: ignore[assignment]
-        try:
-            handles = _mod._omp_model_handles()
-        finally:
-            shutil.which = _which
-    finally:
-        subprocess.run = orig  # type: ignore[assignment]
-    assert handles == {"cc/claude-fable-5", "kimi/kimi-k2.7", "ascii/pipe-model"}
+    captured = {}
+    def _run(cmd, *a, **k):
+        captured["cmd"] = cmd
+        return _R()
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/omp")
+    monkeypatch.setattr(subprocess, "run", _run)
+    handles = _mod._omp_model_handles()
+    assert "--json" in captured["cmd"], "must call omp models ls --json"
+    assert "cc/claude-fable-5" in handles
+    assert "kimi/kimi-k2.7" in handles
+    assert "provider/model with space" in handles  # json path keeps spaces
+
+
+def test_installed_harnesses_uses_json(monkeypatch):
+    """_installed_harnesses parses `agentic-team discover --json`."""
+    import subprocess
+    import shutil
+    import json as _json
+    payload = {"omp": {"installed": True}, "codex": {"installed": False}}
+
+    class _R:
+        returncode = 0
+        stdout = _json.dumps(payload)
+
+    captured = {}
+    def _run(cmd, *a, **k):
+        captured["cmd"] = cmd
+        return _R()
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/agentic-team")
+    monkeypatch.setattr(subprocess, "run", _run)
+    installed = _mod._installed_harnesses()
+    assert "--json" in captured["cmd"]
+    assert installed == {"omp"}
+
+
+def test_fix_mode_exit_nonzero_on_cross_harness_fail(monkeypatch, tmp_path):
+    """--fix must still exit non-zero when a cross-harness FAIL is recorded."""
+    cfg = {"default_harness": "omp",
+           "roles": {"engineer": {"harness": "codex", "model": "x"}}}
+    _patch(monkeypatch, cfg, installed={"omp"}, handles=set())
+    doc = Doctor(repo_dir=Path("/tmp/r"), fix=True, json_mode=True)
+    check_cross_harness(doc)
+    # A missing harness is a FAIL; in fix mode that is unfixable-adjacent and
+    # must not report success.
+    assert doc.has_unresolved_findings()
