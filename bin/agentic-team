@@ -372,8 +372,13 @@ def _rotation_cursor_next(role: str, n: int, rotation_dir: Path = ROTATION_DIR) 
         rotation_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         return 0
-    cursor_file = rotation_dir / role
-    lock_file = rotation_dir / f"{role}.lock"
+    # Sanitize role before any filesystem path use. Same pattern as
+    # _make_run_id(): replace path metacharacters so a hostile role
+    # (e.g. "../../outside.txt" via CLI --role) cannot escape the
+    # rotation dir. Cli is not choices-restricted today.
+    safe_role = role.replace("/", "-").replace(os.sep, "-").replace(" ", "-")
+    cursor_file = rotation_dir / safe_role
+    lock_file = rotation_dir / f"{safe_role}.lock"
     try:
         import fcntl
         with open(lock_file, "w") as lf:
