@@ -13,6 +13,11 @@
 # Public API:
 #   bash .claude/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
 #                           [--identity=<handle>] [--no-identity] [--dry-run]
+#                           [--config-dir=<dir>]
+#   --config-dir=<dir> (or AGENTIC_CONFIG_DIR env): redirect the per-harness
+#     config dir (agents/commands/skills/settings/CLAUDE.md/agentic-engineering.json)
+#     to <dir> for per-profile installs. Shared state (~/.agentic, ~/.local/bin,
+#     ~/.claude.json) always stays in the real $HOME. Default: ~/.claude.
 #   --dry-run: print symlink actions and repo_dir write intent without executing
 #              them. Hook wiring, build, and permission phases still execute.
 #
@@ -84,34 +89,51 @@ for arg in "$@"; do
     --dry-run)
       AE_DRY_RUN=true
       ;;
+    --config-dir=*)
+      AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
   esac
 done
 
-AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
-mkdir -p "$HOME/.claude"
+# Harness config directory (redirectable for per-profile installs).
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.claude.
+# Only the per-harness config dir is redirected; shared user state
+# (~/.agentic, ~/.local/bin, ~/.claude.json) always stays in the real $HOME.
+AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.claude}}"
+
+AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
+# Symlink guard: refuse to traverse through a symlinked config dir. mkdir -p
+# would silently follow the symlink and any subsequent writes land outside
+# the intended per-profile tree (CWE-59 directory-level).
+if [[ -L "$AE_CONFIG_DIR" ]]; then
+  echo "  ! refusing to install through symlinked config dir: $AE_CONFIG_DIR" >&2
+  exit 1
+fi
+mkdir -p "$AE_CONFIG_DIR"
+
+# Safe JSON-key reader: path/key/default passed as argv (NOT interpolated into
+# the Python source), so a config dir containing quotes or other shell/Python
+# metacharacters can never break out of the string literal (CWE-94 fix).
+ae_read_json_key() {
+  python3 - "$1" "$2" "$3" <<'PYEOF' 2>/dev/null
+import json, sys
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as f:
+        print(json.load(f).get(key, default))
+except Exception:
+    print(default)
+PYEOF
+}
 
 AE_EXISTING_MODE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "")"
 fi
 
 AE_EXISTING_PROFILE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_PROFILE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('profile', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_PROFILE="$(ae_read_json_key "$AE_CONFIG_PATH" profile "")"
 fi
 
 ae_write_mode() {
@@ -131,7 +153,12 @@ else:
 # Update only the fields ae_write_mode controls
 config["mode"] = mode
 config["profile"] = config.get("profile", "default")
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+# Symlink guard: never write through a symlink (open("w") would follow it and
+# truncate the real target). If the config path is a symlink, refuse.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -156,7 +183,7 @@ else:
 # Always overwrite these keys
 config["mode"] = mode
 config["profile"] = profile
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
     try:
@@ -168,6 +195,11 @@ if "skill_auto_load" not in config:
     except OSError:
         config["skill_auto_load"] = False
 # Write back
+# Symlink guard: never write through a symlink (open("w") would follow it and
+# truncate the real target). If the config path is a symlink, refuse.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -203,27 +235,13 @@ fi
 echo ""
 echo "Risk profile..."
 if [[ -n "$AE_PROFILE_FLAG" ]]; then
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
   ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
   echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
   echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
 else
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
   ae_write_config "$AE_CURRENT_MODE" "default"
   echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
   echo "    Override with: bash .claude/install.sh --profile=relaxed|default|strict"
@@ -233,10 +251,10 @@ AGENTS_SRC="$REPO_DIR/.claude/agents"
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
 SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
 
-AGENTS_DST="$HOME/.claude/agents"
-COMMANDS_DST="$HOME/.claude/commands"
-SKILLS_DST="$HOME/.claude/skills/agentic-engineering"
-SETTINGS="$HOME/.claude/settings.json"
+AGENTS_DST="$AE_CONFIG_DIR/agents"
+COMMANDS_DST="$AE_CONFIG_DIR/commands"
+SKILLS_DST="$AE_CONFIG_DIR/skills/agentic-engineering"
+SETTINGS="$AE_CONFIG_DIR/settings.json"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -423,12 +441,12 @@ export AE_HOOKS_SNAPSHOT_DIR
 # Update settings.json
 # ---------------------------------------------------------------------------
 
-echo "Updating ~/.claude/settings.json..."
+echo "Updating $SETTINGS..."
 
-python3 - <<'PYEOF'
+AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF'
 import json, os, sys
 
-settings_path = os.path.expanduser("~/.claude/settings.json")
+settings_path = os.environ.get("AE_SETTINGS_PATH") or os.path.expanduser("~/.claude/settings.json")
 repo_dir = os.environ.get("REPO_DIR", "")
 # DS-54: hook commands read from the session-stable snapshot when one was
 # successfully synced; otherwise they fall back to the checkout path so
@@ -791,7 +809,12 @@ for file_matcher in ("Write", "Edit"):
         f"PreToolUse({file_matcher}) planning-artifact advisory hook",
     )
 
-# ---- Write back -------------------------------------------------------------
+# Symlink guard: never write through a symlink (open("w") follows it and truncates
+# the real target). PoC verified: symlinking settings.json to a victim file and
+# running installer overwrites the victim's content through the link.
+if os.path.islink(settings_path):
+    sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
+    sys.exit(1)
 with open(settings_path, "w") as f:
     json.dump(settings, f, indent=2)
     f.write("\n")
@@ -821,12 +844,12 @@ fi
 # Update ~/.claude/CLAUDE.md
 # ---------------------------------------------------------------------------
 
-echo "Updating ~/.claude/CLAUDE.md..."
+echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
-python3 - <<'PYEOF'
-import os, re
+AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
+import os, re, sys
 
-target = os.path.expanduser("~/.claude/CLAUDE.md")
+target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
@@ -852,6 +875,13 @@ if os.path.exists(target):
         existing = f.read()
 else:
     existing = ""
+
+# Symlink guard: never write through a symlink (open("w") follows it and truncates
+# the real target). PoC verified: symlinking CLAUDE.md to a victim file and running
+# installer overwrites the victim's content through the link.
+if os.path.islink(target):
+    sys.stderr.write(f"refusing to write through symlink: {target}\n")
+    sys.exit(1)
 
 if begin_marker in existing and end_marker in existing:
     pattern = re.compile(
@@ -1069,7 +1099,7 @@ sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
 else
   if ae_confirm "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "; then
     python3 - <<'PYEOF'
-import json, os
+import json, os, sys
 
 target = os.path.expanduser("~/.claude.json")
 if os.path.exists(target):
@@ -1084,8 +1114,12 @@ if "chrome-devtools" not in servers:
         "type": "stdio",
         "command": "npx",
         "args": ["chrome-devtools-mcp@latest"],
+
         "env": {}
     }
+    if os.path.islink(target):
+        sys.stderr.write(f"refusing to write through symlink: {target}\n")
+        sys.exit(1)
     with open(target, "w") as f:
         json.dump(data, f, indent=2)
     print("  + chrome-devtools MCP configured in ~/.claude.json")
@@ -1109,7 +1143,7 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
 else
   if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
     python3 - <<'PYEOF'
-import json, os
+import json, os, sys
 
 target = os.path.expanduser("~/.claude.json")
 if os.path.exists(target):
@@ -1126,6 +1160,9 @@ if "mcp-atlassian" not in servers:
         "args": ["mcp-atlassian"],
         "env": {}
     }
+    if os.path.islink(target):
+        sys.stderr.write(f"refusing to write through symlink: {target}\n")
+        sys.exit(1)
     with open(target, "w") as f:
         json.dump(data, f, indent=2)
     print("  + mcp-atlassian MCP configured in ~/.claude.json")
@@ -1148,8 +1185,15 @@ echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents us
 
 echo ""
 
-python3 - <<'PYEOF'
-import json, os
+AE_SETTINGS_PATH="$SETTINGS" AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
+import json, os, sys
+
+# Config-dir label for permission scopes: use ~ for the default home dir, else
+# the redirected profile dir verbatim, so a --config-dir install grants write
+# to its OWN profile tree, not the real ~/.claude.
+_cfg_dir = os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+_home = os.path.expanduser("~")
+_cfg_label = "~/.claude" if _cfg_dir == os.path.join(_home, ".claude") else _cfg_dir
 
 def tty_input(prompt: str) -> str:
     """Read a line from the controlling terminal.
@@ -1165,7 +1209,7 @@ def tty_input(prompt: str) -> str:
     except OSError:
         return ""
 
-settings_path = os.path.expanduser("~/.claude/settings.json")
+settings_path = os.environ.get("AE_SETTINGS_PATH") or os.path.expanduser("~/.claude/settings.json")
 
 if os.path.exists(settings_path):
     with open(settings_path, "r") as f:
@@ -1178,11 +1222,11 @@ perms = settings.get("permissions", {})
 recommended_allow = [
     "Bash(*)",
     "Write",
-    "Write(~/.claude/**)",
+    f"Write({_cfg_label}/**)",
     "Edit",
-    "Edit(~/.claude/**)",
-    "Write(~/.claude/projects/**)",
-    "Edit(~/.claude/projects/**)"
+    f"Edit({_cfg_label}/**)",
+    f"Write({_cfg_label}/projects/**)",
+    f"Edit({_cfg_label}/projects/**)"
 ]
 recommended_deny = [
     "Bash(git push --force*)",
@@ -1203,15 +1247,14 @@ if already_bypass:
     existing_deny = set(perms.get("deny", []))
     missing_allow = set(recommended_allow) - existing_allow
     missing_deny = set(recommended_deny) - existing_deny
-    missing_dir = "~/.claude/projects" not in perms.get("additionalDirectories", [])
+    missing_dir = f"{_cfg_label}/projects" not in perms.get("additionalDirectories", [])
 
     if missing_allow or missing_deny or missing_dir:
         perms["allow"] = list(existing_allow | set(recommended_allow))
         perms["deny"] = list(existing_deny | set(recommended_deny))
-        perms.setdefault("additionalDirectories", [])
-        if "~/.claude/projects" not in perms["additionalDirectories"]:
-            perms["additionalDirectories"].append("~/.claude/projects")
-        settings["permissions"] = perms
+        if os.path.islink(settings_path):
+            sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
+            sys.exit(1)
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
@@ -1236,15 +1279,19 @@ else:
         perms["deny"] = list(existing_deny | set(recommended_deny))
         perms["defaultMode"] = "bypassPermissions"
         perms.setdefault("additionalDirectories", [])
-        if "~/.claude/projects" not in perms["additionalDirectories"]:
-            perms["additionalDirectories"].append("~/.claude/projects")
+        if f"{_cfg_label}/projects" not in perms["additionalDirectories"]:
+            perms["additionalDirectories"].append(f"{_cfg_label}/projects")
 
         settings["permissions"] = perms
 
+        if os.path.islink(settings_path):
+            sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
+            sys.exit(1)
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
         print("  + Configured bypassPermissions mode with recommended allow/deny rules")
+
     else:
         print("  - skipped permissions configuration")
 PYEOF
