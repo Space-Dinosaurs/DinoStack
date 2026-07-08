@@ -42,4 +42,7 @@ first LRN is `LRN-20260613-001` and the first KNW is `KNW-20260613-001`.
 ## Entries
 
 <!-- Append new entries at the bottom. Target: under 50 entries total.
-     Prune entries whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->
+     Pruning is DEFERRED until learnings-retrieval is wired into the reading agents
+     and demonstrated - until then keep entries even past the target so retrieval has
+     a corpus to match against. Once retrieval is demonstrated, resume pruning entries
+     whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->

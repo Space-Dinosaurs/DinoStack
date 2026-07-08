@@ -51,6 +51,7 @@ _loader.exec_module(_mod)
 _load_team_config = _mod._load_team_config
 _validate_config = _mod._validate_config
 _role_entry = _mod._role_entry
+_resolve_role_model = _mod._resolve_role_model
 _parse_team_yml = _mod._parse_team_yml
 main = _mod.main
 
@@ -646,6 +647,26 @@ _run_status = _mod._run_status
 _make_run_id = _mod._make_run_id
 _LEAF_WORKER_CLAUSE = _mod._LEAF_WORKER_CLAUSE
 HARNESS_BINARY = _mod.HARNESS_BINARY
+
+
+def _make_argv_recording_exec(tmp_path: Path, binary_name: str, argv_out: Path) -> Path:
+    """Fake binary that appends its full argv (one arg per line) to *argv_out*.
+
+    Lets an end-to-end dispatch assert exactly which flags the worker binary
+    was invoked with (e.g. that --model <team.yml value> was forwarded).
+    """
+    bin_dir = tmp_path / f"rec_bin_{binary_name}"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / binary_name
+    out = _subprocess_mod.list2cmdline([str(argv_out)])
+    lines = [
+        "#!/bin/sh",
+        f'for a in "$@"; do printf \'%s\\n\' "$a" >> ' + out + ";done",
+        "exit 0",
+    ]
+    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    script.chmod(script.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+    return bin_dir
 
 
 def _make_fake_exec(tmp_path: Path, binary_name: str, stdout_payload: str) -> Path:
@@ -1627,3 +1648,109 @@ def test_configure_interactive_claude_only_exits_cleanly(tmp_path, monkeypatch, 
     assert target.is_file()
     out = capsys.readouterr().out
     assert "nothing to cross-dispatch to" in out
+
+
+# ---------------------------------------------------------------------------
+# D-1: dispatch resolves per-role model from team.yml when --model is absent.
+# ---------------------------------------------------------------------------
+
+def _patch_team_config(monkeypatch, config: dict):
+    monkeypatch.setattr(_mod, "_load_team_config", lambda *a, **k: config)
+
+
+def test_resolve_role_model_from_team_yml(monkeypatch):
+    """roles[role].model is returned when its harness matches the dispatch."""
+    _patch_team_config(monkeypatch, {
+        "default_harness": "omp",
+        "roles": {"engineer": {"harness": "omp", "model": "kimi/kimi-k2.7"}},
+    })
+    assert _resolve_role_model("engineer", "omp") == "kimi/kimi-k2.7"
+
+
+def test_resolve_role_model_harness_mismatch_returns_none(monkeypatch):
+    """A team.yml row for a different harness must not leak its model."""
+    _patch_team_config(monkeypatch, {
+        "roles": {"engineer": {"harness": "codex", "model": "gpt-5.5"}},
+    })
+    assert _resolve_role_model("engineer", "omp") is None
+
+
+def test_resolve_role_model_uses_default_harness(monkeypatch):
+    """A scalar/harness-less role row is matched against default_harness."""
+    _patch_team_config(monkeypatch, {
+        "default_harness": "omp",
+        "roles": {"skeptic": {"model": "cx/gpt-5.5"}},
+    })
+    assert _resolve_role_model("skeptic", "omp") == "cx/gpt-5.5"
+
+
+def test_resolve_role_model_absent_returns_none(monkeypatch):
+    """No team.yml row / no model -> None (worker uses its session default)."""
+    _patch_team_config(monkeypatch, {"roles": {}})
+    assert _resolve_role_model("engineer", "omp") is None
+    _patch_team_config(monkeypatch, {"roles": {"engineer": {"harness": "omp"}}})
+    assert _resolve_role_model("engineer", "omp") is None
+
+
+def test_dispatch_forwards_team_yml_model_end_to_end(tmp_path):
+    """Real e2e: agentic-team dispatch (no --model) forwards the team.yml model.
+
+    Drives the actual `dispatch` subcommand as a subprocess with a project
+    team.yml and an argv-recording fake `omp`, then asserts the worker was
+    invoked with `--model kimi/kimi-k2.7` -- covering _cmd_dispatch ->
+    _resolve_role_model -> _build_worker_argv end to end (not re-derived).
+    """
+    proj = tmp_path / "proj"; proj.mkdir()
+    (proj / ".agentic").mkdir()
+    (proj / ".agentic" / "team.yml").write_text(
+        "enabled: true\n"
+        "default_harness: omp\n"
+        "roles:\n"
+        "  engineer:\n"
+        "    harness: omp\n"
+        "    model: kimi/kimi-k2.7\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "wd"; workdir.mkdir()
+    argv_out = tmp_path / "omp_argv.txt"
+    fake_bin_dir = _make_argv_recording_exec(tmp_path, "omp", argv_out)
+    brief_file = _make_brief_file(tmp_path)
+
+    import sys as _sys
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    result = _subprocess_mod.run(
+        [_sys.executable, str(_BIN / "agentic-team"),
+         "--project-config", str(proj / ".agentic" / "team.yml"),
+         "dispatch", "--harness", "omp", "--role", "engineer",
+         "--brief", str(brief_file), "--workdir", str(workdir)],
+        capture_output=True, text=True, cwd=str(proj), env=env_patch,
+    )
+    assert result.returncode == 0, result.stderr
+    _wait_for_exit_file(workdir / ".agentic" / "teamrun"
+                        / result.stdout.strip(), timeout=10.0)
+    recorded = argv_out.read_text(encoding="utf-8") if argv_out.exists() else ""
+    assert "--model" in recorded and "kimi/kimi-k2.7" in recorded, (
+        f"worker argv did not carry the team.yml model:\n{recorded}"
+    )
+
+
+def test_resolve_role_model_no_harness_no_default_returns_none(monkeypatch):
+    """A role with no harness AND no default_harness must NOT leak its model."""
+    _patch_team_config(monkeypatch, {
+        "roles": {"engineer": {"model": "kimi/kimi-k2.7"}},  # no harness, no default
+    })
+    assert _resolve_role_model("engineer", "omp") is None
+    assert _resolve_role_model("engineer", "codex") is None
+
+
+def test_explicit_model_overrides_team_yml(monkeypatch):
+    """An explicit --model wins over the team.yml model (precedence)."""
+    _patch_team_config(monkeypatch, {
+        "default_harness": "omp",
+        "roles": {"engineer": {"harness": "omp", "model": "kimi/kimi-k2.7"}},
+    })
+    # Simulate the precedence expression used in _cmd_dispatch.
+    explicit = "glm/glm-5.2"
+    resolved = explicit or _resolve_role_model("engineer", "omp")
+    assert resolved == "glm/glm-5.2"

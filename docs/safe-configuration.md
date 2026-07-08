@@ -72,8 +72,9 @@ hook installed separately:
 - [`enforce-askuserquestion-default.py`](../hooks/enforce-askuserquestion-default.py)
   - PreToolUse; denies a co-equal multiple-choice prompt with no recommended default.
 - [`enforce-background-spawn.py`](../hooks/enforce-background-spawn.py)
-  - PreToolUse (Task/Agent); (a) denies `Task` spawns missing `run_in_background: true`
-  (legacy Task tool - harness strips this field from Agent payloads before the hook fires);
+  - PreToolUse (Task/Agent); (a) enforces background-by-default on both `Task` and `Agent`
+  with an asymmetric rule - `Task` denies unless `run_in_background: true`; `Agent` denies only
+  an explicit `run_in_background: false` (absent allows, since Agent backgrounds by default);
   (b) sentinel suppression: denies Task/Agent spawns and `oh-my-claudecode:*` Skill calls
   when `.agentic/teamrun/.active` is live. Foreground-exempt agents (wrap-ticket) bypass both.
 - [`enforce-orchestrator-singularity.py`](../hooks/enforce-orchestrator-singularity.py)
@@ -81,8 +82,8 @@ hook installed separately:
   `AE_SINGULARITY_GUARD_DISABLE=1`.
 - [`enforce-no-abdication.py`](../hooks/enforce-no-abdication.py) - Stop hook;
   detects a permission-seeking interrogative in the final assistant message and blocks
-  the stop, injecting a "proceed" directive; opt in per-project via
-  `abdication_guard_enabled: true` in `.agentic/config.json`; disable via
+  the stop, injecting a "proceed" directive; on by default; set
+  `abdication_guard_enabled: false` in `.agentic/config.json` to opt out; disable via
   `AE_ABDICATION_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.

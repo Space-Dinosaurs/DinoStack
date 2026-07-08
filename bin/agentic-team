@@ -18,7 +18,12 @@ Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
                          spawn a worker (background); prints run-id to stdout.
                          --model forwarded to every harness using its own flag
                          spelling (_MODEL_FLAG_BY_HARNESS: codex/gemini -> -m,
-                         all others -> --model).
+                         all others -> --model). When --model is omitted,
+                         the model is resolved from team.yml
+                         roles[<role>].model (honoring --global-config /
+                         --project-config) IFF the role's harness (or
+                         default_harness) matches the dispatch harness;
+                         otherwise the worker uses its own session default.
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
             configure  [--non-interactive] [--assign role=harness:model ...]
@@ -43,7 +48,7 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                  confirmed); any probe exception -> [], exit 0 unaffected.
                dispatch: unknown harness -> non-zero exit immediately.
                dispatch: workdir not writable -> non-zero exit.
-               dispatch: --model is forwarded for all 7 KNOWN_HARNESSES using
+               dispatch: --model is forwarded for all KNOWN_HARNESSES using
                  each harness's own flag spelling (_MODEL_FLAG_BY_HARNESS).
                status/collect: unknown run-id -> non-zero exit.
                collect: on terminal status, unlinks the shared .active
@@ -111,6 +116,8 @@ HARNESS_BINARY: dict[str, str] = {
     "pi":           "pi",
     "omp":          "omp",
     "claude":       "claude",
+    "opencode":     "opencode",
+    "copilot":      "copilot",
 }
 
 # ---------------------------------------------------------------------------
@@ -125,6 +132,8 @@ HARNESS_INVOCATION_FAMILY: dict[str, str] = {
     "pi":           "pi-prompt",
     "omp":          "omp-prompt",
     "claude":       "claude-p",
+    "opencode":     "opencode-run",
+    "copilot":      "copilot-p",
 }
 
 # ---------------------------------------------------------------------------
@@ -139,6 +148,8 @@ HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG: dict[str, str | None] = {
     "pi":           None,
     "omp":          None,
     "claude":       None,
+    "opencode":     None,
+    "copilot":      None,
 }
 
 GLOBAL_TEAM_YML = Path(os.path.expanduser("~/.agentic/team.yml"))
@@ -303,6 +314,46 @@ def _role_entry(spec: object) -> dict:
         entry.update(norm)
         return entry
     return {}
+
+
+def _resolve_role_model(
+    role: str,
+    harness: str,
+    global_path: Path = GLOBAL_TEAM_YML,
+    project_path: Path = PROJECT_TEAM_YML,
+) -> str | None:
+    """Resolve the model for *role* from team.yml when no explicit --model.
+
+    Reads the merged global+project team.yml (honoring any --global-config /
+    --project-config overrides threaded from main), looks up roles[<role>], and
+    returns its model handle ONLY when the role's resolved harness matches the
+    harness actually being dispatched to. The role's harness is its own entry
+    harness, else default_harness; if NEITHER is set the config is ambiguous
+    and we return None rather than forwarding the model to an arbitrary
+    harness (a team.yml row with no harness and no default_harness must not
+    leak its model). Returns None when there is no team.yml, no entry, no
+    model, or a harness mismatch/ambiguity -- the worker then uses its own
+    session default, exactly as before.
+    """
+    try:
+        config = _load_team_config(global_path=global_path, project_path=project_path)
+    except (OSError, ValueError, ImportError) as exc:  # narrow: I/O + parse
+        print(
+            f"agentic-team: could not load team.yml for model resolution: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    spec = config.get("roles", {}).get(role)
+    if not spec:
+        return None
+    entry = _role_entry(spec)
+    entry_harness = entry.get("harness") or config.get("default_harness")
+    # Require a POSITIVE harness match. If the role has no harness and there is
+    # no default_harness, entry_harness is None (ambiguous) -> do not forward.
+    if entry_harness != harness:
+        return None
+    model = entry.get("model")
+    return model if model else None
 
 
 # ---------------------------------------------------------------------------
@@ -763,12 +814,12 @@ _LEAF_WORKER_CLAUSE = (
 # this is a guardrail, NOT a security sandbox).
 _SHIM_TARGETS: tuple[str, ...] = (
     "git", "omc", "codex", "gemini", "cursor-agent", "kimi", "kimi-cli",
-    "pi", "omp", "claude",
+    "pi", "omp", "claude", "opencode", "copilot",
 )
 
-# Per-harness --model flag spelling. All 7 KNOWN_HARNESSES have a CONFIRMED
-# non-interactive model-selection flag (verified CLI facts); dispatch forwards
-# --model to every harness using its own flag spelling.
+# Per-harness --model flag spelling. Every KNOWN_HARNESSES entry has a
+# CONFIRMED non-interactive model-selection flag (verified CLI facts);
+# dispatch forwards --model to every harness using its own flag spelling.
 _MODEL_FLAG_BY_HARNESS: dict[str, str] = {
     "codex": "-m",
     "gemini": "-m",
@@ -777,10 +828,12 @@ _MODEL_FLAG_BY_HARNESS: dict[str, str] = {
     "kimi": "--model",
     "pi": "--model",
     "omp": "--model",
+    "opencode": "--model",
+    "copilot": "--model",
 }
 
 # Back-compat name: existing callers/tests reference "confirmed model-flag
-# harnesses" as a frozenset; now equals KNOWN_HARNESSES since all 7 confirmed.
+# harnesses" as a frozenset; now equals KNOWN_HARNESSES since all confirmed.
 _MODEL_FLAG_HARNESSES: frozenset[str] = frozenset(_MODEL_FLAG_BY_HARNESS)
 
 # Harnesses that need stdin from /dev/null to avoid hangs (AC8 / plan table).
@@ -873,6 +926,28 @@ def _build_worker_argv(
             argv += [model_flag, model]
         return argv
 
+    if harness == "opencode":
+        # opencode run "<brief>" --dangerously-skip-permissions --model <m>
+        # --dangerously-skip-permissions is required for non-interactive
+        # dispatch (per `opencode run --help`): workers run detached with no
+        # terminal to answer a tool-use permission prompt, so without it the
+        # worker hangs until the watchdog timeout. Analog of copilot's
+        # --allow-all-tools (see RISK-ACCEPTED note in cross-harness-teams.md).
+        argv = [binary, "run", brief_text, "--dangerously-skip-permissions"]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    if harness == "copilot":
+        # copilot -p "<brief>" --allow-all-tools --allow-all-paths --model <m>
+        # --allow-all-tools is required for non-interactive mode (per --help).
+        argv = [binary, "-p", brief_text, "--allow-all-tools", "--allow-all-paths"]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    # kimi / pi / omp: invocation family from discovery; flags are best-effort.
+    # We do NOT hardcode model IDs per plan principle 1 / AC2.
     if harness == "kimi":
         # kimi-cli --print --yolo --final-message-only -p "<brief>"
         # --print is mandatory (non-interactive, auto-dismisses
@@ -998,6 +1073,10 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     PATH guardrail shims, then spawns the process detached in the background.
     Prints the run-id to stdout and returns 0.
 
+    Model selection: an explicit --model wins; otherwise the role's model from
+    team.yml is used when its harness matches the dispatch harness (D-1). With
+    neither, the worker uses its own session default.
+
     AC3 (dispatch contract) + AC5 worker-side fences + AC8 all-harness coverage.
     """
     harness = args.harness
@@ -1009,6 +1088,26 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         print(
             f"agentic-team dispatch: unknown harness {harness!r} "
             f"(known: {', '.join(sorted(KNOWN_HARNESSES))})",
+            file=sys.stderr,
+        )
+        return 2
+
+    # copilot is the only harness that requires --allow-all-tools
+    # --allow-all-paths for non-interactive dispatch (see _build_worker_argv
+    # and the RISK-ACCEPTED note in cross-harness-teams.md). --allow-all-paths
+    # grants unrestricted filesystem access and the worker inherits the full
+    # parent environment, so a copilot worker driven by untrusted brief text
+    # can read absolute paths (~/.ssh, ~/.aws/credentials) outside its
+    # workdir, defeating the worktree-isolation guarantee every other harness
+    # provides. Require explicit operator opt-in so this tradeoff is a
+    # deliberate consent, not an implicit side effect of team.yml presence.
+    if harness == "copilot" and os.environ.get("AGENTIC_TEAM_ALLOW_COPILOT") != "1":
+        print(
+            "agentic-team dispatch: copilot requires explicit operator opt-in. "
+            "It runs with --allow-all-tools --allow-all-paths (unrestricted "
+            "filesystem access) and inherits the full parent environment, which "
+            "defeats the worktree isolation other harnesses rely on. Set "
+            "AGENTIC_TEAM_ALLOW_COPILOT=1 to acknowledge and enable it.",
             file=sys.stderr,
         )
         return 2
@@ -1063,7 +1162,17 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     if disable_flag:
         worker_env[disable_flag] = "1"
 
-    argv = _build_worker_argv(harness, augmented_brief, model=getattr(args, "model", None))
+    # Model resolution: an explicit --model always wins; otherwise fall back
+    # to the role's model in team.yml (D-1). Without this, a role-only dispatch
+    # silently ran on the harness session default (e.g. omp -> claude-opus-4-8),
+    # which is why cross-harness dispatch "only used Claude models".
+    resolved_model = getattr(args, "model", None) or _resolve_role_model(
+        role,
+        harness,
+        global_path=Path(getattr(args, "global_config", None) or GLOBAL_TEAM_YML),
+        project_path=Path(getattr(args, "project_config", None) or PROJECT_TEAM_YML),
+    )
+    argv = _build_worker_argv(harness, augmented_brief, model=resolved_model)
 
     stdout_file = run_dir / "stdout"
     stderr_file = run_dir / "stderr"
@@ -1214,7 +1323,7 @@ def _collect_output(run_dir: Path, harness: str) -> str:
     - codex   --json             : last JSONL event's message field
     - cursor-agent --output-format json: parse .response or .message
     - claude  --output-format json: parse .result or .message
-    - kimi/pi/omp: raw stdout
+    - kimi/pi/omp/opencode/copilot: raw stdout
     """
     stdout_file = run_dir / "stdout"
     try:
@@ -1262,7 +1371,7 @@ def _collect_output(run_dir: Path, harness: str) -> str:
         except (json.JSONDecodeError, AttributeError):
             return raw
 
-    # kimi / pi / omp: raw stdout
+    # kimi / pi / omp / opencode / copilot: raw stdout
     return raw
 
 
@@ -1383,7 +1492,8 @@ def main(argv: list[str]) -> int:
     p_dispatch.add_argument("--workdir", required=True)
     p_dispatch.add_argument(
         "--model", default=None,
-        help="model id; forwarded to codex/gemini (-m) or claude (--model). "
+        help="model id; forwarded to codex/gemini (-m) or "
+             "claude/opencode/copilot (--model). "
              "Rejected for harnesses without a confirmed --model flag.",
     )
 

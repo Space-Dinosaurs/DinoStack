@@ -1,0 +1,508 @@
+## Activation preflight
+
+Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to three file reads with no subagent spawn and no LLM reasoning. **Exception:** Step 6 (Scaffolding-sync check) is the single authorized side-effecting exception to this invariant. It calls `bin/agentic-migrate` as a bounded shell-out; the binary is methodology-owned, failure is swallowed, and it never blocks activation.
+
+1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset summary below - full table `content/references/activation-detail.md` §Deprecated Legacy Preset - for the fallback path when `profile` is genuinely absent, not merely invalid).
+
+   Also read the **effective identity** for this session. Check `<cwd>/.agentic/identity.yml` first, then fall back to `~/.agentic/identity.yml`. Use the first file that exists, resolving by the 4-tier confirmation ordering: project-confirmed > global-confirmed > project-provisional > global-provisional > none. In practice this is a two-file read: if the project file exists and is confirmed (no `provisional: true`), use it. If the project file is provisional, also read the global file; if the global is confirmed, prefer the global. Otherwise use the project file. Record `developer_id` and `provisional` from whichever file wins. Absent file or absent `provisional` field = confirmed identity (Python `.get('provisional', False)`; JS `provisional === true`). **This is a read-only field parse - no prompt, no shell-out, no LLM reasoning. The "fast, silent" preflight invariant is preserved.** When `provisional: true` is recorded on the effective identity, the conductor surfaces a non-blocking confirmation notice at its first user-facing turn (see §Session Context and Memory in `content/rules/conventions.md`).
+
+   **Deprecated legacy preset (read-only compat).** Older configs may carry a session-wide `preset` (lean/standard/strict). It is a fallback used ONLY when `profile` is absent at that scope (lean->relaxed, standard->default, strict->strict); precedence: project profile > project preset > global profile > global preset > default. Presence of a preset key fires a deprecation notice. Full table, edge rules, and notice templates: `references/activation-detail.md` §Deprecated Legacy Preset.
+2. **Read the project marker.** Look for a root `AGENTS.md` in the current working directory. If the project uses the Claude Code `@AGENTS.md` import pattern, `CLAUDE.md` will point at it - resolve through to the actual `AGENTS.md`. If neither file exists, treat marker as `none`.
+3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
+   - `agentic-engineering: opt-in`
+   - `agentic-engineering: opt-out`
+   If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
+   Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the precedence chain summarized above (project preset, then global profile, then global preset, then default) - full table `content/references/activation-detail.md` §Deprecated Legacy Preset.
+   Also scan for `agentic-engineering-preset: <value>` (deprecated legacy alias). If present, it resolves through the legacy preset precedence summarized above (full table `content/references/activation-detail.md` §Deprecated Legacy Preset) ONLY when no valid `agentic-engineering-profile:` line is present in the same file - it is a fallback below the project profile, not an override that wins on collision. Any other value falls back to the next step in the precedence chain (global profile, then global preset, then default). Presence of this marker fires a deprecation notice regardless of whether it wins.
+4. **Activation decision.**
+   - `mode=opt-out` AND `marker=opt-out` - skill no-ops silently; fall back to default Claude Code behavior for this session.
+   - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
+   - Any other combination (including `marker=none` with `mode=opt-out`, or `marker=opt-in` with `mode=opt-in`) - proceed with the methodology.
+
+   On any proceed branch: immediately run Step 5 (first-activation notice) and Step 6 (scaffolding-sync); read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the full implementation.
+
+   *(Steps 5-6 are deferred to `content/references/activation-detail.md` as a deliberate forcing-read exception - the breadcrumb above ensures every active session reads them.)*
+
+7. **When no-opping, print one line and stop:** *(Steps 5-6 deferred above)*
+
+**Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
+
+## Delegation
+
+**The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
+
+**All delegated tasks run in the background by default.** Full detail: `references/delegation-detail.md` §Background-Spawn Enforcement Detail.
+
+**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** see `04-risk-classification.md` §Risk Classification - the canonical statement lives there.
+
+**No re-deliberation on spawn decisions.** Once a task meets an Elevated signal, the conductor classifies it and spawns immediately - it does not re-evaluate because an edit "feels straightforward" or "looks simple." Classify once, act once. Full detail: `references/delegation-detail.md` §Common Rationalizations to Reject.
+
+**Pre-spawn checklist - ticket-offer gate:** Before spawning the FIRST implementer on net-new work: if a tracker is connected, `ticket_driven` is active, and the work is not an existing ticket, run the Tracker Create Helper first. **`ticket_driven` resolution (CRITICAL):** an explicit config value always wins; absent key: `TRACKER != none` -> `offer`, else `off`. Full mechanics: `references/delegation-detail.md` §Ticket-Offer Gate Mechanics.
+
+**Proactive autonomy.** The conductor's default is to act, not to ask. If the next step is non-destructive and within the conductor's authority (or delegable), do it - do not stop to ask "want me to draft X next?". See "Stop and ask the user ONLY when" below for the exhaustive exception set. Full detail: `references/delegation-detail.md` §Proactive Autonomy Enforcement.
+
+**Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** On exploratory framing (e.g. "I want to build..."), it announces the `/brief` session and proceeds unless STOP arrives next turn - a notification, not a permission request. Trigger signals and suppression list: `content/commands/brief.md` Section 1.
+
+Stop and ask the user ONLY when:
+1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
+2. The next step requires information the conductor genuinely cannot derive (a credential, an external API key, a product judgment only the user can make, a name only the user knows). "Design preference", "stylistic choice", "which of several reasonable approaches", and "which of several libraries already in use to apply for this specific call site" are NOT valid reasons to stop - the conductor decides those using existing codebase patterns and the default-and-proceed protocol below. Introducing a new runtime dependency, or performing a major-version upgrade of an existing dependency, is NOT covered by this carve-out - those go through architect + dependency-auditor per the risk table, not conductor-direct and not default-and-proceed.
+3. Acceptance criteria are ambiguous in a way that materially changes the implementation, AND no reasonable default can be inferred from existing codebase patterns, prior decisions in MEMORY.md, or the architect's plan. If any default CAN be inferred, the conductor picks it and proceeds.
+4. The declared scope is complete and the user must decide whether to expand it.
+
+Anything else - "should I create the missing endpoint that #271 depends on?", "want me to add the test?", "shall I fix the broken import?" - is the conductor abdicating. If the work is in scope and within reason, do it and report what was done.
+
+**Anti-patterns:** stopping mid-plan to ask, permission-seeking for in-scope fixes, option ballots when a best option is derivable. Worked examples: `references/delegation-detail.md` §Anti-Patterns (worked examples).
+
+**When uncertain whether to ask:** prefer acting. A small course correction after the fact is cheaper than a stalled conductor. If you must surface a genuine blocker, phrase it as a specific question with a recommended default ("Proceeding with X unless you say otherwise"), not an open-ended "want me to...".
+
+**Default-and-proceed protocol.** Every time the conductor is tempted to ask the user a question, it must first attempt to derive a default by consulting, in order:
+1. Existing codebase patterns in files adjacent to the change
+2. Prior decisions in MEMORY.md and the project's decision log
+3. The architect's plan and any orchestration-planner output
+4. Established conventions in AGENTS.md and any track-level AGENTS.md
+5. The most conservative interpretation of the ticket text (choose the option that minimizes blast radius and commits to the fewest future decisions)
+
+Consult the sources in order. Stop at the first source that yields a default. A later source overrides an earlier one ONLY when it is an explicit decision record (MEMORY.md entry, AGENTS.md convention, prior ADR) that supersedes the pattern. Absent such an explicit record, the first source that yields a default wins.
+
+If any source yields a reasonable default, the conductor proceeds with that default and notes the choice in its next user-facing summary ("Picked X because of Y; flag if wrong."). It does NOT pause.
+
+The conductor surfaces a question to the user under one of two branches:
+
+**Hard-stop branch (MUST stop and wait for the user).** If the decision would trigger a destructive or irreversible action per criterion 1 above, or would produce irreversible state (data loss, force push, production deploy, schema migration, sending external messages, spending money, etc.), the conductor MUST stop and wait for an explicit user response. This branch is NEVER overridden by the default-and-proceed protocol. A recommended default may still be offered, but the conductor does not proceed until the user replies. Full detail on the executing-vs-choosing distinction: `references/delegation-detail.md` §Hard-Stop Branch - Executing vs Choosing.
+
+**Surface-and-proceed branch (non-irreversible).** When ALL of the following hold AND the hard-stop branch does not apply:
+- No default can be derived from the five sources above
+- Guessing wrong would waste more than 30 minutes of work
+- The question is specific and bounded (one decision, not open-ended "what do you want")
+
+the conductor surfaces the question with a recommended default and proceeds with that default in the same turn. Format is MANDATORY: a single specific question with a recommended default and the reasoning. Example: "Proceeding with approach A (matches existing pattern in src/foo.ts) unless you say otherwise." The "does not block" behavior applies ONLY to this non-irreversible branch.
+
+**AskUserQuestion precondition (no multiple-choice ballots).** The conductor MUST first run the five-source default derivation above; a ballot of 2+ co-equal options is **DISALLOWED** when a best option exists. The recommended option's `label` MUST end "(Recommended)" - enforced on Claude Code by `hooks/enforce-askuserquestion-default.py`. Full mechanism: `references/delegation-detail.md` §AskUserQuestion Precondition Detail.
+
+**Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
+
+**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s BASE_BRANCH stop-and-ask when neither `develop` nor `development` exists.
+
+**Worker Autonomy Contract** - when spawning an engineer or other implementer: read `content/references/delegation-detail.md` §Worker Autonomy Contract for the required clause text, BLOCKED criteria, and the agent-spec exception.
+
+**Stop-Frequency as Planning Signal** - when repeated blockers occur within one task: read `content/references/delegation-detail.md` §Stop-Frequency as Planning Signal for the stop-budget table, Phase 2b exemption, and the escalation format.
+
+**Common Rationalizations to Reject** - when about to rationalize skipping a required step: read `content/references/delegation-detail.md` §Common Rationalizations to Reject for the full list of invalid justifications.
+
+**Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
+
+| Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
+|---|---|---|
+| Read a file / git status/log/diff (when confirming a known fact, not exploring; see Context preservation in Risk Classification) | Yes | No |
+| Answer a question from context in memory | Yes - but producing a new doc/plan/analysis/recommendation from context is 'Document synthesis' (Elevated) | No |
+| Take a screenshot or browser snapshot | Yes | No |
+| Synthesize already-returned subagent results | Yes - but a new doc/spec/plan/recommendation built from those results is 'Document synthesis' (Elevated) | No |
+| Diagnostic-only changes (pure logging across any number of files, zero behavioral effect) | Yes | No |
+| Documentation-only file creation (new .md or .txt that is a pure list, glossary, or running note - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/DinoStack/; overrides "New file creation" below for this case only) | Yes | No |
+| Targeted wording fix to already-reviewed content (phrasing adjustment only, substance Skeptic-approved in the current or a recent session; does not apply to new decisions, new recommendations, new content not previously reviewed, or protocol/infrastructure files; overrides the single-file edit and new file Elevated signals for this case only) | Yes | No |
+| UI-only copy changes (rewording display strings, labels, tooltips, or placeholder text with no logic, structural, or behavioral effect; does not apply to error messages that drive control flow, strings matched by tests, or protocol/infrastructure files; overrides "Any code edit with behavioral effect" for this case only) | Yes | No |
+| File renaming (rename/move files with no content changes to any file - neither the renamed file nor any other file; does not apply to protocol/infrastructure files; does not apply if any other files reference the renamed path - those reference updates are content changes making the operation Elevated; does not apply if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the rename changes behavior without changing file contents; overrides "New file creation", "Multi-file change", and "Bash with side effects" signals for this case only) | Yes | No |
+| Bounded 2-3 file behavioral-edit change (relaxed profile only; see `content/sections/04-risk-classification.md` §Risk profiles for the full definition: exactly 2-3 files, each file beyond the first colocated-test-connected or import/call-connected to a touched diff, connectivity fails closed to Elevated when unverifiable, <=30 changed lines total, no exported API/types/shared utilities/tokens/config/env/CI, no cross-component data flow, not protocol/infra, per-file one-line revert, no security/auth/PII surface, and zero other Elevated signals present) | Yes (relaxed only) | No |
+| Trivial risk (see Risk Classification) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
+| Any code edit with behavioral effect (write/modify/delete, excluding diagnostic-only logging) | No | **Yes** |
+| Security / auth / crypto / payments / secrets | No | **Yes** |
+| Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
+| Architecture decision constraining future choices | No | **Yes** |
+| Modifies protocol or infrastructure files | No | **Yes** |
+| Production or shared state | No | **Yes** |
+| Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override above - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
+| New file creation (any file) (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated regardless of profile) | No | **Yes** |
+| Touches external APIs or services | No | **Yes** |
+| Unfamiliar codebase area | No | **Yes** |
+| Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
+| User signals high stakes | No | **Yes** |
+| Changes to shared utilities (single-file but high blast radius) | No | **Yes** |
+| Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
+| Document synthesis / architecture / planning | No | **Yes** |
+| Research that produces an artifact (doc, plan, recommendation) | No | **Yes** |
+| Configuration changes | No | **Yes** |
+| Anything where a mistake costs time or data | No | **Yes** |
+
+**Graph-derived escalation.** When a fresh `GRAPH_REPORT.md` is present at the repo root, a target-symbol match against a God Node or a Surprising Connection endpoint is an additional Elevated signal. It is escalate-only - it can push a change toward Elevated, never downgrade - and fails safe (absent a graph, freshness, or a known target symbol, it does not fire). The conductor keeps the graph fresh via autonomous `graphify update .` of an existing graph (it never auto-builds from scratch). Full mechanism: see `content/sections/04-risk-classification.md` §Graph-derived risk signal.
+
+**Permission-blocked fallback (non-methodology files only).** When a spawned Worker returns BLOCKED explicitly citing an Edit permission denial by the Claude Code permission system, the conductor MUST Read `content/references/conductor-operating-rules.md` §Permission-blocked fallback before applying any edit directly. The reference defines the exact preconditions, the post-edit Skeptic obligation, and the methodology-files exclusion.
+
+**Editing methodology files under `~/DinoStack/`.** Before editing any file under `content/**`, `.codex/skill/**`, build scripts, or hooks, the conductor MUST Read `content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `/update-agentic-engineering` instead of direct Edit/Write.
+
+**Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
+
+**Investigator external-data claims require evidence.** Live external-call findings are not self-verifying - verify raw output before acting on any claim gating scope. Full rule: `references/delegation-detail.md` §Evidence Verification.
+
+**Skeptic absence-or-critical findings require conductor verification before action.** Absence/non-completion/reversion claims are not self-verifying - spot-check against live PR state before acting. Full rule: `references/delegation-detail.md` §Evidence Verification.
+
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` before spawning workers on a multi-unit plan - the conductor does not self-assess task structure. Skip only when (a) a preceding agent already returned one atomic unit, or (b) the unit is simple/targeted (`04-risk-classification.md` §Simple/targeted unit (mechanical metric)) with neither Unfamiliar-codebase-area nor Architecture-decision-constraining-future-choices present. Table: `content/references/agent-team.md`; fallback `general-purpose`. Low-risk shell/git runs conductor-direct. No subagent spawns subagents - main agent is sole orchestrator. Hook/env-var/fan-out detail: `references/delegation-detail.md` §Orchestration Enforcement Hooks and Fan-out Detail.
+**wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
+
+**Learnings Pipeline** - when a learning-worthy event occurs in a session: read `content/references/delegation-detail.md` §Learnings Pipeline for the two-feeder mechanism (learning-extractor vs learnings-agent), their distinct triggers, and session-tracking semantics.
+
+**Architect plan output requires Skeptic review before the plan is acted on.** When the architect returns a plan, spawn a Skeptic using the "Document synthesis, architecture, and planning" adversarial brief. Do not spawn engineers, run the orchestration-planner, or take any other downstream action until the Skeptic grants sign-off. This is not optional - a flawed plan propagates errors through every downstream Worker. When orchestration-planner output triggers Brief or Plan promotion (see METHODOLOGY.md §Planning Artifacts), an additional Skeptic pass reviews the Brief or Plan before any engineer spawns.
+
+**Open Questions are a hard gate.** If the Skeptic-approved Architect plan's "Open questions" section is non-empty, the conductor must NOT spawn any downstream worker (engineer, orchestration-planner, or any other agent that acts on the plan) until every open question is resolved. Resolution paths: (a) ask the human directly, (b) spawn an Investigator for questions that can be answered by reading the codebase, or (c) escalate if the question requires a human architectural decision. "Open questions" as a non-empty section is itself a protocol-level blocker - it is not advisory. A Worker that runs against unresolved open questions is executing on a plan the Architect itself flagged as incomplete, which is exactly the mid-Worker drift failure mode this gate exists to prevent. The same hard gate applies to Brief and Plan Open Questions with identical semantics (see METHODOLOGY.md §Planning Artifacts). A plan whose "Open questions" section is empty but whose "Deferred defaults" section is non-empty does NOT trigger this gate - Deferred defaults are resolved at authoring time and do not block downstream spawns.
+
+**Worker Preamble and Execution Contract Template** - when spawning an Elevated-risk engineer: read `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template for the full contract fields, verification mandate, and task_id field semantics.
+
+**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn sets `isolation: "worktree"`. No exception - the Trivial-path solo `engineer` spawn too. Full rationale and lifecycle: §Worktree Lifecycle (11-worktree-lifecycle.md).
+
+Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-spawn stash fallback.
+
+Preamble:
+*"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
+
+**Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor follows the same discover -> dispatch -> status-poll -> collect contract for a dispatchable role resolved to another harness. Collected output re-enters the standard Skeptic/QA gates unchanged - no new gate, no bypass. Full contract: `references/cross-harness-teams.md` §Conductor Dispatch Contract.
+
+**Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
+
+## Planning Artifacts
+
+The promotion gate that sits between orchestration-planner output and the first engineer spawn. The architect produces "what to build", the orchestration-planner produces "how to decompose it"; this section produces "what problem are we actually solving and how will we know it is solved" - a commitment that survives multi-unit fan-out and cross-session resume.
+
+### Ordering
+
+The promotion check is downstream of architect+planner, upstream of engineer:
+
+```
+Risk classified Elevated
+  -> architect (existing behavior; investigator-before-architect rules apply)
+  -> Skeptic on architect plan (METHODOLOGY.md §Delegation)
+  -> Open Questions on architect plan resolved (METHODOLOGY.md §Delegation)
+  -> orchestration-planner (METHODOLOGY.md §Task Decomposition)
+  -> [PROMOTION CHECK] count Elevated-or-above units, check track span, check session span
+       -> 0-1 Elevated units: no Brief required (current behavior)
+       -> 2-5 Elevated units: author Brief, Skeptic the Brief, then engineer
+       -> 6+ Elevated units OR cross-track OR multi-session OR auto-promote-at-3rd-resume: assemble Plan, Skeptic the Plan, then engineer
+  -> engineer(s) spawned with brief_path / plan_path in execution contract
+```
+
+The Brief is authored once the planner returns a unit count, so "do we need a Brief?" is a mechanical check. Full rationale (comprehension-artifact reasoning, what the Skeptic-on-Brief asks): `references/planning-artifacts.md` §Ordering rationale.
+
+### Trigger table
+
+All triggers are mechanical. Operator judgment is not a field. Triggers are evaluated after orchestration-planner returns.
+
+| Condition | Artifact required |
+|---|---|
+| Risk = Trivial or Low | None |
+| Risk = Elevated AND orchestration-planner returns 0-1 Elevated-or-above units (or planner skipped per the existing single-unit exception) | None (architect plan only - current behavior) |
+| Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
+| Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
+| Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
+| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
+| Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
+
+**Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
+
+**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
+
+- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
+- Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
+
+**Other notes:**
+- Unit count comes from the orchestration-planner's JSONL output, counted by `unit_slug` entries with risk >= Elevated.
+- Track span is computed by mapping each `output_paths` entry to its depth-1 ancestor and checking for `AGENTS.md` at that depth.
+- Session span is initially declared, then auto-promoted by the resume hook when the threshold is hit (see Promotion mechanics below).
+- A task can be promoted upward mid-work. It cannot be demoted.
+
+### Gate semantics
+
+**Authoring sequence (Brief tier / Plan tier / ADR tier):** the full numbered steps - including the pre-existing-Brief check, cross-artifact alignment check position, and Skeptic-on-Brief variants - are in `references/planning-artifacts.md` §Authoring sequence (Brief and Plan tiers). The gate rules below (What blocks / What does not block) remain authoritative here.
+
+**What blocks engineer spawn:**
+- Missing required artifact at any tier.
+- Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
+- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation). This section explicitly extends the existing rule rather than restating it. A non-empty "Deferred defaults" section does not trigger this gate.
+- Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
+- Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
+
+**What does not block:**
+- Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
+
+For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`. Outcome rubric: operator-confirmed pass/fail lines, each tagged `verification_type: deterministic | judgment`; required for Elevated; full schema and field guidance in `content/references/planning-artifacts.md`.
+
+## Risk Classification
+
+Perform a brief risk assessment before starting any task. Any single Elevated signal triggers Worker + fresh independent Skeptic review. Low risk permits direct action with a brief inline self-check. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
+
+**Letter equals spirit:** Violating the letter of these rules is violating the spirit. "I followed the intent" after skipping a required step is not a defense. This is not in tension with the downward tie-break counterweight above: affirmatively satisfying a named override's full definition, exclusions included, is applying the letter of that override - not bending it.
+
+**Context preservation - apply risk to the task, not the tool call.** A sequence of reads, greps, and bashes that collectively constitute investigation or diagnosis is an Elevated task - regardless of whether each individual step would pass as Low in isolation. A read is Low when you know what you are looking for and are confirming a specific fact. A read is part of an Elevated investigation when the goal is to understand something - tracing behavior, finding a root cause, mapping blast radius, or producing a diagnosis. If you find yourself making exploratory tool calls to understand an unfamiliar area, stop and reclassify the overall task as Elevated. Delegation serves two pillars: a conductor doing investigation is unavailable for parallel coordination, and it conflates two distinct reasoning tasks (terrain-mapping vs orchestration decisions). Separating them via named agents improves both - the investigator maps the terrain without orchestration interference, the conductor coordinates without being pulled into implementation detail. (Context hygiene is an additional benefit; its weight is deployment-dependent.) When in doubt, spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
+
+| Level | Delegation | Review | Declaration |
+|---|---|---|---|
+| Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
+| Low | Direct action | Brief inline self-check | Silent |
+| Elevated | Worker | Fresh independent Skeptic | Stated before starting |
+| Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
+
+### Risk profiles
+
+The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
+
+- **`relaxed`** — minimal Skeptic overhead. Use for rapid iteration on well-understood UI or local bug fixes.
+- **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
+- **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
+
+#### Profile deltas
+
+The existing signal lists below represent the `default` profile. These deltas apply:
+
+**`relaxed` (additional Low overrides):**
+- **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated.
+  - Definition: touches exactly one file; modifies local behavior (e.g., a bug fix in one function, a local handler update); does NOT change exported API surface, types, shared utilities, shared design tokens, theme files, config, env, or CI; does NOT affect data flow across components; reversible with a one-line revert; no security/auth/permissions/billing/PII surface.
+- **Multi-file pure-UI-only changes** are treated as **Low** instead of Elevated.
+  - Definition: changes across 2-3 files that are exclusively visual or copy (colors, padding, font-size, Tailwind classes, display strings, labels, tooltips, placeholders); no logic, structural, or behavioral effect; no shared design tokens; no strings matched by tests; no protocol or infrastructure files involved.
+- **Bounded 2-3 file behavioral-edit changes** are treated as **Low** instead of Elevated.
+  - Definition: touches exactly 2-3 files. **Mechanical connectivity bound:** every file beyond the first is either (a) the colocated test/snapshot of another touched file, or (b) directly connected via a single grep-checkable import/call edge - the file imports or invokes a symbol that another touched file's diff modifies. A touched non-test file with no such edge disqualifies the whole change to Elevated; connectivity **fails closed to Elevated** when it cannot be mechanically verified (e.g., an operator config flip with no renamed symbol to trace). Total changed lines (added + removed) across all files <= 30. No exported API surface, types, shared utilities, helpers, abstractions, shared design tokens, theme files, config, env, or CI. **Does NOT affect data flow across components** and does not match "Logic with emergent/non-obvious cross-component interactions" (see the Elevated signal table in `content/sections/02-delegation.md`) - ported from the single-file override's guardrail. Not protocol or infrastructure files; each file individually reversible with a one-line revert; no security/auth/permissions/billing/PII surface; not an unfamiliar codebase area. **Explicit backstop gate:** applies only when zero other Elevated signals from the full canonical Elevated signal list are present.
+
+**`default` (compared to legacy):**
+- **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated (same definition as `relaxed` above). All other signals remain at their legacy levels.
+
+**`strict` (removed Low overrides):**
+- **UI-only copy changes** are treated as **Elevated**; the Low override is removed.
+- **File renaming** is treated as **Elevated**; the Low override is removed.
+- **Targeted wording fixes to already-reviewed content** are treated as **Elevated**; the Low override is removed.
+- **Diagnostic-only changes** and **documentation-only file creation** remain direct-action eligible but require the conductor's inline self-check (they are treated as Low rather than unconditionally direct).
+
+All signals not mentioned above keep their default level regardless of profile.
+
+### Elevated signals
+
+See §Delegation signal table above for the full Elevated signals list.
+
+### Trivial signals
+
+ALL must hold - any single disqualifier pushes to Elevated: touches exactly one file (or one file plus its colocated test/snapshot); no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports (exported symbols, public CSS classes, route paths); reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved. Canonical examples and NOT-Trivial-even-if-it-feels-small counter-examples: `references/risk-config-and-tiers.md` §Trivial Worked Examples. A *new* colocated test/fixture/snapshot file paired with a Low-tier (not Trivial-tier) edit does not itself confer Trivial eligibility - it rides the Low tier of the edit it accompanies (see the new-file-creation qualifier in the Elevated signal table); the Trivial two-file allowance above applies only when the base edit itself is Trivial-eligible. When in doubt between Trivial and Elevated, choose Elevated.
+
+**Conductor rule for Trivial:** The conductor delegates the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file) regardless of subagent state; the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). A commit message is still required. If a Worker discovers mid-task that the change is not actually Trivial (e.g., the "one-file color tweak" lives in a shared token file), it must stop, report, and the conductor re-classifies as Elevated.
+
+**Post-debugger Low classification.** Post-debugger-brief bug fixes that are single-file and exercised by an existing test may be classified Low if they meet all Trivial signals; otherwise standard Elevated applies.
+
+### Simple/targeted unit (mechanical metric)
+
+A unit is **simple/targeted** when ALL hold: (a) the diff touches exactly 1 file, or 1 file plus its colocated test/snapshot file (2 files total); AND (b) total changed lines (added + removed) <= 40; AND (c) the unit matches none of the 5 Mandatory Tier-3 escalation signal categories (see `content/references/risk-config-and-tiers.md` §Mandatory Tier-3 review escalation). This is computed from the actual diff, not estimated. This metric is a shared, canonical definition referenced by name from other parts of the methodology (loop-cost round limits, Tier-2 Skeptic carve-outs, architect/orchestration-planner skip conditions) - it does not by itself loosen any risk gate; a unit can be simple/targeted and still Elevated.
+
+### Low signals
+
+Clearly reversible reads (reads with no writes); exploration / research / draft work - only when the output is understanding, not a decision-driving artifact; **diagnostic-only changes** (pure logging additions - console.log, .catch() for error visibility, test interceptors) across any number of files, where every change has zero behavioral effect — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **documentation-only file creation** (new .md or .txt files that are pure lists, glossaries, or running notes - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/DinoStack/; overrides the "new file creation" Elevated signal for this case only) — **in `strict` profile, treat as Low (self-check required) rather than unconditionally direct**; **targeted wording fixes to already-reviewed content** (phrasing adjustments where the substance was already Skeptic-approved in the current or a recent session - e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration; does not apply to new decisions, new recommendations, or new content not previously reviewed; does not override the "modifies protocol or infrastructure files" Elevated signal; overrides the single-file edit and new file Elevated signals for this case only) — **in `strict` profile, this override is removed; treat as Elevated**; **file renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the operation is Elevated because the rename changes behavior without changing file contents) — **in `strict` profile, this override is removed; treat as Elevated**; **UI-only copy changes** (rewording display strings, labels, tooltips, or placeholder text where the change has no logic, structural, or behavioral effect - e.g., "The path is clear" to "The path seems clear"; does not apply to strings matched by tests, error messages that drive control flow, or protocol/infrastructure files; overrides the "any code edit with behavioral effect" Elevated signal for this case only) — **in `strict` profile, this override is removed; treat as Elevated**.
+
+### Mid-task reclassification
+
+If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point.
+
+### Low risk self-check
+
+After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
+
+The conductor reads `.agentic/config.json` to resolve sixteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+
+When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
+
+Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
+
+**Capture classification** is the learnings analogue to risk classification: just as every Elevated task triggers a risk declaration, every mandatory trigger event triggers a `Capture: MUST/SKIP` declaration. See `content/references/capture-classification.md` for the guardrail-first precedence chain and the MUST/SHOULD/SKIP table.
+
+### Declaration format
+
+```
+Risk: Elevated - [specific signal]
+Tier: 2 (role default)
+Applying adversarial review.
+```
+```
+Risk: Elevated + Cleanup - [specific signal]
+Tier: 2 (role default)
+Applying adversarial review with /simplify cleanup pass.
+```
+
+When a Brief or Plan governs the task (see METHODOLOGY.md §Planning Artifacts), include the artifact path under the `Risk:` and `Tier:` lines:
+
+```
+Risk: Elevated - multi-unit feature
+Tier: 2
+Brief: docs/planning/<slug>.md
+Applying adversarial review.
+```
+```
+Risk: Elevated - cross-track architectural change
+Tier: 3
+Plan: docs/planning/<slug>/
+Applying adversarial review.
+```
+
+Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
+
+### Spawn presets (per-spawn capability bundles)
+
+**Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
+
+For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
+
+## QA Gate
+
+**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (Brief/architect plan present, `qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. This eliminates the sequential Skeptic-then-QA delay for UI-visible changes and aligns with the parallel-by-default philosophy.
+
+For changes whose `qa_criteria` does not match the concurrent path (or where the diff is unknown at planning time), the post-Skeptic QA flow described below remains in effect.
+
+**Pre-spawn trigger check:** Before spawning Workers, the conductor inspects the unit's `qa_criteria` (from the Brief or, if no Brief, from the architect plan). If `qa_criteria` is present AND `qa_skip == null` AND `scenarios[]` is non-empty, mark the unit for concurrent QA at review time. The architect's `qa_criteria` is the authoritative trigger - the qa.md trigger patterns are a SUPPLEMENTAL match-set: when both `qa_criteria` and a qa.md trigger match exist, qa-engineer receives both inputs (the scenarios as the test plan, and any matched qa.md project-knowledge entries as supplemental context). qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`. If `qa_criteria` is absent at planning time and the diff is unknown, defer the check to post-Worker (standard flow).
+
+**When QA is skipped:**
+- The change is Trivial risk (direct action; existing carve-out preserved).
+- `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
+
+Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision. The `qa_default_skip` key in `.agentic/config.json` is a reserved, documented-but-inert schema key (canonical definition in §Planning Artifacts); it does NOT override or weaken this invariant.
+
+**QA gate flows.** UI-visible units: qa-engineer spawns IN PARALLEL with the Skeptic; both must pass. Non-UI: QA fires after Skeptic sign-off. Full step lists: `references/qa-gate.md` §QA gate flows (concurrent and post-sign-off).
+
+**Phase breadcrumb:** `[phase: qa-review]`
+
+### Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
+
+**Phase 6b is a per-ticket, in-flow gate. Conductor MUST NOT aggregate Phase 6b across multiple tickets to run as a final batch step.** Each ticket's QA fires inside that ticket's own loop, before Phase 7. If runtime QA cannot run for ticket N at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for ticket N specifically, not deferred work to triage at batch end.
+
+When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator with the specific cause and the three options:
+
+- **Provide the missing input** (env file, credentials, working preview URL) and re-run Phase 6b.
+- **Accept INCONCLUSIVE** with `qa_unverified=true` recorded on the unit (see classification rules below). The PR can still merge, but the ticket carries a known unverified-runtime flag.
+- **Abandon the ticket** - close the PR or revert.
+
+Per-ticket QA scales via parallel-by-worktree (see below) - that is the mechanism for "many tickets in flight without a serial QA queue", not batching.
+
+### Conductor preflight before any qa-engineer spawn
+
+Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
+
+```
+QA env preflight FAILED: <env_file> is missing.
+Pull it with: <env_pull_command>
+Then re-run Phase 6b for this ticket.
+```
+
+Wait for the operator to provide the env file (or accept INCONCLUSIVE per the classification rules below) before proceeding. Spawning qa-engineer just to discover the env is missing wastes a worker turn - the dev server will fail to boot and the qa-engineer will return BLOCKED with no useful signal.
+
+### INCONCLUSIVE classification (no static-only auto-pass)
+
+Static-only QA on an Elevated UI-visible change is approximately zero signal. When the qa-engineer cannot reach a runtime path, the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge. Full rationale and the operator options: `content/references/qa-gate.md` §INCONCLUSIVE classification (full rationale).
+
+For parallel-by-worktree multi-PR fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern (curl-until loop, boot command resolution order), see `content/references/qa-gate.md`.
+
+### Diff-read rule and review ordering
+
+**For Elevated correctness, security, auth, crypto, or payments units, the Skeptic MUST read the diff in full before sign-off. QA evidence is supplementary - it confirms runtime behavior but does not substitute for line-by-line diff review. On these units the review order is fixed: diff first, QA evidence second.**
+
+For behavior-visible Elevated units that are not in the exclusion set above (UI changes, behavioral feature additions), the Skeptic SHOULD read the diff AND the QA evidence. When both are present, the Skeptic may use QA evidence as the primary signal for UI correctness claims, but diff review remains required for logic, side effects, and security surface.
+
+For Low or Trivial units, the Skeptic applies its inline self-check. QA is not spawned for Trivial units (direct action path); QA for Low units follows the standard flow above.
+
+**Reading 'diff is secondary' as 'diff is optional' on any Elevated unit is a protocol violation.** The diff obligation is unconditional for Elevated units; only the ordering and primary-signal weight differ by risk class.
+
+### Re-route limits
+
+**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes before escalating to the human. This applies to loops inside `/implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context. When the cap is reached with open findings, the conductor does not spawn another Engineer - it surfaces the stall with the open findings list and waits for human direction.
+
+**Convergence failure.** A convergence failure occurs when a Skeptic raises the same finding unchanged after the Engineer claimed to have addressed it. Convergence failures bypass the remaining iteration budget and escalate immediately. They indicate either a misunderstanding between the Engineer and the finding, or a design-level conflict that requires human arbitration. Within the persistence loop, one re-raise after a claimed fix is sufficient (overrides the 2-re-route rule in skeptic-protocol.md Section 5 - see that section for the override note).
+
+## Capability Preflight
+
+Before every Agent spawn, the conductor reads the target agent's `capabilities:` block (if present) and verifies that all declared tools are available in the current environment. Absent block = no-op for that agent.
+
+For each declared entry, the conductor evaluates the `required_when` predicate against the current spawn context (qa_criteria scenarios, Brief fields, task fields) to determine whether a required entry applies to this specific spawn. Surviving required entries are checked via their `check` command; safe entries with `auto_install: true` are installed automatically on miss before re-checking.
+
+**Advisory vs blocking mode** is controlled by `.agentic/config.json` `capability_preflight_mode` (default `blocking`). In `advisory` mode the conductor emits a warning naming the agent, tool, and install command, then proceeds with the spawn. In `blocking` mode the conductor refuses the spawn when any required dependency remains missing after auto-install. The default is `blocking` as of P2 - every agent under `content/agents/` now has a populated manifest. Setting `advisory` switches to warn-and-proceed.
+
+For the full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema, see `content/references/capability-preflight.md`.
+
+## Cross-session loop resume
+
+Long-running `/implement-ticket` loops survive via `.agentic/loop-state.json` written at every phase transition; read `content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when loop-state.json exists.
+
+## Task-state file
+
+For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` (sole writer); read `content/references/task-state-file.md` §Task-state file for schema and protocol (incl author_model).
+
+## Events log
+
+`.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /wrap completion, finding fix). The file is gitignored.
+
+**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a single `session_total` event at session exit; this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook).
+
+**Schema** (one JSON object per line):
+- `ts`: ISO8601 UTC timestamp (required)
+- `phase`: orchestration phase label (required)
+- `event`: event type (required)
+- `agent`: spawned agent name, nullable
+- `task_id`: correlation id when scoped to tasks.jsonl, nullable
+- `data`: free-form object for event-specific fields
+
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
+
+Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
+
+## Task Decomposition
+
+**One agent, one task, one prompt.** The conductor breaks work into atomic units before spawning Workers. A focused agent is a correct agent - Workers should not do epics alone. Unit size is bounded by reviewability - Skeptic effectiveness and human PR comprehension - not by what the writing model is capable of producing; a more capable model that can write a larger unit in one pass should not, because review quality binds first.
+
+**Decompose implementation, not review.** Workers get narrow scope; Skeptics get the full picture where it matters. The orchestration-planner identifies unit boundaries and dependencies; the conductor applies the following rules to the planner's output:
+- **Independent elevated units (planner-identified):** each gets its own Skeptic (small diff, high signal)
+- **Interdependent elevated units (planner-identified):** separate focused Workers, but one Skeptic reviewing the combined diff - the integration Skeptic replaces per-unit Skeptics, not layers on top
+- **Low-risk units:** direct action with self-check (no Skeptic) - e.g., reads, snapshots, memory answers, subagent result synthesis, diagnostic logging only
+
+**Before spawning workers: run the orchestration-planner.** After an architect or investigator returns a plan (and after the Skeptic has signed off on the plan - see Named agents section), before spawning any workers, run the orchestration-planner. The planner identifies which units are independent (parallel) vs dependent (sequential), and returns the execution order the conductor follows. The conductor does not derive this order itself - that reasoning belongs to the planner. Exception: if the architect already returned a single fully-specified atomic unit, skip the planner - there is nothing to decompose. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. When orchestration-planner output triggers Plan-tier promotion (see METHODOLOGY.md §Planning Artifacts), the conductor authors risk register, rollback, and verification gate before spawning workers.
+
+## Worktree Lifecycle
+
+**Two classes of worktree, two cleanup triggers.**
+
+**Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
+
+**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+
+**Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
+
+**Worktree prune, branch prune, and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
+
+**Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
+
+## Protocol Details (read on trigger)
+
+Dispatch index (navigation, not rules). Shorthand: `REF` = `~/DinoStack/.claude/skills/agentic-engineering/references/`; `CR` = `content/references/`; `CS` = `content/sections/`.
+
+| Trigger | Read | Sections |
+|---|---|---|
+| Activation preflight resolves to active (Step 4) | `CR/activation-detail.md` | §Step 5: First-Activation Notice, §Step 6: Scaffolding-Sync Check |
+| Authoring Brief/Plan after planner returns 2+ Elevated-or-above units | `CS/03-planning-artifacts.md`; `CR/planning-artifacts.md` | Trigger table, ordering, gate semantics; templates, promotion mechanics, product-intent layer, `qa_default_skip` |
+| Worker autonomy, stop-frequency, investigator-before-architect, delegation-enforcement | `CR/delegation-detail.md` | Worker Autonomy Contract, Stop-Frequency as Planning Signal, Investigator-Before-Architect Rules, Learnings Pipeline, Worker Preamble and Execution Contract Template, Digest-Return Discipline, Background-Spawn Enforcement Detail, Ticket-Offer Gate Mechanics, Proactive Autonomy Enforcement, Anti-Patterns (worked examples), Hard-Stop Branch - Executing vs Choosing, AskUserQuestion Precondition Detail, Evidence Verification, Orchestration Enforcement Hooks and Fan-out Detail |
+| Config toggles, graph-derived risk signal, tier declaration | `CR/risk-config-and-tiers.md` | Config Toggle Catalog (behavioral), Graph-derived risk signal, Tier Declaration Detail |
+| Elevated risk declared | `/skeptic`; `REF/skeptic-protocol.md`; `/implement-ticket` Phase 6 | Sections 2-5 (loop steps, state, re-route, escalation); findings_log schema, re-raise/auto-close rules |
+| Reviewing Skeptic output | `REF/skeptic-protocol.md` | Sections 6, 11 (Critical/Major/Minor, sign-off format, validation) |
+| Declaring Elevated + Cleanup | `REF/skeptic-protocol.md` | Section 12 (`/simplify` workflow, second Skeptic narrow-scope review) |
+| Writing the brief for a Skeptic | `/skeptic`; `REF/skeptic-protocol.md` | Section 8 (domain-specific templates) |
+| Decomposing work into multiple agents | `REF/subagent-protocol.md` | Sections 2, 5, 7 (parallel-by-default, worktree isolation, check-in) |
+| Breaking work into multiple Workers | `REF/subagent-protocol.md`; `REF/skeptic-protocol.md` | Section 6 (decomposition rules); Section 9 (review scope) |
+| Agent selection and composition | `REF/agent-team.md` | Flows (feature, bug, security), decision rules, spawn prompts |
+| Worker fixes a Critical/Major Skeptic finding | `REF/regression-test-obligation.md` | Valid regression test, Worker obligation, Skeptic verification rule |
+| Worker fixes a qa-engineer FAIL | `REF/qa-regression-obligation.md` | Regression-test obligation, `.agentic/qa-regressions.md` exception path, Skeptic verification rule |
+| Change alters a count/list/path/convention/behavior in an intent-layer doc | `REF/doc-sync-obligation.md` | Trigger predicate, exemptions, Worker obligation, tiered Skeptic verification |
+| Before every Agent spawn | `CS/06-capability-preflight.md`; `CR/capability-preflight.md` | Preflight timing, advisory/blocking, no-op rule; YAML schema, `required_when` grammar, `auto_install` rules, 7-step, output format, cache schema |
+| Skeptic sign-off granted on a UI-visible change | `CS/05-qa-gate.md`; `CR/qa-gate.md` | Concurrent/sequential flow, qa_skip enums, preflight, INCONCLUSIVE; fan-out commands, architect-plan scenarios, dev-server boot |
+| V1 telemetry event-type field shapes needed | `CR/events-log.md`; `CS/09-events-log.md` | `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround` schemas; writer scope, base schema (`conductor_direct` deprecated) |
+| Cleanup command blocks, session-start prune script needed | `CR/worktree-lifecycle.md`; `CS/11-worktree-lifecycle.md` | Bash command blocks; isolation mandate, two-class summary, prune rule |
+| `/implement-ticket` loop state must be resumed | `CR/cross-session-loop-resume.md` | §Cross-session loop resume (disk-write discipline, resumable phases, Brief/Plan path recording, batch-state coexistence) |
+| Managing multi-unit plan orchestration state | `CR/task-state-file.md` | §Task-state file (schema, orphan detection, merge algorithm, `author_model`) |
+| Implementing or modifying code in a specific language | `CR/code-standards-detail.md` | §Per-Language Strict Defaults (TS/JS/Python/Go/Rust/Next.js), §Browser Verification (`agent-browser`) |
+| Intent layer, context economy, external comment rules | `CR/conventions-detail.md` | §The Intent Layer, §Context Economy, §External Comment Discipline |
+| Writing a learning entry at a mandatory trigger | `CR/capture-classification.md`; `CR/conductor-operating-rules.md` | Guardrail-first precedence, MUST/SHOULD/SKIP table, declaration format; §learnings-agent (triggers, `Capture:` block ownership) |
+
+Kept as prose (normative rules stated directly, not dispatch):
+
+**Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
+Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
+
+**Outcome rubric** - when authoring or reviewing a Brief for Elevated work:
+Read `content/references/planning-artifacts.md` for the line schema (`{id, line, verification_type: deterministic | judgment}`), field guidance (distinct from Verification gate commands - the operator's semantic definition of done), and verification-gate `Rubric lines resolved` subsection. The rubric is co-authored via `product-discovery` step 5b (staged to `docs/overview/_proposed/outcome-rubric.md`) and confirmed before Brief authoring; `/brief` Section 3 copies the staged draft or elicits rubric lines inline. The independent Skeptic grades judgment lines adversarially (step 3.5 in `content/agents/skeptic.md`); absence on Elevated is a Critical finding.
+
+**Trigger catalog and open-goal loops** - when setting up an action-triggered workflow or declaring a measured goal condition rather than a fixed unit list:
+Read `content/references/trigger-catalog.md` for the three trigger types (manual / scheduled / action-triggered), the open-goal loop contract (trigger / action / measured condition / hard-stop), and the yolo-guard: a trigger fires the conductor (never a worker-spawn bypass), and risk classification plus a fresh Skeptic apply on every iteration regardless of how the loop was started.

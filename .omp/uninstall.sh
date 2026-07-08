@@ -37,6 +37,12 @@ elif [[ -d "$SKILL_DST" ]]; then
     removed+=("$SKILL_DST/SKILL.md")
   fi
 
+  # Remove copied METHODOLOGY.md
+  if [[ -f "$SKILL_DST/METHODOLOGY.md" ]]; then
+    rm "$SKILL_DST/METHODOLOGY.md"
+    removed+=("$SKILL_DST/METHODOLOGY.md")
+  fi
+
   # Remove the four symlinks if they are ours
   remove_if_ours "$SKILL_DST/commands"   "$REPO_DIR/content/commands"
   remove_if_ours "$SKILL_DST/references" "$REPO_DIR/content/references"

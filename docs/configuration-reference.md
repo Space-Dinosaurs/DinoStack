@@ -77,7 +77,7 @@ it manually.
 | `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/init-project` |
 | `commit_telemetry` | `true` | bool | Phase 8 commits the per-developer session-log file as a separate PR commit; set to `false` to opt out |
 | `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/wrap` jobs (tuned by the `deferred_wrap_*` params below) |
-| `abdication_guard_enabled` | `false` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
+| `abdication_guard_enabled` | `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
 | `skill_candidate_detection` | `true` | bool | Master toggle for the skill-candidate detector; `false` disables all layers |
 | `skill_candidate_nudge` | `false` | bool | In-session nudge when a domain crosses the candidate threshold (requires `skill_candidate_detection: true`) |
 | `ticket_driven` | absent-key: `offer` if tracker connected, `off` if not | `"off"`, `"offer"`, `"require"` | Controls ticket-creation gate before first implementer spawn; **absent key resolves based on tracker connection, not to a fixed default** |
@@ -120,8 +120,13 @@ directory; setting it to a non-root path disables the graph risk signal).
 
 | Field | Default | Valid values |
 |---|---|---|
-| `developer_id` | required if file exists | string handle |
+| `developer_id` | none (absent file = no attribution) | string handle |
 | `provisional` | `false` (absent = confirmed) | `true`, `false` |
+
+**Absent file / absent `developer_id`:** no telemetry is attributed; session
+logs are not written. The effective default is no identity. Use
+`agentic-identity auto` to auto-derive a provisional handle from the GitHub
+login (lowest-friction starting point).
 
 **4-tier precedence:** project-confirmed > global-confirmed >
 project-provisional > global-provisional > none.
@@ -139,9 +144,9 @@ feature off.
 
 | Field | Default | Type | Notes |
 |---|---|---|---|
-| `enabled` | required | bool | `true`/`false`; absent file treated as `false` |
-| `default_harness` | optional | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude` |
-| `roles` | optional | map | Maps role name to `{harness, model}` |
+| `enabled` | `false` (absent file = feature off) | bool | Must be explicitly `true` to activate dispatch; absent file is equivalent to `enabled: false` |
+| `default_harness` | none (absent = no harness fallback) | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`; absent means unrouted roles fall through to native spawn |
+| `roles` | none (absent = empty map, no per-role routing) | map | Maps role name to `{harness, model}` |
 | `dispatch.timeout_seconds` | `1800` | int | Per-Worker timeout |
 | `dispatch.output_format` | `"json"` | `"json"`, `"text"` | Worker output format |
 

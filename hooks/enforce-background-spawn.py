@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
 Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
-         (1) Background-by-default rule - denies any `Task` spawn (LEGACY tool
-         name) that lacks run_in_background: true. `Agent` spawns are NOT
-         background-enforced here: the Claude Code harness strips
-         run_in_background from the hook payload for Agent tool calls (verified
-         by live PreToolUse payload capture - tool_input keys for an Agent spawn
-         are exactly ['description', 'prompt', 'subagent_type']; run_in_background
-         is consumed by the harness for its own async routing and never reaches
-         the hook). Agent is background-by-default at the harness level, so
-         there is nothing to enforce; applying the check would brick every Agent
-         spawn. Background enforcement therefore applies to the legacy `Task`
-         tool name only.
+         (1) Background-by-default rule - denies foreground subagent spawns on
+         both the legacy `Task` tool name and the current `Agent` tool name,
+         with an ASYMMETRIC rule per tool. Live PreToolUse payload capture
+         (2026-07-07) confirmed the harness DOES pass run_in_background
+         through to the hook for Agent spawns (tool_input keys observed:
+         description/prompt/run_in_background/subagent_type, value False) -
+         this corrects the earlier assumption that the field was stripped,
+         which had left Agent completely unenforced. `Task` (legacy): deny
+         unless run_in_background is exactly boolean True - absent, false, or
+         non-boolean all deny. `Agent` (current): deny ONLY when
+         run_in_background is exactly boolean False; an ABSENT field allows
+         (Agent backgrounds by default at the harness level, so omitting the
+         field is the documented conductor norm - see METHODOLOGY.md
+         §Delegation), and an explicit True also allows.
          (2) Cross-harness team ROUTING enforcement (proactive) - when an
          effective team.yml has `enabled: true` and the spawned subagent_type is
          a dispatchable role (engineer/debugger/qa-engineer/skeptic/
@@ -36,14 +39,14 @@ Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
          NOTE - Task/Agent rename and run_in_background visibility: Claude Code
          renamed the subagent-spawn tool from "Task" to "Agent". For routing
          enforcement and sentinel suppression, the hook guards on BOTH names -
-         this is correct and unchanged. For background-spawn enforcement, only
-         `Task` is checked: the harness does NOT pass run_in_background to the
-         hook for Agent spawns, so enforcing it on Agent would deny every Agent
-         call regardless of intent. The settings.json matcher is wired for both
-         names by install.sh (two PreToolUse blocks: one for "Task", one for
-         "Agent") so the hook fires under either name and applies routing/
-         sentinel suppression correctly. Background enforcement applies to the
-         legacy `Task` path only for backward compatibility.
+         this is correct and unchanged. For background-spawn enforcement, BOTH
+         names are now checked (DS-70): the harness DOES pass run_in_background
+         through for Agent spawns (2026-07-07 live capture), so the earlier
+         Agent exemption was based on a false premise. The settings.json
+         matcher is wired for both names by install.sh (two PreToolUse blocks:
+         one for "Task", one for "Agent") so the hook fires under either name
+         and applies routing/sentinel suppression and background enforcement
+         correctly. See (1) above for the asymmetric Task-vs-Agent rule.
 
          Confirmed-supported floor: permissionDecision: "deny" output is stable
          on recent Claude Code builds. The hook fails open on parse error, so
@@ -76,10 +79,13 @@ Failure modes:
       or logic error exits 0 so enforcement gaps are never converted to blanket
       blocks.
     - Non-Task/Agent/Skill tool_name: passthrough (exit 0).
-    - run_in_background absent, false, or non-boolean on Task (legacy tool only):
-      deny with reason fed back to model. Only boolean True is accepted as the
-      allow signal. Agent spawns are NOT checked - run_in_background is stripped
-      from the hook payload by the harness before the hook fires.
+    - run_in_background absent, false, or non-boolean on Task (legacy tool
+      only): deny with reason fed back to model. Only boolean True is
+      accepted as the allow signal.
+    - run_in_background exactly False on Agent (current tool name): deny with
+      reason fed back to model. Absent (key not present) and True both allow
+      - Agent backgrounds by default at the harness level, so an absent field
+      is the documented conductor norm, not a violation.
     - Foreground-exempt subagent_type (FOREGROUND_EXEMPT): allow regardless of
       run_in_background - these agents have a documented blocking-ordering
       requirement (e.g. wrap-ticket holds .agentic/wrap.lock). Exemption is
@@ -96,9 +102,9 @@ Failure modes:
       normal background-spawn enforcement resumes. The sentinel self-expires
       when its conductor PID is dead or its mtime exceeds 2 h; there is no
       manual clear command. Fail-open on sentinel read errors.
-    - Agent spawn (no live sentinel, no routing match): always allowed (exits 0
-      at the enforcement gate - run_in_background is not present in the real
-      harness payload).
+    - Agent spawn (no live sentinel, no routing match): allowed unless
+      run_in_background is exactly False (see the asymmetric rule above);
+      absent or True allows.
     - Resolved harness not in _known_harnesses() (unknown/typo'd harness in
       team.yml, or bin/_role_spec.py failed to load): deny with a generic,
       fully-static message that names the unknown harness but never
@@ -415,26 +421,32 @@ def main() -> None:
             # Sentinel not live -> fall through to background enforcement.
 
         # ------------------------------------------------------------------ #
-        # Background-spawn enforcement (Task ONLY)                           #
-        # Agent spawns are NOT enforced here: run_in_background is stripped  #
-        # from the Agent PreToolUse payload by the harness before the hook   #
-        # fires (confirmed by live payload capture). Agent is background-by- #
-        # default at the harness level, so the check would deny every Agent  #
-        # spawn regardless of intent. Only the legacy "Task" tool name        #
-        # proceeds to this check; "Agent" (and anything else) exits 0.       #
+        # Background-spawn enforcement (Task + Agent, asymmetric rule)       #
+        # Live PreToolUse payload capture (2026-07-07) confirmed the harness #
+        # DOES pass run_in_background through for Agent spawns (tool_input   #
+        # keys observed: description/prompt/run_in_background/subagent_type,#
+        # value False). The prior assumption that the harness strips the     #
+        # field for Agent was false and had left Agent completely            #
+        # unenforced. Rule (asymmetric because Agent is background-by-       #
+        # default at the harness level and Task is not):                    #
+        #   - Task (legacy): deny unless run_in_background is exactly True.  #
+        #     Absent/false/non-boolean all deny (unchanged).                 #
+        #   - Agent (current): deny ONLY when run_in_background is exactly   #
+        #     False. Absent -> allow (harness already backgrounds by         #
+        #     default; omitting the field is the documented conductor norm). #
+        #     True -> allow.                                                 #
         # Skill already exited above (via sentinel block or passthrough).    #
+        # Any other tool_name exits here (Read, Bash, Write, Edit, etc. are  #
+        # never Task/Agent, so there are no false positives).                #
         # ------------------------------------------------------------------ #
-
-        # Only enforce on the legacy Task tool name. Agent spawns exit here -
-        # run_in_background is not present in the real harness payload for
-        # Agent. All direct-action tools (Read, Bash, Write, Edit, etc.) are
-        # not Task, so there are no false positives from this scoped deny.
-        if tool_name != "Task":
+        if tool_name not in ("Task", "Agent"):
             sys.exit(0)
 
         # tool_input may be null/missing. Null means no structured params -
         # treat as fail-open since we cannot make an enforcement decision
-        # without a dict to inspect.
+        # without a dict to inspect. Applies to both Task and Agent: an
+        # invisible run_in_background field must never be treated as a deny
+        # signal.
         raw_tinput = data.get("tool_input")
         if raw_tinput is None:
             sys.exit(0)
@@ -443,9 +455,28 @@ def main() -> None:
         # Foreground-exempt agents were already allowed before the sentinel
         # suppression block above. Any spawn that reaches here is non-exempt.
 
-        # Allow correctly-formed background spawns. Accept only boolean True -
-        # string "false", 0, None, and other truthy-but-not-true values all deny.
-        if tinput.get("run_in_background") is True:
+        rib = tinput.get("run_in_background")
+
+        if tool_name == "Agent":
+            # Asymmetric rule: only an EXPLICIT False denies. Absent (key not
+            # present) and True both allow - Agent backgrounds by default at
+            # the harness level, so omitting the field is correct usage, not
+            # a violation.
+            if rib is False:
+                _deny(
+                    "Agent spawn blocked: run_in_background is explicitly "
+                    "false. All delegated subagent spawns MUST run in the "
+                    "background (METHODOLOGY.md §Delegation). Omit "
+                    "run_in_background entirely (Agent backgrounds by "
+                    "default) or set it to true. Direct-action cases (reads, "
+                    "memory answers, synthesis) do not spawn an Agent at "
+                    "all - use the appropriate dedicated tool instead."
+                )
+            sys.exit(0)
+
+        # tool_name == "Task" (legacy): only boolean True allows. String
+        # "false", 0, None, and other truthy-but-not-true values all deny.
+        if rib is True:
             sys.exit(0)
 
         # Deny foreground Task spawns and feed back a clear, actionable reason

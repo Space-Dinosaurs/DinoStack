@@ -29,7 +29,7 @@ Performance: Standard.
 # Cross-harness agent teams
 
 Dispatch leaf workers to entirely different CLI harnesses -- codex, gemini,
-cursor-agent, kimi, pi, omp, or claude-as-worker -- from **any** conductor
+cursor-agent, kimi, pi, omp, opencode, copilot, or claude-as-worker -- from **any** conductor
 harness (Claude Code, Codex, Gemini, Kimi, Pi, omp, or any other). The
 conductor retains full orchestration (Skeptic gates, QA gates, risk
 classification), while each worker role runs on the CLI best suited to it.
@@ -118,7 +118,7 @@ Full schema:
 # ~/.agentic/team.yml  or  .agentic/team.yml
 enabled: true
 default_harness: codex          # where a role goes when not listed under roles:
-                                # validated against the 7 known harness labels;
+                                # validated against the 9 known harness labels;
                                 # unknown value -> non-zero exit from agentic-team
 roles:
   engineer:         { harness: codex,         model: gpt-5.3-codex }
@@ -136,8 +136,8 @@ dispatch:
 |---|---|---|
 | `enabled` | yes | `false` disables cross-harness dispatch without removing the file |
 | `default_harness` | no | Fallback for roles not listed under `roles:` |
-| `roles[*].harness` | yes (mapping form) | One of 7 known labels: codex, gemini, cursor-agent, kimi, pi, omp, claude |
-| `roles[*].model` | no | Passed to the harness `--model` flag; omit to use harness session default |
+| `roles[*].harness` | yes (mapping form) | One of 9 known labels: codex, gemini, cursor-agent, kimi, pi, omp, claude, opencode, copilot |
+| `roles[*].model` | no | Passed to the harness `--model`/`-m` flag for codex/gemini/claude/opencode/copilot; rejected for other harnesses. Omit to use harness session default |
 | `roles[*].effort` | no | Forwarded to the harness; silently dropped if unsupported |
 | `roles[*].reasoning` | no | Forwarded to the harness; silently dropped if unsupported |
 | `dispatch.timeout_seconds` | no | Watchdog kills the worker on expiry; default 1800 |
@@ -178,7 +178,7 @@ the harness's own stderr/exit code -- not as a named discover status.
 
 ## The four subcommands
 
-- `agentic-team discover` - probe all 7 known harnesses; reports installed
+- `agentic-team discover` - probe all 9 known harnesses; reports installed
   status, version, reachable models, and invocation family. Use `--json` for
   machine-readable output.
 - `agentic-team dispatch --harness <h> --role <r> --brief <file> --workdir <dir>` -
@@ -202,7 +202,37 @@ How `agentic-team dispatch` invokes each harness non-interactively:
 | **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); `--print` required for non-interactive/auto-dismiss behavior |
 | **pi** | `pi -p "<brief>"` | Built-in subagent types exist but suppressed via leaf-worker clause |
 | **omp** | `omp -p "<brief>"` | Same leaf-worker suppression; omp built-in subagents not used as nested spawns |
+| **opencode** | `opencode run "<brief>" --dangerously-skip-permissions --model <m>` | `--model` forwarded only if configured; final message is raw stdout |
+| **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths --model <m>` | `--allow-all-tools --allow-all-paths` required for non-interactive file writes; `--model` forwarded only if configured; final message is raw stdout. **RISK-ACCEPTED** -- see note below table |
 | **claude (worker)** | `claude -p "<brief>" --output-format json` | Dispatched as a leaf worker only; does NOT re-enter OMC |
+
+**RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
+harness above, copilot is dispatched with `--allow-all-paths` in addition to
+`--allow-all-tools`. Per `copilot --help`, both flags are required to get
+non-interactive operation at all -- copilot exposes no path-scoped equivalent
+(no `--sandbox` flag, no directory allowlist) -- so this is a deliberate
+trade-off of autonomy over sandboxed path-scoping, not an oversight. The
+PATH guardrail (below) does not mitigate this: it only intercepts bare-name
+re-entry to sibling CLIs, it is not a filesystem sandbox. `_cmd_dispatch`
+sets the copilot subprocess's `cwd` to the caller-supplied `--workdir` (a
+throwaway worktree/copy), but setting `cwd` only changes how *relative*
+paths resolve -- it does not block absolute-path reads or writes
+(`~/.ssh/id_rsa`, `/etc/...`), and the subprocess still inherits the full
+parent environment, so ambient credentials in env vars remain reachable.
+Given the threat model is a prompt-influenced `brief_text`,
+`--allow-all-paths` is a genuine, deliberately-accepted risk whenever the
+brief is not fully trusted -- it is not a sandbox. The disposable workdir
+limits the relative-path blast radius and keeps repo mutations isolated to
+a throwaway tree; it is not a filesystem confinement boundary. Operators
+must still pass a genuinely disposable `--workdir` for copilot dispatches
+and treat the brief as untrusted input.
+
+**Operator opt-in gate.** copilot is the only harness that trades away
+worktree isolation, so `_cmd_dispatch` refuses to launch a copilot worker
+unless `AGENTIC_TEAM_ALLOW_COPILOT=1` is set. Listing `copilot` in `team.yml`
+is not enough -- dispatch fails fast (exit 2, before any run directory is
+created) with a message naming the env var, making the trade-off an explicit,
+auditable consent.
 
 **Binary-name map** (the only hardcoded per-harness fact in the repo):
 
@@ -236,7 +266,8 @@ The guard is layered. Layers are listed strongest to weakest:
 3. **PATH guardrail (accidental re-entry -- NOT a security sandbox).** Each
    worker launch prepends a shim directory to `PATH`. Shims for `git`, `omc`,
    and all sibling CLI names (`codex`, `gemini`, `cursor-agent`, `kimi`,
-   `kimi-cli`, `pi`, `omp`, `claude`) exit 1 and log to `violations.log`. The worker's
+   `kimi-cli`, `pi`, `omp`, `claude`, `opencode`, `copilot`) exit 1 and log to
+   `violations.log`. The worker's
    own binary is exempt. **This guardrail catches accidental bare-name
    re-entry by a cooperative worker. It does NOT stop an absolute-path call
    (`/usr/bin/git` or any pre-resolved path). Do not claim it provides

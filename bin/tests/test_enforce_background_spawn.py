@@ -18,7 +18,7 @@ Test groups:
  13. test_wrap_ticket_allowed_when_sentinel_live_agent_tool     - MAJOR-1: same under tool_name=Agent.
  14. test_omc_skill_field_name_skill_key                        - MAJOR-2: "skill" key triggers deny.
  15. test_skill_absent_field_failopen                           - MAJOR-2: absent skill field -> allow.
- 16. test_agent_allowed_without_run_in_background               - Agent w/o run_in_background -> ALLOWED (harness strips it).
+ 16. test_agent_allowed_without_run_in_background               - Agent w/o run_in_background -> ALLOWED (asymmetric rule: absent allows).
  17. test_agent_denied_outright_when_sentinel_live_not_skill_detection - sentinel-live Agent -> denied via team-run path.
  18. test_omc_skill_denied_when_sentinel_live_agent_rename      - sentinel-live Skill oh-my-claudecode: -> denied.
  19. test_no_reap_string_in_any_deny_reason                     - sentinel deny reason contains no '--reap'.
@@ -30,6 +30,13 @@ Unit D - cross-harness team ROUTING enforcement (proactive, pre-sentinel):
  23. test_routing_allows_when_team_yml_missing                  - no team.yml -> allow.
  24. test_routing_allows_on_malformed_yaml                      - malformed YAML -> fail-open, allow.
  25. test_routing_escape_hatch_disables_branch                  - AE_TEAM_ROUTING_DISABLE=1 -> allow.
+
+DS-70 - background enforcement extended to Agent (asymmetric rule):
+ 26. test_agent_denied_when_run_in_background_false             - Agent + run_in_background:false -> DENY.
+ 27. test_agent_allowed_when_run_in_background_true              - Agent + run_in_background:true -> ALLOW.
+ 28. test_agent_wrap_ticket_exempt_allowed_with_run_in_background_false - exemption wins over new Agent deny rule.
+ 29. test_agent_nonboolean_falsy_allowed                         - Agent + run_in_background:"false" (string) -> ALLOW.
+ 30. test_agent_false_denied_via_sentinel_when_live               - Agent + false + live sentinel -> DENY via sentinel path, not bg path.
 
 Run with: python3 -m pytest bin/tests/test_enforce_background_spawn.py -x
        or: python3 bin/tests/test_enforce_background_spawn.py
@@ -438,14 +445,15 @@ def test_sentinel_is_live_stale_mtime():
 # ---------------------------------------------------------------------------
 
 def test_agent_allowed_without_run_in_background():
-    """Corrected (was PR256 (a)): Agent spawn without run_in_background -> ALLOWED.
+    """DS-70: Agent spawn with run_in_background ABSENT -> ALLOWED.
 
-    The Claude Code harness strips run_in_background from the Agent PreToolUse
-    hook payload before the hook fires. Live payload capture confirmed that
-    tool_input keys for an Agent spawn are exactly ['description', 'prompt',
-    'subagent_type'] - run_in_background is absent. Enforcing it would deny
-    every Agent spawn. The hook's background enforcement applies to the legacy
-    'Task' tool name only; Agent is background-by-default at the harness level.
+    Live PreToolUse payload capture (2026-07-07) confirmed the harness DOES
+    pass run_in_background through to the hook for Agent spawns (unlike the
+    earlier, now-corrected assumption that it was stripped). The asymmetric
+    rule allows an absent field on Agent: Agent backgrounds by default at the
+    harness level, so omitting run_in_background entirely is the documented
+    conductor norm, not a violation. Only an EXPLICIT False denies (see
+    test_agent_denied_when_run_in_background_false below).
 
     This test uses the realistic harness payload shape (no run_in_background).
     """
@@ -462,8 +470,141 @@ def test_agent_allowed_without_run_in_background():
         rc, parsed = _run_hook(payload)
         assert rc == 0
         assert not _is_denied(parsed), (
-            f"Agent without run_in_background must be ALLOWED (harness strips "
-            f"run_in_background from Agent hook payload); got: {parsed}"
+            f"Agent without run_in_background must be ALLOWED (asymmetric "
+            f"rule: absent allows); got: {parsed}"
+        )
+
+
+def test_agent_denied_when_run_in_background_false():
+    """DS-70: Agent spawn with run_in_background: false -> DENIED.
+
+    This is the core DS-70 regression: the harness DOES pass
+    run_in_background through for Agent spawns, so an explicit False must be
+    enforced the same way a foreground Task spawn is - the conductor must not
+    be able to block inline by passing run_in_background: false on an Agent
+    spawn.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            "tool_input": {
+                "description": "Implement the feature",
+                "prompt": "...",
+                "run_in_background": False,
+                "subagent_type": "engineer",
+            },
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed), (
+            f"Agent with run_in_background: false must be DENIED; got: {parsed}"
+        )
+        assert "run_in_background" in _deny_reason(parsed)
+
+
+def test_agent_allowed_when_run_in_background_true():
+    """DS-70: Agent spawn with run_in_background: true -> ALLOWED (unchanged)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            "tool_input": {
+                "description": "Implement the feature",
+                "prompt": "...",
+                "run_in_background": True,
+                "subagent_type": "engineer",
+            },
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), (
+            f"Agent with run_in_background: true must be ALLOWED; got: {parsed}"
+        )
+
+
+def test_agent_wrap_ticket_exempt_allowed_with_run_in_background_false():
+    """DS-70: FOREGROUND_EXEMPT still wins over the new Agent deny-on-false rule.
+
+    wrap-ticket must remain allowed to spawn foreground (run_in_background:
+    false) even now that Agent is background-enforced - the exemption check
+    runs before the background-enforcement block added by DS-70.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            "tool_input": {
+                "description": "Run wrap-ticket",
+                "prompt": "...",
+                "run_in_background": False,
+                "subagent_type": "wrap-ticket",
+            },
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), (
+            f"wrap-ticket Agent spawn must be allowed even with "
+            f"run_in_background: false; got: {parsed}"
+        )
+
+
+def test_agent_nonboolean_falsy_allowed():
+    """DS-70 (Skeptic Minor #1): Agent + run_in_background:"false" (STRING) -> ALLOWED.
+
+    Locks the intentional asymmetric-denylist design: only an exact boolean
+    False denies on Agent. A non-boolean falsy-looking value (the string
+    "false", not the boolean) must NOT be treated as a deny signal - the
+    hook's `rib is False` check is an identity check against the boolean,
+    not a truthiness check, so a string slips through as allowed.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            "tool_input": {
+                "description": "Implement the feature",
+                "prompt": "...",
+                "run_in_background": "false",
+                "subagent_type": "engineer",
+            },
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), (
+            f"Agent with run_in_background: \"false\" (string) must be "
+            f"ALLOWED (only exact boolean False denies); got: {parsed}"
+        )
+
+
+def test_agent_false_denied_via_sentinel_when_live():
+    """DS-70 (Skeptic Minor #2): Agent + run_in_background:false WHILE a live
+    teamrun sentinel is present -> DENIED via the SENTINEL/routing path, not
+    the background-enforcement path added by DS-70.
+
+    Confirms ordering: sentinel suppression runs before background
+    enforcement, so with the sentinel live the deny reason must be the
+    sentinel/team-run message (matches
+    test_agent_denied_outright_when_sentinel_live_not_skill_detection's
+    fixture and assertions below), never the background
+    "run_in_background is explicitly false" message.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sentinel = Path(tmpdir) / _SENTINEL_REL
+        _write_sentinel(sentinel, os.getpid())  # live sentinel
+
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmpdir,
+            "tool_input": {"run_in_background": False, "subagent_type": "engineer"},
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed), f"Expected deny (sentinel live), got: {parsed}"
+        reason = _deny_reason(parsed)
+        assert "cross-harness team" in reason, f"must be sentinel/team-run deny: {reason}"
+        assert "explicitly false" not in reason, (
+            f"must NOT be the background-enforcement deny message: {reason}"
         )
 
 

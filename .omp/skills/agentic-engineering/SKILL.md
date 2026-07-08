@@ -7,42 +7,142 @@ description: >
   any task that involves reading, writing, or reasoning about code and systems.
 ---
 
-## How to use this skill in Pi
-
-**Auto-trigger:** The skill loads automatically when you describe software development work.
-
-**Explicit load:** Ask the agent to "use the agentic-engineering skill" or reference the methodology directly.
-
-**IMPORTANT:** Pi does NOT support custom markdown slash commands like `/init-project` or `/wrap`.
-Those are Claude Code conventions. In Pi, always use natural language ("run init-project", "do a wrap").
-
----
+> **IMPORTANT - READ THIS FIRST:** If `skill_auto_load: true` is set in `~/.claude/agentic-engineering.json`, this skill is configured to auto-load. Read this entire SKILL.md before taking any action on software development tasks. Do not start implementing until you have read the Rules section below.
 
 The Agentic Engineering system defines how to plan, delegate, review, and ship software using a
 structured multi-agent workflow. It covers risk classification, adversarial review, task
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
-files on every session and the reference docs on the triggers described in agent-methodology.md.
+files on every session and the reference docs on the triggers described in METHODOLOGY.md §Protocol Details (read on trigger).
 
-**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in `rules/agent-methodology.md` for the full rule, anti-patterns, and stop-frequency thresholds.
+**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
-## Pi-specific subagent mapping
+## Rules (read these files)
 
-Pi provides built-in subagent types. Map agentic-engineering roles to them as follows:
+- **METHODOLOGY.md** - the assembled kernel: delegation, risk classification, activation preflight, planning gate,
+  task decomposition, and worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
-- **`task`** (default) - Use for general implementation work (maps to `engineer`, `debugger`, `qa-engineer`, `perf-analyst`). This is the standard Worker for Elevated-risk tasks.
-- **`explore`** - Use for fast read-only codebase exploration (maps to `investigator`, `dependency-auditor`, `adr-drift-detector`).
-- **`plan`** - Use for implementation planning and architecture design (maps to `architect`, `orchestration-planner`, `adr-generator`).
-- **`designer`** - Use for UI/UX design work (maps to designer roles).
-- **`reviewer`** - Use for adversarial code review (maps to `skeptic`, `security-auditor`).
-- **`quick_task`** - Use for lightweight, low-risk tasks that don't need full Worker + Skeptic review.
+- **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read always
+  primary; prefer Glob/Grep when available, Bash `rg`/`grep`/`find` as the sanctioned fallback
+  otherwise), code quality gates, package management conventions, and browser verification with
+  agent-browser.
 
-Pi also provides native commands that map to methodology workflows:
-- `/plan` - Maps to `orchestration-planner` or `architect` workflows
-- `/review` - Maps to `skeptic` adversarial review
+- **rules/conventions.md** - writing style, project structure, session context and memory handling,
+  and git workflow including protected branches and worktree-per-feature conventions.
 
-When spawning a subagent, read the corresponding **detailed agent file** from `agents/<name>.md` and include its full instructions in the spawn prompt. The agent files contain role-specific constraints, reporting formats, and workflow rules that `references/agent-team.md` does not cover in detail.
+## Commands (invoke by name)
 
-| Agentic role | File to read | Pi subagent type |
+- `/agentic-help` - static, zero-token command reference; lists every slash command with a one-line description.
+- `/agentic-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
+- `/brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/brief --from <path>` to extract a Brief from an existing PRD.
+- `/pull-and-install` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
+
+Run `/agentic-help` for the full command inventory.
+
+## Reference Docs (read on trigger - see Protocol Details in METHODOLOGY.md)
+
+- **references/skeptic-protocol.md** - Skeptic loop orchestration, findings classification
+  (Critical/Major/Minor), sign-off format, adversarial briefs, and the Elevated + Cleanup path.
+
+- **references/subagent-protocol.md** - parallel spawning rules, worktree isolation, check-in
+  behavior, phase breadcrumbs, and task decomposition rules for multi-Worker plans.
+
+- **references/agent-team.md** - named agent roles (engineer, architect, investigator, debugger,
+  security-auditor, orchestration-planner), composed flows, decision rules, and spawn requirements.
+
+- **references/design-goals.md** - design principles and goals of the Agentic Engineering system;
+  read when evaluating whether a proposed change aligns with the system's intent.
+
+- **references/regression-test-obligation.md** - per-finding regression-test obligation: every
+  Skeptic finding fixed during a task must come with a regression test that would have caught it;
+  read when fixing a Skeptic finding to confirm what counts as a valid regression test.
+
+- **references/doc-sync-obligation.md** - per-change doc-sync obligation: a reality-asserting
+  change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
+  the affected docs in the same change; read when a change touches a documented surface.
+
+- **references/role-models.md** - Pi / oh-my-pi per-role model routing and antagonist
+  reviewer model diversity; read when resolving `role-models.yml` or spawning reviewers on Pi/omp.
+
+- **references/model-discovery.md** - Pi/oh-my-pi model selection paths (ask-user
+  wizard, harness-native, pin-by-hand) and the per-role ranking heuristics in
+  `bin/agentic-models`; read when seeding `role-models.yml`.
+
+- **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema, including
+  the discover -> dispatch -> status -> collect Conductor Dispatch Contract, for orchestrating
+  parallel agent teams across multiple AI harnesses; read when using `agentic-team` or
+  configuring cross-harness dispatch with `team.yml`.
+
+- **references/digest-return-pattern.md** - digest-return discipline: when a background
+  loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns, the conductor
+  reads the structured digest and acts - it does not re-read the internal transcript; read
+  when running a multi-unit plan with parallel background loops.
+
+- **references/delegation-detail.md** - Worker Autonomy Contract, Stop-Frequency planning
+  signal, Investigator-Before-Architect Rules, Learnings Pipeline, and the delegation-
+  enforcement mechanics (background-spawn, ticket-offer gate, proactive autonomy, anti-
+  patterns, hard-stop vs choosing, AskUserQuestion precondition, evidence verification,
+  orchestration hooks/fan-out); read when spawning or reviewing Worker autonomy edge cases.
+
+- **references/planning-artifacts.md** - Brief/Plan/ADR tier templates, the promotion
+  ordering rationale and full authoring sequence, product-intent layer, and the canonical
+  `qa_default_skip` definition; read when authoring or promoting a Brief or Plan.
+
+- **references/qa-gate.md** - concurrent and post-sign-off QA gate flows, the full
+  INCONCLUSIVE classification rationale, parallel-by-worktree fan-out, and the dev-server
+  boot pattern; read when running the QA gate on a UI-visible change.
+
+- **references/conventions-detail.md** - the Intent Layer, Project Config toggle catalog,
+  Context Economy, External Comment Discipline, and the four session-start notice templates
+  (meta-divergence, skill-candidate, identity, deprecated-preset); read when resolving
+  session-context or notice-format questions.
+
+- **references/code-standards-detail.md** - per-language strict-default lint/typecheck
+  configs, browser verification, the tool-selection hierarchy, and context-window
+  management via `ctx_*` tools; read when implementing in a specific language or choosing
+  between raw Bash and context-mode tools.
+
+- **references/activation-detail.md** - First-Activation Notice and Scaffolding-Sync Check
+  procedures plus the deprecated legacy-preset table and resolution rules; read on the
+  activation preflight Step 4 proceed branch or when resolving a legacy `preset` key.
+
+- **references/worktree-lifecycle.md** - subagent worktree create/remove commands, isolation
+  and feature worktree cleanup, the session-start prune script, and branch-prune command
+  blocks; read when managing worktree lifecycle.
+
+## Rules (read on trigger)
+
+- **rules/module-manifest.md** - required manifest header format for non-trivial source files;
+  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
+  LOC, or implements a side-effecting operation.
+
+## oh-my-pi (omp) usage
+
+oh-my-pi discovers this skill from `.omp/skills/agentic-engineering/` for project-local use and from `~/.omp/agent/skills/agentic-engineering/` after global install.
+
+**Auto-trigger:** The skill loads automatically when you describe software development work. Ask the agent to "use the agentic-engineering skill" for an explicit load.
+
+**IMPORTANT:** oh-my-pi does NOT support custom markdown slash commands like `/init-project`, `/wrap`, `/brief`, or any other command referenced in the "Commands (invoke by name)" section above. That section describes Claude Code slash-command conventions - in oh-my-pi, invoke the same commands via natural language (e.g. "run init-project", "do a wrap") or by reading the corresponding `commands/<name>.md` file directly and following its instructions.
+
+Read `METHODOLOGY.md` at skill load before applying the workflow. Read command details from `commands/<name>.md` when a workflow step asks you to run a command. Read references from `references/` and rules from `rules/` on their documented triggers.
+
+## oh-my-pi subagent mapping
+
+oh-my-pi provides built-in subagent types. Map agentic-engineering roles to them as follows:
+
+- **`task`** (default) - general implementation work (maps to `engineer`, `debugger`, `qa-engineer`, `perf-analyst`). The standard Worker for Elevated-risk tasks.
+- **`explore`** - fast read-only codebase exploration (maps to `investigator`, `dependency-auditor`, `adr-drift-detector`).
+- **`plan`** - implementation planning and architecture design (maps to `architect`, `orchestration-planner`, `adr-generator`).
+- **`designer`** - UI/UX design work (maps to designer roles).
+- **`reviewer`** - adversarial code review (maps to `skeptic`, `security-auditor`).
+- **`quick_task`** - lightweight, low-risk tasks that don't need full Worker + Skeptic review.
+
+oh-my-pi also provides native commands that map to methodology workflows:
+- `/plan` - maps to `orchestration-planner` or `architect` workflows
+- `/review` - maps to `skeptic` adversarial review
+
+When spawning a subagent, read the corresponding detailed agent file from `agents/<name>.md` and include its full instructions in the spawn prompt. The agent files contain role-specific constraints, reporting formats, and workflow rules that `references/agent-team.md` does not cover in detail.
+
+| Agentic role | File to read | oh-my-pi subagent type |
 |---|---|---|
 | `engineer` | `agents/engineer.md` | `task` |
 | `debugger` | `agents/debugger.md` | `task` |
@@ -57,65 +157,4 @@ When spawning a subagent, read the corresponding **detailed agent file** from `a
 | `security-auditor` | `agents/security-auditor.md` | `reviewer` or `task` |
 | `release-orchestrator` | `agents/release-orchestrator.md` | `task` |
 
-For the **Skeptic** role, spawn a `reviewer` subagent or use Pi's native `/review` command, prepending the skeptic instructions from `agents/skeptic.md` (or `references/skeptic-protocol.md` for the protocol overview) and restricting its task to read-only review.
-
-## Risk classification reminder
-
-Perform a brief risk assessment before starting any task. Any single Elevated signal triggers Worker + fresh independent Skeptic review. Low risk permits direct action with a brief inline self-check. When in doubt, classify as Elevated.
-
-**Elevated signals (any single one triggers adversarial review):** any code edit to file contents; security / auth / crypto / payments / secrets; irreversible operations; architecture decisions that constrain future choices; modifies protocol or infrastructure files; production or shared state; multi-file changes; new file creation; external APIs or services; unfamiliar codebase area; logic with emergent cross-component interactions; user signals high stakes; configuration changes; research that produces a document, recommendation, or plan to be acted on; changes to shared utilities used across many call sites; anything where a mistake costs time or data.
-
-**Trivial signals (ALL must hold - any single disqualifier pushes to Elevated):** touches exactly one file; no change to control flow, data flow, state shape, API surface, or types; no change to shared design tokens, theme files, config, env, or CI; no change to anything a downstream consumer imports; reversible with a one-line revert; no security, auth, permissions, billing, or PII surface involved.
-
-**Conductor rule for Trivial:** If no subagents are currently running, the conductor edits directly. If any subagent is currently running, spawn a single `task` subagent in foreground with no Skeptic.
-
-## Rules (read these files)
-
-- **rules/agent-methodology.md** - delegation model, risk classification, task decomposition, and
-  worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
-
-- **rules/code-standards.md** - documentation lookups via Context7, tool discipline (read/write/edit/shell over Bash for reads), code quality gates, package management conventions, and browser verification.
-
-- **rules/conventions.md** - writing style, project structure, session context and memory handling,
-  and git workflow including protected branches and worktree-per-feature conventions.
-
-## Reference Docs (read on trigger - see Protocol Details in agent-methodology.md)
-
-- **references/skeptic-protocol.md** - Skeptic loop orchestration, findings classification
-  (Critical/Major/Minor), sign-off format, adversarial briefs, and the Elevated + Cleanup path.
-
-- **references/subagent-protocol.md** - parallel spawning rules, worktree isolation, check-in
-  behavior, phase breadcrumbs, and task decomposition rules for multi-subagent plans.
-
-- **references/agent-team.md** - named agent roles (engineer, architect, investigator, debugger,
-  security-auditor, orchestration-planner), composed flows, decision rules, and spawn requirements.
-
-- **references/design-goals.md** - design principles and goals of the Agentic Engineering system;
-  read when evaluating whether a proposed change aligns with the system's intent.
-
-- **references/regression-test-obligation.md** - per-finding regression-test obligation: every
-  Skeptic finding fixed during a task must come with a regression test that would have caught it;
-  read when fixing a Skeptic finding to confirm what counts as a valid regression test.
-
-## Rules (read on trigger)
-
-- **rules/module-manifest.md** - required manifest header format for non-trivial source files;
-  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
-  LOC, or implements a side-effecting operation.
-
-## Commands
-
-Command templates live in `commands/`. Pi does not support custom markdown commands, so load a specific command by asking the agent to run it (e.g. "run cleanup-worktrees"), or read the file directly from `commands/<name>.md` and follow its instructions.
-
-Available commands:
-
-- **cleanup-worktrees** - Clean up stale git worktrees and local branches.
-- **configure-team** - Set up and verify a cross-harness agent team for role-to-harness dispatch.
-- **implement-ticket** - End-to-end ticket implementation with architect, engineer, and skeptic.
-- **init-project** - Initialize agentic-engineering in a new repository.
-- **memory-update** - Update session context and memory files.
-- **prune-harness** - Prune stale eval harness entries.
-- **representation-audit** - Audit agent representation files for drift.
-- **skeptic** - Run a focused Skeptic review on a specific change.
-- **update-agentic-engineering** - Update this repo's content and rebuild adapters.
-- **wrap** - End-of-session wrap-up: commit, context save, and loop state.
+For the **Skeptic** role, spawn a `reviewer` subagent or use oh-my-pi's native `/review` command, prepending the skeptic instructions from `agents/skeptic.md` (or `references/skeptic-protocol.md` for the protocol overview) and restricting its task to read-only review.
