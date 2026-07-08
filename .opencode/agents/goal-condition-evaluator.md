@@ -1,5 +1,5 @@
 ---
-description: Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Dependency note: goal_mode=open_goal is itself unimplemented (spec-only; see content/references/trigger-catalog.md) - this spec exists at the same spec-only level and has no wiring into /implement-ticket today.
+description: Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Wired as of DS-75 (newly wired, low field mileage): the conductor spawns this agent at content/commands/implement-ticket.md Phase 6 clean exit, scoped to open-goal iterations whose risk_declared is elevated and which just received a clean Skeptic sign-off - see content/references/trigger-catalog.md §Risk and review discipline (e).
 mode: subagent
 permission:
   edit: deny
@@ -30,11 +30,15 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt"
 
 Upstream deps: None (no external libraries; only Read/Grep/Glob/Bash tools).
 
-Downstream consumers: the conductor's open-goal loop
-                      (content/references/trigger-catalog.md §Open-goal loop
-                      contract). This consumer is not yet wired - goal_mode=
-                      open_goal is itself unimplemented (spec-only) - so this
-                      agent has no live caller in /implement-ticket today.
+Downstream consumers: the conductor's open-goal loop, wired at
+                      content/commands/implement-ticket.md Phase 6 'Open-goal
+                      condition check' subsection (spawn scoped to
+                      elevated-risk, clean-sign-off iterations only;
+                      low/trivial iterations are evaluated conductor-direct,
+                      never via this agent). Newly wired as of DS-75 - low
+                      field mileage. See content/references/trigger-catalog.md
+                      §Open-goal loop contract and §Risk and review
+                      discipline (e).
 
 Failure modes:
 - Fails closed: any error, ambiguity, or inability to confirm the condition

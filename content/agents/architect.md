@@ -41,9 +41,10 @@ Your spawn prompt will contain:
 
 1. Read the task description carefully. List any ambiguities or unstated assumptions before exploring.
 2. Explore the codebase systematically. Prioritize: main entry points, existing data models, API conventions, test patterns, dependency declarations, and any files directly relevant to the feature. Use Glob and Grep extensively when available; otherwise use Bash `rg`/`grep`/`find` for the same purpose.
-3. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
-4. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
-5. Write the technical plan using the output format below.
+3. **Retrieve prior learnings.** Grep `.agentic/learnings.md` for entries matching the feature's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output (citation in the plan's Codebase context).
+4. Identify the key design decisions: data model changes, API shape, integration points, sequencing.
+5. Where meaningful trade-offs exist, consider 2-3 approaches. Commit to one in the Approach section and document the rejected alternatives with one-line rationales in Trade-offs and constraints. Do not present a menu in Approach - but the alternatives must be visible in Trade-offs so the commitment is reviewable.
+6. Write the technical plan using the output format below.
 
 ## Revising a prior plan
 
@@ -258,4 +259,4 @@ List every file path, line reference, and symbol name you asserted anywhere in t
 2. **Conductor walks the human through batches** at the human's pace, presenting one batch at a time and collecting answers. This is conductor orchestration, not architect behavior.
 3. **Spawn 2 - plan synthesis.** Once the human signals "enough" or all batches are answered, the conductor re-spawns the architect (`architect:default` is the default choice; `architect:grill` with a follow-up directive is acceptable when more depth is still needed) with the accumulated Q&A as input. Spawn 2 produces the actual technical plan; its Open Questions section should be empty or minimal because depth was reached interactively.
 
-Runs at Tier 3 because grill mode demands the widest design-question aperture; spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the full spawn-preset protocol in `content/references/spawn-presets.md` for the surrounding declaration protocol.
+Runs at Tier 3 because grill mode demands the widest design-question aperture; spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the full spawn-preset protocol in `content/references/spawn-presets.md` for the surrounding declaration protocol. Separately, the architect also escalates to Tier 3 (conductor-declared `model: opus`) when authoring a Plan+ADR-tier unit (cross-track / architecture-constraining) - see the Mandatory Tier-3 authoring escalation rule in `content/references/risk-config-and-tiers.md`.
