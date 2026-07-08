@@ -6,8 +6,8 @@ dispatch. NOT a public CLI - do not invoke directly.
 Purpose: give agentic-team a small, testable set of primitives for watching a
 spawned worker process group, detecting stalls and hard timeouts, killing the
 whole tree, and recording a machine-readable status trail. Integration into
-bin/agentic-team happens in a later wave; this module ships the primitives and
-their tests only.
+bin/agentic-team is present; this module ships the primitives plus the
+agentic-team wiring.
 
 Public API:
   write_status(run_dir, **fields)
