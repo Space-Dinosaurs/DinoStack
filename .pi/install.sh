@@ -96,7 +96,7 @@ else:
 # Always overwrite these keys
 data["mode"] = mode
 data["profile"] = profile
-data["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+data["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in data:
     try:

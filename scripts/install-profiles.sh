@@ -265,6 +265,16 @@ for tenant in $TENANTS; do
 			continue
 		fi
 		cfg="$(profile_config_dir "$harness" "$tenant")"
+		# Symlink guard on the ACTUAL config dir (CWE-59). The $base guard above
+		# only covers the profile base; for omp the config dir is $base/agent, a
+		# distinct path the base check never sees. Refuse if it (or any parent
+		# below $base) is a symlink so the installer can't be steered to write
+		# outside the intended per-tenant tree.
+		if [[ "$cfg" != "$base" && -L "$cfg" ]]; then
+			echo "  ! refusing $label: config dir is a symlink ($cfg)" >&2
+			FAILED+=("$label")
+			continue
+		fi
 		echo ""
 		echo "==> $label  (--config-dir=$cfg)"
 		rc=0

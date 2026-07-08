@@ -154,7 +154,7 @@ else:
 # Always overwrite these keys
 config["mode"] = mode
 config["profile"] = profile
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
     try:

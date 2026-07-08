@@ -121,7 +121,7 @@ else:
 # Update only the fields ae_write_mode controls
 config["mode"] = mode
 config["profile"] = config.get("profile", "default")
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # Symlink guard: refuse to write through a symlink (open("w") follows it and
 # truncates the real target). PoC verified for config.toml writer.
 if os.path.islink(path):
@@ -151,7 +151,7 @@ else:
 # Always overwrite these keys
 config["mode"] = mode
 config["profile"] = profile
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
     try:
