@@ -175,8 +175,18 @@ _ask_multiselect() {
 				[[ "${state[$i]}" == "1" ]] && SELECTED+=("${labels[$i]}")
 			done
 		else
-			local tok
-			for tok in ${ans//,/ }; do SELECTED+=("$tok"); done
+			local tok i found
+			for tok in ${ans//,/ }; do
+				found=0
+				for ((i = 0; i < n; i++)); do
+					[[ "$tok" == "${labels[$i]}" ]] && { found=1; break; }
+				done
+				if [[ "$found" == "1" ]]; then
+					SELECTED+=("$tok")
+				else
+					echo "install-tui: unknown harness label '$tok' in scripted answer; skipping" >&2
+				fi
+			done
 		fi
 		return
 	fi

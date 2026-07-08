@@ -142,6 +142,20 @@ hasnt "DRY_RUN: bash" "$OUT"
 has "cancelled" "$OUT"
 
 # ---------------------------------------------------------------------------
+# Test 7: malformed harness labels in scripted mode are skipped, not executed.
+# ---------------------------------------------------------------------------
+echo "Test 7: malformed harness labels rejected in scripted mode"
+run_tui "claude,../../../tmp/evil,codex" "dormant" "minimal" "skip" "skip" "yes"
+[[ "$RC" -eq 0 ]] && pass "exit 0 on valid labels" || fail "expected exit 0, got $RC"
+hasnt ".tmp/evil/install.sh" "$OUT"
+# Exactly two adapters were selected (claude + codex); the evil label produced no DRY_RUN line.
+count=$(printf '%s' "$OUT" | grep -c 'DRY_RUN: bash .*/install.sh' || true)
+[[ "$count" -eq 2 ]] && pass "exactly 2 DRY_RUN install lines" || fail "expected 2 DRY_RUN lines, got $count"
+has "DRY_RUN: bash $REPO_DIR/.claude/install.sh --tier=minimal --dormant" "$OUT"
+has "DRY_RUN: bash $REPO_DIR/.codex/install.sh --dormant" "$OUT"
+has "unknown harness label '../../../tmp/evil'" "$OUT"
+
+# ---------------------------------------------------------------------------
 echo
 if [[ "$FAILS" -eq 0 ]]; then
 	echo "ALL PASS"
