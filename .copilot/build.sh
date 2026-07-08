@@ -301,6 +301,11 @@ declare -a generated_prompts=()
 
 for src in "$CONTENT/commands/"*.md; do
   [ -f "$src" ] || continue
+  # The implement-ticket-body.md source is a tier-annotated input to
+  # scripts/build-commands.sh and is NOT a generated command body. Exclude it
+  # from the generated prompts so .github/prompts/ contains only the router and
+  # the tier-specific bodies (matching the convention used in .claude/.codex/etc.).
+  [ "$(basename "$src")" = "implement-ticket-body.md" ] && continue
 
   base="$(basename "$src" .md)"
   dst="$PROMPTS_DST/${base}.prompt.md"

@@ -47,6 +47,12 @@ export REPO_DIR
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
 
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
+AE_DORMANCY_ARGS=()
+
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters)
 #
@@ -63,6 +69,7 @@ export REPO_DIR
 
 AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
+AE_TIER_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
 AE_DRY_RUN=false
@@ -91,6 +98,15 @@ for arg in "$@"; do
       ;;
     --config-dir=*)
       AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
+    --tier=minimal|--tier=medium|--tier=full)
+      AE_TIER_FLAG="${arg#--tier=}"
+      ;;
+    --tier=*)
+      echo "  ! ignoring unknown --tier value: ${arg#--tier=} (expected minimal, medium, or full)"
+      ;;
+    --dormant|--resident)
+      AE_DORMANCY_ARGS+=("$arg")
       ;;
   esac
 done
@@ -168,9 +184,10 @@ PYEOF
 ae_write_config() {
   local mode="$1"
   local profile="$2"
-  python3 - "$AE_CONFIG_PATH" "$mode" "$profile" <<'PYEOF'
+  local tier="${3:-}"
+  python3 - "$AE_CONFIG_PATH" "$mode" "$profile" "$tier" <<'PYEOF'
 import json, sys, os, datetime
-path, mode, profile = sys.argv[1], sys.argv[2], sys.argv[3]
+path, mode, profile, tier = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 # Read existing config or start fresh
 if os.path.exists(path):
     try:
@@ -183,6 +200,15 @@ else:
 # Always overwrite these keys
 config["mode"] = mode
 config["profile"] = profile
+# Tier is the new canonical knob; legacy profile still written for back-compat reads.
+# Tier mapping from legacy profile when no explicit tier passed:
+#   relaxed -> minimal, default -> medium, strict -> full
+if tier and tier in ("minimal", "medium", "full"):
+    config["tier"] = tier
+else:
+    profile_to_tier = {"relaxed": "minimal", "default": "medium", "strict": "full"}
+    if profile in profile_to_tier and "tier" not in config:
+        config["tier"] = profile_to_tier[profile]
 config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
@@ -233,23 +259,85 @@ else
 fi
 
 echo ""
-echo "Risk profile..."
-if [[ -n "$AE_PROFILE_FLAG" ]]; then
-  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
-  ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
-  echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
+echo "Tier..."
+# Resolve tier: --tier flag wins; else existing tier; else map from profile; else minimal (default).
+AE_RESOLVED_TIER=""
+AE_EXISTING_TIER="$(ae_read_json_key "$AE_CONFIG_PATH" tier "")"
+if [[ -n "$AE_TIER_FLAG" ]]; then
+  AE_RESOLVED_TIER="$AE_TIER_FLAG"
+  echo "  + tier set to '$AE_RESOLVED_TIER' via --tier flag"
+elif [[ -n "$AE_EXISTING_TIER" ]]; then
+  AE_RESOLVED_TIER="$AE_EXISTING_TIER"
+  echo "  = tier already set to '$AE_RESOLVED_TIER' (keeping)"
+elif [[ -n "$AE_PROFILE_FLAG" ]]; then
+  case "$AE_PROFILE_FLAG" in
+    relaxed) AE_RESOLVED_TIER="minimal" ;;
+    default) AE_RESOLVED_TIER="medium" ;;
+    strict)  AE_RESOLVED_TIER="full" ;;
+  esac
+  echo "  + tier derived from --profile=$AE_PROFILE_FLAG -> $AE_RESOLVED_TIER"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
-  echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
+  # Existing install has a legacy profile but no tier field. Default to FULL for
+  # parity (no behavioral change from prior installs). Operator can downgrade
+  # explicitly via --tier=minimal|medium on a future run, or via /agentic-config.
+  echo "  ! legacy profile='$AE_EXISTING_PROFILE' detected (no tier field set)"
+  echo "    Defaulting to tier=full to preserve prior install behavior."
+  echo "    Use --tier=minimal or --tier=medium to opt into the smaller methodology."
+  if [[ -t 0 ]]; then
+    if ae_confirm "    Downgrade to tier=medium instead? [y/N] "; then
+      AE_RESOLVED_TIER="medium"
+      echo "    + downgraded to tier=medium"
+    else
+      AE_RESOLVED_TIER="full"
+      echo "    = tier=full (preserved)"
+    fi
+  else
+    AE_RESOLVED_TIER="full"
+    echo "    (non-interactive: tier=full preserved)"
+  fi
 else
-  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
-  ae_write_config "$AE_CURRENT_MODE" "default"
-  echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
-  echo "    Override with: bash .claude/install.sh --profile=relaxed|default|strict"
+  # No --tier flag, no existing tier, no --profile flag, no existing legacy
+  # profile. First-time install: default to minimal (per the tier-system PR).
+  AE_RESOLVED_TIER="minimal"
+  echo "  + first-time install: tier=minimal (default; override with --tier=medium|full)"
 fi
+echo "    Override later: bash .claude/install.sh --tier=minimal|medium|full"
+# Backwards-compat: also write legacy profile field so older readers don't crash.
+# Map tier -> profile (legacy) for the profile field; if AE_PROFILE_FLAG was passed,
+# respect it; otherwise derive from tier.
+case "$AE_RESOLVED_TIER" in
+  minimal) AE_LEGACY_PROFILE="relaxed" ;;
+  medium)  AE_LEGACY_PROFILE="default" ;;
+  full)    AE_LEGACY_PROFILE="strict" ;;
+  *)       AE_LEGACY_PROFILE="default"; AE_RESOLVED_TIER="medium" ;;
+esac
+AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
+ae_write_config "$AE_CURRENT_MODE" "${AE_PROFILE_FLAG:-$AE_LEGACY_PROFILE}" "$AE_RESOLVED_TIER"
 
-AGENTS_SRC="$REPO_DIR/.claude/agents"
+# Tier-aware source paths. AE_RESOLVED_TIER is "minimal|medium|full".
+# Commands are shared across tiers (the tier resolution is inside each command's body).
+# Agents are tier-specific (smaller agent specs for minimal/medium).
+# Skill directory is tier-specific (built by .claude/build.sh into tier-suffixed dirs).
+# References are tier-specific (subset of full).
+case "$AE_RESOLVED_TIER" in
+  medium)
+    AGENTS_SRC="$REPO_DIR/.claude/agents-medium"
+    SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering-medium"
+    REFS_SRC="$REPO_DIR/content/references-medium"
+    ;;
+  full)
+    AGENTS_SRC="$REPO_DIR/.claude/agents"
+    SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
+    REFS_SRC="$REPO_DIR/content/references"
+    ;;
+  *)
+    # minimal (default)
+    AGENTS_SRC="$REPO_DIR/.claude/agents-minimal"
+    SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering-minimal"
+    REFS_SRC="$REPO_DIR/content/references-minimal"
+    ;;
+esac
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
-SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
 
 AGENTS_DST="$AE_CONFIG_DIR/agents"
 COMMANDS_DST="$AE_CONFIG_DIR/commands"
@@ -355,6 +443,51 @@ symlink_files() {
 # ---------------------------------------------------------------------------
 # Symlink agents
 # ---------------------------------------------------------------------------
+
+# Tier change cleanup: remove AE-installed agent files that don't belong in the
+# current tier. We consider a file "AE-installed" if:
+#   1. It is a symlink whose target is under content/agents*/ in this repo, OR
+#   2. It is a regular file whose basename matches a known agent name (collected
+#      from all tier sources).
+# User-added custom agent files (regular files with names NOT in any tier source)
+# are preserved. This prevents the install from wiping user customizations while
+# still pruning stale AE-installed files when switching tiers.
+if [[ -d "$AGENTS_DST" ]]; then
+  # Collect known agent basenames from all tier sources
+  _ae_known_names=""
+  for src in "$REPO_DIR/content/agents" "$REPO_DIR/content/agents-medium" "$REPO_DIR/content/agents-minimal"; do
+    if [[ -d "$src" ]]; then
+      for f in "$src"/*.md; do
+        [[ -f "$f" ]] || continue
+        _ae_known_names+="$(basename "$f")"$'\n'
+      done
+    fi
+  done
+
+  for entry in "$AGENTS_DST"/*.md; do
+    [[ -e "$entry" ]] || continue
+    base="$(basename "$entry")"
+
+    if [[ -L "$entry" ]]; then
+      # Symlink: if target is in any AE tier source but NOT in current tier's source,
+      # re-point would also work but we delete to keep the destination clean.
+      # Match against either content/agents*/ (legacy) or .claude/agents[-<tier>]/ (new).
+      current_target="$(readlink "$entry")"
+      in_ae_repo=false
+      case "$current_target" in
+        *"$REPO_DIR/content/agents"/*|*"$REPO_DIR/.claude/agents"/*) in_ae_repo=true ;;
+      esac
+      if [[ ! -e "$AGENTS_SRC/$base" ]] && $in_ae_repo; then
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  - $base (would remove stale tier-mismatch symlink)"
+        else
+          rm -f "$entry"
+          echo "  - $base (removed stale tier-mismatch symlink)"
+        fi
+      fi
+    fi
+  done
+fi
 
 echo "Linking agents..."
 symlink_files "$AGENTS_SRC" "$AGENTS_DST" "agents"
@@ -846,6 +979,25 @@ fi
 
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
+# Resolve dormant/resident: flags > env > TTY prompt > resident default.
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
+echo "  + install mode: $AE_INSTALL_MODE"
+
+# Tier value is read from env by the python heredoc below.
+export AE_RESOLVED_TIER="${AE_RESOLVED_TIER:-minimal}"
+export AE_INSTALL_MODE
+# Rendered dormant stub body (empty when resident or renderer unavailable).
+if [[ "$AE_INSTALL_MODE" == "dormant" ]] && declare -f ae_stub_body >/dev/null 2>&1; then
+  AE_STUB_BODY="$(ae_stub_body "$AE_CONFIG_DIR/skills/agentic-engineering/METHODOLOGY.md")"
+else
+  AE_STUB_BODY=""
+fi
+export AE_STUB_BODY
+
 AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
 import os, re, sys
 
@@ -853,7 +1005,52 @@ target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
-managed_content = """\
+tier = os.environ.get("AE_RESOLVED_TIER", "minimal")
+install_mode = os.environ.get("AE_INSTALL_MODE", "resident")
+stub_body = os.environ.get("AE_STUB_BODY", "").strip()
+# Dormant: managed block is the stub only — NO @-imports, near-zero session cost.
+# The stub instructs conditional activation; tier content loads only when active.
+if install_mode == "dormant" and stub_body:
+    managed_content = (
+        "<!-- BEGIN managed-by-agentic-engineering -->\n"
+        + stub_body.rstrip("\n")
+        + "\n<!-- END managed-by-agentic-engineering -->"
+    )
+# Medium: imports methodology only (no rules). Full: imports both (legacy behavior).
+elif tier == "minimal":
+    managed_content = """\\
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+Tier: minimal (default). For multi-unit work, run `/agentic-config` -> tier=medium.
+<!-- END managed-by-agentic-engineering -->"""
+elif tier == "medium":
+    managed_content = """\\
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+@skills/agentic-engineering/METHODOLOGY.md
+Tier: medium. For full kernel (QA gate, wrap-ticket, learning-extractor), run `/agentic-config` -> tier=full.
+<!-- END managed-by-agentic-engineering -->"""
+else:
+    # full (legacy behavior)
+    managed_content = """\\
 <!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 

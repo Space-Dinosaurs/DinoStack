@@ -135,4 +135,4 @@ Apply these rules to every external-facing comment:
 - **Skeptic findings posted as PR review comments** are one finding per comment in the form `[Severity] path:line - issue. Fix: <one-line action>.` No preamble, no sign-off banner, no "Active search" line on per-finding comments - that line belongs to the conductor-internal sign-off, not the PR surface.
 - **Self-check before posting.** Re-read this section. For each sentence ask: is this load-bearing for a human deciding "do I need to act on this?" If not, delete it.
 
-This rule layers conciseness expectations on top of the structural templates in `content/commands/implement-ticket.md` (PR body, tracker comment). The templates still apply; this rule governs the substance that fills them.
+This rule layers conciseness expectations on top of the structural templates in `content/commands/implement-ticket-full.md` (PR body, tracker comment). The templates still apply; this rule governs the substance that fills them.

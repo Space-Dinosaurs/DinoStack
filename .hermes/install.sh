@@ -8,6 +8,10 @@ export REPO_DIR
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
 
 # ---------------------------------------------------------------------------
 # Activation mode
@@ -17,6 +21,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DORMANCY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -37,8 +42,17 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --dormant|--resident)
+      AE_DORMANCY_ARGS+=("$arg")
+      ;;
   esac
 done
+
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
 
 AE_CONFIG_PATH="$HOME/.hermes/agentic-engineering.json"
 mkdir -p "$HOME/.hermes"
@@ -190,8 +204,14 @@ elif [[ -f "$SKILL_DST/SKILL.md" ]]; then
   echo "  = backed up existing SKILL.md to SKILL.md.backup-*"
 fi
 
-ln -s "$SKILL_SRC" "$SKILL_DST/SKILL.md"
-echo "  + symlinked $SKILL_DST/SKILL.md -> $SKILL_SRC"
+if [[ "$AE_INSTALL_MODE" == "dormant" ]] && declare -f ae_install_stub_file >/dev/null 2>&1; then
+  # Dormant: SKILL.md becomes the stub; it points at the full skill source for
+  # conditional read once the project is activated via /ds.
+  ae_install_stub_file "$SKILL_DST/SKILL.md" "$SKILL_SRC"
+else
+  ln -s "$SKILL_SRC" "$SKILL_DST/SKILL.md"
+  echo "  + symlinked $SKILL_DST/SKILL.md -> $SKILL_SRC"
+fi
 
 # ---------------------------------------------------------------------------
 # Developer identity

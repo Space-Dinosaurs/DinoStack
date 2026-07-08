@@ -2,7 +2,7 @@
 # Purpose: Build the oh-my-pi (omp) adapter outputs from canonical content/.
 # Public API: invoked as `bash .omp/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/rules/, content/agents/,
-#               content/sections/, content/SKILL.md, scripts/build-methodology.sh.
+#               content/sections/, content/SKILL-full.md, scripts/build-methodology.sh.
 # Downstream consumers: .omp/skills/agentic-engineering/.
 # Failure modes: exits non-zero on missing inputs or assembly failure. Idempotent.
 # Performance: standard.
@@ -15,7 +15,7 @@ SKILL_DST="$REPO_DIR/.omp/skills/agentic-engineering"
 mkdir -p "$SKILL_DST"
 
 required=(
-  "$CONTENT/SKILL.md"
+  "$CONTENT/SKILL-full.md"
   "$REPO_DIR/scripts/build-methodology.sh"
   "$SKILL_DST/SKILL.frontmatter.yaml"
 )
@@ -30,11 +30,11 @@ done
 bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
 
 # SKILL.md: oh-my-pi implements the Agent Skills standard. Keep adapter
-# frontmatter in .omp and derive body from canonical content/SKILL.md.
+# frontmatter in .omp and derive body from canonical content/SKILL-full.md.
 {
   cat "$SKILL_DST/SKILL.frontmatter.yaml"
   echo
-  perl -0pe 's/\A<!--.*?-->\n\n?//s; s#rules/agent-methodology\.md#METHODOLOGY.md#g' "$CONTENT/SKILL.md"
+  perl -0pe 's/\A<!--.*?-->\n\n?//s; s#rules/agent-methodology\.md#METHODOLOGY.md#g' "$CONTENT/SKILL-full.md"
   cat <<'OMP_NOTES'
 
 ## oh-my-pi (omp) usage

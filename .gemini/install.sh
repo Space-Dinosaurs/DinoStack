@@ -19,6 +19,10 @@ GEMINI_DIR="$REPO_DIR/.gemini"
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
 
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters - see .claude/install.sh)
@@ -29,6 +33,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DORMANCY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out) AE_MODE_FLAG="${arg#--mode=}" ;;
@@ -41,8 +46,17 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --dormant|--resident)
+      AE_DORMANCY_ARGS+=("$arg")
+      ;;
   esac
 done
+
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
 
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 mkdir -p "$HOME/.claude"
@@ -251,31 +265,36 @@ mkdir -p "$HOME/.gemini"
 # Step 3: Symlink ~/.gemini/GEMINI.md
 # ---------------------------------------------------------------------------
 
-echo "Linking global GEMINI.md..."
-
-if [[ -L "$GEMINI_MD_DST" ]]; then
-  current_target="$(readlink "$GEMINI_MD_DST")"
-  if [[ "$current_target" == "$GEMINI_MD_SRC" ]]; then
-    echo "  = ~/.gemini/GEMINI.md (already linked)"
-  else
-    echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
-  fi
-elif [[ -e "$GEMINI_MD_DST" ]]; then
-  BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
-  echo ""
-  echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo "  WARNING: ~/.gemini/GEMINI.md already exists and is NOT a symlink."
-  echo "  Backing it up to: $BACKUP"
-  echo "  The existing file will be REPLACED with the agentic-engineering symlink."
-  echo "  To restore: cp \"$BACKUP\" \"$GEMINI_MD_DST\""
-  echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo ""
-  mv "$GEMINI_MD_DST" "$BACKUP"
-  ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
-  echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
+if [[ "$AE_INSTALL_MODE" == "dormant" ]] && declare -f ae_install_stub_file >/dev/null 2>&1; then
+  echo "Writing dormant GEMINI.md stub..."
+  ae_install_stub_file "$GEMINI_MD_DST" "$GEMINI_MD_SRC"
 else
-  ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
-  echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
+  echo "Linking global GEMINI.md..."
+
+  if [[ -L "$GEMINI_MD_DST" ]]; then
+    current_target="$(readlink "$GEMINI_MD_DST")"
+    if [[ "$current_target" == "$GEMINI_MD_SRC" ]]; then
+      echo "  = ~/.gemini/GEMINI.md (already linked)"
+    else
+      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
+    fi
+  elif [[ -e "$GEMINI_MD_DST" ]]; then
+    BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+    echo ""
+    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "  WARNING: ~/.gemini/GEMINI.md already exists and is NOT a symlink."
+    echo "  Backing it up to: $BACKUP"
+    echo "  The existing file will be REPLACED with the agentic-engineering symlink."
+    echo "  To restore: cp \"$BACKUP\" \"$GEMINI_MD_DST\""
+    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo ""
+    mv "$GEMINI_MD_DST" "$BACKUP"
+    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+    echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
+  else
+    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+    echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

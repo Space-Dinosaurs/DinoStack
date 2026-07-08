@@ -1,0 +1,11 @@
+---
+name: "agentic-engineering-minimal"
+description: >
+  Minimal-tier agentic engineering (default). Apply when the user mentions any software
+  development work for solo or single-file scope: implementing features, fixing bugs,
+  refactoring local code, debugging, testing, or any task that involves reading, writing,
+  or reasoning about code and systems. Defaults to direct edits with inline risk
+  classification; spawns engineer + skeptic for elevated work in a worktree. No Brief/Plan
+  artifacts, no QA gate, no architect/planner. For multi-unit or team work, escalate to
+  medium or full tier via /agentic-config.
+---

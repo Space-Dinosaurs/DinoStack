@@ -17,11 +17,16 @@ export REPO_DIR
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
 
 AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DORMANCY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out) AE_MODE_FLAG="${arg#--mode=}" ;;
@@ -37,8 +42,17 @@ for arg in "$@"; do
     --config-dir=*)
       AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
       ;;
+    --dormant|--resident)
+      AE_DORMANCY_ARGS+=("$arg")
+      ;;
   esac
 done
+
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
 
 echo "Building Pi coding agent adapter..."
 bash "$REPO_DIR/.pi/build.sh"
@@ -164,7 +178,13 @@ EXT_DST="$PI_HOME/extensions/agentic-engineering"
   exit 1
 }
 mkdir -p "$SKILL_DST" "$PROMPT_DST" "$EXT_DST"
-cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
+# Dormant: SKILL.md becomes the stub (body loads METHODOLOGY.md on activation).
+# METHODOLOGY.md is still copied so the full methodology is available when active.
+if [[ "$AE_INSTALL_MODE" == "dormant" ]] && declare -f ae_install_stub_file >/dev/null 2>&1; then
+  ae_install_stub_file "$SKILL_DST/SKILL.md" "$SKILL_DST/METHODOLOGY.md"
+else
+  cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
+fi
 cp "$SKILL_SRC/METHODOLOGY.md" "$SKILL_DST/METHODOLOGY.md"
 echo "  + skill files copied to $SKILL_DST"
 
