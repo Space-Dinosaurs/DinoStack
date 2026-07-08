@@ -120,8 +120,13 @@ directory; setting it to a non-root path disables the graph risk signal).
 
 | Field | Default | Valid values |
 |---|---|---|
-| `developer_id` | required if file exists | string handle |
+| `developer_id` | none (absent file = no attribution) | string handle |
 | `provisional` | `false` (absent = confirmed) | `true`, `false` |
+
+**Absent file / absent `developer_id`:** no telemetry is attributed; session
+logs are not written. The effective default is no identity. Use
+`agentic-identity auto` to auto-derive a provisional handle from the GitHub
+login (lowest-friction starting point).
 
 **4-tier precedence:** project-confirmed > global-confirmed >
 project-provisional > global-provisional > none.
@@ -139,9 +144,9 @@ feature off.
 
 | Field | Default | Type | Notes |
 |---|---|---|---|
-| `enabled` | required | bool | `true`/`false`; absent file treated as `false` |
-| `default_harness` | optional | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude` |
-| `roles` | optional | map | Maps role name to `{harness, model}` |
+| `enabled` | `false` (absent file = feature off) | bool | Must be explicitly `true` to activate dispatch; absent file is equivalent to `enabled: false` |
+| `default_harness` | none (absent = no harness fallback) | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`; absent means unrouted roles fall through to native spawn |
+| `roles` | none (absent = empty map, no per-role routing) | map | Maps role name to `{harness, model}` |
 | `dispatch.timeout_seconds` | `1800` | int | Per-Worker timeout |
 | `dispatch.output_format` | `"json"` | `"json"`, `"text"` | Worker output format |
 

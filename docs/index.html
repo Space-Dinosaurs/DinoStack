@@ -869,7 +869,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jul 06, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jul 07, 2026
   <hr class="side-nav-divider">
   <a href="#decks"><span class="nav-dot" style="background: var(--text-muted);"></span> Slide Decks</a>
   <a href="#infographics"><span class="nav-dot" style="background: var(--gold);"></span> Infographics</a>
@@ -904,7 +904,7 @@
   <p class="byline">by Tyson Hummel</p>
   <p class="repo-link"><a href="https://github.com/Space-Dinosaurs/DinoStack" target="_blank" rel="noopener noreferrer">github.com/Space-Dinosaurs/DinoStack</a></p>
   <p class="epigraph">Operator attention is the scarce resource. Agents aren't. This architecture is an attempt to run as much of the process without you as possible - so the attention you do spend goes where judgment is load-bearing.</p>
-  <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex reads it natively; Claude Code loads it via a one-line <code>CLAUDE.md</code> containing <code>@AGENTS.md</code>. The patterns translate to any agentic framework.</p>
+  <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex reads it natively; Claude Code loads it via a <code>CLAUDE.md</code> containing <code>@AGENTS.md</code> and <code>@MEMORY.md</code> import lines. The patterns translate to any agentic framework.</p>
 </div>
 
 <nav id="decks" class="deck-index" aria-label="Slide decks">
@@ -1105,7 +1105,7 @@
   <div class="rel-card" style="margin-bottom: 16px;">
     <h4>Identity handle</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> derived from GitHub login</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> none (absent file = no attribution; run <code>agentic-identity auto</code> to derive from GitHub login)</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code></p>
   </div>
 
@@ -1143,7 +1143,7 @@
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and importable by Claude Code via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
-    <strong>Claude Code users:</strong> create a <code>CLAUDE.md</code> at the repo root containing exactly one line - <code>@AGENTS.md</code> - and Claude Code will import <code>AGENTS.md</code> transparently.<br>
+    <strong>Claude Code users:</strong> create a <code>CLAUDE.md</code> at the repo root containing two import lines - <code>@AGENTS.md</code> and <code>@MEMORY.md</code> - and Claude Code will import both <code>AGENTS.md</code> and <code>MEMORY.md</code> transparently.<br>
     <strong>Codex CLI users:</strong> Codex reads <code>AGENTS.md</code> natively with no extra setup.<br>
     <strong>Result:</strong> one content source drives all adapters. No duplication.
   </div>
@@ -1333,7 +1333,7 @@
             <li><strong>Conductors declare Tier 1/2/3 at spawn time</strong> - routes lightweight tasks to faster models and critical reviews to max-capability models</li>
             <li><strong>Tier 1</strong> - cheap/fast (Haiku). Declare explicitly for shallow reads, existence checks, format-only tasks, and mechanical transformations</li>
             <li><strong>Tier 2</strong> - implementation default (Sonnet). Most spawns land here: engineer, investigator, qa-engineer, and other implementation roles</li>
-            <li><strong>Tier 3</strong> - review default (Opus). Skeptic and security-auditor default to Tier 3 via frontmatter; upgrade architect/engineer to Tier 3 for novel architecture or high-blast-radius units</li>
+            <li><strong>Tier 3</strong> - review default (Opus). Skeptic and security-auditor default to Tier 3 via frontmatter; upgrade architect/engineer to Tier 3 for novel architecture or high-blast-radius units; on Plan+ADR-tier units (cross-track / architecture-constraining), the authoring architect/adr-generator/product-discovery must also be Tier 3, conductor-declared via explicit <code>model: opus</code> and backstopped by <code>enforce-tier.py</code></li>
             <li><strong>Tier is a required field</strong> - every Elevated spawn carries a <code>Tier:</code> line below <code>Risk:</code>. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; the param overrides for upgrades or budget-mode downgrades (never for mandated-Tier-3 Skeptics). Declaration without the tool-call param produces frontmatter-default behavior, not Tier 2</li>
             <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
             <li><strong>Pi/oh-my-pi can resolve roles from <code>~/.agentic/role-models.yml</code></strong> - opt-in per-role model strings plus antagonist reviewer diversity for <code>skeptic</code> and <code>security-auditor</code>; if absent, Pi uses session defaults</li>
@@ -1578,7 +1578,7 @@
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
         <h4 style="color: var(--violet);">Review Agent</h4>
         <ul>
-          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks for DRY violations, duplication, and missed abstractions. Checks module manifests on non-trivial files with tiered enforcement (missing = Minor, stale = Major, stale-on-correctness/security path = Critical) and verifies regression tests were added for any Critical/Major fixes. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
+          <li><strong>skeptic</strong> - adversarial reviewer. Always a fresh invocation (never continued from a prior round). Receives an adversarial brief and the Worker's output. Classifies findings as Critical/Major/Minor and provides structured sign-off. Also checks for DRY violations, duplication, and missed abstractions. Checks module manifests on non-trivial files with tiered enforcement (missing = Minor, stale = Major, stale-on-correctness/security path = Critical) and verifies regression tests were added for any Critical/Major fixes. Actively verifies cross-file identifier consistency after renames or removals (config keys, exported symbols, env vars) and flags fire-and-forget async calls with no attached error handler. The cross-cutting review role - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px;">
@@ -1786,7 +1786,7 @@
       <div class="rel-card">
         <h4>Persistence Hierarchy</h4>
         <ul>
-          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and auto-injected into every conversation at startup. Stable architecture, key paths, and preferences with rationale.</li>
+          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Stable architecture, key paths, and preferences with rationale.</li>
           <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>

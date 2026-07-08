@@ -42,34 +42,66 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --config-dir=*)
+      AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
   esac
 done
 
+# Codex harness config directory (redirectable for per-profile installs).
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.codex.
+# Shared user state (~/.claude activation config, ~/.local/bin) stays in $HOME.
+CODEX_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.codex}}"
+# Public API note: --config-dir=<dir> / AGENTIC_CONFIG_DIR redirects this
+# harness config dir for per-profile installs; shared state stays in $HOME.
+
+# Activation config path defaults to the shared $HOME location but is also
+# redirectable via --config-dir so multi-tenant installs (one profile per
+# harness-tenant pair) do not clobber each other or the shared default.
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
+if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+  AE_CONFIG_PATH="$CODEX_CONFIG_DIR/agentic-engineering.json"
+fi
+
+# Ensure the config dir exists before the first ae_write_* call. Without this,
+# a redirected --config-dir pointing at a not-yet-existing directory makes
+# open(path, "w") raise FileNotFoundError. Guard the dir symlink first: mkdir -p
+# silently follows dir symlinks (CWE-59). Mirrors .pi/install.sh and .claude/install.sh.
+AE_CONFIG_TARGET_DIR="$(dirname "$AE_CONFIG_PATH")"
+[[ -L "$AE_CONFIG_TARGET_DIR" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $AE_CONFIG_TARGET_DIR" >&2
+  exit 1
+}
+mkdir -p "$AE_CONFIG_TARGET_DIR"
+
+# Safe JSON-key reader: path/key/default via argv, never interpolated into the
+# Python source (defense-in-depth against quotes/metacharacters, CWE-94).
+ae_read_json_key() {
+  python3 - "$1" "$2" "$3" <<'PYEOF' 2>/dev/null
+import json, sys
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as f:
+        print(json.load(f).get(key, default))
+except Exception:
+    print(default)
+PYEOF
+}
+# Symlink guard: refuse if ~/.claude is a symlinked dir (CWE-59).
+[[ -L "$HOME/.claude" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $HOME/.claude" >&2
+  exit 1
+}
 mkdir -p "$HOME/.claude"
 
 AE_EXISTING_MODE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_MODE="$(python3 -c "
-import json
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "")"
 fi
 
 AE_EXISTING_PROFILE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_PROFILE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('profile', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_PROFILE="$(ae_read_json_key "$AE_CONFIG_PATH" profile "")"
 fi
 
 ae_write_mode() {
@@ -89,7 +121,12 @@ else:
 # Update only the fields ae_write_mode controls
 config["mode"] = mode
 config["profile"] = config.get("profile", "default")
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+# Symlink guard: refuse to write through a symlink (open("w") follows it and
+# truncates the real target). PoC verified for config.toml writer.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -114,7 +151,7 @@ else:
 # Always overwrite these keys
 config["mode"] = mode
 config["profile"] = profile
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
     try:
@@ -126,6 +163,10 @@ if "skill_auto_load" not in config:
     except OSError:
         config["skill_auto_load"] = False
 # Write back
+# Symlink guard (see ae_write_mode).
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -161,27 +202,13 @@ fi
 echo ""
 echo "Risk profile..."
 if [[ -n "$AE_PROFILE_FLAG" ]]; then
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "opt-out")"
   ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
   echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
   echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
 else
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "opt-out")"
   ae_write_config "$AE_CURRENT_MODE" "default"
   echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
   echo "    Override with: bash .codex/install.sh --profile=relaxed|default|strict"
@@ -189,13 +216,13 @@ fi
 
 SKILL_SRC="$REPO_DIR/.codex/skill"
 SKILL_DST="$HOME/.agents/skills/agentic-engineering"
-OLD_SKILL_DST="$HOME/.codex/skills/agentic-engineering"
+OLD_SKILL_DST="$CODEX_CONFIG_DIR/skills/agentic-engineering"
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
-AGENTS_DST="$HOME/.codex/AGENTS.md"
+AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
 
 NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
-NAMED_AGENTS_DST="$HOME/.codex/agents"
+NAMED_AGENTS_DST="$CODEX_CONFIG_DIR/agents"
 
 # ---------------------------------------------------------------------------
 # Run build to ensure artifacts are up to date
@@ -251,7 +278,12 @@ fi
 
 echo "Linking global AGENTS.md..."
 
-mkdir -p "$HOME/.codex"
+# Symlink guard: refuse if harness config dir is a symlink (CWE-59).
+[[ -L "$CODEX_CONFIG_DIR" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $CODEX_CONFIG_DIR" >&2
+  exit 1
+}
+mkdir -p "$CODEX_CONFIG_DIR"
 
 if [[ -L "$AGENTS_DST" ]]; then
   current_target="$(readlink "$AGENTS_DST")"
@@ -354,9 +386,9 @@ HOOKS_SRC="$AE_HOOKS_ROOT/.codex/config/hooks.json"
 # moved to the snapshot.
 LEGACY_HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
 LEGACY_HOOKS_SRC2="$REPO_DIR/.codex/config/hooks.json"
-HOOKS_DST="$HOME/.codex/hooks.json"
+HOOKS_DST="$CODEX_CONFIG_DIR/hooks.json"
 
-CONFIG_FILE="$HOME/.codex/config.toml"
+CONFIG_FILE="$CODEX_CONFIG_DIR/config.toml"
 
 canonicalize_path() {
   python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
@@ -429,6 +461,12 @@ if [[ -f "$CONFIG_FILE" ]]; then
   else
     # File exists, flag is missing. Add it safely.
     # Check if [features] section exists
+    # Symlink guard: refuse to write through a symlinked config.toml. A
+    # `mv`/`printf >` redirect silently follows and truncates the real target.
+    [[ -L "$CONFIG_FILE" ]] && {
+      echo "  ! refusing to write through symlink: $CONFIG_FILE" >&2
+      exit 1
+    }
     if grep -q "^\[features\]" "$CONFIG_FILE" 2>/dev/null; then
       # [features] section exists - insert the flag after the FIRST match only
       # Use a temp file to avoid in-place issues
@@ -447,13 +485,18 @@ if [[ -f "$CONFIG_FILE" ]]; then
 else
   # Config file does not exist - create it with only the feature flag
   mkdir -p "$(dirname "$CONFIG_FILE")"
+  # Symlink guard: refuse to write through a symlinked config.toml.
+  [[ -L "$CONFIG_FILE" ]] && {
+    echo "  ! refusing to write through symlink: $CONFIG_FILE" >&2
+    exit 1
+  }
   printf '[features]\ncodex_hooks = true\n' > "$CONFIG_FILE"
   echo "  + Created $CONFIG_FILE with [features] codex_hooks = true"
   ADDED_CODEX_HOOKS_FLAG=1
 fi
 
 # Write a marker file so uninstall.sh knows to remove the flag
-HOOKS_FLAG_MARKER="$HOME/.codex/.agentic-eng-added-codex-hooks-flag"
+HOOKS_FLAG_MARKER="$CODEX_CONFIG_DIR/.agentic-eng-added-codex-hooks-flag"
 if [[ $ADDED_CODEX_HOOKS_FLAG -eq 1 ]]; then
   touch "$HOOKS_FLAG_MARKER"
 fi

@@ -14,13 +14,13 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 Run `agentic-update` from anywhere, no arguments.
 
-| Path | Command | When |
-|---|---|---|
-| Shell (recommended) | `agentic-update` | Default; from any directory, no TTY |
-| In-session | `/pull-and-install` | Inside Claude Code, any project |
-| TUI | `./update.sh` | Interactive adapter selection |
-| CI / scripts | `git pull && ./install-all.sh` | Non-interactive |
-| Repair drift | `agentic-doctor --fix` | Fix broken symlinks/hooks (e.g. after moving the repo) |
+| Path                | Command                          | When                                                                                                             |
+| ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Shell (recommended) | `agentic-update`                 | Default; from any directory, no TTY                                                                              |
+| In-session          | `/pull-and-install`              | Inside Claude Code, any project                                                                                  |
+| TUI                 | `./update.sh`                    | Interactive adapter selection                                                                                    |
+| CI / scripts        | `git pull && ./install-all.sh`   | Non-interactive                                                                                                  |
+| Repair drift        | `agentic-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
 | Check cross-harness | `agentic-doctor --cross-harness` | Validate team.yml / role-models.yml, referenced harnesses, and model handles (add `--json` for machine output) |
 
 Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
@@ -103,6 +103,31 @@ bash .claude/install.sh
 
 For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw, VS Code Copilot), see the install instructions in each adapter's README.
 
+## Multiple profiles
+
+If you run several isolated tenant config dirs per tool (e.g. `~/.claude-projectA`, `~/.codex-projectB`), install into them without relocating shared state. Every harness `install.sh` accepts `--config-dir=<dir>` (or the `AGENTIC_CONFIG_DIR` env var); only the per-harness config directory moves, while shared user state (`~/.agentic`, `~/.local/bin`, `~/.claude.json`) always stays in the real `$HOME`.
+
+```bash
+# one profile, one harness
+bash .claude/install.sh --config-dir=$HOME/.claude-<tenant>
+
+# discover existing profiles from disk and reinstall all of them
+./scripts/install-profiles.sh
+
+# explicit tenant list (still supported)
+./scripts/install-profiles.sh \
+  --tenants="acme beta" \
+  --harnesses="claude codex omp pi"
+
+# create a new profile and install into it (opt-in, gated by a pre-flight check)
+./scripts/install-profiles.sh --create-profile=<tenant>
+
+# check whether a new profile can be created without creating anything
+./scripts/install-profiles.sh --create-profile=<tenant> --check-only
+```
+
+By default `install-profiles.sh` discovers tenants from existing `~/.<harness>-*` directories on disk, so it works for any tenant names. It never creates new profile directories unless you explicitly pass `--create-profile=<tenant>`. That path is gated by a pre-flight check that reports `creatable: yes/no` before creating anything, and it refuses to create a directory that already exists. Pass `--no-cursor` to skip the global Cursor install; extra flags (`--mode=`, `--profile=`, `--dry-run`) are forwarded to each harness installer.
+
 ## Installation modes
 
 DinoStack supports two global activation modes, chosen at install time and persisted in `~/.claude/agentic-engineering.json`:
@@ -167,7 +192,7 @@ The per-project marker only has effect in combination with the global activation
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
-- `model_profile` - enum (`default` | `budget`). `budget` routes eligible spawns to Tier 1 to reduce cost; never applies to security-auditor or mandated-Tier-3 Skeptics.
+- `model_profile` - enum (`default` | `budget`), default `"default"` (absent key resolves to `"default"`). `budget` routes eligible spawns to Tier 1 to reduce cost; never applies to security-auditor or mandated-Tier-3 Skeptics.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes.
 - `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls whether a missing required agent dependency warns-and-proceeds or halts the spawn.
 - `perceptual_diff_enabled` - boolean, default `false`. Opt-in Playwright screenshot diff against committed baselines; raises auto-Major on drift.
@@ -188,30 +213,32 @@ Full field reference including related tuning keys (`storybook_url`, `deferred_w
 
 The same methodology is packaged for multiple tools. Each adapter lives in its own directory with tool-specific formats:
 
-| Tool | Adapter | Setup |
-|---|---|---|
-| Claude Code | `.claude/` | See [.claude/README.md](.claude/README.md) |
-| Cursor | `.cursor/` | See [.cursor/README.md](.cursor/README.md) |
-| Codex CLI | `.codex/` | See [.codex/README.md](.codex/README.md) |
-| Gemini CLI | `.gemini/` | See [.gemini/README.md](.gemini/README.md) |
-| Kimi Code CLI | `.kimi/` | See [.kimi/README.md](.kimi/README.md) |
-| OpenCode | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
-| Pi coding agent | `.pi/` | See [.pi/README.md](.pi/README.md) |
-| Pi (oh-my-pi) | `.omp/` | See [.omp/README.md](.omp/README.md) |
-| Hermes Agent | `.hermes/` | See [.hermes/README.md](.hermes/README.md) |
-| OpenClaw | `.openclaw/` | See [.openclaw/README.md](.openclaw/README.md) |
-| VS Code Copilot | `.copilot/` | See [.copilot/README.md](.copilot/README.md) |
+| Tool            | Adapter      | Setup                                          |
+| --------------- | ------------ | ---------------------------------------------- |
+| Claude Code     | `.claude/`   | See [.claude/README.md](.claude/README.md)     |
+| Cursor          | `.cursor/`   | See [.cursor/README.md](.cursor/README.md)     |
+| Codex CLI       | `.codex/`    | See [.codex/README.md](.codex/README.md)       |
+| Gemini CLI      | `.gemini/`   | See [.gemini/README.md](.gemini/README.md)     |
+| Kimi Code CLI   | `.kimi/`     | See [.kimi/README.md](.kimi/README.md)         |
+| OpenCode        | `.opencode/` | See [.opencode/README.md](.opencode/README.md) |
+| Pi coding agent | `.pi/`       | See [.pi/README.md](.pi/README.md)             |
+| Pi (oh-my-pi)   | `.omp/`      | See [.omp/README.md](.omp/README.md)           |
+| Hermes Agent    | `.hermes/`   | See [.hermes/README.md](.hermes/README.md)     |
+| OpenClaw        | `.openclaw/` | See [.openclaw/README.md](.openclaw/README.md) |
+| VS Code Copilot | `.copilot/`  | See [.copilot/README.md](.copilot/README.md)   |
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
 ## What's included
 
 **Rules** (3 files) - the core methodology:
+
 - Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
 **Reference docs** (20 files) - detailed protocol specs loaded on trigger:
+
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
@@ -304,7 +331,6 @@ DinoStack/
   CONTRIBUTING.md       How to contribute via pull requests
   README.md             This file
 ```
-
 
 ## Documentation
 

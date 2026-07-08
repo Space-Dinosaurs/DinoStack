@@ -3,6 +3,15 @@
 
 # Changelog
 
+## 2026-07-07
+
+### Uncategorized
+
+- **#427** [DS-73: correct MEMORY.md injection claim + wire @MEMORY.md import and learnings retrieval](https://github.com/Space-Dinosaurs/DinoStack/pull/427) - tyson-solara6
+- **#426** [DS-75: Open-goal loop mandatory caps + minimal wiring; fix batch stall semantics](https://github.com/Space-Dinosaurs/DinoStack/pull/426) - tyson-solara6
+- **#425** [DS-77: Tier-3 escalation for authoring roles on ADR-tier units](https://github.com/Space-Dinosaurs/DinoStack/pull/425) - tyson-solara6
+- **#424** [DS-76: .omp adapter ships assembled METHODOLOGY.md (fix or label PARTIAL)](https://github.com/Space-Dinosaurs/DinoStack/pull/424) - tyson-solara6
+
 ## 2026-07-06
 
 ### Features

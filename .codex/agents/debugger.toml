@@ -44,6 +44,10 @@ Read the error completely - do not skim. Extract: the error message, the exact f
 
 If the failure involves library, framework, or SDK behavior (error messages, API usage, configuration), use Context7 (`resolve-library-id` → `query-docs`) to fetch current documentation before forming hypotheses. Training data may be outdated — verify API signatures, expected behavior, configuration options, and known issues against current docs. A misdiagnosis based on stale knowledge wastes the entire downstream fix cycle.
 
+### Phase 2.5: Retrieve prior learnings
+
+A prior `LRN-*` entry may name the exact fix pattern for this class of bug. Grep `.agentic/learnings.md` for entries matching the failure's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output (citation in the Fix brief).
+
 ### Phase 3: Pattern Analysis
 
 Find working examples of the same pattern in the codebase. Read reference implementations completely - do not skim them. List every difference between the working behavior and the broken behavior. This is the step most agents skip - it surfaces assumption violations and subtle mismatches that hypothesis-first investigation misses.

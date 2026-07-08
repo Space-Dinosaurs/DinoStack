@@ -1173,7 +1173,7 @@ hr {
 <p>Three distinct knowledge stores - each with a different writer and lifecycle:</p>
 <ul>
 <li><strong><code>.agentic/learnings.md</code></strong> - primary destination. Committed to git. Written by <code>learning-extractor</code> (LRN) and <code>learnings-agent</code> (LRN + KNW). Teammates inherit it on pull after merge.</li>
-<li><strong><code>MEMORY.md</code></strong> (root <code>&lt;cwd&gt;/MEMORY.md</code>) - canonical durable facts. Committed. Auto-injected by Claude Code at every session start. KNW entries are promoted here at <code>/wrap</code> when they stabilize.</li>
+<li><strong><code>MEMORY.md</code></strong> (root <code>&lt;cwd&gt;/MEMORY.md</code>) - canonical durable facts. Committed. Loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. KNW entries are promoted here at <code>/wrap</code> when they stabilize.</li>
 <li><strong><code>.agentic/memory.md</code></strong> - <code>/wrap</code>-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root <code>MEMORY.md</code>.</li>
 </ul>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>learning-extractor ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
@@ -1181,7 +1181,7 @@ learnings-agent    ──&gt; LRN entry ──&gt; .agentic/learnings.md (commit
 learnings-agent    ──&gt; KNW entry ──&gt; .agentic/learnings.md ──&gt; MEMORY.md (at /wrap)
 </code></pre>
 <div class="callout">
-Three stores, three writers, three audiences. Mixing them corrupts the auto-injection contract that keeps MEMORY.md clean for every session start.
+Three stores, three writers, three audiences. Mixing them corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-marpit-scope-s007="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

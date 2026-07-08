@@ -45,34 +45,66 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --config-dir=*)
+      AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
+      ;;
   esac
 done
 
+# omp harness config directory (redirectable for per-profile installs).
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.omp/agent.
+# Shared user state (~/.claude activation config, ~/.local/bin) stays in $HOME.
+OMP_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.omp/agent}}"
+# Public API note: --config-dir=<dir> / AGENTIC_CONFIG_DIR redirects this
+# harness config dir for per-profile installs; shared state stays in $HOME.
+
+# Activation config path defaults to the shared $HOME location but is also
+# redirectable via --config-dir so multi-tenant installs do not clobber each
+# other or the shared $HOME/.claude/agentic-engineering.json across harnesses.
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
+if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+  AE_CONFIG_PATH="$OMP_CONFIG_DIR/agentic-engineering.json"
+fi
+
+# Ensure the config dir exists before the first ae_write_* call. Without this,
+# a redirected --config-dir pointing at a not-yet-existing directory makes
+# open(path, "w") raise FileNotFoundError. Guard the dir symlink first: mkdir -p
+# silently follows dir symlinks (CWE-59). Mirrors .pi/install.sh and .claude/install.sh.
+AE_CONFIG_TARGET_DIR="$(dirname "$AE_CONFIG_PATH")"
+[[ -L "$AE_CONFIG_TARGET_DIR" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $AE_CONFIG_TARGET_DIR" >&2
+  exit 1
+}
+mkdir -p "$AE_CONFIG_TARGET_DIR"
+
+# Safe JSON-key reader: path/key/default via argv, never interpolated into the
+# Python source (defense-in-depth against quotes/metacharacters, CWE-94).
+ae_read_json_key() {
+  python3 - "$1" "$2" "$3" <<'PYEOF' 2>/dev/null
+import json, sys
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as f:
+        print(json.load(f).get(key, default))
+except Exception:
+    print(default)
+PYEOF
+}
+# Symlink guard: refuse if ~/.claude is a symlinked dir (CWE-59).
+[[ -L "$HOME/.claude" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $HOME/.claude" >&2
+  exit 1
+}
 mkdir -p "$HOME/.claude"
 
 AE_EXISTING_MODE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "")"
 fi
 
 AE_EXISTING_PROFILE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
-  AE_EXISTING_PROFILE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('profile', ''))
-except Exception:
-    print('')
-" 2>/dev/null)"
+  AE_EXISTING_PROFILE="$(ae_read_json_key "$AE_CONFIG_PATH" profile "")"
 fi
 
 ae_write_mode() {
@@ -92,7 +124,12 @@ else:
 # Update only the fields ae_write_mode controls
 config["mode"] = mode
 config["profile"] = config.get("profile", "default")
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+# Symlink guard: refuse to write through a symlinked JSON path. open("w")
+# silently follows the link and truncates the real target (CWE-59). Mirror of
+# .claude/install.sh ae_write_mode guard.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -117,7 +154,7 @@ else:
 # Always overwrite these keys
 config["mode"] = mode
 config["profile"] = profile
-config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
     try:
@@ -129,6 +166,11 @@ if "skill_auto_load" not in config:
     except OSError:
         config["skill_auto_load"] = False
 # Write back
+# Symlink guard: refuse to write through a symlinked JSON path (CWE-59).
+# Mirror of .claude/install.sh ae_write_config guard.
+if os.path.islink(path):
+    sys.stderr.write(f"refusing to write through symlink: {path}\n")
+    sys.exit(1)
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
@@ -164,27 +206,13 @@ fi
 echo ""
 echo "Risk profile..."
 if [[ -n "$AE_PROFILE_FLAG" ]]; then
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "opt-out")"
   ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
   echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
   echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
 else
-  AE_CURRENT_MODE="$(python3 -c "
-import json, sys
-try:
-    with open('$AE_CONFIG_PATH') as f:
-        print(json.load(f).get('mode', 'opt-out'))
-except Exception:
-    print('opt-out')
-" 2>/dev/null)"
+  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "opt-out")"
   ae_write_config "$AE_CURRENT_MODE" "default"
   echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
   echo "    Override with: bash .omp/install.sh --profile=relaxed|default|strict"
@@ -199,16 +227,23 @@ fi
 # ---------------------------------------------------------------------------
 
 SKILL_SRC="$REPO_DIR/.omp/skills/agentic-engineering"
-SKILL_DST="$HOME/.omp/agent/skills/agentic-engineering"
+SKILL_DST="$OMP_CONFIG_DIR/skills/agentic-engineering"
 
 echo ""
 echo "Global skill install (optional)..."
 
+# Symlink guard: refuse if the harness config dir is a symlink (CWE-59).
+[[ -L "$OMP_CONFIG_DIR" ]] && {
+  echo "  ! refusing to install through symlinked config dir: $OMP_CONFIG_DIR" >&2
+  exit 1
+}
 mkdir -p "$SKILL_DST"
 
-# Copy SKILL.md so it survives branch switches
+# Copy SKILL.md and METHODOLOGY.md so they survive branch switches
 cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
 echo "  + SKILL.md copied to ~/.omp/agent/skills/agentic-engineering/"
+cp "$SKILL_SRC/METHODOLOGY.md" "$SKILL_DST/METHODOLOGY.md"
+echo "  + METHODOLOGY.md copied to ~/.omp/agent/skills/agentic-engineering/"
 
 # Absolute symlinks for content dirs so they resolve from ~/.omp/agent/skills/
 link_abs() {
