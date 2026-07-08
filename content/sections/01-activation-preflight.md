@@ -1,3 +1,10 @@
+<!-- tier:begin medium -->
+> **Tier resolution.** Resolves to `medium` when this section is in use. The full `content/sections/01-activation-preflight.md` documents the resolution order; for medium tier, fields read are `tier` (preferred) or legacy `profile` mapped `default` -> `medium`.
+<!-- tier:end -->
+<!-- tier:begin full -->
+> **Tier resolution (read first).** If `tier` field exists in `~/.claude/agentic-engineering.json`, that wins. Else if legacy `profile` field exists, map: `relaxed` -> `minimal`, `default` -> `medium`, `strict` -> `full`. Else default `minimal`. Project `agentic_tier` in `.agentic/config.json` overrides both. CLI flag `--tier=<minimal|medium|full>` overrides all when set on the invocation. Tier gates which sections of METHODOLOGY.md apply at runtime; see the `## Tier resolution` section in `content/commands/implement-ticket.md` (the router).
+<!-- tier:end -->
+<!-- tier:begin full medium -->
 ## Activation preflight
 
 Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to three file reads with no subagent spawn and no LLM reasoning. **Exception:** Step 6 (Scaffolding-sync check) is the single authorized side-effecting exception to this invariant. It calls `bin/agentic-migrate` as a bounded shell-out; the binary is methodology-owned, failure is swallowed, and it never blocks activation.
@@ -40,3 +47,18 @@ Run this check once at the top of the first skill invocation in a session (and a
 7. **When no-opping, print one line and stop:** *(Steps 5-6 deferred above)*
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
+<!-- tier:end -->
+<!-- tier:begin minimal -->
+# Activation (minimal)
+
+Read once at session start. Silent on default.
+
+1. Read `~/.claude/agentic-engineering.json`. If absent or `mode=opt-out`, no-op.
+2. If `mode=opt-in`, check for `agentic-engineering: opt-in` line in root `AGENTS.md`. Absent -> no-op.
+3. Read `tier` field; default `minimal`. Read `profile` for back-compat: `relaxed` -> `minimal`, `default` -> `medium`, `strict` -> `full`.
+4. Proceed silently on proceed branches.
+
+No scaffolding-sync, no identity file, no deprecation notices, no meta-divergence sweep, no skill-candidate sweep, no activation notice. Keep activation cost under 100 tokens.
+
+Tier default: `minimal`.
+<!-- tier:end -->

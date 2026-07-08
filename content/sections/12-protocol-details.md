@@ -1,3 +1,4 @@
+<!-- tiers: full medium -->
 ## Protocol Details (read on trigger)
 
 **Activation detail (Steps 5-6)** - when Step 4 of the activation preflight resolves to active:

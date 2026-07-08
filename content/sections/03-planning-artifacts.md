@@ -1,3 +1,7 @@
+<!-- tiers: full medium -->
+<!-- tier:begin medium -->
+> **Medium-tier note:** This section is loaded when `tier=medium`. Medium spawns architect + planner + inline 5-line Brief (in the engineer spawn prompt, NOT a separate `docs/planning/<slug>.md` artifact) and uses Skeptic. Medium does NOT spawn `qa-engineer`, `wrap-ticket`, `learning-extractor`, or `security-auditor`. No capability preflight block; warnings only. No `.agentic/events.jsonl` telemetry by default. For the full kernel with QA gate + wrap-ticket + learning-extractor + telemetry + meta-Skeptic, use `tier=full` (`/implement-ticket --tier=full`, or set `agentic_tier: full` in `.agentic/config.json`).
+<!-- tier:end -->
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
          sits between orchestration-planner output and the first engineer
