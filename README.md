@@ -14,13 +14,14 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 Run `agentic-update` from anywhere, no arguments.
 
-| Path                | Command                        | When                                                   |
-| ------------------- | ------------------------------ | ------------------------------------------------------ |
-| Shell (recommended) | `agentic-update`               | Default; from any directory, no TTY                    |
-| In-session          | `/pull-and-install`            | Inside Claude Code, any project                        |
-| TUI                 | `./update.sh`                  | Interactive adapter selection                          |
-| CI / scripts        | `git pull && ./install-all.sh` | Non-interactive                                        |
-| Repair drift        | `agentic-doctor --fix`         | Fix broken symlinks/hooks (e.g. after moving the repo) |
+| Path                | Command                          | When                                                                                                             |
+| ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Shell (recommended) | `agentic-update`                 | Default; from any directory, no TTY                                                                              |
+| In-session          | `/pull-and-install`              | Inside Claude Code, any project                                                                                  |
+| TUI                 | `./update.sh`                    | Interactive adapter selection                                                                                    |
+| CI / scripts        | `git pull && ./install-all.sh`   | Non-interactive                                                                                                  |
+| Repair drift        | `agentic-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
+| Check cross-harness | `agentic-doctor --cross-harness` | Validate team.yml / role-models.yml, referenced harnesses, and model handles (add `--json` for machine output) |
 
 Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
 
