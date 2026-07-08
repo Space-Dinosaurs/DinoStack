@@ -381,18 +381,20 @@ def _project_hash(project_path: Path | None, workdir: Path | None = None) -> str
 
     The cursor directory is split by project so two different repositories do
     not advance each other's rotation sequences for the same role. Relative
-    project paths are resolved against *workdir* (or the current working
-    directory) before hashing. When no project path is available, fall back to
-    a deterministic default namespace.
+    project paths are ALWAYS resolved against the current working directory,
+    matching ``_load_team_config``; resolving against *workdir* would change the
+    hash on every dispatch and break rotation durability. The *workdir* parameter
+    is kept for call-site compatibility but is intentionally ignored. When no
+    project path is available, fall back to a deterministic default namespace.
     """
+    del workdir  # ignored: rotation must be stable regardless of dispatch workdir
     if project_path is None:
         return "_default"
     try:
         if project_path.is_absolute():
             project_dir = project_path.resolve().parent
         else:
-            base = workdir if workdir is not None else Path.cwd()
-            project_dir = (base / project_path).resolve().parent
+            project_dir = (Path.cwd() / project_path).resolve().parent
         return hashlib.sha256(str(project_dir).encode("utf-8")).hexdigest()[:16]
     except OSError:
         return "_default"
@@ -403,7 +405,7 @@ def _rotation_cursor_next(
     n: int,
     project_path: Path | None = None,
     workdir: Path | None = None,
-    rotation_dir: Path = ROTATION_DIR,
+    rotation_dir: Path | None = None,
 ) -> int:
     """Return the next round-robin index for *role* and advance the cursor.
 
@@ -416,9 +418,16 @@ def _rotation_cursor_next(
     so concurrent dispatches of the same role (parallel-by-default fan-out)
     cannot race and duplicate/skip indices. Any I/O or parse error falls back
     to index 0 (fail-safe: worst case a role restarts its rotation).
+
+    *rotation_dir* defaults to the module-level ROTATION_DIR evaluated at call
+    time so tests can monkeypatch it.
     """
     if n <= 1:
         return 0
+    # Read the module-level default at call time; a function-definition-time
+    # default would ignore monkeypatches in tests.
+    if rotation_dir is None:
+        rotation_dir = ROTATION_DIR
     # Sanitize role before any filesystem path use. Same pattern as
     # _make_run_id(): replace path metacharacters so a hostile role
     # (e.g. "../../outside.txt" via CLI --role) cannot escape the

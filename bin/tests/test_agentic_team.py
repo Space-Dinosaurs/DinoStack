@@ -1961,6 +1961,88 @@ def test_models_list_harness_mismatch_returns_none(monkeypatch, tmp_path):
     assert _resolve_role_model("engineer", "omp") is None
 
 
+def test_round_robin_rotation_survives_different_workdirs_e2e(tmp_path):
+    """CRITICAL regression: rotation advances even when each dispatch uses a
+    different --workdir.
+
+    ``_project_hash`` must resolve the default ``.agentic/team.yml`` against
+    ``Path.cwd()``, not the ephemeral ``--workdir``, otherwise every dispatch
+    gets a fresh project hash and rotation never accumulates.
+    """
+    import sys as _sys
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / ".agentic").mkdir()
+    (proj / ".agentic" / "team.yml").write_text(
+        "enabled: true\n"
+        "default_harness: omp\n"
+        "roles:\n"
+        "  engineer:\n"
+        "    harness: omp\n"
+        "    models: [alpha, beta]\n",
+        encoding="utf-8",
+    )
+
+    # Isolate rotation state into a temp HOME so this test does not pollute
+    # the real ~/.agentic/rotation.
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+
+    argv_out = tmp_path / "omp_argv.txt"
+    fake_bin_dir = _make_argv_recording_exec(tmp_path, "omp", argv_out)
+    brief_file = _make_brief_file(tmp_path)
+
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    env_patch["HOME"] = str(home_dir)
+
+    agentic_team_path = str(_BIN / "agentic-team")
+    for i, wd in enumerate((tmp_path / "wd1", tmp_path / "wd2")):
+        wd.mkdir()
+        result = _subprocess_mod.run(
+            [_sys.executable, agentic_team_path,
+             "dispatch", "--harness", "omp", "--role", "engineer",
+             "--brief", str(brief_file), "--workdir", str(wd)],
+            capture_output=True, text=True, cwd=str(proj), env=env_patch,
+        )
+        assert result.returncode == 0, f"dispatch {i+1} failed: {result.stderr}"
+        run_id = result.stdout.strip()
+        _wait_for_exit_file(wd / ".agentic" / "teamrun" / run_id, timeout=10.0)
+
+    # Parse the recorded argv: each dispatch appends one arg per line.
+    recorded = argv_out.read_text(encoding="utf-8")
+    models = []
+    lines = recorded.splitlines()
+    for i, line in enumerate(lines):
+        if line == "--model" and i + 1 < len(lines):
+            models.append(lines[i + 1])
+    assert models == ["alpha", "beta"], (
+        f"expected models ['alpha', 'beta'] across two dispatches, got {models!r}; "
+        f"rotation cursor did not advance (project hash likely varied with workdir). "
+        f"recorded argv:\n{recorded}"
+    )
+
+
+def test_validate_rejects_invalid_model_when_models_valid():
+    """Strict validation: an invalid `model` field is rejected even when a valid
+    `models` list is present and would win at dispatch time.
+    """
+    cfg = {
+        "roles": {
+            "engineer": {
+                "harness": "omp",
+                "model": 123,  # invalid type
+                "models": ["alpha", "beta"],  # valid and wins at dispatch
+            }
+        }
+    }
+    errs = _validate_config(cfg, source="t")
+    assert any("model" in e for e in errs), (
+        "expected strict validation to error on invalid `model` even with valid `models`"
+    )
+
+
 def test_validate_rejects_bad_models_list(tmp_path):
     cfg = {"roles": {"engineer": {"harness": "omp", "models": []}}}
     errs = _validate_config(cfg, source="t")
