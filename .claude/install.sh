@@ -444,38 +444,28 @@ symlink_files() {
 # Symlink agents
 # ---------------------------------------------------------------------------
 
-# Tier change cleanup: remove AE-installed agent files that don't belong in the
-# current tier. We consider a file "AE-installed" if:
-#   1. It is a symlink whose target is under content/agents*/ in this repo, OR
-#   2. It is a regular file whose basename matches a known agent name (collected
-#      from all tier sources).
-# User-added custom agent files (regular files with names NOT in any tier source)
-# are preserved. This prevents the install from wiping user customizations while
-# still pruning stale AE-installed files when switching tiers.
+# Tier change cleanup: remove AE-installed agent symlinks that don't belong in
+# the current tier. We consider a symlink "AE-installed" if its target lives in
+# any of the three tier source directories (content/agents*, .claude/agents*).
+# User-added custom agent files/symlinks pointing elsewhere are preserved.
 if [[ -d "$AGENTS_DST" ]]; then
-  # Collect known agent basenames from all tier sources
-  _ae_known_names=""
-  for src in "$REPO_DIR/content/agents" "$REPO_DIR/content/agents-medium" "$REPO_DIR/content/agents-minimal"; do
-    if [[ -d "$src" ]]; then
-      for f in "$src"/*.md; do
-        [[ -f "$f" ]] || continue
-        _ae_known_names+="$(basename "$f")"$'\n'
-      done
-    fi
-  done
-
   for entry in "$AGENTS_DST"/*.md; do
     [[ -e "$entry" ]] || continue
     base="$(basename "$entry")"
 
     if [[ -L "$entry" ]]; then
-      # Symlink: if target is in any AE tier source but NOT in current tier's source,
-      # re-point would also work but we delete to keep the destination clean.
-      # Match against either content/agents*/ (legacy) or .claude/agents[-<tier>]/ (new).
+      # Symlink: if target is in any AE tier source but NOT in current tier's
+      # source, delete it so switching tiers (e.g. medium -> minimal) does not
+      # leave stale symlinks behind.
       current_target="$(readlink "$entry")"
       in_ae_repo=false
       case "$current_target" in
-        *"$REPO_DIR/content/agents"/*|*"$REPO_DIR/.claude/agents"/*) in_ae_repo=true ;;
+        *"$REPO_DIR/content/agents/"*|*"$REPO_DIR/content/agents-medium/"*|*"$REPO_DIR/content/agents-minimal/"*)
+          in_ae_repo=true
+          ;;
+        *"$REPO_DIR/.claude/agents/"*|*"$REPO_DIR/.claude/agents-medium/"*|*"$REPO_DIR/.claude/agents-minimal/"*)
+          in_ae_repo=true
+          ;;
       esac
       if [[ ! -e "$AGENTS_SRC/$base" ]] && $in_ae_repo; then
         if [[ "$AE_DRY_RUN" == "true" ]]; then

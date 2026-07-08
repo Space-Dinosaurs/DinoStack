@@ -284,3 +284,46 @@ class TestKillProcessGroup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ---------------------------------------------------------------------------
+# unkillable state
+# ---------------------------------------------------------------------------
+
+class TestSuperviseUnkillable(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.run_dir = Path(self.tmp)
+        self.out = self.run_dir / "stdout"
+        self.err = self.run_dir / "stderr"
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_supervise_reports_unkillable_when_wait_times_out(self):
+        """If proc.wait() times out after kill, status records unkillable."""
+        class _UnkillableProc:
+            pid = 123456
+            _poll = None
+
+            def poll(self):
+                return self._poll
+
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired(cmd=["sh"], timeout=timeout)
+
+        proc = _UnkillableProc()
+        # kill_process_group on a non-existent pid is a silent no-op, so the
+        # wait timeout path is exercised.
+        code = sup.supervise(
+            proc, self.run_dir, self.out, self.err,
+            stall_seconds=0.1, timeout_seconds=60, poll_interval=0.05,
+        )
+        self.assertEqual(code, sup.EXIT_STALL)
+        data = sup.read_status(self.run_dir)
+        self.assertEqual(data["state"], "unkillable")
+        transitions = data.get("transitions") or []
+        self.assertTrue(transitions, "expected at least one transition")
+        self.assertIn("process did not exit", transitions[-1]["reason"])

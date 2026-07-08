@@ -6,8 +6,8 @@
 # Upstream deps: ~/.claude/agentic-engineering.json (optional; missing = silent exit)
 # Downstream consumers: .claude/install.sh (UserPromptSubmit hook), .codex/config/hooks.json
 #                       (UserPromptSubmit hook), .gemini/install.sh (BeforeAgent hook)
-# Failure modes: always exits 0; missing config or false flag = silent no-op; never blocks hook chain
-# Performance: <50ms; python3 JSON parse only
+# Failure modes: always exits 0; missing config or unparseable cwd -> fail-ACTIVE; never blocks hook chain
+# Performance: <10ms pure-stat guard; shell-native cwd extraction (no python3 on hot path)
 
 ae_config="$HOME/.claude/agentic-engineering.json"
 
@@ -17,11 +17,10 @@ ae_config="$HOME/.claude/agentic-engineering.json"
 script_dir_guard="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$script_dir_guard/lib/activation.sh" ]]; then
   _payload="$(cat 2>/dev/null || true)"
-  _cwd="$(printf '%s' "$_payload" | python3 -c 'import json,sys
-try:
-    print(json.load(sys.stdin).get("cwd","") or "")
-except Exception:
-    print("")' 2>/dev/null || echo "")"
+  # Shell-native cwd extraction: first top-level "cwd" string value.
+  # Handles compact or pretty-printed JSON; escaped quotes in the path are not
+  # supported, but a parse failure falls through to fail-ACTIVE.
+  _cwd="$(printf '%s' "$_payload" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
   # shellcheck source=/dev/null
   source "$script_dir_guard/lib/activation.sh" 2>/dev/null || true
   if declare -f ae_is_active >/dev/null 2>&1 && [[ -n "$_cwd" ]]; then

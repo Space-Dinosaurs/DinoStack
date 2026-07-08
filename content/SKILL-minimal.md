@@ -1,7 +1,7 @@
 <!-- Purpose: Minimal-tier SKILL body. Default for new installs.
      Loaded at session start ONLY when tier=minimal (~1.5 KB).
      Covers inline risk classification, conductor delegation, worktree basics.
-     References: content/sections-minimal/, content/references-minimal/.
+     References: content/sections/, content/references-minimal/.
      Adapter build: .claude/build.sh assembles this into
      .claude/skills/agentic-engineering-minimal/SKILL.md.
 -->

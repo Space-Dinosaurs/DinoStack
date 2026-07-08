@@ -28,4 +28,4 @@ Root-cause analysis on quality-gate failures. Read-only. Optional spawn.
 - Skip if obvious from quality-gate output (e.g., lint error naming the file+line).
 - Use `lsp_diagnostics`, `lsp references`, `ast_grep_search` over `grep`.
 
-Read `content/references-medium/qa-gate.md` §Debug interposition for full spawn contract.
+Note: `content/sections/05-qa-gate.md` debug interposition is a full-tier concept; the medium tier has no QA gate. Use this agent for quality-gate failures that occur in medium-tier runs (e.g., test failures, lint failures) and return a diagnosis only.

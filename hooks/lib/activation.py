@@ -41,6 +41,12 @@ import hashlib
 import os
 import sys
 
+# Process-level short-circuit for dormant-notice emission failures. If writing
+# the per-project marker fails (e.g., permissions), repeated is_active() calls
+# would otherwise spam stderr on every hook invocation. We record the failed
+# cwd key so the warning is attempted only once per process for a given project.
+_DORMANT_NOTICE_ATTEMPTED: set[str] = set()
+
 
 def _dormant_notice_path(cwd: str) -> str:
     """Return the per-project dormant-notice marker path in ~/.agentic/.
@@ -60,7 +66,9 @@ def _emit_dormant_notice(cwd: str) -> None:
     """Print an unsuppressable dormant notice once per project to stderr.
 
     Tracks "already noticed" in ~/.agentic/ so a repo-local attacker cannot
-    silence it. Any marker creation failure still leaves the warning printed.
+    silence it. Any marker creation failure still leaves the warning printed,
+    but the failure is recorded in a process-level set so a repeated failure
+    does not spam stderr on every subsequent hook call.
     """
     notice_path = _dormant_notice_path(cwd)
     try:
@@ -68,6 +76,13 @@ def _emit_dormant_notice(cwd: str) -> None:
             return
     except Exception:
         pass
+
+    # Rate-limit failed emission attempts to once per process per project.
+    cwd_key = os.path.realpath(cwd)
+    if cwd_key in _DORMANT_NOTICE_ATTEMPTED:
+        return
+    _DORMANT_NOTICE_ATTEMPTED.add(cwd_key)
+
     try:
         print(
             f"AGENTIC-ENGINEERING DORMANT: enforcement hooks disabled for {cwd} "

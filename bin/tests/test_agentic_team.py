@@ -29,6 +29,8 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -53,6 +55,8 @@ _validate_config = _mod._validate_config
 _role_entry = _mod._role_entry
 _resolve_role_model = _mod._resolve_role_model
 _parse_team_yml = _mod._parse_team_yml
+_rotation_cursor_next = _mod._rotation_cursor_next
+ROTATION_DIR = _mod.ROTATION_DIR
 main = _mod.main
 
 # ---------------------------------------------------------------------------
@@ -1310,12 +1314,13 @@ def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
 
     class _FakeProc:
         pid = 12345
+        returncode = 0
 
         def poll(self):
-            return 0
+            return self.returncode
 
         def wait(self, timeout=None):
-            return 0
+            return self.returncode
 
     def _fake_popen(argv, *a, **k):
         captured["argv"] = argv
@@ -1727,3 +1732,249 @@ def test_explicit_model_overrides_team_yml(monkeypatch):
     explicit = "glm/glm-5.2"
     resolved = explicit or _resolve_role_model("engineer", "omp")
     assert resolved == "glm/glm-5.2"
+
+
+# ===========================================================================
+# D-2: round-robin rotation cursor tests
+# ===========================================================================
+
+def _use_tmp_rotation(monkeypatch, tmp_path: Path) -> Path:
+    """Redirect module-level ROTATION_DIR to a temp dir for hermetic tests."""
+    rotation_dir = tmp_path / "rotation"
+    monkeypatch.setattr(_mod, "ROTATION_DIR", rotation_dir)
+    return rotation_dir
+
+
+def test_single_model_unchanged(monkeypatch, tmp_path):
+    """A one-entry models list always resolves to index 0 and does not rotate."""
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    assert _rotation_cursor_next("engineer", 1) == 0
+    assert _rotation_cursor_next("engineer", 1) == 0
+    # No cursor file should be created for n <= 1.
+    assert not (tmp_path / "rotation" / "engineer").exists()
+
+
+def test_round_robin_rotation_is_deterministic(monkeypatch, tmp_path):
+    """Successive calls of the same role rotate deterministically through indices."""
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    got = [_rotation_cursor_next("engineer", 3) for _ in range(5)]
+    assert got == [0, 1, 2, 0, 1]
+
+
+def test_round_robin_per_role_independent(monkeypatch, tmp_path):
+    """Each role has its own durable cursor file."""
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    assert _rotation_cursor_next("engineer", 3) == 0
+    assert _rotation_cursor_next("skeptic", 3) == 0
+    assert _rotation_cursor_next("engineer", 3) == 1
+    assert _rotation_cursor_next("skeptic", 3) == 1
+
+
+def test_rotation_cursor_next_reads_rot_dir_at_call_time(monkeypatch, tmp_path):
+    """The default rotation_dir is resolved at call time, not import time."""
+    # Without monkeypatching, the function uses the real ROTATION_DIR.
+    rotation_dir = _use_tmp_rotation(monkeypatch, tmp_path)
+    # The function must observe the monkeypatched ROTATION_DIR.
+    _rotation_cursor_next("engineer", 3)
+    assert (rotation_dir / "engineer").exists()
+
+
+def test_models_list_harness_mismatch_returns_none(monkeypatch):
+    """A role with a models list for a different harness must not leak models."""
+    _patch_team_config(monkeypatch, {
+        "roles": {"engineer": {"harness": "codex", "models": ["gpt-5.5", "gpt-5.6"]}},
+    })
+    assert _resolve_role_model("engineer", "omp") is None
+
+
+def test_models_wins_over_invalid_model(monkeypatch, tmp_path):
+    """When both 'model' (invalid) and 'models' (valid) are present, models wins
+    and validation ignores the unused invalid model field."""
+    team_yml = _write(tmp_path, "team.yml", """
+        enabled: true
+        default_harness: omp
+        roles:
+          engineer:
+            harness: omp
+            model: []
+            models:
+              - kimi/kimi-k2.7
+              - glm/glm-5.2
+    """)
+    config = _load_team_config(global_path=Path("/dev/null"), project_path=team_yml)
+    errors = _validate_config(config, source=str(team_yml))
+    assert not errors, f"expected no errors, got: {errors}"
+    # _resolve_role_model uses _role_models_list which prefers models over model.
+    assert _resolve_role_model("engineer", "omp", project_path=team_yml) in (
+        "kimi/kimi-k2.7", "glm/glm-5.2"
+    )
+
+
+# ---------------------------------------------------------------------------
+# E2e regression: rotation cursor survives different --workdir values
+# ---------------------------------------------------------------------------
+
+def test_dispatch_rotation_across_different_workdirs(tmp_path):
+    """Two dispatches with different --workdir but default project-config rotate.
+
+    Regression for the #414 _project_hash/workdir-relative-path bug: the rotation
+    cursor must be durable across separate dispatch subprocesses regardless of
+    which throwaway workdir each uses. A private HOME keeps the test hermetic.
+    """
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    (home_dir / ".agentic").mkdir()
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / ".agentic").mkdir()
+    (proj / ".agentic" / "team.yml").write_text(
+        "enabled: true\n"
+        "default_harness: omp\n"
+        "roles:\n"
+        "  engineer:\n"
+        "    harness: omp\n"
+        "    models:\n"
+        "      - kimi/kimi-k2.7\n"
+        "      - glm/glm-5.2\n"
+        "dispatch:\n"
+        "  retries: 0\n"
+        "  failover: false\n",
+        encoding="utf-8",
+    )
+
+    workdir1 = tmp_path / "wd1"
+    workdir1.mkdir()
+    workdir2 = tmp_path / "wd2"
+    workdir2.mkdir()
+
+    argv_out1 = tmp_path / "omp_argv_1.txt"
+    argv_out2 = tmp_path / "omp_argv_2.txt"
+
+    def _dispatch(workdir: Path, argv_out: Path) -> str:
+        fake_bin_dir = _make_argv_recording_exec(tmp_path, "omp", argv_out)
+        brief_file = _make_brief_file(tmp_path)
+        env_patch = dict(os.environ)
+        env_patch["HOME"] = str(home_dir)
+        env_patch["PATH"] = str(fake_bin_dir) + os.pathsep + env_patch.get("PATH", "")
+        result = subprocess.run(
+            [
+                sys.executable, str(_BIN / "agentic-team"),
+                "--project-config", str(proj / ".agentic" / "team.yml"),
+                "dispatch", "--harness", "omp", "--role", "engineer",
+                "--brief", str(brief_file), "--workdir", str(workdir),
+            ],
+            capture_output=True, text=True, cwd=str(proj), env=env_patch,
+        )
+        assert result.returncode == 0, result.stderr
+        run_id = result.stdout.strip()
+        _wait_for_exit_file(workdir / ".agentic" / "teamrun" / run_id, timeout=10.0)
+        return run_id
+
+    _dispatch(workdir1, argv_out1)
+    _dispatch(workdir2, argv_out2)
+
+    recorded1 = argv_out1.read_text(encoding="utf-8") if argv_out1.exists() else ""
+    recorded2 = argv_out2.read_text(encoding="utf-8") if argv_out2.exists() else ""
+
+    def _extract_model(recorded: str) -> str | None:
+        lines = recorded.splitlines()
+        for i, line in enumerate(lines):
+            if line == "--model" and i + 1 < len(lines):
+                return lines[i + 1]
+        return None
+
+    model1 = _extract_model(recorded1)
+    model2 = _extract_model(recorded2)
+    assert model1 == "kimi/kimi-k2.7", f"first dispatch model was {model1!r}"
+    assert model2 == "glm/glm-5.2", f"second dispatch model was {model2!r}"
+
+
+# ---------------------------------------------------------------------------
+# Dispatch settings validation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "field,bad_value,expected_snippet",
+    [
+        ("retries", 1.5, "retries"),
+        ("retries", "notanumber", "retries"),
+        ("stall_seconds", "notanumber", "stall_seconds"),
+        ("timeout_seconds", "notanumber", "timeout_seconds"),
+        ("failover", "maybe", "failover"),
+        ("output_format", 123, "output_format"),
+    ],
+)
+def test_validate_config_rejects_malformed_dispatch(tmp_path, field, bad_value, expected_snippet):
+    """Malformed dispatch values produce clean validation errors."""
+    team_yml = _write(tmp_path, "team.yml", f"""
+        dispatch:
+          {field}: {bad_value}
+    """)
+    config = _load_team_config(global_path=Path("/dev/null"), project_path=team_yml)
+    errors = _validate_config(config, source=str(team_yml))
+    assert any(expected_snippet in e for e in errors), f"expected {expected_snippet} error, got {errors}"
+
+
+def test_cmd_dispatch_rejects_invalid_dispatch_settings(tmp_path, monkeypatch):
+    """_cmd_dispatch exits cleanly with a config error when dispatch settings are invalid."""
+    import argparse as _argparse
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    team_yml = _write(tmp_path, "team.yml", """
+        dispatch:
+          retries: notanumber
+    """)
+    brief_file = _make_brief_file(tmp_path)
+
+    args = _argparse.Namespace(
+        harness="omp", role="engineer",
+        brief=str(brief_file), workdir=str(workdir), model=None,
+        project_config=str(team_yml), global_config=str(tmp_path / "absent.yml"),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 2, "expected exit 2 for invalid dispatch settings"
+
+
+def test_cmd_dispatch_cursor_agent_timeout_capped(monkeypatch, tmp_path):
+    """cursor-agent dispatches use a 300s hard ceiling regardless of team.yml."""
+    import argparse as _argparse
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    team_yml = _write(tmp_path, "team.yml", """
+        dispatch:
+          timeout_seconds: 3600
+          retries: 0
+          failover: false
+    """)
+    brief_file = _make_brief_file(tmp_path)
+
+    captured: dict = {}
+
+    class _FakeProc:
+        pid = 12345
+        def poll(self):
+            return 0
+        def wait(self, timeout=None):
+            return 0
+
+    def _fake_supervise(proc, run_dir, stdout, stderr, stall_seconds, timeout_seconds):
+        captured["timeout_seconds"] = timeout_seconds
+        return 0
+
+    monkeypatch.setattr(_mod.subprocess, "Popen", lambda *a, **k: _FakeProc())
+    monkeypatch.setattr(_mod._sup_mod, "supervise", _fake_supervise)
+    monkeypatch.setattr(_mod._sup_mod, "write_status", lambda *a, **k: None)
+
+    args = _argparse.Namespace(
+        harness="cursor-agent", role="engineer",
+        brief=str(brief_file), workdir=str(workdir), model=None,
+        project_config=str(team_yml), global_config=str(tmp_path / "absent.yml"),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 0
+    assert captured.get("timeout_seconds") == 300.0, (
+        f"cursor-agent timeout should be capped at 300s, got {captured.get('timeout_seconds')!r}"
+    )

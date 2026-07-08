@@ -40,4 +40,4 @@ Findings:
 - For multi-unit: parallel units get per-unit Skeptic; sequential units get one Skeptic on combined diff.
 - No new abstractions. Review what was written.
 
-Read `content/sections-medium/02-delegation.md` §Skeptic for full protocol.
+Read `content/references-medium/skeptic-protocol.md` for the full Skeptic protocol.

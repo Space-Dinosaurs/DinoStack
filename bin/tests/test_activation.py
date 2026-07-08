@@ -267,3 +267,30 @@ class TestHookActivationDormantNotice(_FakeHome):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_dormant_notice_does_not_spam_on_repeated_marker_failure(self):
+        """If marker creation fails, the warning is emitted only once per process."""
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "dormant"), "w").close()
+
+        real_emit = hook_act._emit_dormant_notice
+        calls = []
+
+        def broken_emit(cwd):
+            calls.append(cwd)
+            print("AGENTIC-ENGINEERING DORMANT: warning", file=sys.stderr)
+            raise OSError("marker creation simulated failure")
+
+        hook_act._emit_dormant_notice = broken_emit
+        try:
+            _, err1 = self._capture_stderr(hook_act.is_active, self.project)
+            _, err2 = self._capture_stderr(hook_act.is_active, self.project)
+        finally:
+            hook_act._emit_dormant_notice = real_emit
+            # Clear the process-level attempt cache so other tests are unaffected.
+            hook_act._DORMANT_NOTICE_ATTEMPTED.discard(os.path.realpath(self.project))
+
+        self.assertEqual(calls, [self.project])
+        self.assertIn("AGENTIC-ENGINEERING DORMANT", err1)
+        self.assertEqual(err2, "")

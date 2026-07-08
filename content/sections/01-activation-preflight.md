@@ -56,7 +56,8 @@ Read once at session start. Silent on default.
 1. Read `~/.claude/agentic-engineering.json`. If absent or `mode=opt-out`, no-op.
 2. If `mode=opt-in`, check for `agentic-engineering: opt-in` line in root `AGENTS.md`. Absent -> no-op.
 3. Read `tier` field; default `minimal`. Read `profile` for back-compat: `relaxed` -> `minimal`, `default` -> `medium`, `strict` -> `full`.
-4. Proceed silently on proceed branches.
+4. Project `agentic_tier` in `.agentic/config.json` overrides the global tier; CLI flag `--tier=<minimal|medium|full>` overrides all when set on the invocation.
+5. Proceed silently on proceed branches.
 
 No scaffolding-sync, no identity file, no deprecation notices, no meta-divergence sweep, no skill-candidate sweep, no activation notice. Keep activation cost under 100 tokens.
 

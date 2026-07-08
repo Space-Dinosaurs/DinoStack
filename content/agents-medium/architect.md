@@ -28,7 +28,7 @@ Multi-unit Elevated work. Returns unit list with parallel/sequential ordering. R
 - Interdependent units: sequential, single branch, single PR.
 - No Skeptic orchestration. Skeptic reviews the combined diff for sequential; per-unit for parallel.
 
-Read `content/sections-medium/02-delegation.md` §Named agents for spawn protocol. Read `content/references-medium/agent-team.md` for composer flows.
+Read `content/references-medium/delegation-detail.md` §Named agents for spawn protocol. Read `content/references-medium/agent-team.md` for composer flows.
 
 ## Skip conditions
 

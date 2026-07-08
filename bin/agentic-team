@@ -27,6 +27,7 @@ Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
                          A role may declare a `models:` list to rotate
                          round-robin across several models; the cursor is
                          durable at ~/.agentic/rotation/.
+
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
             configure  [--non-interactive] [--assign role=harness:model ...]
@@ -291,19 +292,33 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
                 f"agentic-team: unknown role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_ROLES))})"
             )
-        # Validate a multi-model (round-robin) declaration when present. The
-        # list may appear under 'models:' or as a list under 'model:'; both are
-        # validated identically (non-empty list of non-empty strings) so the
-        # two spellings can't diverge in what they accept.
+        # Validate the model declaration that will actually be used.
+        # _role_models_list prefers 'models' over 'model', so when both are
+        # present only 'models' is authoritative; an unused-invalid 'model'
+        # field does not block dispatch.
         if isinstance(spec, dict):
-            for _mk in ("models", "model"):
-                if _mk in spec and isinstance(spec.get(_mk), (list, tuple)):
-                    ml = spec.get(_mk)
-                    if not ml or not all(isinstance(m, str) and m for m in ml):
+            if "models" in spec:
+                ml = spec.get("models")
+                if not isinstance(ml, (list, tuple)) or not ml or not all(
+                    isinstance(m, str) and m for m in ml
+                ):
+                    errors.append(
+                        f"agentic-team: role {role!r} 'models' in {source} must "
+                        "be a non-empty list of model-id strings"
+                    )
+            elif "model" in spec:
+                mv = spec.get("model")
+                if isinstance(mv, (list, tuple)):
+                    if not mv or not all(isinstance(m, str) and m for m in mv):
                         errors.append(
-                            f"agentic-team: role {role!r} {_mk!r} in {source} must "
+                            f"agentic-team: role {role!r} 'model' in {source} must "
                             "be a non-empty list of model-id strings"
                         )
+                elif not isinstance(mv, str) or not mv:
+                    errors.append(
+                        f"agentic-team: role {role!r} 'model' in {source} must "
+                        "be a non-empty model-id string"
+                    )
         # Normalize to extract harness
         if isinstance(spec, dict):
             harness = spec.get("harness")
@@ -314,6 +329,50 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
             errors.append(
                 f"agentic-team: unknown harness {harness!r} for role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+            )
+
+    # Validate dispatch block types so malformed values are caught at config
+    # validation time rather than crashing dispatch with a bare ValueError.
+    dispatch = config.get("dispatch")
+    if isinstance(dispatch, dict):
+        _ts = dispatch.get("timeout_seconds")
+        if _ts is not None:
+            try:
+                float(_ts)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"agentic-team: dispatch.timeout_seconds in {source} must be numeric"
+                )
+        _ss = dispatch.get("stall_seconds")
+        if _ss is not None:
+            try:
+                float(_ss)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"agentic-team: dispatch.stall_seconds in {source} must be numeric"
+                )
+        _rt = dispatch.get("retries")
+        if _rt is not None:
+            if isinstance(_rt, bool) or isinstance(_rt, float) or not isinstance(_rt, (int, str)):
+                errors.append(
+                    f"agentic-team: dispatch.retries in {source} must be an integer"
+                )
+            elif isinstance(_rt, str):
+                try:
+                    int(_rt)
+                except ValueError:
+                    errors.append(
+                        f"agentic-team: dispatch.retries in {source} must be an integer"
+                    )
+        _fo = dispatch.get("failover")
+        if _fo is not None and not isinstance(_fo, bool):
+            errors.append(
+                f"agentic-team: dispatch.failover in {source} must be boolean"
+            )
+        _of = dispatch.get("output_format")
+        if _of is not None and not isinstance(_of, str):
+            errors.append(
+                f"agentic-team: dispatch.output_format in {source} must be a string"
             )
 
     return errors
@@ -365,7 +424,7 @@ def _role_models_list(spec: object) -> list[str]:
     return []
 
 
-def _rotation_cursor_next(role: str, n: int, rotation_dir: Path = ROTATION_DIR) -> int:
+def _rotation_cursor_next(role: str, n: int, rotation_dir: Path | None = None) -> int:
     """Return the next round-robin index for *role* and advance the cursor.
 
     The cursor is persisted at ~/.agentic/rotation/<role> (a DURABLE per-user
@@ -377,9 +436,13 @@ def _rotation_cursor_next(role: str, n: int, rotation_dir: Path = ROTATION_DIR) 
     so concurrent dispatches of the same role (parallel-by-default fan-out)
     cannot race and duplicate/skip indices. Any I/O or parse error falls back
     to index 0 (fail-safe: worst case a role restarts its rotation).
+
+    ``rotation_dir`` defaults to the module-level ``ROTATION_DIR`` at call time
+    (not at function-definition time) so tests can monkeypatch it safely.
     """
     if n <= 1:
         return 0
+    rotation_dir = ROTATION_DIR if rotation_dir is None else rotation_dir
     try:
         rotation_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -417,6 +480,7 @@ def _rotation_cursor_next(role: str, n: int, rotation_dir: Path = ROTATION_DIR) 
         return idx
 
 
+
 def _resolve_role_model(
     role: str,
     harness: str,
@@ -434,6 +498,7 @@ def _resolve_role_model(
     across them using a DURABLE per-role cursor (~/.agentic/rotation/<role>).
     Returns None when there is no team.yml / no entry / no model / harness
     mismatch, so the worker falls back to its own session default.
+
     """
     try:
         config = _load_team_config(global_path=global_path, project_path=project_path)
@@ -457,6 +522,7 @@ def _resolve_role_model(
     if len(models) == 1:
         return models[0]
     return models[_rotation_cursor_next(role, len(models))]
+
 
 
 # ---------------------------------------------------------------------------
@@ -1282,14 +1348,23 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         role, harness, global_path=global_path, project_path=project_path,
     )
     settings = _dispatch_settings(config)
-    retries_setting = settings["retries"]
-    retries_int = retries_setting if isinstance(retries_setting, int) else int(str(retries_setting))
+    try:
+        retries_int = int(settings["retries"])
+        timeout_seconds = float(settings["timeout_seconds"])
+        stall_seconds = float(settings["stall_seconds"])
+    except (TypeError, ValueError) as exc:
+        print(
+            f"agentic-team dispatch: invalid dispatch settings in team.yml: {exc}",
+            file=sys.stderr,
+        )
+        return 2
     chain = _build_failover_chain(
         harness, resolved_model, role,
         retries=retries_int,
         failover=bool(settings["failover"]),
         config=config,
     )
+
 
     _sup_mod.write_status(
         run_dir, run_id=run_id, role=role, state="running",
@@ -1340,10 +1415,20 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         return proc, attempt_dir, attempt_stdout, attempt_stderr
 
     def _supervised_stall_seconds(attempt_harness: str) -> float:
-        configured = settings["stall_seconds"]
-        if configured == _DEFAULT_DISPATCH_SETTINGS["stall_seconds"]:
+        if stall_seconds == _DEFAULT_DISPATCH_SETTINGS["stall_seconds"]:
             return _sup_mod.stall_default(attempt_harness)
-        return float(configured)  # type: ignore[arg-type]
+        return stall_seconds
+
+    def _supervised_timeout_seconds(attempt_harness: str) -> float:
+        """Return the hard timeout for *attempt_harness*.
+
+        cursor-agent has a known hang bug that can emit periodic output while
+        stuck, so the generic stall detector is insufficient. Preserve the
+        original 300s unconditional watchdog ceiling for cursor-agent.
+        """
+        if attempt_harness == "cursor-agent":
+            return min(timeout_seconds, 300.0)
+        return timeout_seconds
 
     # Attempt 1 is spawned synchronously so a caller inspecting the spawned
     # process (or a test mocking subprocess.Popen) observes it before
@@ -1365,7 +1450,7 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             exit_code = _sup_mod.supervise(
                 proc, attempt_dir, attempt_stdout, attempt_stderr,
                 stall_seconds=_supervised_stall_seconds(attempt_harness),
-                timeout_seconds=float(settings["timeout_seconds"]),
+                timeout_seconds=_supervised_timeout_seconds(attempt_harness),
             )
             if attempt_dir != run_dir:
                 shutil.copyfile(attempt_stdout, run_dir / "stdout")
@@ -1458,7 +1543,7 @@ def _is_live_readonly(rd: Path) -> bool:
         state = status.get("state")
         if state in ("running", "retrying", "failed_over"):
             return True
-        if state in ("done", "failed"):
+        if state in ("done", "failed", "killed", "unkillable"):
             return False
         # Unknown/empty state: fall through to legacy PID+exit check.
     # Legacy fallback for run dirs created before status.json was introduced.
@@ -1469,7 +1554,30 @@ def _is_live_readonly(rd: Path) -> bool:
 
 
 def _run_status(run_dir: Path) -> str:
-    """Return 'running', 'done', or 'failed' for a run directory."""
+    """Return 'running', 'done', or 'failed' for a run directory.
+
+    Checks status.json first (the authoritative state written by _supervise.py):
+    running/retrying/failed_over -> "running"; done/failed -> use exit_code.
+    Falls back to the legacy pid+exit-file behavior only when status.json is
+    missing or unreadable (e.g. run dirs from an older version).
+    """
+    status = _sup_mod.read_status(run_dir)
+    if status is not None:
+        state = status.get("state")
+        if state in ("running", "retrying", "failed_over"):
+            return "running"
+        if state in ("done", "failed", "killed", "unkillable"):
+            code = status.get("exit_code")
+            if code is None:
+                # Older status.json without exit_code: fall back to exit file.
+                try:
+                    code = int((run_dir / "exit").read_text(encoding="utf-8").strip())
+                except (OSError, ValueError):
+                    code = 1
+            return "done" if code == 0 else "failed"
+        # Unknown/empty state: fall through to legacy PID+exit check.
+
+    # Legacy fallback for run dirs created before status.json was introduced.
     exit_file = run_dir / "exit"
     if exit_file.exists():
         try:

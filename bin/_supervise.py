@@ -46,7 +46,7 @@ Exit-code sentinels (documented convention, shared with bin/agentic-team):
   125 - stall (no output for stall_seconds)
 
 Status "state" values: running | stalled | killed | retrying | failed_over |
-failed | done.
+failed | done | unkillable.
 
 Per-harness stall overrides live in _STALL_DEFAULTS; interactive-ish harnesses
 (claude/gemini/cursor-agent) get a longer default stall window than the module
@@ -299,15 +299,21 @@ def supervise(
         write_status(run_dir, state="stalled" if progress == "stalled" else "killed",
                      reason=progress)
         kill_process_group(proc.pid)
+        unkillable = False
         try:
             proc.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
-            pass
+            unkillable = True
+        final_state = "unkillable" if unkillable else "killed"
+        final_reason = (
+            f"killed after {progress}; process did not exit after SIGTERM/SIGKILL"
+            if unkillable else f"killed after {progress}"
+        )
         write_status(
             run_dir,
-            state="killed",
+            state=final_state,
             exit_code=sentinel,
             output_bytes=_total_bytes(paths),
-            reason=f"killed after {progress}",
+            reason=final_reason,
         )
         return sentinel
