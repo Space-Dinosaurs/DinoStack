@@ -342,6 +342,27 @@ def main() -> int:
             ".claude is always included (LOCKED_ADAPTERS invariant)."
         ),
     )
+    dormancy = parser.add_mutually_exclusive_group()
+    dormancy.add_argument(
+        "--dormant",
+        action="store_const",
+        const="dormant",
+        dest="dormancy",
+        help=(
+            "Reinstall adapters in DORMANT mode (methodology off until "
+            "/ds activate per project). Passed through to each install.sh."
+        ),
+    )
+    dormancy.add_argument(
+        "--resident",
+        action="store_const",
+        const="resident",
+        dest="dormancy",
+        help=(
+            "Reinstall adapters in RESIDENT mode (always-on). "
+            "Passed through to each install.sh."
+        ),
+    )
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -551,14 +572,20 @@ def main() -> int:
             a for a in discovered if a not in LOCKED_ADAPTERS
         ]
 
+    # Dormancy passthrough: forward --dormant/--resident to each install.sh.
+    # ponytail: absent = install.sh resolves per its own precedence (env/prompt/keep).
+    dormancy_args = [f"--{args.dormancy}"] if getattr(args, "dormancy", None) else []
+
     failures: list[str] = []
     for adapter in adapters_to_run:
         install_sh = repo_dir / adapter / "install.sh"
         if not install_sh.is_file():
             print(f"warning: {install_sh} not found, skipping.", file=sys.stderr)
             continue
-        print(f">>> bash {install_sh}")
-        rc = subprocess.call(["bash", str(install_sh)], cwd=str(repo_dir))
+        print(f">>> bash {install_sh}{' ' + ' '.join(dormancy_args) if dormancy_args else ''}")
+        rc = subprocess.call(
+            ["bash", str(install_sh), *dormancy_args], cwd=str(repo_dir)
+        )
         if rc != 0:
             failures.append(f"{adapter}/install.sh (exit {rc})")
 

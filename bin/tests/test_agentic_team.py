@@ -20,6 +20,7 @@ Additional coverage:
   test_scalar_role_treated_as_harness   - scalar string role value sets harness
   test_dispatch_block_parsed             - dispatch sub-block round-trips
   test_normalize_role_spec_imported      - _role_spec.normalize_role_spec is wired
+  test_dispatch_path_guardrail_shims_opencode_and_copilot - opencode/copilot shims present
 
 Run with: python3 -m pytest bin/tests/test_agentic_team.py -x
 """
@@ -52,6 +53,8 @@ _load_team_config = _mod._load_team_config
 _validate_config = _mod._validate_config
 _role_entry = _mod._role_entry
 _resolve_role_model = _mod._resolve_role_model
+_role_models_list = _mod._role_models_list
+_rotation_cursor_next = _mod._rotation_cursor_next
 _parse_team_yml = _mod._parse_team_yml
 main = _mod.main
 
@@ -779,6 +782,35 @@ def test_dispatch_builds_omp_argv():
     assert "--mode" not in argv
 
 
+def test_dispatch_builds_opencode_argv():
+    """opencode argv is ['opencode', 'run', '<brief>',
+    '--dangerously-skip-permissions'] with no model flag."""
+    argv = _build_worker_argv("opencode", "test brief")
+    assert argv[0] == HARNESS_BINARY["opencode"]
+    assert argv[1] == "run"
+    assert "test brief" in argv
+    # Required for detached headless dispatch (no TTY to answer permission
+    # prompts); worker would otherwise hang until the watchdog timeout.
+    assert "--dangerously-skip-permissions" in argv
+    assert "--model" not in argv
+
+
+def test_dispatch_builds_copilot_argv():
+    """copilot argv includes '-p', '--allow-all-tools', '--allow-all-paths'."""
+    argv = _build_worker_argv("copilot", "test brief")
+    assert argv[0] == HARNESS_BINARY["copilot"]
+    assert "-p" in argv
+    assert "test brief" in argv
+    assert "--allow-all-tools" in argv
+    assert "--allow-all-paths" in argv
+
+
+def test_dispatch_builds_opencode_copilot_argv_empty_brief():
+    """Empty-string brief still parses positionally, not swallowed by flags."""
+    for harness in ("opencode", "copilot"):
+        argv = _build_worker_argv(harness, "")
+        assert "" in argv, f"{harness} argv must retain empty brief positionally"
+
 # ---------------------------------------------------------------------------
 # Section A: --model flag forwarded for all 7 harnesses, after positional brief
 # ---------------------------------------------------------------------------
@@ -793,6 +825,8 @@ def test_dispatch_builds_omp_argv():
         ("kimi", "--model"),
         ("pi", "--model"),
         ("omp", "--model"),
+        ("opencode", "--model"),
+        ("copilot", "--model"),
     ],
 )
 def test_dispatch_model_flag_forwarded_for_all_harnesses(harness, expected_flag):
@@ -813,7 +847,6 @@ def test_dispatch_no_model_flag_when_model_absent():
         assert "--model" not in argv
         assert "-m" not in argv
 
-
 # ---------------------------------------------------------------------------
 # AC5: PATH guardrail shims
 # ---------------------------------------------------------------------------
@@ -826,6 +859,17 @@ def test_dispatch_path_guardrail_shims_git(tmp_path):
     git_shim = shim_dir / "git"
     assert git_shim.exists(), "git shim must be present"
     assert git_shim.stat().st_mode & _stat.S_IEXEC, "git shim must be executable"
+
+
+def test_dispatch_path_guardrail_shims_opencode_and_copilot(tmp_path):
+    """Shim dir contains executable 'opencode' and 'copilot' shims."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shim_dir = _build_shim_dir(run_dir, exempt_binary="codex")
+    for binary_name in ("opencode", "copilot"):
+        shim = shim_dir / binary_name
+        assert shim.exists(), f"{binary_name} shim must be present"
+        assert shim.stat().st_mode & _stat.S_IEXEC, f"{binary_name} shim must be executable"
 
 
 def test_git_shim_exits_nonzero_and_logs(tmp_path):
@@ -870,22 +914,39 @@ def _dispatch_via_subprocess(
     brief_file: Path,
     harness: str = "codex",
     role: str = "engineer",
+    extra_env: dict[str, str] | None = None,
+    dispatch_yaml: str | None = None,
 ) -> tuple[int, str]:
     """Run dispatch as a subprocess with fake_bin_dir prepended to PATH.
+
+    *dispatch_yaml*, when given, is written to a team.yml under tmp_path and
+    passed as --project-config, letting a test override the dispatch:
+    retries/failover/timeout knobs (default retries=1 + failover=true would
+    otherwise retry and fall back to a real "claude" binary on PATH, which is
+    undesirable for tests asserting exact single-attempt exit-code passthrough).
 
     Returns (returncode, run_id_or_stderr).
     """
     import sys as _sys
     env_patch = dict(_os.environ)
     env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    if extra_env:
+        env_patch.update(extra_env)
     agentic_team_path = str(_BIN / "agentic-team")
+    argv = [_sys.executable, agentic_team_path]
+    if dispatch_yaml is not None:
+        project_config = tmp_path / "team.yml"
+        project_config.write_text(dispatch_yaml, encoding="utf-8")
+        argv += ["--global-config", "/dev/null", "--project-config", str(project_config)]
+    argv += [
+        "dispatch",
+        "--harness", harness,
+        "--role", role,
+        "--brief", str(brief_file),
+        "--workdir", str(workdir),
+    ]
     result = _subprocess_mod.run(
-        [_sys.executable, agentic_team_path,
-         "dispatch",
-         "--harness", harness,
-         "--role", role,
-         "--brief", str(brief_file),
-         "--workdir", str(workdir)],
+        argv,
         capture_output=True,
         text=True,
         env=env_patch,
@@ -1067,6 +1128,30 @@ def test_collect_falls_back_to_raw_for_unknown_harness(tmp_path):
     assert "Raw kimi output line" in result
 
 
+def test_collect_falls_back_to_raw_for_opencode(tmp_path):
+    """opencode has no known JSON schema -> raw stdout returned."""
+    run_dir = tmp_path / "run6"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("opencode\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    (run_dir / "stdout").write_text("Raw opencode output line\n", encoding="utf-8")
+
+    result = _collect_output(run_dir, "opencode")
+    assert "Raw opencode output line" in result
+
+
+def test_collect_falls_back_to_raw_for_copilot(tmp_path):
+    """copilot has no known JSON schema -> raw stdout returned."""
+    run_dir = tmp_path / "run7"
+    run_dir.mkdir()
+    (run_dir / "harness").write_text("copilot\n", encoding="utf-8")
+    (run_dir / "exit").write_text("0\n", encoding="utf-8")
+    (run_dir / "stdout").write_text("Raw copilot output line\n", encoding="utf-8")
+
+    result = _collect_output(run_dir, "copilot")
+    assert "Raw copilot output line" in result
+
+
 # ---------------------------------------------------------------------------
 # run-id determinism note (for reviewer)
 # ---------------------------------------------------------------------------
@@ -1139,7 +1224,10 @@ def test_reaper_writes_exit_nonzero_on_failure(tmp_path):
 
     brief_file = _make_brief_file(tmp_path)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file,
+        dispatch_yaml="dispatch:\n  retries: 0\n  failover: false\n",
+    )
     assert rc == 0, f"dispatch failed: {run_id}"
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -1174,60 +1262,93 @@ def test_collect_exit_code_reflects_worker_success(tmp_path, capsys):
     assert collect_rc == 0, f"collect must return 0 for a successful run, got {collect_rc}"
 
 
-def test_watchdog_uses_killpg(tmp_path, monkeypatch):
-    """MAJOR regression: _cursor_watchdog calls os.killpg, not proc.kill().
-
-    We verify by monkeypatching os.killpg and confirming it is called when
-    the watchdog fires a timeout, and that exit=124 is written.
-    """
-    import subprocess as _sp
+def test_dispatch_uses_supervise_for_all_harnesses(tmp_path, monkeypatch):
+    """Regression: dispatch must supervise every harness (not just cursor-agent)
+    via _sup_mod.supervise, and write exit=<code> + status.json state=done on a
+    clean supervised exit."""
+    import argparse as _argparse
     import time as _time
 
-    run_dir = tmp_path / "run_watchdog"
-    run_dir.mkdir()
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    brief_file = _make_brief_file(tmp_path)
 
-    killpg_calls: list[tuple[int, int]] = []
+    supervise_calls: list[str] = []
 
-    def fake_killpg(pgid: int, sig: int) -> None:
-        killpg_calls.append((pgid, sig))
+    def _fake_supervise(proc, run_dir, stdout_path, stderr_path, **kwargs):
+        supervise_calls.append(str(run_dir))
+        return 0
 
-    monkeypatch.setattr(_mod._os if hasattr(_mod, "_os") else _os, "killpg", fake_killpg, raising=False)
-    # Also patch on the os module that agentic-team imported at load time.
-    import os as _real_os
-    original_killpg = _real_os.killpg
-    _real_os.killpg = fake_killpg  # type: ignore[assignment]
+    monkeypatch.setattr(_mod._sup_mod, "supervise", _fake_supervise)
 
-    try:
-        # Spawn a real long-running process so proc.pid and pgid are valid.
-        proc = _sp.Popen(
-            ["sleep", "60"],
-            stdout=_sp.DEVNULL,
-            stderr=_sp.DEVNULL,
-            start_new_session=True,
-        )
-        timed_out_flag: list[bool] = [False]
-        # Use timeout=0 so the watchdog fires immediately.
-        _mod._cursor_watchdog(proc, timeout=0, run_dir=run_dir, timed_out_flag=timed_out_flag)
+    class _FakeProc:
+        pid = 4242
 
-        # Give the watchdog thread time to fire.
-        deadline = _time.monotonic() + 3.0
-        while not (run_dir / "exit").exists() and _time.monotonic() < deadline:
-            _time.sleep(0.05)
+    monkeypatch.setattr(_mod.subprocess, "Popen", lambda *a, **k: _FakeProc())
 
-        # Clean up the process in case killpg was bypassed.
-        try:
-            proc.kill()
-            proc.wait(timeout=2)
-        except Exception:
-            pass
-    finally:
-        _real_os.killpg = original_killpg  # type: ignore[assignment]
+    args = _argparse.Namespace(
+        harness="claude", role="engineer",
+        brief=str(brief_file), workdir=str(workdir),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 0
+    teamrun_dir = workdir / ".agentic" / "teamrun"
+    run_dirs = [d for d in teamrun_dir.iterdir() if d.is_dir()]
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
 
-    assert killpg_calls, "os.killpg must be called by the watchdog on timeout"
-    assert timed_out_flag[0] is True, "timed_out_flag must be set by watchdog"
-    assert (run_dir / "exit").exists(), "watchdog must write exit file"
-    exit_val = (run_dir / "exit").read_text(encoding="utf-8").strip()
-    assert exit_val == "124", f"watchdog must write exit=124, got {exit_val!r}"
+    deadline = _time.monotonic() + 3.0
+    while not (run_dir / "exit").exists() and _time.monotonic() < deadline:
+        _time.sleep(0.05)
+
+    assert supervise_calls, "_sup_mod.supervise must be called for every harness"
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
+    status = _mod._sup_mod.read_status(run_dir)
+    assert status is not None
+    assert status["state"] == "done"
+
+def test_dispatch_failover_advances_chain_on_nonzero_exit(tmp_path, monkeypatch):
+    """failover: a nonzero exit_code from the first attempt advances to the
+    next (harness, model) in the chain instead of failing outright."""
+    import argparse as _argparse
+    import time as _time
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    brief_file = _make_brief_file(tmp_path)
+
+    calls: list[int] = []
+
+    def _fake_supervise(proc, run_dir, stdout_path, stderr_path, **kwargs):
+        calls.append(1)
+        # First attempt fails, second (fallback to claude) succeeds.
+        return 1 if len(calls) == 1 else 0
+
+    monkeypatch.setattr(_mod._sup_mod, "supervise", _fake_supervise)
+
+    class _FakeProc:
+        pid = 4243
+
+    monkeypatch.setattr(_mod.subprocess, "Popen", lambda *a, **k: _FakeProc())
+
+    args = _argparse.Namespace(
+        harness="codex", role="engineer",
+        brief=str(brief_file), workdir=str(workdir),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 0
+
+    teamrun_dir = workdir / ".agentic" / "teamrun"
+    run_dirs = [d for d in teamrun_dir.iterdir() if d.is_dir()]
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+
+    deadline = _time.monotonic() + 3.0
+    while not (run_dir / "exit").exists() and _time.monotonic() < deadline:
+        _time.sleep(0.05)
+
+    assert len(calls) >= 2, "failover must retry after a nonzero exit"
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
 
 
 def test_dispatch_mkdir_guard_unwritable_parent(tmp_path, monkeypatch):
@@ -1310,9 +1431,30 @@ def test_model_appended_claude_argv_end():
     assert argv[:len(base)] == base
 
 
+def test_model_appended_opencode_argv_end():
+    """opencode argv ends with ['--model', 'X']; brief not displaced."""
+    base = _build_worker_argv("opencode", "BRIEF")
+    argv = _build_worker_argv("opencode", "BRIEF", model="X")
+    assert argv[-2:] == ["--model", "X"], f"opencode must end with --model X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
+def test_model_appended_copilot_argv_end():
+    """copilot argv ends with ['--model', 'X']; brief not displaced."""
+    base = _build_worker_argv("copilot", "BRIEF")
+    argv = _build_worker_argv("copilot", "BRIEF", model="X")
+    assert argv[-2:] == ["--model", "X"], f"copilot must end with --model X, got {argv!r}"
+    assert argv.index("BRIEF") == base.index("BRIEF")
+    assert argv[:len(base)] == base
+
+
 def test_no_model_argv_unchanged():
     """(f) no model -> argv identical to pre-change behavior (no model flag)."""
-    for harness in ("codex", "gemini", "claude", "cursor-agent", "kimi", "pi", "omp"):
+    for harness in (
+        "codex", "gemini", "claude", "cursor-agent", "kimi", "pi", "omp",
+        "opencode", "copilot",
+    ):
         argv = _build_worker_argv(harness, "BRIEF")
         assert "-m" not in argv, f"{harness}: no -m when model is None"
         assert "--model" not in argv, f"{harness}: no --model when model is None"
@@ -1358,7 +1500,6 @@ def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
     assert rc == 0, f"dispatch with --model on kimi must succeed, got rc={rc}"
     assert "--model" in captured["argv"] and "some-model" in captured["argv"]
     assert _MODEL_FLAG_HARNESSES == frozenset(_mod.KNOWN_HARNESSES)
-
 
 # --- M2a: sibling-gated .active unlink ---------------------------------------
 
@@ -1651,8 +1792,133 @@ def test_configure_interactive_claude_only_exits_cleanly(tmp_path, monkeypatch, 
 
 
 # ---------------------------------------------------------------------------
-# D-1: dispatch resolves per-role model from team.yml when --model is absent.
+# Round-5 review: copilot opt-in gate + e2e opencode dispatch + exit-code-
+# independent raw fallback.
 # ---------------------------------------------------------------------------
+
+def test_dispatch_copilot_rejected_without_opt_in(tmp_path):
+    """copilot dispatch fails fast (exit 2) unless AGENTIC_TEAM_ALLOW_COPILOT=1.
+
+    --allow-all-paths + full-env inheritance defeats worktree isolation, so
+    copilot requires explicit operator consent, not just team.yml presence.
+    """
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+    fake_bin_dir = _make_fake_exec(tmp_path, "copilot", "hi")
+    brief_file = _make_brief_file(tmp_path)
+
+    # Ensure the opt-in is NOT set for this run.
+    rc, out = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file,
+        harness="copilot",
+        extra_env={"AGENTIC_TEAM_ALLOW_COPILOT": ""},
+    )
+    assert rc == 2, f"copilot must be rejected without opt-in, got rc={rc}"
+    assert "AGENTIC_TEAM_ALLOW_COPILOT" in out
+    # Fail-fast BEFORE any filesystem side effect: no teamrun tree created.
+    assert not (workdir / ".agentic" / "teamrun").exists(), (
+        "no run dir may be created when copilot is rejected"
+    )
+
+
+def test_dispatch_copilot_allowed_with_opt_in(tmp_path):
+    """AGENTIC_TEAM_ALLOW_COPILOT=1 lets copilot dispatch through to spawn."""
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+    fake_bin_dir = _make_fake_exec(tmp_path, "copilot", "raw copilot ok")
+    brief_file = _make_brief_file(tmp_path)
+
+    rc, run_id = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file,
+        harness="copilot",
+        extra_env={"AGENTIC_TEAM_ALLOW_COPILOT": "1"},
+    )
+    assert rc == 0, f"copilot dispatch must succeed with opt-in, got: {run_id}"
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    _wait_for_exit_file(run_dir, timeout=5.0)
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
+
+
+def test_dispatch_opencode_end_to_end(tmp_path):
+    """e2e: opencode dispatch -> detached worker -> reaper -> collect raw stdout.
+
+    Regression guard for the headless-hang fix: the fake opencode binary must
+    exit cleanly (it would hang if a real permission prompt blocked, which
+    --dangerously-skip-permissions suppresses).
+    """
+    workdir = tmp_path / "worker_wd"
+    workdir.mkdir()
+    fake_bin_dir = _make_fake_exec(tmp_path, "opencode", "Raw opencode e2e output")
+    brief_file = _make_brief_file(tmp_path)
+
+    rc, run_id = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file, harness="opencode",
+    )
+    assert rc == 0, f"opencode dispatch failed: {run_id}"
+    run_dir = workdir / ".agentic" / "teamrun" / run_id
+    _wait_for_exit_file(run_dir, timeout=5.0)
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
+    result = _collect_output(run_dir, "opencode")
+    assert "Raw opencode e2e output" in result
+
+
+def test_collect_raw_fallback_is_exit_code_independent(tmp_path):
+    """raw-stdout passthrough returns stdout regardless of exit code.
+
+    opencode/copilot have no JSON schema; collect must surface stdout even on
+    a non-zero exit so a failing worker's output is not silently dropped.
+    """
+    for i, harness in enumerate(("opencode", "copilot")):
+        run_dir = tmp_path / f"rawrun{i}"
+        run_dir.mkdir()
+        (run_dir / "harness").write_text(harness + "\n", encoding="utf-8")
+        (run_dir / "exit").write_text("3\n", encoding="utf-8")
+        (run_dir / "stdout").write_text(f"partial {harness} output\n", encoding="utf-8")
+        result = _collect_output(run_dir, harness)
+        assert f"partial {harness} output" in result, (
+            f"{harness} raw stdout must be returned even on non-zero exit"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Unit 0 - status/collect must not fail on a malformed team.yml
+# ---------------------------------------------------------------------------
+
+def test_status_collect_ignore_malformed_team_yml(tmp_path, capsys):
+    """A malformed team.yml must not break `status`/`collect`.
+
+    Regression for the config-load refactor: only discover/dispatch load and
+    validate team.yml. status/collect operate on on-disk run artifacts and
+    never read config, so an unparseable team.yml must not gate them out with
+    exit 2 before the run-dir lookup runs.
+    """
+    bad_yml = _write(tmp_path, "team.yml", "roles: [this is: not valid mapping\n")
+
+    # status on an unknown run-id: should reach the run-dir lookup (exit 2 with
+    # the status-specific message), NOT bail early on config parse error.
+    rc = main([
+        "--global-config", "/dev/null",
+        "--project-config", str(bad_yml),
+        "status", "nonexistent-run",
+        "--workdir", str(tmp_path),
+    ])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "unknown run-id" in err
+    assert "config parse error" not in err
+
+    # collect likewise reaches its own unknown-run-id path.
+    rc = main([
+        "--global-config", "/dev/null",
+        "--project-config", str(bad_yml),
+        "collect", "nonexistent-run",
+        "--workdir", str(tmp_path),
+    ])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "unknown run-id" in err
+    assert "config parse error" not in err
+
 
 def _patch_team_config(monkeypatch, config: dict):
     monkeypatch.setattr(_mod, "_load_team_config", lambda *a, **k: config)
@@ -1754,3 +2020,116 @@ def test_explicit_model_overrides_team_yml(monkeypatch):
     explicit = "glm/glm-5.2"
     resolved = explicit or _resolve_role_model("engineer", "omp")
     assert resolved == "glm/glm-5.2"
+
+
+# ---------------------------------------------------------------------------
+# D-2: round-robin / multi-model roles.
+# ---------------------------------------------------------------------------
+
+def _patch_team_config_d2(monkeypatch, config):
+    monkeypatch.setattr(_mod, "_load_team_config", lambda *a, **k: config)
+
+
+def test_role_models_list_forms():
+    assert _role_models_list({"model": "a"}) == ["a"]
+    assert _role_models_list({"models": ["a", "b"]}) == ["a", "b"]
+    assert _role_models_list({"model": ["a", "b"]}) == ["a", "b"]
+    assert _role_models_list({"models": ["a", "", 3, "b"]}) == ["a", "b"]
+    assert _role_models_list({"harness": "omp"}) == []
+    assert _role_models_list("omp") == []
+
+
+def _use_tmp_rotation(monkeypatch, tmp_path):
+    """Point the durable rotation dir at tmp so tests are hermetic."""
+    monkeypatch.setattr(_mod, "ROTATION_DIR", tmp_path / "rotation")
+
+
+def test_single_model_unchanged(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    _patch_team_config_d2(monkeypatch, {
+        "default_harness": "omp",
+        "roles": {"engineer": {"harness": "omp", "model": "kimi/kimi-k2.7"}},
+    })
+    for _ in range(3):
+        assert _resolve_role_model("engineer", "omp") == "kimi/kimi-k2.7"
+
+
+def test_round_robin_rotation_is_deterministic(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    _patch_team_config_d2(monkeypatch, {
+        "default_harness": "omp",
+        "roles": {"engineer": {"harness": "omp",
+                               "models": ["kimi/kimi-k2.7", "glm/glm-5.2"]}},
+    })
+    seq = [_resolve_role_model("engineer", "omp") for _ in range(4)]
+    assert seq == ["kimi/kimi-k2.7", "glm/glm-5.2", "kimi/kimi-k2.7", "glm/glm-5.2"]
+
+
+def test_round_robin_cursor_persists_across_calls(tmp_path):
+    # n=3: indices 0,1,2,0
+    rot = tmp_path / "rotation"
+    got = [_rotation_cursor_next("qa-engineer", 3, rotation_dir=rot) for _ in range(4)]
+    assert got == [0, 1, 2, 0]
+
+
+def test_round_robin_cursor_survives_separate_processes(tmp_path):
+    """The durable cursor must advance across genuinely separate invocations.
+
+    Models the real production case: each dispatch is a fresh process with a
+    throwaway workdir. The cursor lives in a stable ~/.agentic/rotation dir, so
+    a second process picks up where the first left off. Simulated here by
+    invoking the module in two separate python subprocesses that share only the
+    rotation dir (not any in-memory state or workdir).
+    """
+    import sys as _sys
+    rot = tmp_path / "rotation"
+    prog = (
+        "import importlib.machinery, importlib.util, sys;"
+        "l=importlib.machinery.SourceFileLoader('t', %r);"
+        "s=importlib.util.spec_from_loader('t', l);"
+        "m=importlib.util.module_from_spec(s); l.exec_module(m);"
+        "from pathlib import Path;"
+        "print(m._rotation_cursor_next('engineer', 2, rotation_dir=Path(%r)))"
+        % (str(_BIN / "agentic-team"), str(rot))
+    )
+    outs = []
+    for _ in range(4):
+        r = _subprocess_mod.run([_sys.executable, "-c", prog],
+                                capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        outs.append(r.stdout.strip())
+    # Separate processes still rotate 0,1,0,1 because the cursor is durable.
+    assert outs == ["0", "1", "0", "1"], outs
+
+
+def test_round_robin_per_role_independent(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    _patch_team_config_d2(monkeypatch, {
+        "default_harness": "omp",
+        "roles": {
+            "engineer": {"harness": "omp", "models": ["a", "b"]},
+            "qa-engineer": {"harness": "omp", "models": ["x", "y"]},
+        },
+    })
+    assert _resolve_role_model("engineer", "omp") == "a"
+    assert _resolve_role_model("qa-engineer", "omp") == "x"
+    assert _resolve_role_model("engineer", "omp") == "b"
+    assert _resolve_role_model("qa-engineer", "omp") == "y"
+
+
+def test_models_list_harness_mismatch_returns_none(monkeypatch, tmp_path):
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    _patch_team_config_d2(monkeypatch, {
+        "roles": {"engineer": {"harness": "codex", "models": ["a", "b"]}},
+    })
+    assert _resolve_role_model("engineer", "omp") is None
+
+
+def test_validate_rejects_bad_models_list(tmp_path):
+    cfg = {"roles": {"engineer": {"harness": "omp", "models": []}}}
+    errs = _validate_config(cfg, source="t")
+    assert any("models" in e for e in errs)
+    cfg2 = {"roles": {"engineer": {"harness": "omp", "models": ["ok", ""]}}}
+    assert any("models" in e for e in _validate_config(cfg2, source="t"))
+    cfg3 = {"roles": {"engineer": {"harness": "omp", "models": ["ok", "also"]}}}
+    assert not any("models" in e for e in _validate_config(cfg3, source="t"))

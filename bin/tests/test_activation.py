@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""
+Tests for bin/_activation.py activation-state primitives.
+
+Test groups:
+  resolve_state (mirrors hooks/lib/activation.* precedence)
+    - dormant when no marker; auto-detect when .agentic/ exists; tombstone
+      overrides auto-detect; active/active.session override tombstone;
+      indeterminate cwd -> fail-ACTIVE.
+  activate / deactivate round-trip
+    - activate writes marker + tier, clears tombstone, allowlists;
+      deactivate writes tombstone, removes active markers, keeps data.
+  allowlist
+    - add/remove idempotent; flat .list mirrors the JSON.
+  resident_bytes / clear_session_marker
+
+Hermetic: every test uses a tempfile project and a fake HOME so the real
+~/.agentic is never touched.
+"""
+
+from __future__ import annotations
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+_MOD_PATH = Path(__file__).parent.parent / "_activation.py"
+_loader = importlib.machinery.SourceFileLoader("_activation", str(_MOD_PATH))
+_spec = importlib.util.spec_from_loader("_activation", _loader)
+if _spec is None:
+    raise RuntimeError(f"Cannot build spec for _activation from {_MOD_PATH}")
+act = importlib.util.module_from_spec(_spec)
+_loader.exec_module(act)
+
+
+class _FakeHome(unittest.TestCase):
+    """Base: redirect HOME and the module's cached ~/.agentic paths to a sandbox."""
+
+    def setUp(self):
+        self.project = tempfile.mkdtemp()
+        self.home = tempfile.mkdtemp()
+        self._old_home = os.environ.get("HOME")
+        os.environ["HOME"] = self.home
+        # The module resolved ~/.agentic paths at import time; repoint them.
+        self._old_paths = (act._HOME_AGENTIC, act._ALLOWLIST_JSON, act._ALLOWLIST_FLAT)
+        act._HOME_AGENTIC = Path(self.home) / ".agentic"
+        act._ALLOWLIST_JSON = act._HOME_AGENTIC / "activation.json"
+        act._ALLOWLIST_FLAT = act._HOME_AGENTIC / "activation.list"
+
+    def tearDown(self):
+        act._HOME_AGENTIC, act._ALLOWLIST_JSON, act._ALLOWLIST_FLAT = self._old_paths
+        if self._old_home is not None:
+            os.environ["HOME"] = self._old_home
+        else:
+            os.environ.pop("HOME", None)
+
+
+class TestResolveState(_FakeHome):
+    def test_dormant_no_marker(self):
+        self.assertEqual(act.resolve_state(self.project)["reason"], "dormant")
+        self.assertFalse(act.resolve_state(self.project)["active"])
+
+    def test_auto_detect(self):
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        s = act.resolve_state(self.project)
+        self.assertTrue(s["active"])
+        self.assertEqual(s["reason"], "auto-detect")
+
+    def test_tombstone_overrides_auto_detect(self):
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "dormant"), "w").close()
+        s = act.resolve_state(self.project)
+        self.assertFalse(s["active"])
+        self.assertEqual(s["reason"], "tombstone")
+
+    def test_active_overrides_tombstone(self):
+        act.activate(self.project, tier="full")  # writes active + clears tombstone
+        s = act.resolve_state(self.project)
+        self.assertTrue(s["active"])
+        self.assertEqual(s["reason"], "active-file")
+        self.assertEqual(s["tier"], "full")
+
+    def test_indeterminate_fails_active(self):
+        self.assertTrue(act.resolve_state(None)["active"])
+        self.assertEqual(act.resolve_state(None)["reason"], "error")
+
+
+class TestActivateDeactivate(_FakeHome):
+    def test_activate_writes_marker_and_allowlist(self):
+        marker = act.activate(self.project, tier="medium")
+        self.assertTrue(os.path.exists(marker))
+        data = json.load(open(marker))
+        self.assertEqual(data["tier"], "medium")
+        self.assertEqual(data["by"], "ds")
+        # Allowlist updated (JSON + flat mirror).
+        self.assertTrue(act._in_allowlist(self.project))
+        self.assertTrue(act._ALLOWLIST_FLAT.exists())
+
+    def test_activate_clears_tombstone(self):
+        act.deactivate(self.project)
+        self.assertTrue(os.path.exists(os.path.join(self.project, ".agentic", "dormant")))
+        act.activate(self.project)
+        self.assertFalse(os.path.exists(os.path.join(self.project, ".agentic", "dormant")))
+
+    def test_session_marker(self):
+        marker = act.activate(self.project, session=True, session_id="sess-1")
+        self.assertTrue(str(marker).endswith("active.session"))
+        self.assertEqual(json.load(open(marker))["session_id"], "sess-1")
+        self.assertEqual(act.resolve_state(self.project)["reason"], "session-file")
+        act.clear_session_marker(self.project)
+        self.assertFalse(os.path.exists(marker))
+
+    def test_deactivate_keeps_data(self):
+        act.activate(self.project)
+        # drop a data file that must survive deactivation
+        data_file = os.path.join(self.project, ".agentic", "events.jsonl")
+        with open(data_file, "w") as fh:
+            fh.write("{}\n")
+        act.deactivate(self.project)
+        self.assertFalse(os.path.exists(os.path.join(self.project, ".agentic", "active")))
+        self.assertTrue(os.path.exists(data_file))  # data preserved
+
+    def test_deactivate_forget_removes_allowlist(self):
+        act.activate(self.project)
+        self.assertTrue(act._in_allowlist(self.project))
+        act.deactivate(self.project, remove_from_allowlist_flag=True)
+        self.assertFalse(act._in_allowlist(self.project))
+
+
+class TestAllowlist(_FakeHome):
+    def test_add_idempotent(self):
+        act.add_to_allowlist(self.project)
+        act.add_to_allowlist(self.project)
+        entries = act._read_allowlist()
+        self.assertEqual(len([e for e in entries if os.path.realpath(e) == os.path.realpath(self.project)]), 1)
+
+    def test_flat_mirror_matches_json(self):
+        act.add_to_allowlist(self.project)
+        flat = act._ALLOWLIST_FLAT.read_text().split()
+        js = act._read_allowlist()
+        self.assertEqual([os.path.realpath(x) for x in flat], [os.path.realpath(x) for x in js])
+
+    def test_remove(self):
+        act.add_to_allowlist(self.project)
+        act.remove_from_allowlist(self.project)
+        self.assertFalse(act._in_allowlist(self.project))
+
+
+class TestResidentBytes(_FakeHome):
+    def test_zero_when_absent(self):
+        self.assertEqual(act.resident_bytes(self.project), 0)
+
+    def test_counts_bytes(self):
+        act.activate(self.project, tier="minimal")
+        self.assertGreater(act.resident_bytes(self.project), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
