@@ -1815,11 +1815,12 @@ def test_models_wins_over_invalid_model(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_dispatch_rotation_across_different_workdirs(tmp_path):
-    """Two dispatches with different --workdir but default project-config rotate.
+    """Two dispatches with different --workdir and default (unset) project-config rotate.
 
     Regression for the #414 _project_hash/workdir-relative-path bug: the rotation
     cursor must be durable across separate dispatch subprocesses regardless of
-    which throwaway workdir each uses. A private HOME keeps the test hermetic.
+    which throwaway workdir each uses. Project team.yml is discovered from cwd.
+    A private HOME keeps the test hermetic.
     """
     home_dir = tmp_path / "home"
     home_dir.mkdir()
@@ -1857,10 +1858,10 @@ def test_dispatch_rotation_across_different_workdirs(tmp_path):
         env_patch = dict(os.environ)
         env_patch["HOME"] = str(home_dir)
         env_patch["PATH"] = str(fake_bin_dir) + os.pathsep + env_patch.get("PATH", "")
+        # No --project-config: rely on default .agentic/team.yml resolved from cwd.
         result = subprocess.run(
             [
                 sys.executable, str(_BIN / "agentic-team"),
-                "--project-config", str(proj / ".agentic" / "team.yml"),
                 "dispatch", "--harness", "omp", "--role", "engineer",
                 "--brief", str(brief_file), "--workdir", str(workdir),
             ],
