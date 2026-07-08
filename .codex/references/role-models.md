@@ -57,6 +57,9 @@ roles:
 
 reviewers:
   strategy: distinct-from-author   # distinct-from-author | round-robin | by-task
+  by_role:                         # per-authored-role reviewer (wins first)
+    engineer: cx/gpt-5.5
+    architect: cc/claude-opus-4-8
   pool:
     - gpt-5
     - model: glm-4.6
@@ -82,6 +85,7 @@ Supported role keys are exactly: `conductor`, `investigator`, `architect`, `orch
 
 - `strategy:` enum, exactly one of `distinct-from-author`, `round-robin`, or `by-task`. Default when `reviewers:` exists but `strategy:` is absent: `distinct-from-author`.
 - `pool:` ordered list of role-specs (scalar or mapping) the reviewer may use. Required when `strategy` is `distinct-from-author` or `round-robin`. The author-model check compares only the resolved `model` string from each pool entry.
+- `by_role:` map of `<authored-role>: <role-spec>`, optional. Chooses the reviewer model per authored role (e.g. the reviewer for `engineer`-authored code vs `architect`-authored design). Checked FIRST, before `by_task`/`pool`. A `by_role` entry equal to the author model is skipped (distinct-from-author still holds), falling through to the next source.
 - `by_task:` map of `<task-kind>: <role-spec>`, required only when `strategy: by-task`. Task kinds are `security`, `architecture`, `correctness`, and `default`. `default` is the fallback when no specific kind matches.
 - `fallback:` single role-spec used when the strategy cannot pick, such as `distinct-from-author` with the only pool model equal to the author model. Optional; if absent and the strategy cannot pick, the conductor omits `model` and notes the fallback inline.
 
@@ -93,7 +97,7 @@ Supported role keys are exactly: `conductor`, `investigator`, `architect`, `orch
 4. For a reviewer spawn (`skeptic` or `security-auditor`), determine the **author model**: the model the conductor used for the engineer or architect spawn that produced the diff or plan under review. The conductor tracks this in-context. If untracked or unknown, treat author model as the session default string and proceed.
 5. Apply `reviewers.strategy`:
    - `distinct-from-author`: pick the first `pool` entry whose normalized `model` is not equal to the author model. If all pool entries equal the author model, use `fallback` if set, else omit `model`. `effort` and `reasoning` from the chosen entry pass through.
-   - `round-robin`: pick `pool[i mod len(pool)]` where `i` is the count of reviewer spawns so far this session. The conductor maintains the counter in-context, starting at 0. Round-robin ignores author identity by design; it does not guarantee distinctness from the author. Users who need guaranteed distinctness should use `distinct-from-author`.
+   - `round-robin`: pick `pool[i mod len(pool)]` where `i` is the reviewer-spawn count (the conductor maintains the durable counter, starting at 0), then advance past any entry equal to the author model so a round-robin reviewer is never the author. Implemented by `resolve_reviewer_model(..., rotation_index=i)` in `bin/_role_spec.py`.
    - `by-task`: pick `by_task[<kind>]` where kind is derived from the adversarial brief. `security-auditor` or a security brief maps to `security`; architect-plan review maps to `architecture`; otherwise use `correctness`; final fallback is `default`. If the resolved kind is absent from `by_task`, use `by_task.default`; if `default` is absent, omit `model`.
 6. Pass the resolved reviewer's `{model, effort, reasoning}` to the reviewer subagent spawn. Missing keys are not passed.
 
