@@ -343,7 +343,6 @@ def _resolve_role_model(
             file=sys.stderr,
         )
         return None
-        return None
     spec = config.get("roles", {}).get(role)
     if not spec:
         return None
