@@ -573,7 +573,7 @@ def main() -> int:
         ]
 
     # Dormancy passthrough: forward --dormant/--resident to each install.sh.
-    # ponytail: absent = install.sh resolves per its own precedence (env/prompt/keep).
+    # note: absent = install.sh resolves per its own precedence (env/prompt/keep).
     dormancy_args = [f"--{args.dormancy}"] if getattr(args, "dormancy", None) else []
 
     failures: list[str] = []
