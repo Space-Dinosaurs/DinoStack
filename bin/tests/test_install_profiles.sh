@@ -138,6 +138,29 @@ run_security_tests() {
   ln -sf "$sb/victim2" "$prof2/settings.json"
   bash "$REPO_DIR/.claude/install.sh" --config-dir="$prof2" --mode=opt-out --no-identity >/dev/null 2>&1 || true
   grep -q KEEP "$sb/victim2" && pass "settings.json symlink write blocked" || fail "settings.json symlink write truncated victim"
+
+  # 3c) install-profiles.sh must guard omp's ACTUAL config dir ($base/agent),
+  # not just the profile base ($base). Plant a symlinked agent dir and confirm
+  # install-profiles refuses it and leaves the victim target untouched.
+  mkdir -p "$HOME/.omp-victim"          # real base dir (passes the $base guard)
+  mkdir -p "$sb/omp_victim_target"
+  echo "KEEP_OMP" > "$sb/omp_victim_target/inside.txt"
+  ln -sfn "$sb/omp_victim_target" "$HOME/.omp-victim/agent"  # symlinked config dir
+  out3c="$(bash "$REPO_DIR/scripts/install-profiles.sh" --tenants=victim --harnesses=omp \
+           --no-cursor --no-identity --mode=opt-out --profile=default </dev/null 2>&1 || true)"
+  # Match install-profiles.sh's OWN refusal message ("config dir is a symlink"),
+  # not the inner installer's ("...install through symlinked config dir"), so this
+  # assertion pins the outer guard specifically rather than passing on the inner
+  # installer's independent (defense-in-depth) refusal.
+  echo "$out3c" | grep -q "config dir is a symlink" \
+    && pass "install-profiles refuses symlinked omp config dir" \
+    || fail "install-profiles did NOT refuse symlinked omp config dir"
+  if [[ ! -e "$sb/omp_victim_target/agentic-engineering.json" ]] \
+     && grep -q KEEP_OMP "$sb/omp_victim_target/inside.txt"; then
+    pass "install-profiles planted no file through symlinked omp config dir"
+  else
+    fail "install-profiles planted a file through symlinked omp config dir"
+  fi
   rm -rf "$sb"
 }
 run_security_tests
