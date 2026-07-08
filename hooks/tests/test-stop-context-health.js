@@ -42,6 +42,7 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
+const libActivationAbs = path.resolve(__dirname, '..', 'lib', 'activation.js');
 
 const shimmedSource = hookSource
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
@@ -52,6 +53,10 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
     `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/activation\.js['"]\)/,
+    `require(${JSON.stringify(libActivationAbs)})`
   );
 
 // Guard: ensure all relative lib requires were rewritten.

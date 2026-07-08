@@ -11,6 +11,24 @@
 
 ae_config="$HOME/.claude/agentic-engineering.json"
 
+# --- Activation guard: dormant projects get no skill-load instruction. ---
+# This hook otherwise ignores stdin; read it once (non-blocking) only to extract
+# cwd for the guard. Fail-ACTIVE: missing lib / unparseable cwd -> run normally.
+script_dir_guard="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$script_dir_guard/lib/activation.sh" ]]; then
+  _payload="$(cat 2>/dev/null || true)"
+  _cwd="$(printf '%s' "$_payload" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("cwd","") or "")
+except Exception:
+    print("")' 2>/dev/null || echo "")"
+  # shellcheck source=/dev/null
+  source "$script_dir_guard/lib/activation.sh" 2>/dev/null || true
+  if declare -f ae_is_active >/dev/null 2>&1 && [[ -n "$_cwd" ]]; then
+    ae_is_active "$_cwd" || exit 0
+  fi
+fi
+
 skill_auto_load=$(python3 -c "
 import json, sys
 try:

@@ -71,6 +71,15 @@ const path = require('path');
 const { detectCaptureGap } = require('./lib/capture-gap.js');
 const { peekActiveCandidates } = require('./lib/skill-candidate-detector.js');
 
+// Activation guard: dormant projects skip the capture nudge. Fail-ACTIVE if the
+// lib is missing (a guard bug must never silently kill methodology).
+let _activation = null;
+try {
+  _activation = require('./lib/activation.js');
+} catch (_) {
+  _activation = null;
+}
+
 // Verbatim nudge texts (handoff section 3). The standard variant fires when no
 // guardrail was added this session; the residualOnly variant fires when a
 // guardrail was added but is not domain-proximate to the learning-worthy event.
@@ -276,6 +285,13 @@ function run() {
       ? payload.cwd.trim()
       : null;
     if (!cwd) process.exit(0);
+
+    // Activation guard: dormant projects skip the nudge. Fail-ACTIVE on error.
+    if (_activation) {
+      try {
+        if (!_activation.isActive(cwd)) process.exit(0);
+      } catch (_) { /* fail-ACTIVE: fall through */ }
+    }
 
     const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())
       ? payload.session_id.trim()
