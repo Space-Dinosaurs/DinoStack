@@ -1449,6 +1449,7 @@ def test_run_id_contains_urandom_suffix():
 
 _is_live_readonly = _mod._is_live_readonly
 _MODEL_FLAG_HARNESSES = _mod._MODEL_FLAG_HARNESSES
+_sup_mod = _mod._sup_mod
 
 
 # --- M2b argv: model appended at END, brief positional NOT displaced ---------
@@ -1658,6 +1659,75 @@ def test_is_live_readonly_pure():
         # exit file present -> terminal -> not live, regardless of pid
         (rd / "exit").write_text("0\n", encoding="utf-8")
         assert _is_live_readonly(rd) is False
+
+
+def _make_status_run(teamrun: Path, run_id: str, state: str) -> Path:
+    """Create a sibling run dir whose liveness is governed by status.json."""
+    rd = teamrun / run_id
+    rd.mkdir(parents=True, exist_ok=True)
+    status = {"state": state, "run_id": run_id, "role": "engineer"}
+    (rd / "status.json").write_text(json.dumps(status), encoding="utf-8")
+    (rd / "harness").write_text("codex\n", encoding="utf-8")
+    # Deliberately no pid file / exit file: the new logic must not fall back.
+    return rd
+
+
+@pytest.mark.parametrize("state", ["running", "retrying", "failed_over"])
+def test_is_live_readonly_status_in_progress_states_are_live(state, tmp_path):
+    """status.json state in {running,retrying,failed_over} -> live, ignoring pid."""
+    rd = tmp_path / "run"
+    rd.mkdir()
+    _sup_mod.write_status(rd, state=state, run_id="r1")
+    # Write a dead-looking pid and no exit file to prove status wins.
+    (rd / "pid").write_text("999999\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+
+
+@pytest.mark.parametrize("state", ["done", "failed"])
+def test_is_live_readonly_status_terminal_states_are_not_live(state, tmp_path):
+    """status.json state in {done,failed} -> not live, ignoring pid."""
+    rd = tmp_path / "run"
+    rd.mkdir()
+    _sup_mod.write_status(rd, state=state, run_id="r1", exit_code=1)
+    # Live pid must NOT override explicit terminal status.
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is False
+
+
+def test_collect_leaves_active_when_sibling_status_retrying(tmp_path):
+    """Failover race fix: a retrying sibling with no live pid keeps .active."""
+    import argparse as _argparse
+    workdir = tmp_path / "wd"
+    teamrun = workdir / ".agentic" / "teamrun"
+    teamrun.mkdir(parents=True)
+    (teamrun / ".active").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+
+    # Sibling in retrying state but no live PID: old PID-only logic would call
+    # it dead and unlink .active; new status-first logic must keep it live.
+    _make_status_run(teamrun, "engineer-retrying-1", "retrying")
+    _make_terminal_run(teamrun, "engineer-0002-y")
+
+    args = _argparse.Namespace(run_id="engineer-0002-y", workdir=str(workdir))
+    rc = _mod._cmd_collect(args)
+    assert rc == 0
+    assert (teamrun / ".active").exists(), ".active must remain while a sibling is retrying"
+
+
+def test_collect_leaves_active_when_sibling_status_failed_over(tmp_path):
+    """Failover race fix: a failed_over sibling with no live pid keeps .active."""
+    import argparse as _argparse
+    workdir = tmp_path / "wd"
+    teamrun = workdir / ".agentic" / "teamrun"
+    teamrun.mkdir(parents=True)
+    (teamrun / ".active").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+
+    _make_status_run(teamrun, "engineer-failedover-1", "failed_over")
+    _make_terminal_run(teamrun, "engineer-0002-y")
+
+    args = _argparse.Namespace(run_id="engineer-0002-y", workdir=str(workdir))
+    rc = _mod._cmd_collect(args)
+    assert rc == 0
+    assert (teamrun / ".active").exists(), ".active must remain while a sibling is failed_over"
 
 
 # ===========================================================================

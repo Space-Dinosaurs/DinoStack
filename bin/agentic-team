@@ -1374,32 +1374,34 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             if exit_code == 0:
                 _sup_mod.write_status(run_dir, state="done", exit_code=0, attempt=attempt)
                 (run_dir / "exit").write_text("0\n", encoding="utf-8")
-                break
-
-            if attempt >= len(chain):
+            elif attempt >= len(chain):
                 _sup_mod.write_status(run_dir, state="failed", exit_code=exit_code, attempt=attempt)
                 (run_dir / "exit").write_text(f"{exit_code}\n", encoding="utf-8")
+            else:
+                next_harness = chain[attempt][0]
+                retry_state = "retrying" if next_harness == attempt_harness else "failed_over"
+                _sup_mod.write_status(
+                    run_dir, state=retry_state, exit_code=exit_code, attempt=attempt,
+                    reason=f"attempt {attempt} ({attempt_harness}) exit {exit_code}",
+                )
+
+            # Refresh the shared .active sentinel after each attempt so concurrent
+            # collect scans see a live marker across attempt boundaries.
+            active_sentinel = workdir / ".agentic" / "teamrun" / ".active"
+            try:
+                active_sentinel.write_text(str(os.getpid()) + "\n", encoding="utf-8")
+            except OSError:
+                pass
+
+            if exit_code == 0 or attempt >= len(chain):
                 break
-
-            next_harness = chain[attempt][0]
-            retry_state = "retrying" if next_harness == attempt_harness else "failed_over"
-            _sup_mod.write_status(
-                run_dir, state=retry_state, exit_code=exit_code, attempt=attempt,
-                reason=f"attempt {attempt} ({attempt_harness}) exit {exit_code}",
-            )
-
-        active_sentinel = workdir / ".agentic" / "teamrun" / ".active"
-        try:
-            active_sentinel.write_text(str(os.getpid()) + "\n", encoding="utf-8")
-        except OSError:
-            pass
 
     _chain_thread = threading.Thread(target=_run_chain, daemon=False)
     _chain_thread.start()
 
     # Write .active sentinel immediately too, so Unit 5b hook can suppress
     # native Task/OMC while at least one run is live from the moment dispatch
-    # returns (the background thread refreshes it after each attempt).
+    # returns. The background thread refreshes it after each attempt.
     active_sentinel = workdir / ".agentic" / "teamrun" / ".active"
     try:
         active_sentinel.write_text(str(os.getpid()) + "\n", encoding="utf-8")
@@ -1442,11 +1444,24 @@ def _pid_alive(pid: int) -> bool:
 def _is_live_readonly(rd: Path) -> bool:
     """Read-only liveness check for a sibling run dir.
 
-    Returns True only when the run has no exit file AND its recorded PID is
-    still alive. Unlike _run_status, this NEVER writes an exit file as a side
-    effect on dead-PID dirs, so it is safe to call across sibling runs during
+    Returns True when the run's status.json reports an in-progress state
+    (running, retrying, failed_over). Returns False when status.json reports a
+    terminal state (done, failed). Unlike _run_status, this NEVER writes an
+    exit file as a side effect, so it is safe to call across sibling runs during
     sentinel cleanup.
+
+    Only falls back to the legacy "no exit file + PID alive" check when
+    status.json is missing or unreadable (e.g. run dirs from an older version).
     """
+    status = _sup_mod.read_status(rd)
+    if status is not None:
+        state = status.get("state")
+        if state in ("running", "retrying", "failed_over"):
+            return True
+        if state in ("done", "failed"):
+            return False
+        # Unknown/empty state: fall through to legacy PID+exit check.
+    # Legacy fallback for run dirs created before status.json was introduced.
     if (rd / "exit").exists():
         return False
     pid = _read_pid(rd)
