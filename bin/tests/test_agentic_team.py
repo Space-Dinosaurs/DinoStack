@@ -1267,6 +1267,7 @@ def test_dispatch_uses_supervise_for_all_harnesses(tmp_path, monkeypatch):
     via _sup_mod.supervise, and write exit=<code> + status.json state=done on a
     clean supervised exit."""
     import argparse as _argparse
+    import threading as _threading
     import time as _time
 
     workdir = tmp_path / "wd"
@@ -1274,15 +1275,33 @@ def test_dispatch_uses_supervise_for_all_harnesses(tmp_path, monkeypatch):
     brief_file = _make_brief_file(tmp_path)
 
     supervise_calls: list[str] = []
+    chain_threads: list[_threading.Thread] = []
 
     def _fake_supervise(proc, run_dir, stdout_path, stderr_path, **kwargs):
         supervise_calls.append(str(run_dir))
+        proc.returncode = 0
         return 0
 
     monkeypatch.setattr(_mod._sup_mod, "supervise", _fake_supervise)
 
+    real_thread = _threading.Thread
+
+    def _capturing_thread(*a, **k):
+        t = real_thread(*a, **k)
+        chain_threads.append(t)
+        return t
+
+    monkeypatch.setattr(_threading, "Thread", _capturing_thread)
+
     class _FakeProc:
         pid = 4242
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            return self.returncode
 
     monkeypatch.setattr(_mod.subprocess, "Popen", lambda *a, **k: _FakeProc())
 
@@ -1297,9 +1316,15 @@ def test_dispatch_uses_supervise_for_all_harnesses(tmp_path, monkeypatch):
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
 
-    deadline = _time.monotonic() + 3.0
-    while not (run_dir / "exit").exists() and _time.monotonic() < deadline:
+    deadline = _time.monotonic() + 5.0
+    while _time.monotonic() < deadline:
+        if (run_dir / "exit").exists():
+            break
         _time.sleep(0.05)
+
+    # Wait for the background chain thread to finish writing artifacts.
+    if chain_threads:
+        chain_threads[0].join(timeout=5.0)
 
     assert supervise_calls, "_sup_mod.supervise must be called for every harness"
     assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
@@ -1311,6 +1336,7 @@ def test_dispatch_failover_advances_chain_on_nonzero_exit(tmp_path, monkeypatch)
     """failover: a nonzero exit_code from the first attempt advances to the
     next (harness, model) in the chain instead of failing outright."""
     import argparse as _argparse
+    import threading as _threading
     import time as _time
 
     workdir = tmp_path / "wd"
@@ -1318,16 +1344,34 @@ def test_dispatch_failover_advances_chain_on_nonzero_exit(tmp_path, monkeypatch)
     brief_file = _make_brief_file(tmp_path)
 
     calls: list[int] = []
+    chain_threads: list[_threading.Thread] = []
 
     def _fake_supervise(proc, run_dir, stdout_path, stderr_path, **kwargs):
         calls.append(1)
         # First attempt fails, second (fallback to claude) succeeds.
-        return 1 if len(calls) == 1 else 0
+        proc.returncode = 1 if len(calls) == 1 else 0
+        return proc.returncode
 
     monkeypatch.setattr(_mod._sup_mod, "supervise", _fake_supervise)
 
+    real_thread = _threading.Thread
+
+    def _capturing_thread(*a, **k):
+        t = real_thread(*a, **k)
+        chain_threads.append(t)
+        return t
+
+    monkeypatch.setattr(_threading, "Thread", _capturing_thread)
+
     class _FakeProc:
         pid = 4243
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            return self.returncode
 
     monkeypatch.setattr(_mod.subprocess, "Popen", lambda *a, **k: _FakeProc())
 
@@ -1343,9 +1387,15 @@ def test_dispatch_failover_advances_chain_on_nonzero_exit(tmp_path, monkeypatch)
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
 
-    deadline = _time.monotonic() + 3.0
-    while not (run_dir / "exit").exists() and _time.monotonic() < deadline:
+    deadline = _time.monotonic() + 5.0
+    while _time.monotonic() < deadline:
+        if (run_dir / "exit").exists():
+            break
         _time.sleep(0.05)
+
+    # Wait for the background chain thread to finish writing artifacts.
+    if chain_threads:
+        chain_threads[0].join(timeout=5.0)
 
     assert len(calls) >= 2, "failover must retry after a nonzero exit"
     assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0"
@@ -1470,27 +1520,39 @@ def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
     """dispatch --model X --harness kimi -> succeeds (rc 0), no fail-fast
     reject; the model flag reaches the spawned argv."""
     import argparse as _argparse
+    import threading as _threading
 
     workdir = tmp_path / "wd"
     workdir.mkdir()
     brief_file = _make_brief_file(tmp_path)
 
     captured: dict = {}
+    chain_threads: list[_threading.Thread] = []
 
     class _FakeProc:
         pid = 12345
+        returncode = 0
 
         def poll(self):
-            return 0
+            return self.returncode
 
         def wait(self, timeout=None):
-            return 0
+            return self.returncode
 
     def _fake_popen(argv, *a, **k):
         captured["argv"] = argv
         return _FakeProc()
 
     monkeypatch.setattr(_mod.subprocess, "Popen", _fake_popen)
+
+    real_thread = _threading.Thread
+
+    def _capturing_thread(*a, **k):
+        t = real_thread(*a, **k)
+        chain_threads.append(t)
+        return t
+
+    monkeypatch.setattr(_threading, "Thread", _capturing_thread)
 
     args = _argparse.Namespace(
         harness="kimi", role="engineer",
@@ -1500,6 +1562,10 @@ def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
     assert rc == 0, f"dispatch with --model on kimi must succeed, got rc={rc}"
     assert "--model" in captured["argv"] and "some-model" in captured["argv"]
     assert _MODEL_FLAG_HARNESSES == frozenset(_mod.KNOWN_HARNESSES)
+
+    # Reaper thread uses the real supervise(); wait for it to finish cleanly.
+    if chain_threads:
+        chain_threads[0].join(timeout=5.0)
 
 # --- M2a: sibling-gated .active unlink ---------------------------------------
 
