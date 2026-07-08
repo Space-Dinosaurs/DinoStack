@@ -24,6 +24,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -157,6 +158,111 @@ class TestResidentBytes(_FakeHome):
     def test_counts_bytes(self):
         act.activate(self.project, tier="minimal")
         self.assertGreater(act.resident_bytes(self.project), 0)
+
+
+# ---------------------------------------------------------------------------
+# hooks/lib/activation.py guard tests (dormant tombstone + unsuppressable notice)
+# ---------------------------------------------------------------------------
+import importlib.machinery as _hl_machinery
+import importlib.util as _hl_util
+import io as _io
+
+_HOOK_MOD_PATH = Path(__file__).parent.parent.parent / "hooks" / "lib" / "activation.py"
+_hl_loader = _hl_machinery.SourceFileLoader("hook_activation", str(_HOOK_MOD_PATH))
+_hl_spec = _hl_util.spec_from_loader("hook_activation", _hl_loader)
+if _hl_spec is None:
+    raise RuntimeError(f"Cannot build spec for hooks/lib/activation.py from {_HOOK_MOD_PATH}")
+hook_act = _hl_util.module_from_spec(_hl_spec)
+_hl_loader.exec_module(hook_act)
+
+
+class TestHookActivationDormantNotice(_FakeHome):
+    """is_active() emits an unsuppressable notice the first time it observes
+    a dormant tombstone; the marker lives outside the project directory."""
+
+    def _capture_stderr(self, func, *args, **kwargs):
+        old = sys.stderr
+        buf = _io.StringIO()
+        sys.stderr = buf
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            sys.stderr = old
+        return result, buf.getvalue()
+
+    def test_dormant_tombstone_emits_notice_once(self):
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "dormant"), "w").close()
+
+        active1, err1 = self._capture_stderr(hook_act.is_active, self.project)
+        self.assertFalse(active1)
+        self.assertIn("AGENTIC-ENGINEERING DORMANT", err1)
+        self.assertIn(self.project, err1)
+        self.assertIn("tombstone", err1)
+
+        marker = hook_act._dormant_notice_path(self.project)
+        self.assertTrue(os.path.exists(marker))
+
+        active2, err2 = self._capture_stderr(hook_act.is_active, self.project)
+        self.assertFalse(active2)
+        self.assertEqual(err2, "")
+
+    def test_dormant_notice_marker_outside_project(self):
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "dormant"), "w").close()
+
+        marker = hook_act._dormant_notice_path(self.project)
+        home_prefix = os.path.realpath(self.home) + os.sep
+        self.assertTrue(
+            os.path.realpath(marker).startswith(home_prefix),
+            f"marker {marker!r} must live under fake HOME, not project",
+        )
+        # Key is derived from realpath(cwd), so two paths resolving to the same
+        # project share the same marker.
+        self.assertEqual(
+            hook_act._dormant_notice_path(self.project),
+            hook_act._dormant_notice_path(os.path.realpath(self.project)),
+        )
+
+    def test_dormant_notice_still_prints_if_marker_creation_fails(self):
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "dormant"), "w").close()
+
+        real_emit = hook_act._emit_dormant_notice
+        calls = []
+
+        def broken_emit(cwd):
+            # Print the warning but fail to create the marker.
+            calls.append(cwd)
+            print("AGENTIC-ENGINEERING DORMANT: warning", file=sys.stderr)
+            raise OSError("marker creation simulated failure")
+
+        hook_act._emit_dormant_notice = broken_emit
+        try:
+            active, err = self._capture_stderr(hook_act.is_active, self.project)
+        finally:
+            hook_act._emit_dormant_notice = real_emit
+
+        self.assertFalse(active)
+        self.assertIn("AGENTIC-ENGINEERING DORMANT", err)
+
+    def test_active_overrides_tombstone_no_notice(self):
+        act.activate(self.project, tier="full")
+        open(os.path.join(self.project, ".agentic", "dormant"), "w").close()
+        active, err = self._capture_stderr(hook_act.is_active, self.project)
+        self.assertTrue(active)
+        self.assertEqual(err, "")
+
+    def test_auto_detect_active_no_notice(self):
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        active, err = self._capture_stderr(hook_act.is_active, self.project)
+        self.assertTrue(active)
+        self.assertEqual(err, "")
+
+    def test_indeterminate_cwd_fails_active_no_notice(self):
+        active, err = self._capture_stderr(hook_act.is_active, None)
+        self.assertTrue(active)
+        self.assertEqual(err, "")
 
 
 if __name__ == "__main__":

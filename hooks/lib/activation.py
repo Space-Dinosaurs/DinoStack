@@ -25,7 +25,7 @@ Public API:
     active users (plan R3); an over-active guard merely preserves prior
     always-on behavior.
 
-Upstream deps: Python 3 stdlib only (os). No JSON, no imports off the hot path.
+Upstream deps: Python 3 stdlib only (os, hashlib, sys). No JSON, no imports off the hot path beyond the dormant-notice branch.
 
 Downstream consumers: all hooks/enforce-*.py, loaded via SourceFileLoader from
                       hooks/lib/activation.py (sibling-of-parent path).
@@ -37,7 +37,51 @@ Performance: <10ms - at most 4 os.path.exists calls plus one small line scan of
 
 from __future__ import annotations
 
+import hashlib
 import os
+import sys
+
+
+def _dormant_notice_path(cwd: str) -> str:
+    """Return the per-project dormant-notice marker path in ~/.agentic/.
+
+    The marker lives outside the project directory so a repo-local process
+    cannot suppress the notice by deleting or overwriting it.
+    """
+    try:
+        key = hashlib.sha256(os.path.realpath(cwd).encode("utf-8")).hexdigest()
+        return os.path.join(os.path.expanduser("~"), ".agentic", f".dormant-notice-{key}")
+    except Exception:
+        # Last-ditch fallback under ~/.agentic; notice emission still attempts.
+        return os.path.join(os.path.expanduser("~"), ".agentic", ".dormant-notice-fallback")
+
+
+def _emit_dormant_notice(cwd: str) -> None:
+    """Print an unsuppressable dormant notice once per project to stderr.
+
+    Tracks "already noticed" in ~/.agentic/ so a repo-local attacker cannot
+    silence it. Any marker creation failure still leaves the warning printed.
+    """
+    notice_path = _dormant_notice_path(cwd)
+    try:
+        if os.path.exists(notice_path):
+            return
+    except Exception:
+        pass
+    try:
+        print(
+            f"AGENTIC-ENGINEERING DORMANT: enforcement hooks disabled for {cwd} "
+            "by .agentic/dormant tombstone.",
+            file=sys.stderr,
+        )
+    except Exception:
+        pass
+    try:
+        os.makedirs(os.path.dirname(notice_path), exist_ok=True)
+        with open(notice_path, "w", encoding="utf-8"):
+            pass
+    except Exception:
+        pass
 
 
 def _in_allowlist(cwd: str) -> bool:
@@ -72,7 +116,15 @@ def is_active(cwd) -> bool:
         if os.path.exists(os.path.join(agentic, "active.session")):
             return True
         if os.path.exists(os.path.join(agentic, "dormant")):
-            return False  # explicit tombstone overrides auto-detect
+            # Explicit tombstone overrides auto-detect. Emit an unsuppressable
+            # notice the first time this project is observed as dormant.
+            # Notice emission is best-effort: a failure here must not flip the
+            # guard decision to fail-ACTIVE.
+            try:
+                _emit_dormant_notice(cwd.strip())
+            except Exception:
+                pass
+            return False
         if os.path.isdir(agentic):
             return True  # zero-migration auto-detect
         if _in_allowlist(cwd.strip()):
