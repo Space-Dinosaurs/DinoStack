@@ -1,0 +1,49 @@
+name: vision-alignment-check
+on:
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  check-vision-alignment:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check North Star alignment section on methodology-affecting PRs
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          FILES="$(gh pr view "$PR_NUMBER" --json files -q '.files[].path')"
+          TRIGGERED=false
+          # Keep this case pattern in sync with the canonical trigger list in
+          # content/agents/skeptic.md step 3.6. Do not edit this list without
+          # also updating that file and the PR-template comment.
+          while IFS= read -r f; do
+            case "$f" in
+              content/*|hooks/*|.codex/hooks/*|.codex/skill/*|.codex/config/hooks.json|.gemini/hooks/*|.kimi/hooks/*|.claude/build.sh|.codex/build.sh|.cursor/build.sh|bin/*|*/install.sh|scripts/install*.sh|docs/overview/vision.md|docs/overview/requirements.md)
+                TRIGGERED=true
+                ;;
+            esac
+          done <<< "$FILES"
+
+          if [ "$TRIGGERED" != "true" ]; then
+            echo "OK: no methodology-affecting paths changed - vision-alignment section not required."
+            exit 0
+          fi
+
+          # gh pr view --json body returns an empty string (not an error) when the PR body is
+          # blank. printf/awk/sed on an empty or single-newline input exit 0 with empty output -
+          # the awk pipeline itself never fails; the explicit exit 1 below is our own check,
+          # not a side effect of an empty pipeline. A read-only GITHUB_TOKEN on a fork PR can
+          # still read this public repo's PR files and body - no elevated token needed.
+          BODY="$(gh pr view "$PR_NUMBER" --json body -q '.body')"
+          SECTION="$(printf '%s\n' "$BODY" | awk '/## North Star alignment/{flag=1; next} /^## /{flag=0} flag')"
+          STRIPPED="$(printf '%s\n' "$SECTION" | sed 's/<!--.*-->//g' | tr -d '[:space:]')"
+
+          if [ -z "$STRIPPED" ]; then
+            echo "::error::This PR changes methodology-shaping paths but the PR body has no filled-in '## North Star alignment' section (or the section is empty). Add it (see .github/PULL_REQUEST_TEMPLATE.md) - a one-line N/A is fine for trivial changes; a fuller pillar/trade-off answer is expected for behavioral changes. This is an advisory check, not a merge blocker."
+            exit 1
+          fi
+
+          echo "OK: North Star alignment section present."
