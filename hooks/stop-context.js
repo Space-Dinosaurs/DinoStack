@@ -57,8 +57,11 @@
  *                ~/.agentic/session-log/<developer_id>.jsonl (global mirror),
  *                ~/.agentic/session-log/.pending/<session_uuid>.json (pending buffer),
  *                ~/.agentic/identity.yml (read-only, global),
+ *                <config-dir>/identity.yml (read-only, profile scope; config dir
+ *                env-detected via AGENTIC_CONFIG_DIR/CLAUDE_CONFIG_DIR/CODEX_HOME),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
- *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
+ *                over profile and global when confirmed, per 6-tier resolution in
+ *                getIdentity(cwd)),
  *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon +
  *                skill_candidate_detection toggles),
  *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop and
@@ -690,33 +693,67 @@ function _parseIdentityFile(filePath) {
   }
 }
 
+// Harness-standard config-dir env vars, in detection precedence order. Mirrors
+// PROFILE_CONFIG_DIR_ENV in bin/agentic-identity. The first set var whose value
+// resolves under $HOME selects the active profile's config dir. Isolated here so
+// adding another harness is a one-line edit.
+const PROFILE_CONFIG_DIR_ENV = ['AGENTIC_CONFIG_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'];
+
 /**
- * Resolve effective identity via 4-tier total ordering:
- *   project-confirmed > global-confirmed > project-provisional > global-provisional > null
+ * Return the active profile's identity.yml path (profile scope), or null.
+ * Scans PROFILE_CONFIG_DIR_ENV in order; the first set var resolving under
+ * $HOME wins. Values outside $HOME are ignored (no writes escaping the user
+ * tree). Returns null when no var qualifies -> profile scope is absent, which
+ * keeps getIdentity() byte-identical to the prior 4-tier behavior (back-compat).
  *
- * Reads project file (<cwd>/.agentic/identity.yml) and global file
- * (~/.agentic/identity.yml) using two synchronous existsSync+readFileSync calls
- * (~1ms, Node built-ins only, no subprocess).
+ * @returns {string|null}
+ */
+function _profileIdentityPath() {
+  const home = os.homedir();
+  for (const v of PROFILE_CONFIG_DIR_ENV) {
+    const raw = (process.env[v] || '').trim();
+    if (!raw) continue;
+    const resolved = path.resolve(raw);
+    if (resolved === home || resolved.startsWith(home + path.sep)) {
+      return path.join(resolved, 'identity.yml');
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve effective identity via 6-tier total ordering:
+ *   project-confirmed > profile-confirmed > global-confirmed >
+ *   project-provisional > profile-provisional > global-provisional > null
+ *
+ * Reads project file (<cwd>/.agentic/identity.yml), profile file
+ * (<config-dir>/identity.yml, env-detected - skipped when no config-dir env is
+ * set), and global file (~/.agentic/identity.yml) using up to three synchronous
+ * existsSync+readFileSync calls (~1ms, Node built-ins only, no subprocess).
  *
  * The existing three-branch write-vs-buffer gate (identity && !identity.provisional)
- * remains valid: confirmed at either scope -> direct write; provisional -> pending buffer.
+ * remains valid: confirmed at any scope -> direct write; provisional -> pending buffer.
  *
  * @param {string} cwd - The repo working directory (already validated by run()).
  * @returns {{developer_id: string, provisional: boolean}|null}
  */
 function getIdentity(cwd) {
   const projectPath = path.join(cwd, '.agentic', 'identity.yml');
+  const profilePath = _profileIdentityPath();
   const globalPath = path.join(os.homedir(), '.agentic', 'identity.yml');
 
   const projId = _parseIdentityFile(projectPath);
+  const profId = profilePath ? _parseIdentityFile(profilePath) : null;
   const globId = _parseIdentityFile(globalPath);
 
-  // Pass 1: first confirmed candidate in [project, global] order
+  // Pass 1: first confirmed candidate in [project, profile, global] order
   if (projId && !projId.provisional) return projId;
+  if (profId && !profId.provisional) return profId;
   if (globId && !globId.provisional) return globId;
 
-  // Pass 2: first provisional candidate in [project, global] order
+  // Pass 2: first provisional candidate in [project, profile, global] order
   if (projId) return projId;
+  if (profId) return profId;
   if (globId) return globId;
 
   return null;

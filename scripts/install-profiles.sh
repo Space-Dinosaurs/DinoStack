@@ -278,7 +278,9 @@ for tenant in $TENANTS; do
 		echo ""
 		echo "==> $label  (--config-dir=$cfg)"
 		rc=0
-		bash "$installer" --config-dir="$cfg" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" || rc=$?
+		# Per-profile identity: each tenant config dir gets its own
+		# <config-dir>/identity.yml instead of collapsing into one global handle.
+		AE_IDENTITY_SCOPE=profile bash "$installer" --config-dir="$cfg" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" || rc=$?
 		if [[ "$rc" -eq 0 ]]; then SUCCEEDED+=("$label"); else
 			echo "  ! $label failed (exit $rc)" >&2
 			FAILED+=("$label")

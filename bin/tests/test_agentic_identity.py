@@ -42,6 +42,7 @@ _loader.exec_module(_mod)
 flushPendingBuffer = _mod.flushPendingBuffer
 _resolve_effective_identity = _mod._resolve_effective_identity
 _project_identity_path = _mod._project_identity_path
+_profile_identity_path = _mod._profile_identity_path
 
 
 def _write_pending(pending_dir: Path, record: dict) -> Path:
@@ -498,6 +499,246 @@ def test_dedup_multi_pending_correct_across_several():
         print("PASS test_dedup_multi_pending_correct_across_several")
 
 
+# ---------------------------------------------------------------------------
+# Tests (J): profile scope + 6-tier resolution + env detection + back-compat
+# ---------------------------------------------------------------------------
+
+def _patch_environ(set_pairs=None, clear_keys=None):
+    """Set/clear env vars; returns a restore thunk (call in finally). Hermetic."""
+    set_pairs = set_pairs or {}
+    clear_keys = clear_keys or ()
+    prev: dict = {}
+    added: list[str] = []
+    for k in list(clear_keys):
+        if k in os.environ:
+            prev[k] = os.environ.pop(k)
+    for k, v in set_pairs.items():
+        if k in os.environ:
+            if k not in prev:
+                prev[k] = os.environ[k]
+        else:
+            added.append(k)
+        os.environ[k] = v
+
+    def _restore():
+        for k in added:
+            os.environ.pop(k, None)
+        for k, v in prev.items():
+            os.environ[k] = v
+
+    return _restore
+
+
+def test_profile_confirmed_beats_confirmed_global():
+    """(J1) confirmed profile beats confirmed global in pass 1."""
+    with tempfile.TemporaryDirectory() as tmp, \
+            tempfile.TemporaryDirectory(dir=str(Path.home())) as prof:
+        tmp_path = Path(tmp)
+        cwd = tmp_path / "myrepo"
+        cwd.mkdir()
+        global_id_path = tmp_path / "global-identity.yml"
+        _write_identity_file(global_id_path, "global-dev", provisional=False)
+        _write_identity_file(Path(prof) / "identity.yml", "profile-dev", provisional=False)
+
+        restore = _patch_environ(set_pairs={"AGENTIC_CONFIG_DIR": prof},
+                                 clear_keys=["CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+        orig = _mod.IDENTITY_PATH
+        _mod.IDENTITY_PATH = global_id_path
+        try:
+            result = _resolve_effective_identity(cwd)
+        finally:
+            _mod.IDENTITY_PATH = orig
+            restore()
+
+        assert result is not None, "Expected a resolved identity"
+        assert result["developer_id"] == "profile-dev", \
+            f"Expected profile-dev, got {result['developer_id']!r}"
+        assert result["_scope"] == "profile", f"Expected scope=profile, got {result['_scope']!r}"
+        assert result["_confirmed"] is True
+        print("PASS test_profile_confirmed_beats_confirmed_global")
+
+
+def test_project_confirmed_beats_confirmed_profile():
+    """(J2) confirmed project beats confirmed profile (project is most specific)."""
+    with tempfile.TemporaryDirectory() as tmp, \
+            tempfile.TemporaryDirectory(dir=str(Path.home())) as prof:
+        tmp_path = Path(tmp)
+        cwd = tmp_path / "myrepo"
+        cwd.mkdir()
+        _write_identity_file(cwd / ".agentic" / "identity.yml", "project-dev", provisional=False)
+        _write_identity_file(Path(prof) / "identity.yml", "profile-dev", provisional=False)
+
+        restore = _patch_environ(set_pairs={"AGENTIC_CONFIG_DIR": prof},
+                                 clear_keys=["CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+        try:
+            result = _resolve_effective_identity(cwd)
+        finally:
+            restore()
+
+        assert result is not None
+        assert result["developer_id"] == "project-dev", \
+            f"Expected project-dev, got {result['developer_id']!r}"
+        assert result["_scope"] == "project", f"Expected scope=project, got {result['_scope']!r}"
+        print("PASS test_project_confirmed_beats_confirmed_profile")
+
+
+def test_confirmed_global_not_suppressed_by_provisional_profile():
+    """(J3) provisional profile does NOT suppress a confirmed global."""
+    with tempfile.TemporaryDirectory() as tmp, \
+            tempfile.TemporaryDirectory(dir=str(Path.home())) as prof:
+        tmp_path = Path(tmp)
+        cwd = tmp_path / "myrepo"
+        cwd.mkdir()
+        global_id_path = tmp_path / "global-identity.yml"
+        _write_identity_file(global_id_path, "global-dev", provisional=False)
+        _write_identity_file(Path(prof) / "identity.yml", "profile-dev", provisional=True)
+
+        restore = _patch_environ(set_pairs={"AGENTIC_CONFIG_DIR": prof},
+                                 clear_keys=["CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+        orig = _mod.IDENTITY_PATH
+        _mod.IDENTITY_PATH = global_id_path
+        try:
+            result = _resolve_effective_identity(cwd)
+        finally:
+            _mod.IDENTITY_PATH = orig
+            restore()
+
+        assert result is not None
+        assert result["developer_id"] == "global-dev", \
+            f"Expected global-dev, got {result['developer_id']!r}"
+        assert result["_scope"] == "global", f"Expected scope=global, got {result['_scope']!r}"
+        assert result["_confirmed"] is True
+        print("PASS test_confirmed_global_not_suppressed_by_provisional_profile")
+
+
+def test_provisional_profile_used_when_no_confirmed_anywhere():
+    """(J4) with no project/global and only a provisional profile, pass 2 returns profile."""
+    with tempfile.TemporaryDirectory() as tmp, \
+            tempfile.TemporaryDirectory(dir=str(Path.home())) as prof:
+        tmp_path = Path(tmp)
+        cwd = tmp_path / "myrepo"
+        cwd.mkdir()
+        # Global points to a nonexistent file -> no global identity.
+        global_id_path = tmp_path / "absent-global.yml"
+        _write_identity_file(Path(prof) / "identity.yml", "profile-dev", provisional=True)
+
+        restore = _patch_environ(set_pairs={"AGENTIC_CONFIG_DIR": prof},
+                                 clear_keys=["CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+        orig = _mod.IDENTITY_PATH
+        _mod.IDENTITY_PATH = global_id_path
+        try:
+            result = _resolve_effective_identity(cwd)
+        finally:
+            _mod.IDENTITY_PATH = orig
+            restore()
+
+        assert result is not None
+        assert result["developer_id"] == "profile-dev", \
+            f"Expected profile-dev, got {result['developer_id']!r}"
+        assert result["_scope"] == "profile"
+        assert result["_confirmed"] is False, "Provisional profile must be _confirmed=False"
+        print("PASS test_provisional_profile_used_when_no_confirmed_anywhere")
+
+
+def test_env_detection_precedence():
+    """(J5) AGENTIC_CONFIG_DIR beats CLAUDE_CONFIG_DIR beats CODEX_HOME."""
+    with tempfile.TemporaryDirectory(dir=str(Path.home())) as a, \
+            tempfile.TemporaryDirectory(dir=str(Path.home())) as b, \
+            tempfile.TemporaryDirectory(dir=str(Path.home())) as c:
+        _write_identity_file(Path(a) / "identity.yml", "a-dev")
+        _write_identity_file(Path(b) / "identity.yml", "b-dev")
+        _write_identity_file(Path(c) / "identity.yml", "c-dev")
+
+        # All three set -> AGENTIC_CONFIG_DIR (a) wins.
+        restore = _patch_environ(set_pairs={
+            "AGENTIC_CONFIG_DIR": a, "CLAUDE_CONFIG_DIR": b, "CODEX_HOME": c})
+        try:
+            p = _profile_identity_path()
+            assert p == Path(a) / "identity.yml", f"Expected A path, got {p}"
+        finally:
+            restore()
+
+        # AGENTIC cleared -> CLAUDE_CONFIG_DIR (b) wins.
+        restore = _patch_environ(set_pairs={"CLAUDE_CONFIG_DIR": b, "CODEX_HOME": c},
+                                 clear_keys=["AGENTIC_CONFIG_DIR"])
+        try:
+            p = _profile_identity_path()
+            assert p == Path(b) / "identity.yml", f"Expected B path, got {p}"
+        finally:
+            restore()
+
+        print("PASS test_env_detection_precedence")
+
+
+def test_profile_dir_outside_home_rejected():
+    """(J6) config dir outside $HOME is rejected; profile scope is ignored."""
+    with tempfile.TemporaryDirectory() as outside, \
+            tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        cwd = tmp_path / "myrepo"
+        cwd.mkdir()
+        global_id_path = tmp_path / "global-identity.yml"
+        _write_identity_file(global_id_path, "global-dev", provisional=False)
+        # Write a would-be profile identity in the outside-home dir (must be ignored).
+        _write_identity_file(Path(outside) / "identity.yml", "intruder-dev", provisional=False)
+
+        restore = _patch_environ(set_pairs={"AGENTIC_CONFIG_DIR": outside},
+                                 clear_keys=["CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+        orig = _mod.IDENTITY_PATH
+        _mod.IDENTITY_PATH = global_id_path
+        try:
+            assert _profile_identity_path() is None, \
+                "Outside-$HOME config dir must yield None"
+            result = _resolve_effective_identity(cwd)
+        finally:
+            _mod.IDENTITY_PATH = orig
+            restore()
+
+        assert result is not None
+        assert result["developer_id"] == "global-dev", \
+            f"Profile outside $HOME must be ignored; got {result['developer_id']!r}"
+        assert result["_scope"] == "global"
+        print("PASS test_profile_dir_outside_home_rejected")
+
+
+def test_profile_dir_override():
+    """(J7) --profile-dir override is used; outside-$HOME override is rejected."""
+    with tempfile.TemporaryDirectory(dir=str(Path.home())) as prof, \
+            tempfile.TemporaryDirectory() as outside:
+        _write_identity_file(Path(prof) / "identity.yml", "override-dev")
+        p = _profile_identity_path(profile_dir=prof)
+        assert p == Path(prof) / "identity.yml", f"Override path mismatch: {p}"
+        bad = _profile_identity_path(profile_dir=outside)
+        assert bad is None, "Outside-$HOME override must be rejected"
+        print("PASS test_profile_dir_override")
+
+
+def test_no_env_profile_scope_absent():
+    """(J8) back-compat: with no config-dir env, profile scope is absent (4-tier behavior)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        cwd = tmp_path / "myrepo"
+        cwd.mkdir()
+        global_id_path = tmp_path / "global-identity.yml"
+        _write_identity_file(global_id_path, "global-dev", provisional=False)
+
+        restore = _patch_environ(clear_keys=list(_mod.PROFILE_CONFIG_DIR_ENV))
+        orig = _mod.IDENTITY_PATH
+        _mod.IDENTITY_PATH = global_id_path
+        try:
+            assert _profile_identity_path() is None
+            result = _resolve_effective_identity(cwd)
+        finally:
+            _mod.IDENTITY_PATH = orig
+            restore()
+
+        assert result is not None
+        assert result["developer_id"] == "global-dev"
+        assert result["_scope"] == "global", \
+            f"With no env, scope must be global (no profile); got {result['_scope']!r}"
+        print("PASS test_no_env_profile_scope_absent")
+
+
 if __name__ == "__main__":
     test_flushed_line_canonical_shape()
     test_project_scope_flush_does_not_touch_other_repo_records()
@@ -509,4 +750,12 @@ if __name__ == "__main__":
     test_dedup_flushes_new_uuid_not_in_log()
     test_dedup_missing_global_log_flushes_all()
     test_dedup_multi_pending_correct_across_several()
+    test_profile_confirmed_beats_confirmed_global()
+    test_project_confirmed_beats_confirmed_profile()
+    test_confirmed_global_not_suppressed_by_provisional_profile()
+    test_provisional_profile_used_when_no_confirmed_anywhere()
+    test_env_detection_precedence()
+    test_profile_dir_outside_home_rejected()
+    test_profile_dir_override()
+    test_no_env_profile_scope_absent()
     print("All tests passed.")

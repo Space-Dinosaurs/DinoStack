@@ -1,32 +1,37 @@
 #!/usr/bin/env python3
 """
 Purpose: CLI for managing per-developer identity files used by the Stop hook
-         to write per-developer session telemetry. Supports global identity
-         (~/.agentic/identity.yml) and project-local identity
-         (<repo>/.agentic/identity.yml), with a 4-tier confirmation-first
-         resolution: project-confirmed > global-confirmed > project-provisional
-         > global-provisional > none.
+         to write per-developer session telemetry. Supports three scopes -
+         global (~/.agentic/identity.yml), profile (<config-dir>/identity.yml,
+         co-located with the active harness profile's agentic-engineering.json),
+         and project (<repo>/.agentic/identity.yml) - with a 6-tier
+         confirmation-first resolution: project-confirmed > profile-confirmed >
+         global-confirmed > project-provisional > profile-provisional >
+         global-provisional > none.
 
 Public API:
-  agentic-identity init <handle> [--display-name "<name>"] [--force] [--scope {global,project}]
-  agentic-identity show [--scope {global,project,effective}]
-  agentic-identity auto [--force] [--scope {global,project}]
-  agentic-identity confirm [--scope {global,project}]
+  agentic-identity init <handle> [--display-name "<name>"] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+  agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
+  agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+  agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
   agentic-identity --help
 
   Helpers: _read_identity(path=None), _write_identity(lines, target_path=None),
-           _project_identity_path(cwd=None), _resolve_effective_identity(cwd),
+           _project_identity_path(cwd=None), _profile_identity_path(profile_dir=None),
+           _profile_config_dir(), _resolve_effective_identity(cwd),
            flushPendingBuffer(confirmed_dev_id, repo_root_filter=None).
 
 Data model:
   Global:  ~/.agentic/identity.yml
+  Profile: <config-dir>/identity.yml  (config dir = AGENTIC_CONFIG_DIR, else
+           CLAUDE_CONFIG_DIR, else CODEX_HOME; only values under $HOME qualify)
   Project: <repo>/.agentic/identity.yml  (gitignored via .agentic/* umbrella)
   Fields: developer_id, display_name (optional), created_at,
           provisional (optional, absent=confirmed), derived_from (optional).
   ~/.agentic/session-log/.pending/<uuid>.json: pre-attribution session records;
     flushed to global + per-project logs on confirm/init.
-  Internal keys _scope ("project"/"global") and _confirmed (bool) are tagged
-    on resolved-identity dicts; never written to any file or log.
+  Internal keys _scope ("project"/"profile"/"global") and _confirmed (bool)
+    are tagged on resolved-identity dicts; never written to any file or log.
 
 Upstream deps: Python 3 stdlib only (argparse, glob, json, os, re, signal,
                subprocess, sys, datetime, pathlib, time).
@@ -109,6 +114,63 @@ def _project_identity_path(cwd: Path | None = None) -> Path:
     return Path(cwd or Path.cwd()) / ".agentic" / "identity.yml"
 
 
+# Harness-standard config-dir env vars, in detection precedence order. The first
+# set variable whose value resolves under $HOME selects the active profile's
+# config dir. Harness-neutral AGENTIC_CONFIG_DIR leads (it is also the install-
+# time redirect); CLAUDE_CONFIG_DIR and CODEX_HOME cover the native Claude/Codex
+# launch styles. Isolated here so adding another harness is a one-line edit.
+PROFILE_CONFIG_DIR_ENV: tuple[str, ...] = (
+    "AGENTIC_CONFIG_DIR",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+)
+
+
+def _is_under_home(path: Path) -> bool:
+    """True iff path resolves to a location inside the current user's $HOME."""
+    try:
+        path.resolve().relative_to(Path.home().resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _profile_config_dir() -> Path | None:
+    """Return the active profile's config dir from the env, or None.
+
+    Scans PROFILE_CONFIG_DIR_ENV in order; the first set var whose value is an
+    absolute-or-relative path resolving under $HOME wins (values outside $HOME
+    are ignored to avoid writes escaping the user tree). Returns None when no
+    var qualifies (full back-compat: profile scope is simply absent).
+    """
+    for var in PROFILE_CONFIG_DIR_ENV:
+        raw = os.environ.get(var, "").strip()
+        if not raw:
+            continue
+        candidate = Path(os.path.expanduser(raw))
+        if _is_under_home(candidate):
+            return candidate
+    return None
+
+
+def _profile_identity_path(profile_dir: Path | str | None = None) -> Path | None:
+    """Return the profile-scope identity.yml path, or None if undetectable.
+
+    When profile_dir is provided (e.g. --profile-dir CLI override), it is used
+    directly after the $HOME containment check. Otherwise the config dir is
+    detected from the environment via _profile_config_dir().
+    """
+    if profile_dir is not None:
+        candidate = Path(os.path.expanduser(str(profile_dir)))
+        if not _is_under_home(candidate):
+            return None
+        return candidate / "identity.yml"
+    cfg = _profile_config_dir()
+    if cfg is None:
+        return None
+    return cfg / "identity.yml"
+
+
 def _read_identity(path: Path | None = None) -> dict | None:
     """Return parsed identity dict or None if absent/malformed.
 
@@ -142,32 +204,38 @@ def _read_identity(path: Path | None = None) -> dict | None:
 
 
 def _resolve_effective_identity(cwd: Path) -> dict | None:
-    """Resolve effective identity via 4-tier total ordering.
+    """Resolve effective identity via 6-tier total ordering.
 
-    Tier order: project-confirmed > global-confirmed >
-                project-provisional > global-provisional > None.
+    Tier order: project-confirmed > profile-confirmed > global-confirmed >
+                project-provisional > profile-provisional > global-provisional > None.
 
     Two-pass:
-      Pass 1 (confirmed): project file first, then global - return first confirmed.
-      Pass 2 (provisional): project file first, then global - return first provisional.
+      Pass 1 (confirmed): project, then profile, then global - first confirmed wins.
+      Pass 2 (provisional): project, then profile, then global - first provisional wins.
 
-    Returns identity dict tagged with internal _scope ("project"/"global")
+    Profile scope is read from <active config dir>/identity.yml (env-detected);
+    when no config-dir env var is set, profile scope is simply absent and the
+    result is byte-identical to the prior 4-tier behavior (back-compat).
+
+    Returns identity dict tagged with internal _scope ("project"/"profile"/"global")
     and _confirmed (bool) keys. These are never written to any file or log.
     """
     proj_path = _project_identity_path(cwd)
+    prof_path = _profile_identity_path()  # env-detected; None when undetectable
     proj_id = _read_identity(proj_path)
+    prof_id = _read_identity(prof_path) if prof_path is not None else None
     glob_id = _read_identity(None)  # global IDENTITY_PATH
 
-    # Pass 1: confirmed candidates in [project, global] order
-    for identity, scope in [(proj_id, "project"), (glob_id, "global")]:
+    # Pass 1: confirmed candidates in [project, profile, global] order
+    for identity, scope in [(proj_id, "project"), (prof_id, "profile"), (glob_id, "global")]:
         if identity is not None and not identity.get("provisional", False):
             result = dict(identity)
             result["_scope"] = scope
             result["_confirmed"] = True
             return result
 
-    # Pass 2: provisional candidates in [project, global] order
-    for identity, scope in [(proj_id, "project"), (glob_id, "global")]:
+    # Pass 2: provisional candidates in [project, profile, global] order
+    for identity, scope in [(proj_id, "project"), (prof_id, "profile"), (glob_id, "global")]:
         if identity is not None:
             result = dict(identity)
             result["_scope"] = scope
@@ -382,6 +450,48 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 1
 
     scope = getattr(args, "scope", "global")
+    if scope == "profile":
+        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        if target_path is None:
+            print(
+                "agentic-identity: cannot determine profile config dir. Set one of "
+                + ", ".join(PROFILE_CONFIG_DIR_ENV)
+                + " (under $HOME), or pass --profile-dir <dir>.",
+                file=sys.stderr,
+            )
+            return 1
+        existing = _read_identity(target_path) if target_path.is_file() else None
+        is_overwriting_provisional = existing is not None and existing.get("provisional", False)
+        is_fresh = existing is None
+
+        if target_path.is_file() and not args.force:
+            current = existing.get("developer_id", "?") if existing else "?"
+            print(
+                f"agentic-identity: profile identity already set to '{current}'. "
+                "Use --force to overwrite.",
+                file=sys.stderr,
+            )
+            return 2
+
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = [f"developer_id: {handle}"]
+        if args.display_name:
+            lines.append(f"display_name: {args.display_name}")
+        lines.append(f"created_at: {created_at}")
+
+        rc = _write_identity(lines, target_path=target_path)
+        if rc != 0:
+            return rc
+
+        print(f"Identity set (profile scope): developer_id={handle}, created_at={created_at}")
+
+        # Profile scope is persona-bound (not repo-bound): flush without a
+        # repo_root_filter, mirroring the global path.
+        if is_overwriting_provisional or is_fresh:
+            flushPendingBuffer(handle)
+
+        return 0
+
     if scope == "project":
         cwd = Path.cwd()
         rc = _require_repo_root(cwd)
@@ -487,6 +597,45 @@ def cmd_auto(args: argparse.Namespace) -> int:
         return 1
 
     scope = getattr(args, "scope", "global")
+    if scope == "profile":
+        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        if target_path is None:
+            print(
+                "agentic-identity: cannot determine profile config dir. Set one of "
+                + ", ".join(PROFILE_CONFIG_DIR_ENV)
+                + " (under $HOME), or pass --profile-dir <dir>.",
+                file=sys.stderr,
+            )
+            return 1
+        existing = _read_identity(target_path)
+        if existing is not None:
+            is_provisional = existing.get("provisional", False)
+            current_handle = existing.get("developer_id", "?")
+            if not is_provisional and not args.force:
+                print(
+                    f"agentic-identity: confirmed profile identity already set to "
+                    f"'{current_handle}'. Use --force to overwrite.",
+                    file=sys.stderr,
+                )
+                return 2
+
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = [
+            f"developer_id: {login}",
+            f"created_at: {created_at}",
+            "provisional: true",
+            "derived_from: gh",
+        ]
+        rc = _write_identity(lines, target_path=target_path)
+        if rc != 0:
+            return rc
+
+        print(
+            f"Identity derived (provisional, profile scope): developer_id={login}. "
+            "Confirm at next session start."
+        )
+        return 0
+
     if scope == "project":
         cwd = Path.cwd()
         rc = _require_repo_root(cwd)
@@ -558,6 +707,42 @@ def cmd_auto(args: argparse.Namespace) -> int:
 def cmd_confirm(args: argparse.Namespace) -> int:
     """Confirm provisional identity: strip provisional/derived_from, flush pending buffer."""
     scope = getattr(args, "scope", "global")
+    if scope == "profile":
+        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        if target_path is None:
+            print(
+                "agentic-identity: cannot determine profile config dir. Set one of "
+                + ", ".join(PROFILE_CONFIG_DIR_ENV)
+                + " (under $HOME), or pass --profile-dir <dir>.",
+                file=sys.stderr,
+            )
+            return 1
+        identity = _read_identity(target_path)
+        if identity is None:
+            print(
+                "agentic-identity: no profile identity set. "
+                "Run 'agentic-identity init <handle> --scope profile' first.",
+                file=sys.stderr,
+            )
+            return 1
+
+        dev_id = identity["developer_id"]
+        lines = [f"developer_id: {dev_id}"]
+        if "display_name" in identity:
+            lines.append(f"display_name: {identity['display_name']}")
+        if "created_at" in identity:
+            lines.append(f"created_at: {identity['created_at']}")
+        # Intentionally omit provisional and derived_from.
+
+        rc = _write_identity(lines, target_path=target_path)
+        if rc != 0:
+            return rc
+
+        # Profile scope is persona-bound (not repo-bound): flush without a filter.
+        flushPendingBuffer(dev_id)
+        print(f"Identity confirmed (profile scope): developer_id={dev_id}")
+        return 0
+
     if scope == "project":
         cwd = Path.cwd()
         rc = _require_repo_root(cwd)
@@ -636,6 +821,24 @@ def cmd_show(args: argparse.Namespace) -> int:
             print("provisional:   true")
         return 0
 
+    if scope == "profile":
+        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        if target_path is None:
+            print("No profile scope (no config-dir env set and no --profile-dir).")
+            return 0
+        identity = _read_identity(target_path)
+        if identity is None:
+            print("No identity at profile scope.")
+            return 0
+        print(f"developer_id:  {identity.get('developer_id', '?')}")
+        if "display_name" in identity:
+            print(f"display_name:  {identity['display_name']}")
+        if "created_at" in identity:
+            print(f"created_at:    {identity['created_at']}")
+        if identity.get("provisional", False):
+            print("provisional:   true")
+        return 0
+
     if scope == "project":
         cwd = Path.cwd()
         target_path = _project_identity_path(cwd)
@@ -680,13 +883,17 @@ def main(argv: list[str]) -> int:
                         help="Optional human-readable display name")
     p_init.add_argument("--force", action="store_true",
                         help="Overwrite existing identity without prompting")
-    p_init.add_argument("--scope", choices=["global", "project"], default="global",
-                        help="Write to global (~/.agentic/) or project (<cwd>/.agentic/) file")
+    p_init.add_argument("--scope", choices=["global", "profile", "project"], default="global",
+                        help="Write to global (~/.agentic/), profile (<config-dir>/), or project (<cwd>/.agentic/) file")
+    p_init.add_argument("--profile-dir", default=None,
+                        help="Override profile config dir (else env-detected)")
     p_init.set_defaults(func=cmd_init)
 
     p_show = sub.add_parser("show", help="Print current identity")
-    p_show.add_argument("--scope", choices=["global", "project", "effective"], default="global",
-                        help="Show global, project, or effective (4-tier resolved) identity")
+    p_show.add_argument("--scope", choices=["global", "profile", "project", "effective"], default="global",
+                        help="Show global, profile, project, or effective (6-tier resolved) identity")
+    p_show.add_argument("--profile-dir", default=None,
+                        help="Override profile config dir for --scope profile (else env-detected)")
     p_show.set_defaults(func=cmd_show)
 
     p_auto = sub.add_parser(
@@ -698,16 +905,20 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Overwrite existing confirmed identity",
     )
-    p_auto.add_argument("--scope", choices=["global", "project"], default="global",
-                        help="Write to global or project identity file")
+    p_auto.add_argument("--scope", choices=["global", "profile", "project"], default="global",
+                        help="Write to global, profile, or project identity file")
+    p_auto.add_argument("--profile-dir", default=None,
+                        help="Override profile config dir (else env-detected)")
     p_auto.set_defaults(func=cmd_auto)
 
     p_confirm = sub.add_parser(
         "confirm",
         help="Confirm provisional identity and flush pending session buffer",
     )
-    p_confirm.add_argument("--scope", choices=["global", "project"], default="global",
-                           help="Confirm global or project identity")
+    p_confirm.add_argument("--scope", choices=["global", "profile", "project"], default="global",
+                           help="Confirm global, profile, or project identity")
+    p_confirm.add_argument("--profile-dir", default=None,
+                           help="Override profile config dir (else env-detected)")
     p_confirm.set_defaults(func=cmd_confirm)
 
     args = p.parse_args(argv[1:])

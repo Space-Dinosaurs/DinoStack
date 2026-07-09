@@ -35,6 +35,10 @@
 
 AE_IDENTITY_FLAG="${AE_IDENTITY_FLAG:-}"
 AE_NO_IDENTITY="${AE_NO_IDENTITY:-false}"
+# Scope for identity writes during install. Default "global" preserves legacy
+# single-global behavior; per-profile installers export AE_IDENTITY_SCOPE=profile
+# so each profile config dir gets its own <config-dir>/identity.yml.
+AE_IDENTITY_SCOPE="${AE_IDENTITY_SCOPE:-global}"
 
 # ---------------------------------------------------------------------------
 # ae_confirm: TTY-safe yes/no prompt for optional installs.
@@ -57,6 +61,14 @@ ae_confirm() {
 }
 
 _ae_setup_identity() {
+  # Scope-aware agentic-identity args. For profile scope, pin the config dir
+  # explicitly so detection does not rely on env propagation to the subprocess
+  # (AE_CONFIG_DIR is set by the calling adapter install.sh before sourcing us).
+  local ae_scope_args=(--scope "$AE_IDENTITY_SCOPE")
+  if [[ "$AE_IDENTITY_SCOPE" == "profile" && -n "${AE_CONFIG_DIR:-}" ]]; then
+    ae_scope_args+=(--profile-dir "$AE_CONFIG_DIR")
+  fi
+
   # Branch 1: --no-identity flag
   if [[ "$AE_NO_IDENTITY" == "true" ]]; then
     echo "  - identity setup skipped (--no-identity)"
@@ -69,9 +81,12 @@ _ae_setup_identity() {
     return
   fi
 
-  # Branch 3: detect existing identity
+  # Branch 3: detect existing identity (global: effective incl. project fallback;
+  # profile: this profile's own identity only)
+  local show_scope="$AE_IDENTITY_SCOPE"
+  [[ "$show_scope" == "global" ]] && show_scope="effective"
   local show_out
-  show_out="$(agentic-identity show --scope effective 2>/dev/null)" || show_out=""
+  show_out="$(agentic-identity show --scope "$show_scope" 2>/dev/null)" || show_out=""
   local existing_handle
   existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')" || existing_handle=""
   if [[ -n "$existing_handle" ]]; then
@@ -86,7 +101,7 @@ _ae_setup_identity() {
   # Branch 4: --identity=<handle> flag set (explicit intent, use --force)
   if [[ -n "$AE_IDENTITY_FLAG" ]]; then
     local rc=0
-    agentic-identity init "$AE_IDENTITY_FLAG" --force >/dev/null 2>&1 || rc=$?
+    agentic-identity init "$AE_IDENTITY_FLAG" --force "${ae_scope_args[@]}" >/dev/null 2>&1 || rc=$?
     if [[ "$rc" -eq 0 ]]; then
       echo "  + identity set to '$AE_IDENTITY_FLAG' via --identity flag"
     else
@@ -111,7 +126,7 @@ _ae_setup_identity() {
     echo "  Detected GitHub handle: $gh_login"
     if ae_confirm "  Set developer identity to '$gh_login'? [y/N] "; then
       local rc=0
-      agentic-identity init "$gh_login" >/dev/null 2>&1 || rc=$?
+      agentic-identity init "$gh_login" "${ae_scope_args[@]}" >/dev/null 2>&1 || rc=$?
       if [[ "$rc" -eq 0 ]]; then
         echo "  + identity set to '$gh_login' (confirmed)"
       elif [[ "$rc" -eq 2 ]]; then
@@ -145,7 +160,7 @@ _ae_setup_identity() {
     return
   fi
   local rc=0
-  agentic-identity init "$typed_handle" >/dev/null 2>&1 || rc=$?
+  agentic-identity init "$typed_handle" "${ae_scope_args[@]}" >/dev/null 2>&1 || rc=$?
   if [[ "$rc" -eq 0 ]]; then
     echo "  + identity set to '$typed_handle' (confirmed)"
   elif [[ "$rc" -eq 2 ]]; then
