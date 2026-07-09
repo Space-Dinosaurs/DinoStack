@@ -36,7 +36,7 @@ Changes to the methodology itself - conductor rules, the Skeptic protocol, risk 
 - One concern per PR — don't bundle unrelated changes
 - Describe the *why* in the PR body, not just the *what*
 - Test locally before opening: re-run `install.sh`, open a Claude Code session, verify the change works as expected
-- Align changes with the North Star ([docs/overview/vision.md](docs/overview/vision.md)): a change is aligned if it advances one pillar (guard operator attention, produce verifiable outcomes autonomously, low friction) without regressing another, with operator attention as the tie-breaker
+- Align changes with the North Star ([docs/overview/vision.md](docs/overview/vision.md)): a change is aligned if it advances one pillar (guard operator attention, produce verifiable outcomes autonomously, low friction, works for everyone) without regressing another, with operator attention as the tie-breaker. Fill in the PR template's '## North Star alignment' section - required for changes touching a methodology-shaping path (see content/agents/skeptic.md step 3.6); a trivial in-scope change may answer with a one-line N/A. Write "N/A" outright for out-of-scope PRs.
 
 ### Adapter compatibility declaration
 
