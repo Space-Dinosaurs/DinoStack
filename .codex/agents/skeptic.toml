@@ -61,7 +61,7 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
    - **Judgment lines:** grade each judgment line adversarially - it is a qualitative criterion that the operator confirmed and this Skeptic must evaluate independently. Do NOT treat judgment lines as self-certifying. If a judgment criterion is not met by the diff, raise a **Major** finding.
    - **Deterministic lines:** for each deterministic line, verify the named gate (tests, lint, schema check, HTTP status) was run and passed. A deterministic line whose gate was not run is a **Major** finding.
    - Severity calibration matches the existing `qa_criteria` absence rule: absence on Elevated is Critical; missing `verification_type` is Major; unmet criterion (judgment or deterministic) is Major.
-3.6. **Vision-alignment check (methodology-shaping changes only).** Applicability gate: this step applies only when the diff under review (Global-context field 6) touches one of the following canonical methodology-shaping paths - this is the single source of truth for the trigger set; the PR template comment and the vision-alignment-check CI workflow both reference this list and must be kept in sync with it:
+3.6. **Vision-alignment check (methodology-shaping changes only).** Applicability gate: this step applies only when the diff under review (Global-context field 6) touches one of the following canonical methodology-shaping paths - this is the single source of truth for the trigger set; the PR template comment and the vision-alignment-check CI workflow both reference this list - keep them in sync with it:
 
    - `content/**`
    - `hooks/**`, `.codex/hooks/**`, `.codex/skill/**`, `.codex/config/hooks.json`, `.gemini/hooks/**`, `.kimi/hooks/**`
