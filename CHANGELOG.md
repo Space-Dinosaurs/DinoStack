@@ -3,6 +3,41 @@
 
 # Changelog
 
+## 2026-07-09
+
+### Features
+
+- **#436** [required North Star alignment field on protocol-change RFC template (Layer E)](https://github.com/Space-Dinosaurs/DinoStack/pull/436) - tyson-solara6
+- **#435** [advisory vision-alignment-check CI workflow (Layer D)](https://github.com/Space-Dinosaurs/DinoStack/pull/435) - tyson-solara6
+- **#434** [North Star alignment section in PR template + CONTRIBUTING (Layer C)](https://github.com/Space-Dinosaurs/DinoStack/pull/434) - tyson-solara6
+- **#433** [vision-alignment check in /update-agentic-engineering + Skeptic step 3.6 (Layers A+B)](https://github.com/Space-Dinosaurs/DinoStack/pull/433) - tyson-solara6
+
+### Documentation
+
+- **#438** [record vision-alignment enforcement advisory-only decision](https://github.com/Space-Dinosaurs/DinoStack/pull/438) - tyson-solara6
+
+## 2026-07-08
+
+### Features
+
+- **#417** [cross-harness team health section](https://github.com/Space-Dinosaurs/DinoStack/pull/417) - bloodf
+- **#416** [profile-aware installers + install-profiles.sh](https://github.com/Space-Dinosaurs/DinoStack/pull/416) - bloodf
+- **#415** [per-role reviewer models (reviewers.by_role)](https://github.com/Space-Dinosaurs/DinoStack/pull/415) - bloodf
+
+### Fixes
+
+- **#432** [enable by default across all adapters and templates (DS-47)](https://github.com/Space-Dinosaurs/DinoStack/pull/432) - tyson-solara6
+- **#413** [resolve per-role model from team.yml at dispatch](https://github.com/Space-Dinosaurs/DinoStack/pull/413) - bloodf
+
+### Documentation
+
+- **#430** [define absent-key defaults for all under-specified config settings](https://github.com/Space-Dinosaurs/DinoStack/pull/430) - tyson-solara6
+- **#428** [backfill curated private-store learnings (DS-73 remainder)](https://github.com/Space-Dinosaurs/DinoStack/pull/428) - tyson-solara6
+
+### Uncategorized
+
+- **#429** [DS-72: Skeptic cross-file-consistency + async-error review checks](https://github.com/Space-Dinosaurs/DinoStack/pull/429) - tyson-solara6
+
 ## 2026-07-07
 
 ### Uncategorized
