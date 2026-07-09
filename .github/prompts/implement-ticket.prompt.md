@@ -5,6 +5,30 @@ description: "Take a ticket (Linear, Jira, or none) from description to merged P
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
+> **Context-size preflight (run immediately after Activation, before any other step):** Assess the current session's context load. If any of the following danger signals are present, warn the operator and recommend starting fresh:
+>
+> **Danger signals (any one triggers the warning):**
+> - Session turn count >= 20 turns with substantive tool-call results still in context.
+> - Any prior subagent result block is visible and was produced in this same session before `/implement-ticket` was invoked.
+>
+> **If danger is detected, print verbatim (this is a plain print-and-wait for the operator's next message, not an `AskUserQuestion` tool call):**
+> ```
+> Context-size warning: your current session carries significant prior context
+>    (a long turn history and/or one or more prior subagent result blocks still
+>    visible). Running /implement-ticket now risks exhausting your token budget
+>    before the architect-plan-review phase completes.
+>
+>    Recommended safe pattern:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+>
+>    Proceed anyway? (yes / no)
+> ```
+> On `no`: exit immediately. On `yes`: continue with a one-line note: `Context-size warning acknowledged - proceeding in large session.`
+>
+> **If no danger signals are present:** continue silently (no output).
+
 Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
 ## Invocation
