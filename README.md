@@ -373,3 +373,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
+<!-- qa-test: vision-alignment-check non-methodology-path scenario (throwaway) -->
