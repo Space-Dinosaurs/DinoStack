@@ -284,9 +284,9 @@ link_abs() {
 }
 
 # SKILL.md: point at the actual content file, not the intermediate repo symlink.
-# Using $REPO_DIR/content/SKILL.md avoids a self-referential link when $SKILL_DST
+# Using $REPO_DIR/content/SKILL-full.md avoids a self-referential link when $SKILL_DST
 # is a stale dir-symlink pointing at $SKILL_SRC.
-link_abs "$REPO_DIR/content/SKILL.md"  "$SKILL_DST/SKILL.md"
+link_abs "$REPO_DIR/content/SKILL-full.md"  "$SKILL_DST/SKILL.md"
 
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"

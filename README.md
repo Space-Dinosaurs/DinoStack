@@ -152,6 +152,29 @@ bash .claude/install.sh --dry-run             # preview symlink + repo_dir chang
 
 **Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.
 
+## Tiers
+
+DinoStack ships three methodology tiers, chosen at install time and persisted in `~/.claude/agentic-engineering.json` as the `tier` key. The tier controls which agents, sections, and references are wired into your session:
+
+- **`minimal` (default for new installs)** - solo work and small PRs. 3 agents (engineer, investigator, skeptic), inline risk classification, no Brief/Plan/QA/wrap-ticket. ~94% session-start context reduction vs. the legacy default.
+- **`medium`** - team work and multi-unit PRs. Adds architect + planner; engineer receives a 5-line inline Brief in its spawn prompt (no separate `docs/planning/<slug>.md` artifact). 6 agents. Loop-state resume across sessions. No QA gate, no wrap-ticket.
+- **`full`** - legacy behavior. All 18 agents, full references, QA gate, wrap-ticket, learning-extractor, capability preflight, telemetry. Bit-for-bit equivalent to the pre-tier install.
+
+**Opt into a tier at install:**
+
+```
+bash .claude/install.sh --tier=minimal
+bash .claude/install.sh --tier=medium
+bash .claude/install.sh --tier=full
+```
+
+**Existing installs with a legacy `profile` key** (`relaxed`/`default`/`strict`) get a one-shot interactive prompt offering `tier=medium` as the default downgrade. Choose `tier=full` to preserve prior behavior, or accept `tier=medium` for the smaller methodology. Without an interactive terminal, the installer preserves `tier=full` to guarantee no behavioral change.
+
+**Per-project override:** set `agentic_tier: <tier>` in `.agentic/config.json`. Per-invocation: `/implement-ticket <id> --tier=<tier>`. Resolution order: CLI flag > `agentic_tier` (project) > `tier` (global) > legacy `profile` alias > `minimal` default.
+
+**Migration from a previous install:** rerun the installer; it will detect the existing config and offer the upgrade prompt (or accept `--tier=full` to skip the prompt).
+
+
 ## Recommended permissions
 
 Agents need uninterrupted access to Bash, Edit, and Write - constant permission prompts break agent flow and cause subagents to stall. The Claude Code installer offers to configure `bypassPermissions` mode in `~/.claude/settings.json`:

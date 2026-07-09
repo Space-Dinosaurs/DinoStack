@@ -7,9 +7,10 @@
 #             Exits 0 when all adapters build successfully.
 #             Exits non-zero (first failure) when any adapter build fails.
 #
-# Upstream deps: .claude/build.sh, .cursor/build.sh, .codex/build.sh,
-#                .gemini/build.sh, .kimi/build.sh, .opencode/build.sh,
-#                .omp/build.sh, .pi/build.sh, .hermes/build.sh,
+# Upstream deps: scripts/build-commands.sh (regenerates implement-ticket-{full,medium}.md
+#                from implement-ticket-body.md before adapter copies); .claude/build.sh,
+#                .cursor/build.sh, .codex/build.sh, .gemini/build.sh, .kimi/build.sh,
+#                .opencode/build.sh, .omp/build.sh, .pi/build.sh, .hermes/build.sh,
 #                .openclaw/build.sh, .copilot/build.sh; bash; coreutils.
 #
 # Downstream consumers: local developer workflows; mirrors .github/workflows/adapter-sync.yml.
@@ -22,8 +23,14 @@
 #              (typically a few seconds each on a warm tree).
 
 set -euo pipefail
-
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Regenerate the implement-ticket-full.md and implement-ticket-medium.md command
+# bodies from the annotated single-source implement-ticket-body.md before any
+# adapter build runs. Every adapter's build.sh copies content/commands/*.md
+# into the adapter's harness dir; this step ensures those copies are derived
+# from the canonical source rather than from stale committed copies.
+bash "$REPO_DIR/scripts/build-commands.sh"
 
 ADAPTERS=(
   .claude

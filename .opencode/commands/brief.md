@@ -25,7 +25,7 @@ Upstream deps: content/sections/03-planning-artifacts.md (Brief template and fie
                MEMORY.md (prior-decisions scan, already in context via the `@MEMORY.md` import in CLAUDE.md);
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
-Downstream consumers: content/commands/implement-ticket.md Phase 0b (brief_path check);
+Downstream consumers: content/commands/implement-ticket-full.md Phase 0b (brief_path check);
                       content/sections/03-planning-artifacts.md (Skeptic variant selection);
                       architect agent (receives brief_path in execution contract);
                       Skeptic (receives operator-confirmed variant from Section 6; evaluates
@@ -212,7 +212,7 @@ Write `status: iterating` during revision rounds.
    git commit -m "docs(brief): add <slug> brief"
    ```
 4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); then:
-   - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
+   - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/commands/implement-ticket-full.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
    - **`require` mode:** invoke the Tracker Create Helper immediately (no skip path).
    - On CREATE_STATUS=created: hand off to `/implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly (skip steps 5-6).
    - On CREATE_STATUS=failed: emit the failure line; in `offer` mode proceed ad-hoc (architect spawn, step 6); in `require` mode STOP and wait for operator resolution.

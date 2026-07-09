@@ -67,7 +67,7 @@ bash .pi/uninstall.sh
   prompts/                         # Pi prompt templates generated from content/commands/*.md
   skills/agentic-engineering/
     SKILL.frontmatter.yaml
-    SKILL.md                       # generated from content/SKILL.md
+    SKILL.md                       # generated from content/SKILL-{full,medium,minimal}.md
     METHODOLOGY.md                 # generated from content/sections/*.md
     commands -> ../../../content/commands
     references -> ../../../content/references

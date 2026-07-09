@@ -73,6 +73,10 @@ done
 
 # Commands: hardlink from content/ (no prerequisite transform for Cursor)
 for src in "$CONTENT/commands/"*.md; do
+  # Skip the annotated body source - it's an input to scripts/build-commands.sh, not a generated body.
+  case "$(basename "$src")" in
+    implement-ticket-body.md) continue ;;
+  esac
   hardlink_from_content "$src" "$COMMANDS_DST/$(basename "$src")"
 done
 

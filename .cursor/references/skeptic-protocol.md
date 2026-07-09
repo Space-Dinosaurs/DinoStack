@@ -20,7 +20,7 @@ Upstream deps: content/agents/skeptic.md (Skeptic agent identity),
                METHODOLOGY.md (risk classification, re-route limits, QA gate)
 
 Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block),
-                      content/commands/implement-ticket.md (Phase 6 Skeptic loop),
+                      content/commands/implement-ticket-full.md (Phase 6 Skeptic loop),
                       METHODOLOGY.md (imports loop semantics and re-route limits),
                       content/agents/architect.md (plan Skeptic references Section 8)
 

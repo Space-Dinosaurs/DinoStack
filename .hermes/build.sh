@@ -151,6 +151,10 @@ CMDS_HEADER
 
 for f in "$CONTENT_DIR/commands/"*.md; do
   name=$(basename "$f" .md)
+  case "$name" in
+    implement-ticket-body) continue ;;  # source for scripts/build-commands.sh
+  esac
+
   echo "### /$name" >> "$HERMES_DIR/SKILL.md"
   echo "" >> "$HERMES_DIR/SKILL.md"
   python3 - "$f" "$HERMES_DIR/SKILL.md" "$REPO_DIR" <<'PYEOF'

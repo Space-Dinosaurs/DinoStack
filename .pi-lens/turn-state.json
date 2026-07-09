@@ -1,0 +1,47 @@
+{
+  "files": {
+    ".agentic/worktrees/tier-phase1/phase1-design.md": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 98
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-07-07T18:26:44.506Z"
+    },
+    "scripts/lib/tier-filter.py": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 124
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-07-07T18:26:44.533Z"
+    },
+    "scripts/build-methodology.sh": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 76
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-07-07T18:26:44.701Z"
+    },
+    "scripts/check-methodology-drift.sh": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 79
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-07-07T18:26:44.716Z"
+    }
+  },
+  "turnCycles": 0,
+  "maxCycles": 3,
+  "lastUpdated": "2026-07-07T18:26:44.716Z"
+}

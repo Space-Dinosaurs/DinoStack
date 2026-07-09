@@ -2,7 +2,7 @@
 # Purpose: Build the native Pi coding agent adapter outputs from canonical content/.
 # Public API: invoked as `bash .pi/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/rules/, content/agents/,
-#               content/sections/, content/SKILL.md, scripts/build-methodology.sh.
+#               content/sections/, content/SKILL-full.md, scripts/build-methodology.sh.
 # Downstream consumers: .pi/skills/agentic-engineering/, .pi/prompts/.
 # Failure modes: exits non-zero on missing inputs or assembly failure. Idempotent;
 #               prunes orphan .pi/prompts/*.md whose source content/commands/*.md
@@ -19,7 +19,7 @@ PROMPTS_DST="$REPO_DIR/.pi/prompts"
 mkdir -p "$SKILL_DST" "$PROMPTS_DST"
 
 required=(
-  "$CONTENT/SKILL.md"
+  "$CONTENT/SKILL-full.md"
   "$REPO_DIR/scripts/build-methodology.sh"
   "$SKILL_DST/SKILL.frontmatter.yaml"
 )
@@ -34,11 +34,11 @@ done
 bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
 
 # SKILL.md: Pi implements the Agent Skills standard. Keep adapter frontmatter
-# in .pi and derive body from canonical content/SKILL.md.
+# in .pi and derive body from canonical content/SKILL-full.md.
 {
   cat "$SKILL_DST/SKILL.frontmatter.yaml"
   echo
-  perl -0pe 's/\A<!--.*?-->\n\n?//s; s#rules/agent-methodology\.md#METHODOLOGY.md#g' "$CONTENT/SKILL.md"
+  perl -0pe 's/\A<!--.*?-->\n\n?//s; s#rules/agent-methodology\.md#METHODOLOGY.md#g' "$CONTENT/SKILL-full.md"
   cat <<'PI_NOTES'
 
 ## Pi coding agent usage
@@ -105,6 +105,11 @@ fi
 declare -a generated_prompts=()
 for src in "$CONTENT/commands/"*.md; do
   [[ -e "$src" ]] || continue
+  # The implement-ticket-body.md source is a tier-annotated input to
+  # scripts/build-commands.sh and is NOT a generated command body. Exclude it
+  # from the generated prompts so .pi/prompts/ contains only the router and the
+  # tier-specific bodies (matching the convention used in .claude/.codex/etc.).
+  [[ "$(basename "$src")" == "implement-ticket-body.md" ]] && continue
   name="$(basename "$src" .md)"
   dst="$PROMPTS_DST/$name.md"
   generated_prompts+=("$name.md")

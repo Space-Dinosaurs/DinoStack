@@ -20,7 +20,7 @@ A doc update is obligated iff the change alters something an intent-layer doc as
 4. **Convention/config/setup** - changes a documented convention, config schema, or install/setup step.
 5. **User-facing behavior** - changes user-facing behavior a doc describes.
 
-The Skeptic test to embed: *"Does any sentence, count, or list in README.md, CONTRIBUTING.md, or content/SKILL.md become false or incomplete because of this diff?"* Uncertainty is not an exemption - grep the docs for the changed identifier or count and resolve.
+The Skeptic test to embed: *"Does any sentence, count, or list in README.md, CONTRIBUTING.md, or content/SKILL-{full,medium,minimal}.md become false or incomplete because of this diff?"* Uncertainty is not an exemption - grep the docs for the changed identifier or count and resolve.
 
 ## Exemptions (when it does NOT trip)
 
@@ -38,7 +38,7 @@ Over-documenting is itself drift - do not add speculative doc edits to changes t
 
 ## Worker obligation
 
-On a predicate-tripping change, in the same change update every invalidated intent-layer doc (scan `README.md`, `CONTRIBUTING.md`, `content/SKILL.md`, affected `content/sections` + `content/references` cross-refs) and attest in the change summary:
+On a predicate-tripping change, in the same change update every invalidated intent-layer doc (scan `README.md`, `CONTRIBUTING.md`, `content/SKILL-{full,medium,minimal}.md`, affected `content/sections` + `content/references` cross-refs) and attest in the change summary:
 
 `Doc-sync: [predicate clause N triggered] -> updated [doc paths]: [what changed].`
 

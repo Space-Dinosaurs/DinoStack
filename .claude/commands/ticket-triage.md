@@ -19,7 +19,7 @@ Public API: /ticket-triage                         -- triage operator's open ass
             Phase 0's source vocabulary - do not assume the source enums
             are identical between the two commands.
 
-Upstream deps: content/commands/implement-ticket.md Phase 0 (input normalizer,
+Upstream deps: content/commands/implement-ticket-full.md Phase 0 (input normalizer,
                invoked by reference - no copy); METHODOLOGY.md (activation
                preflight); AGENTS.md ## Tracker / ## Linear sections (TRACKER
                resolution chain, same as implement-ticket Setup); Jira MCP
