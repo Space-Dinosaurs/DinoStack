@@ -636,3 +636,4 @@ def main(_argv: list[str]) -> int:
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+# qa-test: vision-alignment-check red-X scenario (throwaway)
