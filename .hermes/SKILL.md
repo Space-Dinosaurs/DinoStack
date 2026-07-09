@@ -9815,6 +9815,24 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
    - **Judgment lines:** grade each judgment line adversarially - it is a qualitative criterion that the operator confirmed and this Skeptic must evaluate independently. Do NOT treat judgment lines as self-certifying. If a judgment criterion is not met by the diff, raise a **Major** finding.
    - **Deterministic lines:** for each deterministic line, verify the named gate (tests, lint, schema check, HTTP status) was run and passed. A deterministic line whose gate was not run is a **Major** finding.
    - Severity calibration matches the existing `qa_criteria` absence rule: absence on Elevated is Critical; missing `verification_type` is Major; unmet criterion (judgment or deterministic) is Major.
+3.6. **Vision-alignment check (methodology-shaping changes only).** Applicability gate: this step applies only when the diff under review (Global-context field 6) touches one of the following canonical methodology-shaping paths - this is the single source of truth for the trigger set; the PR template comment and the vision-alignment-check CI workflow both reference this list - keep them in sync with it:
+
+   - `content/**`
+   - `hooks/**`, `.codex/hooks/**`, `.codex/skill/**`, `.codex/config/hooks.json`, `.gemini/hooks/**`, `.kimi/hooks/**`
+   - `.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`
+   - `bin/**`
+   - `*/install.sh` (any adapter's install script), `scripts/install*.sh`
+   - `docs/overview/vision.md`, `docs/overview/requirements.md`
+
+   For any diff touching none of these, skip this step entirely - do not manufacture a finding on a non-methodology change.
+
+   When applicable, read `docs/overview/vision.md` if it exists and apply its "How to use this for PR alignment" rubric: does the diff advance at least one North Star pillar (guard operator attention, produce verifiable outcomes autonomously, low friction, works for everyone) without regressing another?
+
+   - **Trivial diffs stay trivial.** If the diff is typo-only, formatting-only, whitespace-only, or comment-only on an otherwise in-scope path, the check is satisfied by noting the triviality in your sign-off (e.g. "trivial formatting-only change, no pillar impact") - do not manufacture a Major or Minor finding demanding vision analysis on a diff with no behavioral surface. Proportionality applies inside scope, not just outside it.
+   - If the diff writes to `docs/overview/vision.md` or `docs/overview/requirements.md` directly (as opposed to `docs/overview/_proposed/`): this is a **Critical** finding regardless of content - these files are operator-owned (see `content/references/planning-artifacts.md` §Product-intent layer) and no Worker or engineer may write them.
+   - If the diff clearly regresses a pillar with no offsetting gain named anywhere in the artifact (Brief, architect plan, or PR description) - e.g. it adds ceremony a contributor or operator must read/act on without a proportional autonomy or verifiability gain, or it bakes in one contributor's identity/tracker/workspace - raise a **Major** finding naming the specific pillar and the regression.
+   - If a trade-off is named and justified somewhere in the artifact, this is not a finding - an un-surfaced trade-off is the problem, not disagreement with a stated one. Note it in your sign-off for the human's visibility even when it is not a finding.
+   - If `docs/overview/vision.md` does not exist, skip this step silently.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
 4.5. **Cross-file reference-consistency check.** When the diff renames, removes, or reshapes an identifier that other parts of the repository could reference by name - a config key, environment variable, exported symbol, database column, API field, or route name - do not conclude the change is complete because the calling code compiles or the colocated test passes. Actively search the full repository (not just the files in the diff) for the OLD identifier: shipped config/fixture files (YAML/TOML/JSON/env), IaC/deploy manifests (Helm values, Terraform, Docker Compose), and documentation that names the identifier. A remaining reference to the old name in a file the diff did not touch is a **Critical** finding when it causes a runtime failure reachable from a normal code path (e.g. a KeyError/undefined lookup at startup or on the hot path), and a **Major** finding when it causes silent drift without an immediate crash (stale docs, a config override that no longer applies). Do not rely on the Worker's own output to enumerate which other files reference the identifier - the Worker's self-report is not evidence of completeness; verify independently. This does not apply to purely local variable or parameter renames that nothing outside the function can reference - those are style, not a consistency risk.
 4.6. **Async error-handling check.** For any diff that invokes an async function, Promise, goroutine, or background task without the caller awaiting or otherwise observing its outcome ("fire-and-forget"), verify there is an explicit failure path: a `.catch()`/`try-catch` attached at the call site, or a documented supervisor/queue that owns the task's lifecycle and surfaces its errors (log, metric, error reporter). A fire-and-forget call with no attached error handler is a **Major** finding regardless of whether the existing test suite and typecheck pass - unhandled rejections are invisible to `tsc`/`mypy` and to unit tests that only assert the happy path. Do not accept the presence of an unrelated global error handler (a process-level `unhandledRejection` listener, a generic framework error middleware, a top-level Sentry init) as sufficient unless the Worker's output demonstrates that specific call site is wired into it - a global catch-all that merely logs and continues is observability, not resolution, and does not by itself downgrade the finding.
@@ -17461,9 +17479,34 @@ Spawn a Worker subagent with instructions:
 
 If the Worker in Step 1 returns a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED - Edit permission was denied by the permission system"), the main session may apply the edit directly, then present the diff to the user in Step 2 as normal. The user approval gate in Step 2 is preserved without exception - the main session never applies an edit and proceeds without human review. Step 3 proceeds only after approval.
 
+## Step 1.5 - Vision-alignment check
+
+Every invocation of this command edits methodology-core files by definition (see Scope above) -
+this check runs unconditionally, with no separate proportionality gate.
+
+Before presenting the diff in Step 2, read `docs/overview/vision.md` if it exists (it is the
+operator-owned North Star for this repo) and apply its "How to use this for PR alignment" rubric
+to the diff produced in Step 1: does the change advance at least one pillar (guard operator
+attention, produce verifiable outcomes autonomously, low friction, works for everyone) without
+regressing another?
+
+Write a short alignment note (2-4 sentences - this is a check, not a report):
+- Which pillar(s) the change advances, in one line each.
+- Any pillar it plausibly regresses or trades off, named plainly - do not omit a real trade-off
+  to make the note look cleaner.
+- If `docs/overview/vision.md` does not exist, state that plainly and skip the rest of this step.
+
+This is a **surface, not a gate**: a misalignment you notice does not stop the flow. State it in
+the note and let the human approval in Step 2 be the decision point - per vision.md's own rubric,
+misalignment is "a direction signal for the operator... not necessarily a request-changes
+verdict." Do not skip this step because the diff looks small; a one-line rule change can still
+shift the methodology's direction.
+
+Carry the alignment note into Step 2.
+
 ## Step 2 - Present to the user
 
-Show the diff, state what the change does. Remind the user that the per-adapter copies are build artifacts that Step 3 regenerates. Wait for explicit approval.
+Show the diff, state what the change does, and include the vision-alignment note from Step 1.5. Remind the user that the per-adapter copies are build artifacts that Step 3 regenerates. Wait for explicit approval.
 
 ## Step 2.5 - Integrate the Worker's commit
 

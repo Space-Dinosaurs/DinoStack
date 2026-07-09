@@ -165,9 +165,34 @@ Spawn a Worker subagent with instructions:
 
 If the Worker in Step 1 returns a BLOCKED status explicitly citing an Edit permission denial by the Claude Code permission system (exact form observed in practice: "BLOCKED - Edit permission was denied by the permission system"), the main session may apply the edit directly, then present the diff to the user in Step 2 as normal. The user approval gate in Step 2 is preserved without exception - the main session never applies an edit and proceeds without human review. Step 3 proceeds only after approval.
 
+## Step 1.5 - Vision-alignment check
+
+Every invocation of this command edits methodology-core files by definition (see Scope above) -
+this check runs unconditionally, with no separate proportionality gate.
+
+Before presenting the diff in Step 2, read `docs/overview/vision.md` if it exists (it is the
+operator-owned North Star for this repo) and apply its "How to use this for PR alignment" rubric
+to the diff produced in Step 1: does the change advance at least one pillar (guard operator
+attention, produce verifiable outcomes autonomously, low friction, works for everyone) without
+regressing another?
+
+Write a short alignment note (2-4 sentences - this is a check, not a report):
+- Which pillar(s) the change advances, in one line each.
+- Any pillar it plausibly regresses or trades off, named plainly - do not omit a real trade-off
+  to make the note look cleaner.
+- If `docs/overview/vision.md` does not exist, state that plainly and skip the rest of this step.
+
+This is a **surface, not a gate**: a misalignment you notice does not stop the flow. State it in
+the note and let the human approval in Step 2 be the decision point - per vision.md's own rubric,
+misalignment is "a direction signal for the operator... not necessarily a request-changes
+verdict." Do not skip this step because the diff looks small; a one-line rule change can still
+shift the methodology's direction.
+
+Carry the alignment note into Step 2.
+
 ## Step 2 - Present to the user
 
-Show the diff, state what the change does. Remind the user that the per-adapter copies are build artifacts that Step 3 regenerates. Wait for explicit approval.
+Show the diff, state what the change does, and include the vision-alignment note from Step 1.5. Remind the user that the per-adapter copies are build artifacts that Step 3 regenerates. Wait for explicit approval.
 
 ## Step 2.5 - Integrate the Worker's commit
 
