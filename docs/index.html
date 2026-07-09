@@ -2108,7 +2108,7 @@
         <ul>
           <li><strong>Conductor delegates every shippable edit to a worktree-isolated engineer.</strong> The conductor never edits shippable artifacts in its own checkout; worktrees are the execution location for all shippable changes. The conductor edits only exempt artifacts directly.</li>
           <li><strong>Protected branches:</strong> never commit directly to <code>main</code>, <code>master</code>, <code>develop</code>, or <code>development</code>. Exception: <code>~/DinoStack</code> may commit and push directly to <code>main</code>.</li>
-          <li><strong>Base branch resolution:</strong> use <code>main</code> if it exists, fall back to <code>master</code>, then <code>develop</code>, then <code>development</code>.</li>
+          <li><strong>Base branch resolution:</strong> prefer an explicit <code>BASE_BRANCH:</code> declaration in <code>AGENTS.md</code>, else <code>develop</code>, else <code>development</code>; if neither exists you are prompted to use <code>main</code> (falling back to <code>master</code>) or set up a develop-based workflow.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
           <li><strong>Commit each fix immediately.</strong> Never accumulate uncommitted changes. After each validated fix: create branch, commit, PR, merge, pull - then start the next fix.</li>
         </ul>

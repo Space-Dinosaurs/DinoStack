@@ -72,8 +72,7 @@ Run at session start (conductor preflight) - ONCE per session, not before every 
 # Run at session start (conductor preflight):
 git fetch origin
 git worktree prune
-# Resolve base branch (main > master > develop > development):
-# Cache result as BASE_BRANCH in-context
+# Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
 # Delete any worktree-agent-* branches not currently checked out in a worktree:
 git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"

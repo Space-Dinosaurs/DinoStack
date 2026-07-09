@@ -142,7 +142,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
 
-**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s BASE_BRANCH stop-and-ask when neither `develop` nor `development` exists.
+**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s `BASE_BRANCH` stop-and-ask, which fires when the project declares no base branch (no `BASE_BRANCH:` line in `AGENTS.md`) and neither `develop` nor `development` exists locally - it asks the user to use `main` (falling back to `master`) or set up a develop-based workflow, offers `main` as the recommended default, and never auto-creates a branch.
 
 **Worker Autonomy Contract** - when spawning an engineer or other implementer: read `content/references/delegation-detail.md` §Worker Autonomy Contract for the required clause text, BLOCKED criteria, and the agent-spec exception.
 
@@ -614,7 +614,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
-**Worktree prune, branch prune, and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
+**Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
@@ -900,14 +900,19 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 3. conductor-direct PRINT/DECISION/RESOLVER-EXECUTION -> EXEMPT.
 4. any other tracked-file write -> SHIPPABLE -> delegate to worktree-isolated engineer (Trivial: no Skeptic/no brief; Elevated: full Worker+Skeptic).
 
-**Base branch resolution** - always use `main` (fall back to `master` if `main` does not exist). Never use `develop` or `development`.
+**Base branch resolution** - resolve `BASE_BRANCH` in this order and cache the result for the session:
+1. **Explicit declaration wins.** If the project declares a base/integration branch via a `BASE_BRANCH:` line in `AGENTS.md`, use it. Highest priority.
+2. Else if a local `develop` branch exists - use `develop`.
+3. Else if a local `development` branch exists - use `development`.
+4. Else (no declaration and neither `develop` nor `development` exists locally) - prompt the user: no `develop`/`development` integration branch found - use `main` (falling back to `master`), or set up a develop-based workflow? Offer `main` as the recommended default; recommending `main` here does not contradict the develop-first default - it is the safe, reversible choice precisely because no develop-based flow exists yet. Do NOT auto-create any branch.
+5. On decline / main preference - resolve `main` (fall back to `master` if `main` does not exist). Cache the resolved value as `BASE_BRANCH` for the session.
 
 **Conductor preflight** - run this checklist ONCE at session start. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene. Cache the resolved base branch in-context for the session; do not re-run the full preflight before every subagent spawn. Re-run only if the user explicitly switches branches or after 30+ minutes of idle time.
 1. What branch is the working tree on? (`git branch --show-current`)
-2. Does this branch already contain unrelated commits? If yes, start fresh from the base branch before proceeding.
+2. Does this branch already contain unrelated commits? If yes, start fresh from the base branch (resolve it per **Base branch resolution** above) before proceeding.
 3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
-5. Resolve the base branch (see **Base branch resolution** below) and cache it as `BASE_BRANCH` for the session.
+5. Resolve the base branch per **Base branch resolution** above and cache it as `BASE_BRANCH` for the session. Resolution is lazy only in its interactive step: the declaration / `develop` / `development` checks (steps 1-3) are non-interactive and may run here at session start, but step 4's prompt is deferred until `BASE_BRANCH` is first needed for a shippable operation (spawning an engineer, creating a worktree, opening a PR, or starting fresh from the base branch per step 2). A purely read-only session therefore never triggers the prompt. The prompt is a sanctioned stop-and-ask (an explicit command directive per the delegation Exception clause) exempt from the default-and-proceed protocol; surface it with `main` as the recommended default per the AskUserQuestion precondition.
 6. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start. The branch prune clears stale local branches with safe signals: `[gone]`-upstream branches (squash-merged and remote-deleted), branches fully merged into `origin/main`, and orphaned `worktree-agent-*` branches whose worktree no longer exists.
 
 **Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
@@ -5625,8 +5630,7 @@ Run at session start (conductor preflight) - ONCE per session, not before every 
 # Run at session start (conductor preflight):
 git fetch origin
 git worktree prune
-# Resolve base branch (main > master > develop > development):
-# Cache result as BASE_BRANCH in-context
+# Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
 # Delete any worktree-agent-* branches not currently checked out in a worktree:
 git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
@@ -12095,7 +12099,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 
 - `REPO` — absolute path to the repo root
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
-- `BASE_BRANCH` — the branch all work is based from. If not declared in `AGENTS.md`, resolve in this order: (1) `main` if it exists locally; (2) `master` if it exists locally; (3) `develop` if it exists locally; (4) `development` if it exists locally; (5) stop and ask the user which branch to use. Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
+- `BASE_BRANCH` — the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else `develop` if it exists locally; (3) else `development` if it exists locally; (4) else stop and ask the user: no `develop`/`development` integration branch found - use `main` (falling back to `master`), or set up a develop-based workflow? Offer `main` as the recommended default; (5) on decline / main preference, resolve `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
 - `DEBUGGER_ON_FAILURE` — read from `.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
 - `AUTO_MERGE_ON_CI_GREEN` — read from `.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.

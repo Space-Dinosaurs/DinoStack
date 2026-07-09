@@ -873,7 +873,7 @@ An architect-declared "Open Questions" section is a <strong>protocol-level block
 </div>
 <div class="card">
 <strong>Explicit command directives</strong><br />
-Command files under <code>content/commands/</code> that contain their own "stop and ask" directives are controlling for that decision. Example: <code>implement-ticket.md</code>'s BASE_BRANCH stop-and-ask when neither <code>develop</code> nor <code>development</code> exists.
+Command files under <code>content/commands/</code> that contain their own "stop and ask" directives are controlling for that decision. Example: <code>implement-ticket.md</code>'s <code>BASE_BRANCH</code> stop-and-ask, which fires when no base branch is declared and neither <code>develop</code> nor <code>development</code> exists - it asks main vs. develop-setup, recommends <code>main</code>, never auto-creates.
 </div>
 <div class="card">
 <strong>Agent-spec-mandated decisions</strong><br />

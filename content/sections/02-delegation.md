@@ -69,7 +69,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
 
-**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s BASE_BRANCH stop-and-ask when neither `develop` nor `development` exists.
+**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s `BASE_BRANCH` stop-and-ask, which fires when the project declares no base branch (no `BASE_BRANCH:` line in `AGENTS.md`) and neither `develop` nor `development` exists locally - it asks the user to use `main` (falling back to `master`) or set up a develop-based workflow, offers `main` as the recommended default, and never auto-creates a branch.
 
 **Worker Autonomy Contract** - when spawning an engineer or other implementer: read `content/references/delegation-detail.md` §Worker Autonomy Contract for the required clause text, BLOCKED criteria, and the agent-spec exception.
 

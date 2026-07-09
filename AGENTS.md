@@ -23,6 +23,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - Docs site: deploy steps are in `docs/technical/deploy.md` (local-only, not tracked upstream). Always verify the linked project ID before running `vercel --prod`.
 
 ## Conventions
+- **Base branch:** `main` is the sole integration branch for this repo. Declaration: `BASE_BRANCH: main`.
 - **Workflow for all implementation work (non-Trivial risk):**
 	1. `git fetch origin` to ensure latest `main`.
 	2. Spawn subagent Workers using `isolation: "worktree"` with worktrees branched from `origin/main`. Worktree path: `.agentic/worktrees/<branch-name>`.

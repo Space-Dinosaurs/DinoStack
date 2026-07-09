@@ -125,7 +125,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
 
-**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s BASE_BRANCH stop-and-ask when neither `develop` nor `development` exists.
+**Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s `BASE_BRANCH` stop-and-ask, which fires when the project declares no base branch (no `BASE_BRANCH:` line in `AGENTS.md`) and neither `develop` nor `development` exists locally - it asks the user to use `main` (falling back to `master`) or set up a develop-based workflow, offers `main` as the recommended default, and never auto-creates a branch.
 
 **Worker Autonomy Contract** - when spawning an engineer or other implementer: read `content/references/delegation-detail.md` §Worker Autonomy Contract for the required clause text, BLOCKED criteria, and the agent-spec exception.
 
@@ -597,7 +597,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
-**Worktree prune, branch prune, and base-branch resolution run ONCE at session start**, not before every subagent spawn. Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
+**Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
