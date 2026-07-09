@@ -1100,6 +1100,25 @@ def test_make_run_id_contains_role():
     assert "qa-engineer" in rid, f"role not in run-id: {rid!r}"
 
 
+def test_resolve_run_dir_rejects_path_traversal(tmp_path):
+    """_resolve_run_dir must not let a crafted run-id escape teamrun/."""
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    teamrun = workdir / ".agentic" / "teamrun"
+    teamrun.mkdir(parents=True)
+    legit = teamrun / "engineer-0001-12345-abcd"
+    legit.mkdir()
+
+    # A real run-id resolves to its directory.
+    assert _mod._resolve_run_dir("engineer-0001-12345-abcd", workdir) == legit
+    # A missing-but-well-formed id returns None (not an escape).
+    assert _mod._resolve_run_dir("engineer-9999-12345-ffff", workdir) is None
+
+    # Traversal / separator / absolute / NUL / empty inputs are all rejected.
+    for bad in ["../escape", "..", ".", "/abs", "a/b", "a\\b", "", "evil\x00id", "teamrun/.."]:
+        assert _mod._resolve_run_dir(bad, workdir) is None, f"{bad!r} must be rejected"
+
+
 # ===========================================================================
 # New tests: reaper, killpg watchdog, mkdir guard, run-id urandom suffix
 # ===========================================================================

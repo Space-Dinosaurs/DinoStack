@@ -3,14 +3,16 @@
 Tests for bin/_lib.py shared helpers: atomic_write and acquire_exclusive_lock.
 
 Test groups:
-  1. test_atomic_write_creates_file - basic write + rename.
+  1. test_atomic_write_creates_file - basic write + replace.
   2. test_atomic_write_mode_bits    - chmod 0o600 applied to destination.
-  3. test_atomic_write_mode_none    - mode=None skips chmod (preserves existing perms).
-  4. test_atomic_write_no_tmp_on_success - .tmp removed after successful write.
-  5. test_atomic_write_cleans_tmp_on_failure - .tmp unlinked when rename impossible.
-  6. test_acquire_lock_acquires_and_releases - context manager acquires, code runs, releases.
-  7. test_acquire_lock_blocks_second - second acquirer times out while first holds lock.
-  8. test_acquire_lock_releases_after_with - after 'with' block, second acquirer succeeds.
+  3. test_atomic_write_mode_none    - mode=None -> new file gets 0o644 (no 0o600 force).
+  4. test_atomic_write_no_tmp_on_success - no leftover temp files after success.
+  5. test_atomic_write_cleans_tmp_on_failure - temp unlinked when replace impossible.
+  6. test_atomic_write_mode_none_preserves_existing_perms - rewrites keep dest perms.
+  7. test_atomic_write_temp_name_unpredictable - pre-planted <dest>.tmp symlink not followed.
+  8. test_acquire_lock_acquires_and_releases - context manager acquires, code runs, releases.
+  9. test_acquire_lock_blocks_second - second acquirer times out while first holds lock.
+ 10. test_acquire_lock_releases_after_with - after 'with' block, second acquirer succeeds.
 
 Run with: python3 bin/tests/test__lib.py
        or: python3 -m pytest bin/tests/test__lib.py
@@ -68,34 +70,58 @@ class TestAtomicWrite(unittest.TestCase):
         self.assertEqual(file_mode, 0o600)
 
     def test_atomic_write_mode_none_skips_chmod(self):
-        # Write with mode=None; verify file exists and no chmod error raised.
-        # We can't easily verify "no chmod was called" without mocking, but we
-        # can verify the file lands correctly and the pre-existing permissions
-        # of the .tmp file (umask-dependent) are left alone (not forced to 0o600).
+        # mode=None on a NEW file must not force 0o600 (mkstemp's default); it
+        # falls back to 0o644 to match the prior write_text umask behavior so
+        # callers like agentic-migrate don't regress to owner-only files.
         atomic_write(self.dest, "config\n", mode=None)
         self.assertTrue(self.dest.is_file())
         self.assertEqual(self.dest.read_text(encoding="utf-8"), "config\n")
-        # mode=None must NOT force 0o600: file mode should equal umask default
-        # (typically 0o644). We just confirm it is NOT necessarily 0o600 by
-        # checking the content round-trips correctly (the main behavioral check).
+        file_mode = stat.S_IMODE(os.stat(self.dest).st_mode)
+        self.assertEqual(file_mode, 0o644)
+        self.assertNotEqual(file_mode, 0o600)
 
     def test_atomic_write_no_tmp_on_success(self):
-        tmp = self.dest.parent / (self.dest.name + ".tmp")
         atomic_write(self.dest, "data\n")
-        self.assertFalse(tmp.exists(), ".tmp file should be removed after successful write")
+        leftovers = list(Path(self.tmp_dir).glob(self.dest.name + "*.tmp"))
+        self.assertEqual(leftovers, [], "no temp files should remain after success")
+        self.assertFalse((self.dest.parent / (self.dest.name + ".tmp")).exists())
 
     def test_atomic_write_cleans_tmp_on_failure(self):
-        # Make dest a directory so rename fails; .tmp should be cleaned up.
+        # Make dest a directory so os.replace fails; the temp file is cleaned up.
         self.dest.mkdir()
-        tmp = self.dest.parent / (self.dest.name + ".tmp")
         with self.assertRaises(Exception):
             atomic_write(self.dest, "data\n")
-        self.assertFalse(tmp.exists(), ".tmp file should be removed on failure")
+        leftovers = list(Path(self.tmp_dir).glob(self.dest.name + "*.tmp"))
+        self.assertEqual(leftovers, [], "temp file should be removed on failure")
 
     def test_atomic_write_overwrites_existing(self):
         self.dest.write_text("old content\n", encoding="utf-8")
         atomic_write(self.dest, "new content\n")
         self.assertEqual(self.dest.read_text(encoding="utf-8"), "new content\n")
+
+    def test_atomic_write_mode_none_preserves_existing_perms(self):
+        # mode=None must keep the destination's current mode across a rewrite
+        # (agentic-migrate relies on this for shared config files).
+        self.dest.write_text("old\n", encoding="utf-8")
+        os.chmod(self.dest, 0o640)
+        atomic_write(self.dest, "new\n", mode=None)
+        self.assertEqual(self.dest.read_text(encoding="utf-8"), "new\n")
+        self.assertEqual(stat.S_IMODE(os.stat(self.dest).st_mode), 0o640)
+
+    def test_atomic_write_temp_name_unpredictable(self):
+        # A pre-planted "<dest>.tmp" symlink must NOT be followed (same-user
+        # TOCTOU): the temp name is randomized, so the victim is never opened
+        # and the destination is written via os.replace.
+        victim = Path(self.tmp_dir) / "victim.txt"
+        victim.write_text("do not touch\n", encoding="utf-8")
+        planted = self.dest.parent / (self.dest.name + ".tmp")
+        os.symlink(victim, planted)
+        atomic_write(self.dest, "payload\n")
+        self.assertEqual(self.dest.read_text(encoding="utf-8"), "payload\n")
+        self.assertEqual(
+            victim.read_text(encoding="utf-8"), "do not touch\n",
+            "predictable .tmp symlink must not be written through",
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -265,6 +265,88 @@ class TestHookActivationDormantNotice(_FakeHome):
         self.assertEqual(err, "")
 
 
+class TestHookActivationAncestorWalk(_FakeHome):
+    """is_active() must walk from cwd up to the outermost git root so subagents
+    inside <repo>/.agentic/worktrees/<branch>/ inherit the project root's
+    activation instead of silently going dormant (closes the five-hook bypass)."""
+
+    def _capture_stderr(self, func, *args, **kwargs):
+        old = sys.stderr
+        buf = _io.StringIO()
+        sys.stderr = buf
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            sys.stderr = old
+        return result, buf.getvalue()
+
+    def _make_repo(self):
+        # Main-checkout .git directory (outermost .git-bearing ancestor).
+        os.makedirs(os.path.join(self.project, ".git"))
+
+    def _make_worktree(self, name="feat-x"):
+        wt = os.path.join(self.project, ".agentic", "worktrees", name)
+        os.makedirs(wt)
+        # A worktree carries a .git *file* (gitdir pointer), not a directory.
+        with open(os.path.join(wt, ".git"), "w") as fh:
+            fh.write("gitdir: /placeholder\n")
+        sub = os.path.join(wt, "src", "pkg")
+        os.makedirs(sub)
+        return sub
+
+    def test_worktree_inherits_active_marker(self):
+        self._make_repo()
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "active"), "w").close()
+        cwd = self._make_worktree()
+        self.assertTrue(hook_act.is_active(cwd))
+
+    def test_worktree_inherits_dormant_tombstone_with_notice(self):
+        self._make_repo()
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "dormant"), "w").close()
+        cwd = self._make_worktree()
+        active, err = self._capture_stderr(hook_act.is_active, cwd)
+        self.assertFalse(active)
+        self.assertIn("AGENTIC-ENGINEERING DORMANT", err)
+        # Notice keyed on the project root, not the worktree subdir.
+        self.assertIn(self.project, err)
+
+    def test_deep_subdir_walks_to_repo_root(self):
+        self._make_repo()
+        os.makedirs(os.path.join(self.project, ".agentic"))
+        open(os.path.join(self.project, ".agentic", "active"), "w").close()
+        deep = os.path.join(self.project, "src", "a", "b", "c")
+        os.makedirs(deep)
+        self.assertTrue(hook_act.is_active(deep))
+
+    def test_walk_bounded_at_git_root_ignores_home_agentic(self):
+        # A user-level ~/.agentic dir exists (allowlist home). A naive fs-root
+        # walk would auto-detect ACTIVE from isdir(~/.agentic); the git-root
+        # bound must prevent escaping above the project.
+        os.makedirs(os.path.join(self.home, ".agentic"))
+        self._make_repo()  # project has .git but NO .agentic marker
+        cwd = os.path.join(self.project, "src")
+        os.makedirs(cwd)
+        self.assertFalse(hook_act.is_active(cwd))
+
+    def test_worktree_inherits_allowlist(self):
+        self._make_repo()
+        # No marker at the project; activation comes solely from the allowlist,
+        # which records the project ROOT (not the worktree subdir).
+        os.makedirs(os.path.join(self.home, ".agentic"))
+        with open(os.path.join(self.home, ".agentic", "activation.list"), "w") as fh:
+            fh.write(self.project + "\n")
+        cwd = self._make_worktree()
+        self.assertTrue(hook_act.is_active(cwd))
+
+    def test_no_git_preserves_exact_cwd_behavior(self):
+        # No git checkout anywhere -> legacy exact-cwd: dormant with no marker,
+        # and we must not auto-detect from a ~/.agentic dir above cwd.
+        os.makedirs(os.path.join(self.home, ".agentic"))
+        self.assertFalse(hook_act.is_active(self.project))
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -1502,8 +1502,29 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _resolve_run_dir(run_id: str, workdir: Path) -> Path | None:
-    """Return the run directory for *run_id* under *workdir*, or None."""
-    candidate = workdir / ".agentic" / "teamrun" / run_id
+    """Return the run directory for *run_id* under *workdir*, or None.
+
+    Rejects run-ids that could escape ``<workdir>/.agentic/teamrun/`` (path
+    separators, ``.``/``..``, absolute paths, NUL), mirroring the path-
+    metacharacter threat note in ``_make_run_id``/``_rotation_cursor_next``. A
+    rejected id surfaces to status/collect as "unknown run-id" (their existing
+    None branch) rather than resolving outside the teamrun directory.
+    """
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    if "\x00" in run_id or "/" in run_id or "\\" in run_id:
+        return None
+    if run_id in (".", "..") or os.path.isabs(run_id):
+        return None
+    teamrun = workdir / ".agentic" / "teamrun"
+    candidate = teamrun / run_id
+    # Defense in depth: the resolved path must stay inside the teamrun dir.
+    try:
+        base = os.path.abspath(teamrun)
+        if os.path.commonpath([base, os.path.abspath(candidate)]) != base:
+            return None
+    except ValueError:
+        return None
     if candidate.is_dir():
         return candidate
     return None
