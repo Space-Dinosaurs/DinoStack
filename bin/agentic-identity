@@ -260,7 +260,16 @@ def _write_identity(lines: list[str], target_path: Path | None = None) -> int:
     """
     dest = target_path if target_path is not None else IDENTITY_PATH
     content = "\n".join(lines) + "\n"
-    dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as exc:
+        # e.g. --scope profile with a profile dir (or ancestor) that is an
+        # existing regular file -> FileExistsError/NotADirectoryError.
+        print(
+            f"agentic-identity: cannot create profile dir '{dest.parent}': {exc}",
+            file=sys.stderr,
+        )
+        return 1
     try:
         atomic_write(dest, content, mode=0o600)
     except Exception as exc:
@@ -350,6 +359,13 @@ def flushPendingBuffer(
                 # Stow/chezmoi symlinked ~/.config ancestor). A lexical compare
                 # would never match and orphan the record in .pending.
                 record_config_dir = record.get("config_dir", "")
+                if not isinstance(record_config_dir, str):
+                    # Malformed pending JSON (e.g. config_dir: 42) must not
+                    # crash the flush via os.path.realpath(TypeError). Coerce
+                    # to "" -> under a profile filter the record is skipped
+                    # (left in buffer); under global/project it behaves as
+                    # untagged, same as a record with no config_dir at all.
+                    record_config_dir = ""
                 if profile_dir_filter is not None:
                     if (not record_config_dir
                             or os.path.realpath(record_config_dir)
