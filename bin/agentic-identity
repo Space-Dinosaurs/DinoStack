@@ -128,6 +128,7 @@ PROFILE_CONFIG_DIR_ENV: tuple[str, ...] = (
 
 def _is_under_home(path: Path) -> bool:
     """True iff path resolves to a location inside the current user's $HOME."""
+    # TOCTOU: check-to-use window accepted (attacker needs write access inside victim's own $HOME).
     try:
         path.resolve().relative_to(Path.home().resolve())
         return True

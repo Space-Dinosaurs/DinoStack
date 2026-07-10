@@ -700,25 +700,51 @@ function _parseIdentityFile(filePath) {
 const PROFILE_CONFIG_DIR_ENV = ['AGENTIC_CONFIG_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'];
 
 /**
+ * Return the active profile's config dir (realpath), or null.
+ * Scans PROFILE_CONFIG_DIR_ENV in order; the first set var whose realpath
+ * resolves under the realpathed $HOME wins (symlinks are followed on BOTH
+ * sides, mirroring _is_under_home in bin/agentic-identity, so a symlink
+ * inside $HOME pointing outside cannot bypass containment). A candidate
+ * whose realpath fails (e.g. ENOENT) is skipped - a nonexistent dir holds
+ * no identity.yml. Returns null when no var qualifies -> profile scope is
+ * absent, which keeps getIdentity() byte-identical to the prior 4-tier
+ * behavior (back-compat).
+ *
+ * @returns {string|null}
+ */
+function _profileConfigDir() {
+  let homeReal;
+  try {
+    homeReal = fs.realpathSync(os.homedir()); // macOS: /var -> /private/var
+  } catch (_) {
+    homeReal = os.homedir();
+  }
+  for (const v of PROFILE_CONFIG_DIR_ENV) {
+    const raw = (process.env[v] || '').trim();
+    if (!raw) continue;
+    let resolved = path.resolve(raw);
+    try {
+      resolved = fs.realpathSync(resolved);
+    } catch (_) {
+      continue; // ENOENT etc: no dir -> no identity.yml -> next candidate
+    }
+    // TOCTOU: check-to-use window accepted (attacker needs write access inside victim's own $HOME).
+    if (resolved === homeReal || resolved.startsWith(homeReal + path.sep)) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
+/**
  * Return the active profile's identity.yml path (profile scope), or null.
- * Scans PROFILE_CONFIG_DIR_ENV in order; the first set var resolving under
- * $HOME wins. Values outside $HOME are ignored (no writes escaping the user
- * tree). Returns null when no var qualifies -> profile scope is absent, which
- * keeps getIdentity() byte-identical to the prior 4-tier behavior (back-compat).
+ * Thin wrapper over _profileConfigDir() (see containment rules there).
  *
  * @returns {string|null}
  */
 function _profileIdentityPath() {
-  const home = os.homedir();
-  for (const v of PROFILE_CONFIG_DIR_ENV) {
-    const raw = (process.env[v] || '').trim();
-    if (!raw) continue;
-    const resolved = path.resolve(raw);
-    if (resolved === home || resolved.startsWith(home + path.sep)) {
-      return path.join(resolved, 'identity.yml');
-    }
-  }
-  return null;
+  const dir = _profileConfigDir();
+  return dir ? path.join(dir, 'identity.yml') : null;
 }
 
 /**
