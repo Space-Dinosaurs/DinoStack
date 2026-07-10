@@ -344,9 +344,16 @@ def flushPendingBuffer(
 
                 # profile partition: tagged records flush only under their own
                 # profile's filter; a None filter (global/project) excludes them.
+                # Realpath BOTH sides of the compare: the JS writer tags records
+                # with fs.realpathSync (symlinks resolved), while the filter may
+                # be built from an unresolved --profile-dir spelling (e.g. a
+                # Stow/chezmoi symlinked ~/.config ancestor). A lexical compare
+                # would never match and orphan the record in .pending.
                 record_config_dir = record.get("config_dir", "")
                 if profile_dir_filter is not None:
-                    if record_config_dir != profile_dir_filter:
+                    if (not record_config_dir
+                            or os.path.realpath(record_config_dir)
+                            != os.path.realpath(profile_dir_filter)):
                         continue
                 elif record_config_dir:
                     continue
@@ -455,6 +462,14 @@ def flushPendingBuffer(
     return flushed
 
 
+def _rejected_profile_dir_msg(profile_dir: str) -> str:
+    """Shared error literal for a provided-but-rejected --profile-dir."""
+    return (
+        f"agentic-identity: --profile-dir '{profile_dir}' rejected: "
+        "must resolve under $HOME."
+    )
+
+
 def _profile_target_or_err(args: argparse.Namespace) -> Path | None:
     """Resolve the profile-scope identity.yml target; print an error and return None on failure.
 
@@ -466,11 +481,7 @@ def _profile_target_or_err(args: argparse.Namespace) -> Path | None:
     if target is not None:
         return target
     if profile_dir is not None:
-        print(
-            f"agentic-identity: --profile-dir '{profile_dir}' rejected: "
-            "must resolve under $HOME.",
-            file=sys.stderr,
-        )
+        print(_rejected_profile_dir_msg(profile_dir), file=sys.stderr)
     else:
         print(
             "agentic-identity: cannot determine profile config dir. Set one of "
@@ -864,11 +875,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         target_path = _profile_identity_path(profile_dir)
         if target_path is None:
             if profile_dir is not None:
-                print(
-                    f"agentic-identity: --profile-dir '{profile_dir}' rejected: "
-                    "must resolve under $HOME.",
-                    file=sys.stderr,
-                )
+                print(_rejected_profile_dir_msg(profile_dir), file=sys.stderr)
                 return 1
             print("No profile scope (no config-dir env set and no --profile-dir).")
             return 0

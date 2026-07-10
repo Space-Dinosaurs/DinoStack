@@ -798,6 +798,47 @@ def test_global_flush_skips_config_dir_tagged_records():
         print("PASS test_global_flush_skips_config_dir_tagged_records")
 
 
+def test_profile_flush_matches_symlinked_filter_spelling():
+    """(K4) round-trip: record tagged with realpath'd config_dir (JS writer)
+    flushes under a filter built from the UN-resolved symlinked spelling."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp).resolve()  # macOS: /var -> /private/var
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        # Real config tree + a symlinked ancestor pointing at it
+        # (Stow/chezmoi-style ~/.config -> dotfiles/config).
+        real_parent = tmp_path / "dotfiles" / "config"
+        real_cfg = real_parent / "claude"
+        real_cfg.mkdir(parents=True)
+        link_parent = tmp_path / ".config"
+        os.symlink(real_parent, link_parent)
+        symlinked_cfg = link_parent / "claude"  # unresolved spelling
+
+        # JS writer tags with fs.realpathSync -> the fully-resolved path.
+        record = {
+            "session_uuid": "uuid-symlink-rt",
+            "ts": "2026-07-01T00:00:00.000Z",
+            "project_slug": "p",
+            "repo_root": "/repo/p",
+            "branch": "main",
+            "config_dir": str(real_cfg.resolve()),
+            "data": {},
+        }
+        path_rec = _write_pending(pending_dir, record)
+
+        # Filter uses the symlinked spelling (what --profile-dir would carry).
+        count = flushPendingBuffer("rt-dev", profile_dir_filter=str(symlinked_cfg))
+        assert count == 1, f"Expected 1 flushed (realpath both sides), got {count}"
+        assert not path_rec.exists(), \
+            "Record must flush despite symlinked filter spelling"
+
+        global_log = global_log_dir / "rt-dev.jsonl"
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 1
+        assert json.loads(lines[0])["session_uuid"] == "uuid-symlink-rt"
+        print("PASS test_profile_flush_matches_symlinked_filter_spelling")
+
+
 def test_global_flush_still_attributes_untagged_legacy_records():
     """(K3) untagged legacy records flush unchanged under a global confirm."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -871,6 +912,7 @@ if __name__ == "__main__":
     test_profile_dir_override()
     test_profile_flush_only_own_config_dir_records()
     test_global_flush_skips_config_dir_tagged_records()
+    test_profile_flush_matches_symlinked_filter_spelling()
     test_global_flush_still_attributes_untagged_legacy_records()
     test_no_env_profile_scope_absent()
     print("All tests passed.")
