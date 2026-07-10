@@ -3,6 +3,12 @@
 
 # Changelog
 
+## 2026-07-10
+
+### Uncategorized
+
+- **#444** [DS-74: restore risk-table examples, QA smoke checklist, numeric re-derivation rule](https://github.com/Space-Dinosaurs/DinoStack/pull/444) - tyson-solara6
+
 ## 2026-07-09
 
 ### Features
