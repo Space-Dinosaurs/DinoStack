@@ -700,15 +700,44 @@ function _parseIdentityFile(filePath) {
 const PROFILE_CONFIG_DIR_ENV = ['AGENTIC_CONFIG_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'];
 
 /**
- * Return the active profile's config dir (realpath), or null.
- * Scans PROFILE_CONFIG_DIR_ENV in order; the first set var whose realpath
- * resolves under the realpathed $HOME wins (symlinks are followed on BOTH
- * sides, mirroring _is_under_home in bin/agentic-identity, so a symlink
- * inside $HOME pointing outside cannot bypass containment). A candidate
- * whose realpath fails (e.g. ENOENT) is skipped - a nonexistent dir holds
- * no identity.yml. Returns null when no var qualifies -> profile scope is
- * absent, which keeps getIdentity() byte-identical to the prior 4-tier
- * behavior (back-compat).
+ * Resolve p like Python's Path.resolve(strict=False): realpath the deepest
+ * EXISTING ancestor (symlinks followed), then re-append the nonexistent
+ * remainder lexically. An existing symlink component still resolves - so a
+ * symlink escaping $HOME is still rejected downstream - while a not-yet-created
+ * dir gets a deterministic resolved spelling instead of an ENOENT throw.
+ *
+ * @param {string} p - An absolute (path.resolve'd) candidate path.
+ * @returns {string}
+ */
+function _realpathNonStrict(p) {
+  let base = p;
+  const rest = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync(base);
+      return rest.length ? path.join(real, ...rest) : real;
+    } catch (_) {
+      const parent = path.dirname(base);
+      if (parent === base) return p; // unreadable down to the root: keep lexical
+      rest.unshift(path.basename(base));
+      base = parent;
+    }
+  }
+}
+
+/**
+ * Return the active profile's config dir (resolved path), or null.
+ * Scans PROFILE_CONFIG_DIR_ENV in order; the FIRST (highest-precedence) set
+ * var whose non-strict realpath resolves under the realpathed $HOME wins and
+ * the scan STOPS there - existence is NOT required, mirroring
+ * _profile_config_dir in bin/agentic-identity (Python Path.resolve() does not
+ * require existence either), so the two sides never disagree on which profile
+ * is active. A nonexistent-but-under-$HOME candidate simply holds no
+ * identity.yml yet. Symlinks are followed on BOTH sides via _realpathNonStrict
+ * (a symlink inside $HOME pointing outside cannot bypass containment); a
+ * candidate resolving outside $HOME is rejected and the next var is tried.
+ * Returns null when no var qualifies -> profile scope is absent, which keeps
+ * getIdentity() byte-identical to the prior 4-tier behavior (back-compat).
  *
  * @returns {string|null}
  */
@@ -722,16 +751,12 @@ function _profileConfigDir() {
   for (const v of PROFILE_CONFIG_DIR_ENV) {
     const raw = (process.env[v] || '').trim();
     if (!raw) continue;
-    let resolved = path.resolve(raw);
-    try {
-      resolved = fs.realpathSync(resolved);
-    } catch (_) {
-      continue; // ENOENT etc: no dir -> no identity.yml -> next candidate
-    }
+    const resolved = _realpathNonStrict(path.resolve(raw));
     // TOCTOU: check-to-use window accepted (attacker needs write access inside victim's own $HOME).
     if (resolved === homeReal || resolved.startsWith(homeReal + path.sep)) {
-      return resolved;
+      return resolved; // highest-precedence qualifying var wins; scan stops
     }
+    // Resolves outside $HOME (incl. an existing symlink escape): try next var.
   }
   return null;
 }
