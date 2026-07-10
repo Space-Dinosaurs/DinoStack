@@ -82,11 +82,17 @@ _ae_setup_identity() {
   fi
 
   # Branch 3: detect existing identity (global: effective incl. project fallback;
-  # profile: this profile's own identity only)
+  # profile: this profile's own identity only). For profile scope, pin the
+  # config dir explicitly (mirrors ae_scope_args) so detection works without
+  # env propagation to the subprocess.
   local show_scope="$AE_IDENTITY_SCOPE"
   [[ "$show_scope" == "global" ]] && show_scope="effective"
+  local show_args=(--scope "$show_scope")
+  if [[ "$AE_IDENTITY_SCOPE" == "profile" && -n "${AE_CONFIG_DIR:-}" ]]; then
+    show_args+=(--profile-dir "$AE_CONFIG_DIR")
+  fi
   local show_out
-  show_out="$(agentic-identity show --scope "$show_scope" 2>/dev/null)" || show_out=""
+  show_out="$(agentic-identity show "${show_args[@]}" 2>/dev/null)" || show_out=""
   local existing_handle
   existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')" || existing_handle=""
   if [[ -n "$existing_handle" ]]; then

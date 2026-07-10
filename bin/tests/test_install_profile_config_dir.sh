@@ -231,6 +231,38 @@ for harness in claude codex omp pi; do
 done
 rm -rf "$NX"
 
+# ---------------------------------------------------------------------------
+# Test 8: profile-scope identity re-run detection (PR #442 review fix 3)
+# First run writes <profile>/identity.yml via --identity; a second run of the
+# SAME installer must detect it through Branch 3 (show --scope profile
+# --profile-dir) instead of skipping to the non-TTY branch.
+# ---------------------------------------------------------------------------
+RERUN="$(mktemp -d)"
+export HOME="$RERUN/home"; mkdir -p "$HOME"
+RERUN_PROFILE="$HOME/.claude-tenant"; mkdir -p "$RERUN_PROFILE"
+# agentic-identity must be on PATH for the installer's identity branches.
+export PATH="$REPO_DIR/bin:$PATH"
+
+env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME \
+  AE_IDENTITY_SCOPE=profile HOME="$HOME" PATH="$PATH" \
+  bash "$REPO_DIR/.claude/install.sh" \
+  --config-dir="$RERUN_PROFILE" --identity=rerun-tester --mode=opt-out --profile=default \
+  >/dev/null 2>&1 || true
+[[ -f "$RERUN_PROFILE/identity.yml" ]] \
+  && pass "first run wrote profile identity.yml" \
+  || fail "first run did NOT write profile identity.yml"
+
+rerun_out="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME \
+  AE_IDENTITY_SCOPE=profile HOME="$HOME" PATH="$PATH" \
+  bash "$REPO_DIR/.claude/install.sh" \
+  --config-dir="$RERUN_PROFILE" --mode=opt-out --profile=default 2>&1 || true)"
+if echo "$rerun_out" | grep -q "identity already set to 'rerun-tester'"; then
+  pass "re-run detected existing profile identity (Branch 3 --profile-dir)"
+else
+  fail "re-run did NOT detect existing profile identity"
+fi
+rm -rf "$RERUN"
+
 if [[ "$FAILS" -gt 0 ]]; then
   echo "FAILED: $FAILS assertion(s)"; exit 1
 fi
