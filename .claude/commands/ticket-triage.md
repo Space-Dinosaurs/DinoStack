@@ -118,13 +118,41 @@ Conductor-direct (no subagent). For each entry in `normalized_input.entries[]`, 
 - **Jira:** `mcp__mcp-atlassian__jira_get_issue` - capture `priority`, `status`, `story_points` (or `timeestimate`), `labels`, `components`, `assignee`, and `issuelinks` (blocks / is-blocked-by / relates-to).
 - **Linear:** `mcp__linear__get_issue` - capture `priority`, `state`, `estimate`, `labels`, `assignee`, and relations (blocks / blocked-by / related).
 
-The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates only the display-only "Est" column in the Phase 4a per-ticket summary table. No distribution rule consumes it; estimate-aware lane sizing is a deferred default.
+The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates the display-only "Est" column in the Phase 4a per-ticket summary table AND triggers the story-size preflight below.
 
 **Soft-fail per ticket:** on any fetch error, mark `fetch_failed: true` on that entry and proceed. Fetch-failed tickets are treated as independent (no known deps, no known metadata) in all downstream phases.
 
 **Terminal-status detection:** tickets whose status maps to a Done/Cancelled/Won't-do state are marked `terminal: true`. They are added to the deferred set in Phase 3 Rule 1 without further analysis.
 
 **In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts).
+
+> **Story-size preflight** — runs once, immediately after all metadata is collected.
+>
+> For each ticket whose estimate is available (`story_points` or Linear `estimate` is a number), check:
+> - **≥ 5 points:** print the following warning (once per oversized ticket):
+>   ```
+>   ⚠ [DS-XX] Est: N pts — large story. Recommend decomposing into ≤ 3-point sub-tickets
+>     before running /implement-ticket. A single 5+ point story can exhaust the context
+>     window before the loop completes. Split strategy: one sub-ticket per independent
+>     deliverable; use /ticket-triage on the sub-set to re-sequence.
+>   ```
+>   Then append a `context_risk: high` flag to that entry. Lane assignment proceeds normally; the operator decides whether to decompose.
+>
+> - **3–4 points:** no warning. `context_risk` is unset.
+> - **≤ 2 points or estimate absent:** no warning. Safe to run as-is.
+>
+> **Token-reduction reminder** — if any `context_risk: high` ticket is lane-assigned (not deferred), append this one-time callout at the end of the story-size preflight output:
+> ```
+> 💡 Token-reduction tools: if your harness supports ctx_* context-mode tools
+>    (ctx_execute, ctx_batch_execute), prefer them over raw shell output for any
+>    operation producing > 20 lines — they reduce context consumption by ~98%.
+>    If context fills mid-session, /wrap → /clear → re-invoke /implement-ticket
+>    with the remaining ticket IDs to continue in a fresh window.
+> ```
+>
+> **Silent on clean sets:** if no ticket has `context_risk: high`, print nothing. No output on safe sessions.
+>
+> The `context_risk` flags are display-only; no distribution rule consumes them.
 
 `[phase: ticket-triage | phase=metadata]`
 
@@ -219,14 +247,15 @@ Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investiga
 ## Per-ticket summary
 
 <!-- Est column: shows the captured estimate (story points / time estimate) or "-" when absent.
-     Display-only; no distribution rule consumes it. -->
+     Display-only; no distribution rule consumes it.
+     ⚠ column: populated with "⚠ large" when context_risk: high (≥5 pts); otherwise empty. -->
 
-| Ticket | Priority | Status | Est | Lane | Notes |
-|--------|----------|--------|-----|------|-------|
-| A | High | To Do | 3 | Lane 1 | |
-| B | Med | To Do | 2 | Lane 1 | blocked by A |
-| C | High | To Do | - | Lane 2 | |
-| ... | | | | | |
+| Ticket | Priority | Status | Est | ⚠ | Lane | Notes |
+|--------|----------|--------|-----|---|------|-------|
+| A | High | To Do | 3 | | Lane 1 | |
+| B | Med | To Do | 2 | | Lane 1 | blocked by A |
+| C | High | To Do | 8 | ⚠ large | Lane 2 | |
+| ... | | | | | | |
 
 ## Dependency notes
 
