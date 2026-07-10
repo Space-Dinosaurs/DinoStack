@@ -455,6 +455,32 @@ def flushPendingBuffer(
     return flushed
 
 
+def _profile_target_or_err(args: argparse.Namespace) -> Path | None:
+    """Resolve the profile-scope identity.yml target; print an error and return None on failure.
+
+    Distinguishes a provided-but-rejected --profile-dir (outside $HOME) from an
+    omitted flag with no qualifying env var. Shared by cmd_init/cmd_auto/cmd_confirm.
+    """
+    profile_dir = getattr(args, "profile_dir", None)
+    target = _profile_identity_path(profile_dir)
+    if target is not None:
+        return target
+    if profile_dir is not None:
+        print(
+            f"agentic-identity: --profile-dir '{profile_dir}' rejected: "
+            "must resolve under $HOME.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "agentic-identity: cannot determine profile config dir. Set one of "
+            + ", ".join(PROFILE_CONFIG_DIR_ENV)
+            + " (under $HOME), or pass --profile-dir <dir>.",
+            file=sys.stderr,
+        )
+    return None
+
+
 def _require_repo_root(cwd: Path) -> int:
     """Return 1 (and print error) if cwd has neither .agentic/ nor .git/; else 0."""
     if not (cwd / ".agentic").exists() and not (cwd / ".git").exists():
@@ -480,14 +506,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     scope = getattr(args, "scope", "global")
     if scope == "profile":
-        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        target_path = _profile_target_or_err(args)
         if target_path is None:
-            print(
-                "agentic-identity: cannot determine profile config dir. Set one of "
-                + ", ".join(PROFILE_CONFIG_DIR_ENV)
-                + " (under $HOME), or pass --profile-dir <dir>.",
-                file=sys.stderr,
-            )
             return 1
         existing = _read_identity(target_path) if target_path.is_file() else None
         is_overwriting_provisional = existing is not None and existing.get("provisional", False)
@@ -627,14 +647,8 @@ def cmd_auto(args: argparse.Namespace) -> int:
 
     scope = getattr(args, "scope", "global")
     if scope == "profile":
-        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        target_path = _profile_target_or_err(args)
         if target_path is None:
-            print(
-                "agentic-identity: cannot determine profile config dir. Set one of "
-                + ", ".join(PROFILE_CONFIG_DIR_ENV)
-                + " (under $HOME), or pass --profile-dir <dir>.",
-                file=sys.stderr,
-            )
             return 1
         existing = _read_identity(target_path)
         if existing is not None:
@@ -737,14 +751,8 @@ def cmd_confirm(args: argparse.Namespace) -> int:
     """Confirm provisional identity: strip provisional/derived_from, flush pending buffer."""
     scope = getattr(args, "scope", "global")
     if scope == "profile":
-        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        target_path = _profile_target_or_err(args)
         if target_path is None:
-            print(
-                "agentic-identity: cannot determine profile config dir. Set one of "
-                + ", ".join(PROFILE_CONFIG_DIR_ENV)
-                + " (under $HOME), or pass --profile-dir <dir>.",
-                file=sys.stderr,
-            )
             return 1
         identity = _read_identity(target_path)
         if identity is None:
@@ -852,8 +860,16 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 0
 
     if scope == "profile":
-        target_path = _profile_identity_path(getattr(args, "profile_dir", None))
+        profile_dir = getattr(args, "profile_dir", None)
+        target_path = _profile_identity_path(profile_dir)
         if target_path is None:
+            if profile_dir is not None:
+                print(
+                    f"agentic-identity: --profile-dir '{profile_dir}' rejected: "
+                    "must resolve under $HOME.",
+                    file=sys.stderr,
+                )
+                return 1
             print("No profile scope (no config-dir env set and no --profile-dir).")
             return 0
         identity = _read_identity(target_path)

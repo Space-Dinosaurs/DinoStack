@@ -667,6 +667,15 @@ def test_env_detection_precedence():
         finally:
             restore()
 
+        # Only CODEX_HOME set -> it wins (last-tier fallback).
+        restore = _patch_environ(set_pairs={"CODEX_HOME": c},
+                                 clear_keys=["AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR"])
+        try:
+            p = _profile_identity_path()
+            assert p == Path(c) / "identity.yml", f"Expected C path, got {p}"
+        finally:
+            restore()
+
         print("PASS test_env_detection_precedence")
 
 
