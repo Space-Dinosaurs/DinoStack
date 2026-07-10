@@ -50,7 +50,7 @@ Any single signal triggers:
 - Multi-file changes (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes back to Elevated)
 - New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated in every profile)
 - Touches external APIs or services
-- Unfamiliar codebase area
+- Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem")
 - Logic with emergent/non-obvious cross-component interactions
 - User signals high stakes ("production", "critical", "don't mess this up")
 - Configuration changes
@@ -513,7 +513,9 @@ These are starting templates. Adapt them for your specific domain, threat model,
 **Document synthesis, architecture, and planning:**
 > "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?
 >
-> For architect plans and orchestration-planner output, additionally verify the Open Questions / Deferred defaults split: (a) every item under 'Open Questions' must meet at least one condition - no derivable default, OR irreversible, OR load-bearing fork; (b) every item under 'Deferred defaults' must meet all three conditions - reversible, default derivable, not a load-bearing fork. A reversible+defaultable item hiding in 'Open Questions' (manufactures a false gate) is a Major finding. An irreversible or load-bearing item hiding in 'Deferred defaults' (silently bypasses the gate it requires) is a Major finding. When neither section is present on an artifact that has parked choices, flag absence of the expected structure as a Minor finding."
+> For architect plans and orchestration-planner output, additionally verify the Open Questions / Deferred defaults split: (a) every item under 'Open Questions' must meet at least one condition - no derivable default, OR irreversible, OR load-bearing fork; (b) every item under 'Deferred defaults' must meet all three conditions - reversible, default derivable, not a load-bearing fork. A reversible+defaultable item hiding in 'Open Questions' (manufactures a false gate) is a Major finding. An irreversible or load-bearing item hiding in 'Deferred defaults' (silently bypasses the gate it requires) is a Major finding. When neither section is present on an artifact that has parked choices, flag absence of the expected structure as a Minor finding.
+>
+> Numeric-claim re-derivation: for any numeric, percentage, or metric claim, re-derive it from its stated inputs rather than accepting the stated conclusion. Find both endpoints - the before value and the after value - and recompute the claimed delta or ratio yourself before treating it as verified."
 
 **General code review:**
 > "Assume this code will be deployed to production and maintained by engineers who did not write it. Find: logic errors, edge cases that cause silent failures, missing error handling, incorrect assumptions about input ranges or ordering, and any assumption that will break under realistic load or adversarial input."

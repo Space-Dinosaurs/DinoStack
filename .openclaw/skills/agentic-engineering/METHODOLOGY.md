@@ -144,9 +144,9 @@ the conductor surfaces the question with a recommended default and proceeds with
 | Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override above - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
 | New file creation (any file) (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated regardless of profile) | No | **Yes** |
 | Touches external APIs or services | No | **Yes** |
-| Unfamiliar codebase area | No | **Yes** |
+| Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem") | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
-| User signals high stakes | No | **Yes** |
+| User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
 | Changes to shared utilities (single-file but high blast radius) | No | **Yes** |
 | Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
 | Document synthesis / architecture / planning | No | **Yes** |

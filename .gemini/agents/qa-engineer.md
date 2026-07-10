@@ -354,7 +354,11 @@ When you encounter a login gate:
 When the prompt is minimal (just a URL, no detailed criteria):
 
 1. Open the URL, take a snapshot/screenshot
-2. **Page loads content:** verify it looks reasonable (heading, no errors, layout intact). Check 2-3 nav links. Report PASS.
+2. **Page loads content:** PASS iff all four hold, otherwise FAIL naming the failing clause:
+   a. Heading or page-title element is present and non-empty
+   b. No visible error text, stack trace, or "500"/"error" status appears in the rendered DOM
+   c. At least one nav element renders with at least one clickable link
+   d. Zero console errors logged during page load
 3. **Login screen:** verify it renders correctly (branding, buttons, no errors). Report PARTIAL: "Login page renders correctly. Dashboard content requires authentication."
 4. **Error page (500, blank):** Report FAIL with details.
 5. **Server down:** Report BLOCKED.
