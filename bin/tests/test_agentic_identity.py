@@ -13,6 +13,14 @@ Test groups:
   5. test_no_repo_root_record_skipped_by_filter (D) - records with absent/empty repo_root
      are conservatively skipped when a repo_root_filter is active.
   6. test_global_scope_flush_unaffected (E) - no-filter flush attributes all pending records.
+  7. J/K suites - profile scope: 6-tier resolution, env detection, config_dir
+     flush partition (see individual docstrings).
+  8. CLI suite (L) - subprocess-level cmd_auto/cmd_confirm --scope profile
+     coverage under a fake $HOME (rejection paths, provisional write, and the
+     confirm->flushPendingBuffer profile_dir_filter wiring end-to-end).
+  9. M suite - hardening: nonexistent highest-precedence env dir stops the
+     scan (Python<->JS parity contract), symlink-escape rejection, file-as-
+     profile-dir clean failure, non-string config_dir flush guard.
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_agentic_identity.py -x
@@ -43,6 +51,7 @@ flushPendingBuffer = _mod.flushPendingBuffer
 _resolve_effective_identity = _mod._resolve_effective_identity
 _project_identity_path = _mod._project_identity_path
 _profile_identity_path = _mod._profile_identity_path
+_profile_config_dir = _mod._profile_config_dir
 
 
 def _write_pending(pending_dir: Path, record: dict) -> Path:
@@ -892,6 +901,265 @@ def test_no_env_profile_scope_absent():
         print("PASS test_no_env_profile_scope_absent")
 
 
+# ---------------------------------------------------------------------------
+# Tests (M): env-scan contract, symlink escape, mkdir/flush hardening
+# ---------------------------------------------------------------------------
+
+def test_env_precedence_nonexistent_highest_wins():
+    """(M2) a NOT-yet-created dir in the highest-precedence env var still wins:
+    the scan STOPS there (no fall-through to a lower-precedence existing
+    profile). Pins the Python contract the JS mirror must match."""
+    ghost = Path.home() / f".agentic-ghost-{os.getpid()}"
+    assert not ghost.exists(), f"fixture precondition: {ghost} must not exist"
+    with tempfile.TemporaryDirectory(dir=str(Path.home())) as existing:
+        _write_identity_file(Path(existing) / "identity.yml", "existing-dev")
+        restore = _patch_environ(
+            set_pairs={"AGENTIC_CONFIG_DIR": str(ghost), "CLAUDE_CONFIG_DIR": existing},
+            clear_keys=["CODEX_HOME"])
+        try:
+            cfg = _profile_config_dir()
+        finally:
+            restore()
+        assert cfg == ghost, \
+            f"Nonexistent highest-precedence dir must win (stop scan); got {cfg}"
+        # And the derived identity path points into the ghost dir (holds no file).
+        restore = _patch_environ(
+            set_pairs={"AGENTIC_CONFIG_DIR": str(ghost), "CLAUDE_CONFIG_DIR": existing},
+            clear_keys=["CODEX_HOME"])
+        try:
+            p = _profile_identity_path()
+        finally:
+            restore()
+        assert p == ghost / "identity.yml", f"Expected ghost identity path, got {p}"
+        print("PASS test_env_precedence_nonexistent_highest_wins")
+
+
+def test_symlink_escape_rejected():
+    """(Minor1) a symlink under $HOME pointing OUTSIDE $HOME is rejected by
+    the containment check, via both the env scan and --profile-dir.
+    Mirrors the JS [SYM] test."""
+    link = Path.home() / f".agentic-escape-{os.getpid()}"
+    with tempfile.TemporaryDirectory() as outside:
+        _write_identity_file(Path(outside) / "identity.yml", "escape-dev")
+        os.symlink(outside, link)
+        try:
+            restore = _patch_environ(
+                set_pairs={"AGENTIC_CONFIG_DIR": str(link)},
+                clear_keys=["CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+            try:
+                assert _profile_config_dir() is None, \
+                    "Escaping symlink via env must be rejected"
+                assert _profile_identity_path() is None
+            finally:
+                restore()
+            assert _profile_identity_path(profile_dir=str(link)) is None, \
+                "Escaping symlink via --profile-dir must be rejected"
+        finally:
+            link.unlink(missing_ok=True)
+    print("PASS test_symlink_escape_rejected")
+
+
+def test_flush_non_string_config_dir_no_crash():
+    """(Minor2) a pending record with a non-string config_dir must not crash
+    the flush (pre-guard: os.path.realpath(42) raised TypeError). Under a
+    profile filter it is skipped (left in buffer); under a global flush it
+    behaves as untagged."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        bad = {
+            "session_uuid": "uuid-bad-cfg",
+            "ts": "2026-07-09T00:00:00.000Z",
+            "project_slug": "p",
+            "branch": "main",
+            "config_dir": 42,  # malformed: non-string
+            "data": {},
+        }
+        path_bad = _write_pending(pending_dir, bad)
+
+        # Profile filter: no TypeError; record skipped (stays in buffer).
+        count = flushPendingBuffer("ns-dev", profile_dir_filter="/home/u/.claude-a")
+        assert count == 0, f"Expected 0 flushed under profile filter, got {count}"
+        assert path_bad.exists(), "Malformed record must remain in buffer"
+
+        # Global flush: no TypeError; coerced-to-'' record behaves as untagged.
+        count = flushPendingBuffer("ns-dev")
+        assert count == 1, f"Expected 1 flushed under global flush, got {count}"
+        assert not path_bad.exists(), "Record must flush as untagged under global"
+        print("PASS test_flush_non_string_config_dir_no_crash")
+
+
+# ---------------------------------------------------------------------------
+# Tests (L): CLI-level cmd_auto / cmd_confirm --scope profile (subprocess)
+# ---------------------------------------------------------------------------
+
+def _cli_env(fake_home: Path, extra_path: Path | None = None) -> dict:
+    """Hermetic subprocess env: fake HOME, profile env vars unset."""
+    env = dict(os.environ)
+    for k in ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+        env.pop(k, None)
+    env["HOME"] = str(fake_home)
+    if extra_path is not None:
+        env["PATH"] = str(extra_path) + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def _run_cli(args: list[str], env: dict):
+    """Run the real bin/agentic-identity via subprocess. Returns CompletedProcess."""
+    import subprocess
+    return subprocess.run(
+        [sys.executable, str(_BIN_PATH)] + args,
+        capture_output=True, text=True, env=env, timeout=30,
+    )
+
+
+def _fake_gh(bin_dir: Path, login: str) -> None:
+    """Install a fake `gh` shim printing a fixed login (hermetic cmd_auto)."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    gh = bin_dir / "gh"
+    gh.write_text(f"#!/bin/sh\necho {login}\n", encoding="utf-8")
+    gh.chmod(0o755)
+
+
+def test_cli_auto_profile_writes_provisional():
+    """(L1) `auto --scope profile --profile-dir <dir>` writes a provisional
+    identity.yml under the profile dir (real CLI, fake $HOME + fake gh)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        fake_bin = tmp_path / "fakebin"
+        _fake_gh(fake_bin, "auto-dev")
+        env = _cli_env(fake_home, extra_path=fake_bin)
+
+        r = _run_cli(["auto", "--scope", "profile", "--profile-dir", str(prof)], env)
+        assert r.returncode == 0, f"auto failed: rc={r.returncode} stderr={r.stderr}"
+        content = (prof / "identity.yml").read_text(encoding="utf-8")
+        assert "developer_id: auto-dev" in content
+        assert "provisional: true" in content
+        assert "derived_from: gh" in content
+        print("PASS test_cli_auto_profile_writes_provisional")
+
+
+def test_cli_auto_profile_confirmed_rejected_without_force():
+    """(L2) `auto --scope profile` over an already-CONFIRMED profile identity
+    without --force is rejected (exit 2, message, identity unchanged)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        _write_identity_file(prof / "identity.yml", "settled-dev", provisional=False)
+        before = (prof / "identity.yml").read_text(encoding="utf-8")
+        fake_bin = tmp_path / "fakebin"
+        _fake_gh(fake_bin, "usurper-dev")
+        env = _cli_env(fake_home, extra_path=fake_bin)
+
+        r = _run_cli(["auto", "--scope", "profile", "--profile-dir", str(prof)], env)
+        assert r.returncode == 2, f"Expected rc=2, got {r.returncode} stderr={r.stderr}"
+        assert "confirmed profile identity already set" in r.stderr, \
+            f"Missing rejection message: {r.stderr!r}"
+        after = (prof / "identity.yml").read_text(encoding="utf-8")
+        assert after == before, "Identity file must be unchanged on rejection"
+        print("PASS test_cli_auto_profile_confirmed_rejected_without_force")
+
+
+def test_cli_confirm_profile_flushes_tagged_pending():
+    """(L3) `confirm --scope profile` end-to-end: strips provisional AND
+    flushes the pending record tagged with THAT profile's config_dir while
+    leaving other-profile records in the buffer. A wiring bug in
+    cmd_confirm's profile branch (wrong getattr dest, wrong filter path)
+    fails this test."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        other_prof = fake_home / ".claude-other"
+        _write_identity_file(prof / "identity.yml", "flush-dev", provisional=True)
+
+        pending_dir = fake_home / ".agentic" / "session-log" / ".pending"
+        mine = {
+            "session_uuid": "uuid-cli-mine",
+            "ts": "2026-07-09T00:00:00.000Z",
+            "project_slug": "p",
+            "branch": "main",
+            "config_dir": str(prof),
+            "data": {},
+        }
+        other = {
+            "session_uuid": "uuid-cli-other",
+            "ts": "2026-07-09T00:01:00.000Z",
+            "project_slug": "p",
+            "branch": "main",
+            "config_dir": str(other_prof),
+            "data": {},
+        }
+        path_mine = _write_pending(pending_dir, mine)
+        path_other = _write_pending(pending_dir, other)
+
+        env = _cli_env(fake_home)
+        r = _run_cli(["confirm", "--scope", "profile", "--profile-dir", str(prof)], env)
+        assert r.returncode == 0, f"confirm failed: rc={r.returncode} stderr={r.stderr}"
+
+        content = (prof / "identity.yml").read_text(encoding="utf-8")
+        assert "provisional" not in content, "provisional must be stripped on confirm"
+
+        assert not path_mine.exists(), \
+            "Pending record tagged with THIS profile dir must be flushed"
+        assert path_other.exists(), \
+            "Other-profile record must remain in the buffer"
+        global_log = fake_home / ".agentic" / "session-log" / "flush-dev.jsonl"
+        assert global_log.is_file(), "Global log must be written by the flush"
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 1
+        row = json.loads(lines[0])
+        assert row["session_uuid"] == "uuid-cli-mine"
+        assert row["developer_id"] == "flush-dev"
+        print("PASS test_cli_confirm_profile_flushes_tagged_pending")
+
+
+def test_cli_confirm_profile_no_identity_errors():
+    """(L4) `confirm --scope profile` with no profile identity exits 1 with a
+    clear message (no traceback)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        env = _cli_env(fake_home)
+
+        r = _run_cli(["confirm", "--scope", "profile", "--profile-dir", str(prof)], env)
+        assert r.returncode == 1, f"Expected rc=1, got {r.returncode}"
+        assert "no profile identity set" in r.stderr
+        assert "Traceback" not in r.stderr
+        print("PASS test_cli_confirm_profile_no_identity_errors")
+
+
+def test_cli_profile_dir_is_regular_file_clean_error():
+    """(Med) --profile-dir pointing at an existing regular file exits 1 with a
+    clean message - the mkdir failure must not escape as a traceback."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        not_a_dir = fake_home / "notadir"
+        not_a_dir.write_text("i am a file\n", encoding="utf-8")
+        env = _cli_env(fake_home)
+
+        r = _run_cli(
+            ["init", "tester", "--scope", "profile", "--profile-dir", str(not_a_dir)],
+            env)
+        assert r.returncode == 1, \
+            f"Expected rc=1, got {r.returncode} stderr={r.stderr!r}"
+        assert "cannot create profile dir" in r.stderr, \
+            f"Missing clean error message: {r.stderr!r}"
+        assert "Traceback" not in r.stderr, f"Traceback leaked: {r.stderr!r}"
+        print("PASS test_cli_profile_dir_is_regular_file_clean_error")
+
+
 if __name__ == "__main__":
     test_flushed_line_canonical_shape()
     test_project_scope_flush_does_not_touch_other_repo_records()
@@ -915,4 +1183,12 @@ if __name__ == "__main__":
     test_profile_flush_matches_symlinked_filter_spelling()
     test_global_flush_still_attributes_untagged_legacy_records()
     test_no_env_profile_scope_absent()
+    test_env_precedence_nonexistent_highest_wins()
+    test_symlink_escape_rejected()
+    test_flush_non_string_config_dir_no_crash()
+    test_cli_auto_profile_writes_provisional()
+    test_cli_auto_profile_confirmed_rejected_without_force()
+    test_cli_confirm_profile_flushes_tagged_pending()
+    test_cli_confirm_profile_no_identity_errors()
+    test_cli_profile_dir_is_regular_file_clean_error()
     print("All tests passed.")

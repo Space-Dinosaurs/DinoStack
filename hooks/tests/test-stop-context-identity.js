@@ -16,6 +16,9 @@
  *   J6  outside-$HOME env dir rejected -> global identity used
  *   J7  n/a (--profile-dir is CLI-only; no hook surface) - intentionally skipped
  *   J8  no env vars -> 4-tier back-compat (global identity used)
+ *   ENOENT nonexistent highest-precedence env dir STOPS the scan (no
+ *       fall-through to a lower-precedence existing profile), matching
+ *       Python _profile_config_dir (Path.resolve() needs no existence)
  *   SYM symlink inside $HOME pointing outside must NOT be followed
  *       (Fix-1 regression proof; fails on the pre-fix lexical check)
  *
@@ -284,6 +287,32 @@ console.log('\n[J8] no config-dir env -> 4-tier back-compat');
     'global identity resolved with no profile env set');
   assert(fs.existsSync(sessionLogFor(fakeHome, 'global-dev')),
     'global mirror written with no profile env set');
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// ENOENT: nonexistent highest-precedence env dir stops the scan (M2)
+// Mirrors Python: _profile_config_dir accepts a not-yet-created dir (it
+// holds no identity.yml) and never falls through to a lower-precedence var.
+// Pre-fix, realpathSync ENOENT `continue`d to CLAUDE_CONFIG_DIR and the two
+// mirrors disagreed on the active profile.
+// ---------------------------------------------------------------------------
+console.log('\n[ENOENT] nonexistent highest-precedence env dir stops the scan');
+{
+  const { tmpDir, fakeHome, projectDir, globalIdentityDir } = makeTmp('ae-id-enoent-');
+  const ghostDir = path.join(fakeHome, '.agentic-ghost'); // intentionally never created
+  const claudeDir = path.join(fakeHome, '.claude-real');
+  writeIdentity(claudeDir, 'claude-dev', false);
+  writeIdentity(globalIdentityDir, 'global-dev', false);
+
+  runHook(projectDir, fakeHome, 'enoent-uuid', {
+    AGENTIC_CONFIG_DIR: ghostDir, CLAUDE_CONFIG_DIR: claudeDir,
+  });
+
+  assert(!fs.existsSync(sessionLogFor(projectDir, 'claude-dev')),
+    'lower-precedence CLAUDE_CONFIG_DIR identity NOT used (no fall-through)');
+  assert(fs.existsSync(sessionLogFor(projectDir, 'global-dev')),
+    'global identity used (ghost profile dir holds no identity.yml)');
   cleanup(tmpDir);
 }
 
