@@ -190,7 +190,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
 | New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated regardless of profile) | No | **Yes** |
 | Touches external APIs or services | No | **Yes** |
-| Unfamiliar codebase area | No | **Yes** |
+| Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem") | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
 | Changes to shared utilities, helpers, or abstractions used across many call sites (single-file but high blast radius) | No | **Yes** |
 | User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
