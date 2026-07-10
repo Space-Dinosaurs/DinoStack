@@ -19,3 +19,5 @@ jobs:
         run: node hooks/tests/test-wrap-acquire-lock.js
       - name: wrap-lock release test
         run: node hooks/tests/test-wrap-release-lock.js
+      - name: stop-context identity resolution test
+        run: node hooks/tests/test-stop-context-identity.js
