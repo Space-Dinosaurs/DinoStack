@@ -713,6 +713,109 @@ def test_profile_dir_override():
         print("PASS test_profile_dir_override")
 
 
+def test_profile_flush_only_own_config_dir_records():
+    """(K1) profile_dir_filter flushes only records tagged with that config_dir."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        mine = {
+            "session_uuid": "uuid-prof-mine",
+            "ts": "2026-07-01T00:00:00.000Z",
+            "project_slug": "p",
+            "repo_root": "/repo/p",
+            "branch": "main",
+            "config_dir": "/home/u/.claude-a",
+            "data": {},
+        }
+        other = {
+            "session_uuid": "uuid-prof-other",
+            "ts": "2026-07-01T00:01:00.000Z",
+            "project_slug": "p",
+            "repo_root": "/repo/p",
+            "branch": "main",
+            "config_dir": "/home/u/.claude-b",
+            "data": {},
+        }
+        untagged = {
+            "session_uuid": "uuid-untagged",
+            "ts": "2026-07-01T00:02:00.000Z",
+            "project_slug": "p",
+            "repo_root": "/repo/p",
+            "branch": "main",
+            "data": {},
+        }
+        path_mine = _write_pending(pending_dir, mine)
+        path_other = _write_pending(pending_dir, other)
+        path_untagged = _write_pending(pending_dir, untagged)
+
+        count = flushPendingBuffer("prof-dev", profile_dir_filter="/home/u/.claude-a")
+        assert count == 1, f"Expected 1 flushed (own tag only), got {count}"
+        assert not path_mine.exists(), "Own-profile record must be flushed"
+        assert path_other.exists(), "Other-profile record must remain in buffer"
+        assert path_untagged.exists(), "Untagged record must remain under a profile filter"
+
+        global_log = global_log_dir / "prof-dev.jsonl"
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 1
+        row = json.loads(lines[0])
+        assert row["session_uuid"] == "uuid-prof-mine"
+        assert "config_dir" not in row, \
+            "config_dir must NOT appear in canonical session-log line"
+        print("PASS test_profile_flush_only_own_config_dir_records")
+
+
+def test_global_flush_skips_config_dir_tagged_records():
+    """(K2) None filter (global confirm) excludes tagged records; they stay pending."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        tagged = {
+            "session_uuid": "uuid-tagged-g",
+            "ts": "2026-07-01T00:00:00.000Z",
+            "project_slug": "p",
+            "repo_root": "/repo/p",
+            "branch": "main",
+            "config_dir": "/home/u/.claude-a",
+            "data": {},
+        }
+        path_tagged = _write_pending(pending_dir, tagged)
+
+        count = flushPendingBuffer("glob-dev")  # no filters
+        assert count == 0, f"Expected 0 flushed (tagged record excluded), got {count}"
+        assert path_tagged.exists(), \
+            "Tagged record must remain in .pending under a global flush"
+        print("PASS test_global_flush_skips_config_dir_tagged_records")
+
+
+def test_global_flush_still_attributes_untagged_legacy_records():
+    """(K3) untagged legacy records flush unchanged under a global confirm."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        pending_dir, global_log_dir, _ = _patch_paths(tmp_path)
+
+        legacy = {
+            "session_uuid": "uuid-legacy",
+            "ts": "2026-07-01T00:00:00.000Z",
+            "project_slug": "p",
+            "repo_root": "/repo/p",
+            "branch": "main",
+            "data": {},
+        }
+        path_legacy = _write_pending(pending_dir, legacy)
+
+        count = flushPendingBuffer("legacy-dev")
+        assert count == 1, f"Expected 1 flushed, got {count}"
+        assert not path_legacy.exists(), "Legacy record must be flushed"
+
+        global_log = global_log_dir / "legacy-dev.jsonl"
+        lines = [l for l in global_log.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 1
+        assert json.loads(lines[0])["session_uuid"] == "uuid-legacy"
+        print("PASS test_global_flush_still_attributes_untagged_legacy_records")
+
+
 def test_no_env_profile_scope_absent():
     """(J8) back-compat: with no config-dir env, profile scope is absent (4-tier behavior)."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -757,5 +860,8 @@ if __name__ == "__main__":
     test_env_detection_precedence()
     test_profile_dir_outside_home_rejected()
     test_profile_dir_override()
+    test_profile_flush_only_own_config_dir_records()
+    test_global_flush_skips_config_dir_tagged_records()
+    test_global_flush_still_attributes_untagged_legacy_records()
     test_no_env_profile_scope_absent()
     print("All tests passed.")

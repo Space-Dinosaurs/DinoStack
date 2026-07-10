@@ -19,7 +19,8 @@ Public API:
   Helpers: _read_identity(path=None), _write_identity(lines, target_path=None),
            _project_identity_path(cwd=None), _profile_identity_path(profile_dir=None),
            _profile_config_dir(), _resolve_effective_identity(cwd),
-           flushPendingBuffer(confirmed_dev_id, repo_root_filter=None).
+           flushPendingBuffer(confirmed_dev_id, repo_root_filter=None,
+                              profile_dir_filter=None).
 
 Data model:
   Global:  ~/.agentic/identity.yml
@@ -64,6 +65,10 @@ Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
                does not match the filter are skipped (left in the buffer, not
                unlinked); records with no/empty repo_root are also skipped under
                a filter (conservative).
+               flushPendingBuffer with profile_dir_filter: config_dir-tagged
+               records flush only under a matching profile_dir_filter; a None
+               filter excludes all tagged records (they await their own
+               profile's confirm).
 
 Performance: Standard. File I/O only; subprocess for gh CLI in auto subcommand.
 """
@@ -264,7 +269,11 @@ def _write_identity(lines: list[str], target_path: Path | None = None) -> int:
     return 0
 
 
-def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = None) -> int:
+def flushPendingBuffer(
+    confirmed_dev_id: str,
+    repo_root_filter: str | None = None,
+    profile_dir_filter: str | None = None,
+) -> int:
     """Flush ~/.agentic/session-log/.pending/*.json to global + per-project logs.
 
     Race-safe via fcntl.flock exclusive lock on .flush.lock for the whole loop.
@@ -272,12 +281,21 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
     Returns number of records flushed (0 on no pending or timeout).
 
     When repo_root_filter is None (default): current behavior exactly - all
-    pending records are attributed to confirmed_dev_id.
+    untagged pending records are attributed to confirmed_dev_id.
 
     When repo_root_filter is set (e.g. project-scope init/confirm): only records
     whose repo_root exactly matches repo_root_filter are flushed. Records whose
     repo_root does not match, or whose repo_root is absent/empty, are left in the
     buffer (not unlinked, not attributed) for later global flush.
+
+    profile_dir_filter partitions the buffer per profile config dir
+    (cross-tenant leakage guard; records are tagged with config_dir by
+    writePendingBuffer in hooks/stop-context.js when a profile is active):
+      - profile_dir_filter set (profile-scope init/confirm): only records whose
+        config_dir field equals it are flushed; all others stay in the buffer.
+      - profile_dir_filter None (global/project scope): records carrying a
+        config_dir tag are EXCLUDED (they await their own profile's confirm);
+        untagged records behave exactly as before, incl. repo_root_filter logic.
     """
     # Ensure lock file and parent dirs exist.
     FLUSH_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -324,6 +342,15 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
                     # Skip malformed records silently.
                     continue
 
+                # profile partition: tagged records flush only under their own
+                # profile's filter; a None filter (global/project) excludes them.
+                record_config_dir = record.get("config_dir", "")
+                if profile_dir_filter is not None:
+                    if record_config_dir != profile_dir_filter:
+                        continue
+                elif record_config_dir:
+                    continue
+
                 # repo_root_filter: skip records that don't match (leave in buffer).
                 if repo_root_filter is not None:
                     record_repo_root = record.get("repo_root", "")
@@ -344,8 +371,9 @@ def flushPendingBuffer(confirmed_dev_id: str, repo_root_filter: str | None = Non
 
                 # Build attributed line in canonical session-total shape to match
                 # writeSessionLog / writeSessionLogGlobal in hooks/stop-context.js.
-                # Fields NOT in canonical shape (schema_version, repo_root) are used
-                # only for routing/bookkeeping above and must NOT appear in the line.
+                # Fields NOT in canonical shape (schema_version, repo_root,
+                # config_dir) are used only for routing/bookkeeping above and
+                # must NOT appear in the line.
                 attributed = {
                     "ts": record.get("ts"),
                     "phase": "session_end",
@@ -486,10 +514,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
         print(f"Identity set (profile scope): developer_id={handle}, created_at={created_at}")
 
-        # Profile scope is persona-bound (not repo-bound): flush without a
-        # repo_root_filter, mirroring the global path.
+        # Profile scope flushes only records tagged with this profile's own
+        # config dir (cross-tenant leakage guard); no repo_root_filter.
         if is_overwriting_provisional or is_fresh:
-            flushPendingBuffer(handle)
+            flushPendingBuffer(handle, profile_dir_filter=str(target_path.parent))
 
         return 0
 
@@ -739,8 +767,9 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         if rc != 0:
             return rc
 
-        # Profile scope is persona-bound (not repo-bound): flush without a filter.
-        flushPendingBuffer(dev_id)
+        # Profile scope flushes only records tagged with this profile's own
+        # config dir (cross-tenant leakage guard); no repo_root_filter.
+        flushPendingBuffer(dev_id, profile_dir_filter=str(target_path.parent))
         print(f"Identity confirmed (profile scope): developer_id={dev_id}")
         return 0
 

@@ -1045,12 +1045,20 @@ function writePendingBuffer(cwd, sessionId, cachedRaw) {
       project_slug: projectSlug,
       repo_root: repoRoot,
       branch,
-      data: {
-        wall_seconds: data.wall_seconds,
-        tokens: data.tokens,
-        spawn_count: data.spawn_count,
-        by_agent: data.by_agent,
-      },
+    };
+    // Tag the record with the active profile config dir (when one is detected)
+    // so agentic-identity's flushPendingBuffer can partition flushes per profile
+    // (cross-tenant leakage guard). Additive optional field placed between
+    // branch and data; schema_version stays 1.
+    const profileCfgDir = _profileConfigDir();
+    if (profileCfgDir) {
+      record.config_dir = profileCfgDir;
+    }
+    record.data = {
+      wall_seconds: data.wall_seconds,
+      tokens: data.tokens,
+      spawn_count: data.spawn_count,
+      by_agent: data.by_agent,
     };
 
     // Atomic write: tmp + rename
