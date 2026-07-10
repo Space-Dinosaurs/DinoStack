@@ -9927,7 +9927,11 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             skipped_reason, size_advisory,
             cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
             present; empty array when nothing qualifies or skill_candidate_detection
-            is off).
+            is off),
+            resolved_paths: {memory_md: "MEMORY.md" | null, decisions_md: <resolved
+            path> | null} (memory_md non-null when memory_md_appends non-empty;
+            decisions_md non-null when decisions_md_appends non-empty, value is the
+            Step-4-resolved path actually written).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
@@ -10096,7 +10100,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 
 #### decisions.md (max 2 entries)
 
-- Path: resolved per Step 4.
+- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 8 return.
 - Format per entry (heading-block):
   ```markdown
   ## YYYY-MM-DD — TICKET_ID — <decision title>
@@ -10145,9 +10149,15 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "writer_actions": ["<file path>: appended <N> entries", ...],
   "skipped_reason": null,
   "size_advisory": null,
-  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}]
+  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}],
+  "resolved_paths": {
+    "memory_md": "MEMORY.md",
+    "decisions_md": "<Step-4-resolved path, e.g. decisions.md or docs/adr/001-foo.md>"
+  }
 }
 ```
+
+`resolved_paths.memory_md` is `"MEMORY.md"` when `memory_md_appends` is non-empty, else `null`. `resolved_paths.decisions_md` is the Step-4-resolved path actually written when `decisions_md_appends` is non-empty, else `null`. Both fields are always present in the return.
 
 `cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
@@ -10162,7 +10172,8 @@ If nothing was captured because the ticket produced no stable facts, return:
   "writer_actions": [],
   "skipped_reason": "zero-substance",
   "size_advisory": null,
-  "cluster_results": []
+  "cluster_results": [],
+  "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
 ```
 
@@ -14215,7 +14226,131 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 
 Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
 
+**Post-return path parse (conductor-side, after skill-candidate merge):**
+
+After the skill-candidate deep-cluster merge, parse the wrap-ticket return JSON into in-context variables for use by Phase 11c:
+
+```bash
+MEMORY_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.memory_md // empty' 2>/dev/null || true)
+DECISIONS_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.decisions_md // empty' 2>/dev/null || true)
+MEMORY_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.memory_md_appends // []' 2>/dev/null || printf '[]')
+DECISIONS_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.decisions_md_appends // []' 2>/dev/null || printf '[]')
+```
+
+Where `$WRAP_TICKET_RETURN` is the raw JSON string returned by the wrap-ticket agent. On skip (Phase 11b skipped, timeout, or non-JSON return), all four variables are empty/`[]` and Phase 11c no-ops.
+
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
+
+---
+
+## Phase 11c: Knowledge-file commit (soft-fail)
+
+**Trigger:** runs after Phase 11b (and after the post-return path parse). Skip entirely when Phase 9 was skipped (no PR) or when the current ticket was Trivial (11b was skipped). No-ops when `MEMORY_MD_PATH` and `DECISIONS_MD_PATH` are both empty (wrap-ticket captured nothing or was skipped).
+
+**Purpose:** the entries wrap-ticket appended to `MEMORY.md` and `decisions.md` live in the conductor's `$REPO` checkout (which is on the base branch on single-engineer paths). This phase appends those same entries to the feature branch so they appear in the PR diff as a `chore(knowledge):` commit. Append-based (never overwrites); idempotent on resume.
+
+This entire phase runs in a **single Bash invocation** so `$$`, `KNOW_COMMITTED`, `CHECKOUT`, and `KNOW_WORKTREE` persist across steps.
+
+```bash
+# Phase 11c: Knowledge-file commit (soft-fail)
+# Append helper: NUL-delimited whole-entry iteration (prevents line-splitting multi-line entries)
+_ae_append_entries() {
+  local target_file="$1" appends_json="$2" checkout="$3"
+  local full_path="$checkout/$target_file"
+  mkdir -p "$checkout/$(dirname "$target_file")" 2>/dev/null || true
+  local existing_content=""
+  [ -f "$full_path" ] && existing_content=$(cat "$full_path" 2>/dev/null) || true
+  local norm_existing
+  norm_existing=$(printf '%s' "$existing_content" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ')
+  while IFS= read -r -d '' entry; do
+    [ -z "$entry" ] && continue
+    local norm_entry
+    norm_entry=$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' | sed 's/ *$//')
+    if printf '%s' "$norm_existing" | grep -qFe "$norm_entry" 2>/dev/null; then continue; fi
+    printf '%s\n' "$entry" >> "$full_path"
+    norm_existing="$norm_existing $norm_entry"
+  done < <(printf '%s' "$appends_json" | jq -j '.[] | . + "\u0000"' 2>/dev/null)
+}
+
+# 0. Nothing to do?
+if [ -z "$MEMORY_MD_PATH" ] && [ -z "$DECISIONS_MD_PATH" ]; then
+  STATUS=skipped
+  echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
+else
+  # 1. Resolve the checkout that is (or will be) on the feature branch.
+  KNOW_WORKTREE=""
+  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
+    CHECKOUT="$REPO"                      # fan-out: $REPO already on feature branch
+  else
+    git -C "$REPO" worktree prune 2>/dev/null || true
+    KNOW_WORKTREE="$REPO/.agentic/worktrees/knowledge-commit-$$"
+    git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
+    if git -C "$REPO" worktree add "$KNOW_WORKTREE" "$BRANCH_NAME" 2>/dev/null; then
+      CHECKOUT="$KNOW_WORKTREE"
+    else
+      CHECKOUT=""
+      echo "WARNING: Phase 11c skipped - could not create worktree for $BRANCH_NAME"
+    fi
+  fi
+
+  if [ -n "$CHECKOUT" ]; then
+    KNOW_COMMITTED=false
+
+    # 2. Append each new entry to its target file if not already present.
+    #    Presence check mirrors wrap-ticket dedup: lowercase + whitespace-collapse + substring.
+    for pair in "MEMORY_MD_PATH:MEMORY_APPENDS_JSON" "DECISIONS_MD_PATH:DECISIONS_APPENDS_JSON"; do
+      f_var="${pair%%:*}"; a_var="${pair##*:}"
+      KFILE="${!f_var}"; AJSON="${!a_var}"
+      [ -z "$KFILE" ] && continue
+      # Safety floor: never touch .agentic/ runtime state files on the feature branch.
+      case "$KFILE" in .agentic/*) continue ;; esac
+      _ae_append_entries "$KFILE" "$AJSON" "$CHECKOUT"
+      git -C "$CHECKOUT" add "$KFILE" 2>/dev/null || true
+    done
+
+    # 3. Commit only if staging produced a diff (no empty commit; idempotent on resume).
+    if ! git -C "$CHECKOUT" diff --cached --quiet 2>/dev/null; then
+      DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
+      if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+      DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
+      SO_NAME=$(git -C "$CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
+      SO_EMAIL=$(git -C "$CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
+      if [ -n "$SO_NAME" ] && [ -n "$SO_EMAIL" ]; then
+        NL=$'\n'
+        MSG="chore(knowledge): capture MEMORY.md and decisions.md for ${TICKET_ID}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
+        if git -C "$CHECKOUT" commit -m "$MSG" 2>/dev/null; then
+          KNOW_COMMITTED=true
+        else
+          git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
+          echo "WARNING: Phase 11c commit failed"
+        fi
+      else
+        git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
+        echo "WARNING: Phase 11c commit skipped - git user.name/email not set"
+      fi
+    fi
+
+    # 4. Push only if a commit was made (fast-forward over Phase 8 HEAD; no force).
+    if [ "$KNOW_COMMITTED" = "true" ]; then
+      git -C "$CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || \
+        echo "WARNING: Phase 11c push failed - commit is local only"
+    fi
+
+    # 5. Cleanup ephemeral worktree (only when we created one). Always soft-fail.
+    if [ -n "$KNOW_WORKTREE" ]; then
+      git -C "$REPO" worktree remove "$KNOW_WORKTREE" --force 2>/dev/null || true
+      git -C "$REPO" worktree prune 2>/dev/null || true
+    fi
+
+    if [ "$KNOW_COMMITTED" = "true" ]; then STATUS=committed; else STATUS=no-changes; fi
+    echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
+  fi
+fi
+```
+
+Note on `worktree prune`: prune clears stale git administration entries (dead symlinks) for worktrees whose directories no longer exist. It does NOT remove PID-suffixed directories left behind by interrupted runs - those must be manually removed or will be reused/overwritten by a subsequent `worktree add` with the same path. The `$$`-suffixed path ensures unique naming per run, limiting orphan accumulation.
+
+**Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state.json`.
 
 ---
 

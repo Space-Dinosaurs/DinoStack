@@ -24,7 +24,11 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             skipped_reason, size_advisory,
             cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
             present; empty array when nothing qualifies or skill_candidate_detection
-            is off).
+            is off),
+            resolved_paths: {memory_md: "MEMORY.md" | null, decisions_md: <resolved
+            path> | null} (memory_md non-null when memory_md_appends non-empty;
+            decisions_md non-null when decisions_md_appends non-empty, value is the
+            Step-4-resolved path actually written).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
               learnings_extracted; prefix-agnostic match on both prefixes).
@@ -193,7 +197,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 
 #### decisions.md (max 2 entries)
 
-- Path: resolved per Step 4.
+- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 8 return.
 - Format per entry (heading-block):
   ```markdown
   ## YYYY-MM-DD — TICKET_ID — <decision title>
@@ -242,9 +246,15 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "writer_actions": ["<file path>: appended <N> entries", ...],
   "skipped_reason": null,
   "size_advisory": null,
-  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}]
+  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}],
+  "resolved_paths": {
+    "memory_md": "MEMORY.md",
+    "decisions_md": "<Step-4-resolved path, e.g. decisions.md or docs/adr/001-foo.md>"
+  }
 }
 ```
+
+`resolved_paths.memory_md` is `"MEMORY.md"` when `memory_md_appends` is non-empty, else `null`. `resolved_paths.decisions_md` is the Step-4-resolved path actually written when `decisions_md_appends` is non-empty, else `null`. Both fields are always present in the return.
 
 `cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
@@ -259,7 +269,8 @@ If nothing was captured because the ticket produced no stable facts, return:
   "writer_actions": [],
   "skipped_reason": "zero-substance",
   "size_advisory": null,
-  "cluster_results": []
+  "cluster_results": [],
+  "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
 ```
 
