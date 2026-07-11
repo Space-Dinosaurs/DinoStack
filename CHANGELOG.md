@@ -5,6 +5,10 @@
 
 ## 2026-07-10
 
+### Features
+
+- **#446** [Phase 11c commits scaffolded knowledge to the ticket PR (#177)](https://github.com/Space-Dinosaurs/DinoStack/pull/446) - tyson-solara6
+
 ### Uncategorized
 
 - **#444** [DS-74: restore risk-table examples, QA smoke checklist, numeric re-derivation rule](https://github.com/Space-Dinosaurs/DinoStack/pull/444) - tyson-solara6
