@@ -3,6 +3,12 @@
 
 # Changelog
 
+## 2026-07-11
+
+### Documentation
+
+- **#449** [externalize runbooks from AGENTS.md - one-line pointer convention](https://github.com/Space-Dinosaurs/DinoStack/pull/449) - tyson-solara6
+
 ## 2026-07-10
 
 ### Features
