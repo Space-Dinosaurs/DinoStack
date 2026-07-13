@@ -162,7 +162,7 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - Skip when a shallow CVE check as part of a security audit is sufficient - the `security-auditor` covers that path
 
 **Use `qa-engineer` when:**
-- The diff matches QA trigger patterns (UI, frontend routes, visible behavior) - spawn IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. See `content/sections/05-qa-gate.md` for the full concurrent flow.
+- The diff matches QA trigger patterns (UI, frontend routes, visible behavior) - spawn IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent flow.
 - For non-UI changes: Skeptic has signed off AND the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff.
 - User explicitly asks to verify, test, or QA a change ("run QA", "check the feature works", "verify in the browser", "does it work")
 - Do NOT use when: no qa.md exists at either resolver path, the change is backend-only (no matching patterns), or the change is Low risk

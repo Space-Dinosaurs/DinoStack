@@ -10,8 +10,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/12-protocol-details.md (Protocol Details entry);
             content/agents/qa-engineer.md (populated capabilities block).
 
-Upstream deps: content/sections/05-qa-gate.md (preflight runs before every
-               Agent spawn, after QA gate decision, before worker boot);
+Upstream deps: content/sections/05-qa-gate.md (QA gate invariant; preflight
+               runs before every agent spawn, after QA gate decision, before worker boot);
                .agentic/config.json (capability_preflight_mode key);
                .agentic/.capability-cache.json (runtime hit cache, TTL 30 min).
 
