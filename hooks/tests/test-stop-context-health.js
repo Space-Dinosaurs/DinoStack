@@ -42,9 +42,13 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
+const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
 
 const shimmedSource = hookSource
-  .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
+  // Match both the old bare `run();` call and the current
+  // `run().catch(() => { ... });` form (stop-context.js now reads stdin via
+  // the async readStdinGuarded() and needs a .catch() at the call site).
+  .replace(/^run\(\).*;\s*$/m, '// test shim: run() suppressed')
   .replace(
     /require\(['"]\.\/lib\/wrap-marker\.js['"]\)/,
     `require(${JSON.stringify(libMarkerAbs)})`
@@ -52,6 +56,10 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
     `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
+    `require(${JSON.stringify(libStdinGuardAbs)})`
   );
 
 // Guard: ensure all relative lib requires were rewritten.
