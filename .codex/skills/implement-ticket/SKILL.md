@@ -15,15 +15,35 @@ Before executing this skill, resolve the physical directory containing this load
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
-the process working directory. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude`
-cross-adapter configuration directory. Interpret canonical Claude `Agent` and `Task` operations as
-Codex `spawn_agent`: load the named role from the mapped `agents` resource and create an explicit
-repository git worktree before any spawn that requires isolation. Map canonical filesystem tools
-to Codex filesystem reads, `rg --files`, `rg`, shell, and `apply_patch`; ask one bounded direct
-question only after default derivation. Derive `AE_SESSION_ID` by passing hook JSON to
+the process working directory. Bind `AE_PROJECT_DIR` to the absolute invoked project root before
+changing directories (`git rev-parse --show-toplevel` when inside a repository, otherwise the
+verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
+compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
+`AE_REPO_DIR`. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude` cross-adapter
+configuration directory. Map canonical filesystem tools to Codex filesystem reads, `rg --files`,
+`rg`, shell, and `apply_patch`; ask one bounded direct question only after default derivation.
+Derive `AE_SESSION_ID` by passing hook JSON to
 `$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
 `$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+
+**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an
+isolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):
+
+1. `git fetch origin`.
+2. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
+3. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" origin/main`.
+4. Load the named role instructions with
+   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+5. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
+   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
+   instructions plus the execution contract. The spawned agent must use shell commands in that
+   worktree and must not edit the conductor checkout.
+
+Codex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and
+wait operations to collect completion, and applies the existing review gates to the returned diff.
+Claude hook payload fields and Claude Task behavior do not apply on Codex.
+
 
 # Implement Ticket
 
@@ -43,7 +63,7 @@ Take a ticket (Linear, Jira, or none) from description to merged PR, with full a
 - A pasted screenshot of a tracker board, column, or issue list
 - A freeform description (no tracker reference)
 - Any mixture of the above
-- Any project-local extension classifier defined in `.agentic/phase0-classifiers.yml`
+- Any project-local extension classifier defined in `$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml`
 
 Phase 0 normalizes the input into a canonical ordered list of ticket entries before any other phase runs. Bare-ID, single-issue-URL, and operator-enumerated list invocations bypass the confirmation prompt — backward compatible with the prior single-argument contract.
 
@@ -58,7 +78,7 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **Risk classification.** Must precede any spawn (per $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Risk Classification).
 - **Promotion-gate check + Brief/Plan authoring.** Comprehension artifacts that the conductor must produce itself (per $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Planning Artifacts).
 - **Stop-and-ask decisions.** The user-facing surface; subagents do not interact with the user.
-- **All `.agentic/*.json[l]` writes.** Sole-writer rule for `loop-state.json`, `tasks.jsonl`, and any other state file under `.agentic/`.
+- **All `$AE_PROJECT_DIR/.agentic/*.json[l]` writes.** Sole-writer rule for `loop-state.json`, `tasks.jsonl`, and any other state file under `$AE_PROJECT_DIR/.agentic/`.
 - **Re-route limit + convergence-failure tracking.** Conductor must hold the full loop history across iterations.
 - **Status updates and breadcrumbs to user.** All `[phase: ...]` and `[loop: ...]` emissions originate from the conductor.
 - **Dispatch logic.** Which agent, when, with what brief.
@@ -74,7 +94,7 @@ This list is not exhaustive — any operation listed elsewhere as conductor-dire
 
 ## Batch state contracts (binding)
 
-These contracts govern every conductor write to `.agentic/batch-state.json` and `.agentic/loop-state.json`. Phases that write to either file (Phase 0a, Phase 0a-pre, Phase 6/6b, Phase 7, Phase 12, Phase 12a) MUST apply the contracts below.
+These contracts govern every conductor write to `$AE_PROJECT_DIR/.agentic/batch-state.json` and `$AE_PROJECT_DIR/.agentic/loop-state.json`. Phases that write to either file (Phase 0a, Phase 0a-pre, Phase 6/6b, Phase 7, Phase 12, Phase 12a) MUST apply the contracts below.
 
 **Contract A — Per-write `session_id` gate (applies to BOTH `batch-state.json` and `loop-state.json`).**
 
@@ -83,7 +103,7 @@ Before every conductor write to either file:
 1. Read the current on-disk file (if present).
 2. If the file exists and its `session_id` field is a non-empty string AND does not match the current session, AND its `last_updated` is within the last 10 minutes: ABORT the write. Print the verbatim warning:
    ```
-   WARNING: write to .agentic/<file> aborted - another session (session_id=<X>, last_updated=<Y>) appears to own this file. Identify the live session via .agentic/*.json last_updated. Resolve manually (kill the other session, or remove the file) and retry.
+   WARNING: write to $AE_PROJECT_DIR/.agentic/<file> aborted - another session (session_id=<X>, last_updated=<Y>) appears to own this file. Identify the live session via $AE_PROJECT_DIR/.agentic/*.json last_updated. Resolve manually (kill the other session, or remove the file) and retry.
    ```
 3. If the file exists and its `session_id` is null/missing/empty (legacy state from a prior version): treat as mismatch — force-takeover-eligible. Operator may resolve via the Phase 0a-pre force-takeover prompt or by manually removing the file. The same WARNING above is printed.
 4. Otherwise (no file, matching `session_id`, or stale > 10 min): proceed with the write. Set `session_id` to the current session's id and update `updated_at` in the new payload.
@@ -108,12 +128,12 @@ When Phase 0a is initializing a new `batch-state.json` (invocation where Phase 0
 Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke.
 ```
 
-Concurrent batches per project root are not supported. Operators wanting parallel batches use separate worktrees with separate `.agentic/`.
+Concurrent batches per project root are not supported. Operators wanting parallel batches use separate worktrees with separate `$AE_PROJECT_DIR/.agentic/`.
 
-**N=1 foreign-batch warning.** If Phase 0 produced exactly 1 entry (single-ticket) AND `.agentic/batch-state.json` exists with `status=active` + different `session_id` + `last_updated` within the last 10 minutes: print the verbatim warning:
+**N=1 foreign-batch warning.** If Phase 0 produced exactly 1 entry (single-ticket) AND `$AE_PROJECT_DIR/.agentic/batch-state.json` exists with `status=active` + different `session_id` + `last_updated` within the last 10 minutes: print the verbatim warning:
 
 ```
-NOTE: a batch session is active for this project root (session_id=<X>, last_updated=<Y>). Single-ticket invocations are not refused, but loop-state.json writes will collide if the same ticket is touched. Identify the live session via .agentic/loop-state.json last_updated. Continue? (yes/no)
+NOTE: a batch session is active for this project root (session_id=<X>, last_updated=<Y>). Single-ticket invocations are not refused, but loop-state.json writes will collide if the same ticket is touched. Identify the live session via $AE_PROJECT_DIR/.agentic/loop-state.json last_updated. Continue? (yes/no)
 ```
 
 On `no`: abort. On `yes`: proceed with the single-ticket flow. This is the only single-entry interaction with `batch-state.json`.
@@ -124,7 +144,7 @@ The Stop hook (`$AE_REPO_DIR/hooks/stop-context.js`) mirrors its `loop-state.jso
 
 ---
 
-## `.agentic/batch-state.json` schema
+## `$AE_PROJECT_DIR/.agentic/batch-state.json` schema
 
 ```json
 {
@@ -188,7 +208,7 @@ The Stop hook (`$AE_REPO_DIR/hooks/stop-context.js`) mirrors its `loop-state.jso
 
 ## Resume check (before setup)
 
-Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state.json`:
+Before reading AGENTS.md or doing any setup, check for `$AE_PROJECT_DIR/.agentic/loop-state.json`:
 
 **If the file exists and `status == "interrupted"`:**
 - Print: "Interrupted loop detected on branch [branch] for ticket [ticket_id]."
@@ -242,11 +262,11 @@ else:
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
-**Parse failure:** if `.agentic/loop-state.json` exists but cannot be parsed as JSON, print a warning, offer to delete the file and start fresh. Do not silently ignore it.
+**Parse failure:** if `$AE_PROJECT_DIR/.agentic/loop-state.json` exists but cannot be parsed as JSON, print a warning, offer to delete the file and start fresh. Do not silently ignore it.
 
 **Concurrent session guard.** **REPLACED in this version by Contract A's per-write `session_id`-mismatch abort gate, applied to every conductor write of `loop-state.json` and `batch-state.json`.** See Phase 0a-pre and the "Batch state contracts" section above for the full contract. Every conductor write to `loop-state.json` includes a top-level `session_id: <current session>` field; readers tolerate absence for back-compat with state files written by prior versions.
 
-**N=1 foreign-batch warning.** Before proceeding to Phase 0a-pre on an invocation where Phase 0 produced exactly 1 entry, apply the N=1 foreign-batch check from "Batch state contracts" above. If `.agentic/batch-state.json` exists with `status=active` + different `session_id` + recent (≤10 min): print the verbatim NOTE, prompt yes/no, and abort on `no`.
+**N=1 foreign-batch warning.** Before proceeding to Phase 0a-pre on an invocation where Phase 0 produced exactly 1 entry, apply the N=1 foreign-batch check from "Batch state contracts" above. If `$AE_PROJECT_DIR/.agentic/batch-state.json` exists with `status=active` + different `session_id` + recent (≤10 min): print the verbatim NOTE, prompt yes/no, and abort on `no`.
 
 ---
 
@@ -258,8 +278,8 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` — the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else `develop` if it exists locally; (3) else `development` if it exists locally; (4) else stop and ask the user: no `develop`/`development` integration branch found - use `main` (falling back to `master`), or set up a develop-based workflow? Offer `main` as the recommended default; (5) on decline / main preference, resolve `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
-- `DEBUGGER_ON_FAILURE` — read from `.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
-- `AUTO_MERGE_ON_CI_GREEN` — read from `.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.
+- `DEBUGGER_ON_FAILURE` — read from `$AE_PROJECT_DIR/.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
+- `AUTO_MERGE_ON_CI_GREEN` — read from `$AE_PROJECT_DIR/.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.
 - `PR_WORKFLOW_REVIEWERS` — read from `AGENTS.md` `## PR Workflow` section, `Reviewers:` field (comma-separated GitHub usernames). Default: empty string. Section absence = empty. Used in Phase 10b as fallback reviewer assignment when no CODEOWNERS file is found.
 
 **Tracker resolution** — read tracker config using this fallback chain:
@@ -386,9 +406,9 @@ The scan is a single tracker query (one API roundtrip, paginated to the project/
 
 - **`TRACKER == linear`**: call `mcp__linear__save_issue` with NO `id` field (save_issue creates when no id is supplied - this matches the repo's existing Linear convention; do NOT use a `createIssue` tool, it does not exist). Pass `title`=TICKET_TITLE, `description`=TICKET_BODY, and the Linear team. IMPORTANT team-source note: the `## Linear` section's `Team:` field resolves to `TICKET_PREFIX` (a prefix string like "DS"), but save_issue needs the Linear team key/id - if only a prefix is available, resolve the actual team via the Linear team-list tool. Do NOT invent a `## Linear Team` heading; use the existing `## Linear` `Team:` resolution that the rest of this command uses. On success read `issue.identifier` -> CREATED_TICKET_ID, `issue.url` -> CREATED_TICKET_URL, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed, CREATE_ERROR=\<msg\>.
 
-- **`TRACKER == jira`**: call `mcp__mcp-atlassian__jira_create_issue` (naming-consistent with the existing `mcp__mcp-atlassian__jira_*` family used elsewhere in this file). Pass `project_key`=TICKET_PREFIX, `summary`=TICKET_TITLE, `description`=TICKET_BODY, `issue_type` mapped from TICKET_TYPE (feature -> "Story", bug -> "Bug", task -> "Task"; omit to accept project default if uncertain). On success read the returned issue key -> CREATED_TICKET_ID, construct CREATED_TICKET_URL as `<JIRA_BASE_URL>/browse/<CREATED_TICKET_ID>`, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed.
+- **`TRACKER == jira`**: call `mcp__mcp-atlassian__jira_create_issue` (naming-consistent with the existing `mcp__mcp-atlassian__jira_*` family used elsewhere in this file). Pass `project_key`=TICKET_PREFIX, `summary`=TICKET_TITLE, `description`=TICKET_BODY, `issue_type` mapped from TICKET_TYPE (feature -> "Story", bug -> "Bug", task -> "spawn_agent"; omit to accept project default if uncertain). On success read the returned issue key -> CREATED_TICKET_ID, construct CREATED_TICKET_URL as `<JIRA_BASE_URL>/browse/<CREATED_TICKET_ID>`, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed.
 
-- **`TRACKER` has no built-in create branch (forward-looking fall-through)**: CREATE_STATUS=skipped. Emit one operator line: `ticket_driven: create not supported for this tracker - proceeding ad-hoc.` Do NOT run any shell command from `.agentic/phase0-classifiers.yml` as a create operation - the classifier contract is read-only; creation is a write operation outside that contract. This branch is the extension point for trackers not yet integrated: adding a new tracker means adding a create branch above; until then it falls through here. Adding a project-local classifier does NOT constitute a create integration.
+- **`TRACKER` has no built-in create branch (forward-looking fall-through)**: CREATE_STATUS=skipped. Emit one operator line: `ticket_driven: create not supported for this tracker - proceeding ad-hoc.` Do NOT run any shell command from `$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml` as a create operation - the classifier contract is read-only; creation is a write operation outside that contract. This branch is the extension point for trackers not yet integrated: adding a new tracker means adding a create branch above; until then it falls through here. Adding a project-local classifier does NOT constitute a create integration.
 
 **LOUD failure (NOT silent):** on CREATE_STATUS=failed, emit an operator-visible line mirroring the Writeback Helper's failure line format: `tracker-create: '<TICKET_TITLE>' FAILED: <CREATE_ERROR>`. Do not block the caller; the caller (the gate) decides: offer mode proceeds ad-hoc AFTER emitting the warning; require mode surfaces and waits.
 
@@ -402,7 +422,7 @@ The scan is a single tracker query (one API roundtrip, paginated to the project/
 Phase 0 manifest:
   Purpose: normalize any form of $implement-ticket input into a canonical entries[] list.
   Public contract: produces in-memory normalized_input { entries[], freeform_task, additional_operator_context, raw_invocation, resolution_notes[] }.
-  Upstream deps: TRACKER/TICKET_PREFIX/JIRA_BASE_URL from Setup; tracker MCP tools; .agentic/phase0-classifiers.yml (optional).
+  Upstream deps: TRACKER/TICKET_PREFIX/JIRA_BASE_URL from Setup; tracker MCP tools; $AE_PROJECT_DIR/.agentic/phase0-classifiers.yml (optional).
   Downstream consumers: Phase 0a-pre, Phase 0a, Phase 1, Phase 3 architect, Phase 5 engineer, Phase 12a (all key off len(entries) or batch-state.json).
   Failure modes: pagination cap (50, narrow/proceed), sanity ceiling (200, refuse), JQL auth failure (abort), no entries + no freeform (exit). Confirmation runs only for ambiguous, screenshot, residue-attached, cap-hit, no-IDs+TRACKER≠none, or operator-enumerated >5.
   Performance: single tracker API roundtrip per URL (paginated up to 50); screenshot read is local multimodal.
@@ -432,10 +452,10 @@ Phase 0 manifest:
 
 **Extension point (project-local classifiers).**
 
-If `.agentic/phase0-classifiers.yml` exists at the project root, load it after Setup and before built-in classifiers run. Built-in classifiers run FIRST; project-local classifiers run only against inputs that fell through (residue not matched by any built-in). Schema:
+If `$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml` exists at the project root, load it after Setup and before built-in classifiers run. Built-in classifiers run FIRST; project-local classifiers run only against inputs that fell through (residue not matched by any built-in). Schema:
 
 ```yaml
-# .agentic/phase0-classifiers.yml
+# $AE_PROJECT_DIR/.agentic/phase0-classifiers.yml
 classifiers:
   - source_label: "github-issue"           # appended as source: "extension:github-issue"
     detect: "^https?://github\\.com/[^/]+/[^/]+/issues/(\\d+)"   # regex; capture group 1 is the ID
@@ -475,9 +495,9 @@ classifiers:
 
 **Security model.**
 
-`.agentic/phase0-classifiers.yml` runs with full conductor privileges: shell-command resolvers execute as the operator's shell user, and MCP-tool resolvers can invoke any MCP server the conductor has access to. Trust level is therefore equivalent to executable code committed to the repository — anyone who can land a change to this file can execute arbitrary commands in any session that runs `$implement-ticket` against the affected branch. **Operators MUST review changes to `.agentic/phase0-classifiers.yml` whenever pulling an untrusted or unfamiliar branch (collaborator PR, fork, dependabot, agent-authored branch) before invoking `$implement-ticket` on that branch.** The file is project-local by convention and is not signed, sandboxed, or sandbox-enforced. This trust posture matches the rest of the `.agentic/` umbrella but is called out explicitly here because Phase 0 runs before any other phase and is therefore the first execution surface a malicious classifier file could exploit.
+`$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml` runs with full conductor privileges: shell-command resolvers execute as the operator's shell user, and MCP-tool resolvers can invoke any MCP server the conductor has access to. Trust level is therefore equivalent to executable code committed to the repository — anyone who can land a change to this file can execute arbitrary commands in any session that runs `$implement-ticket` against the affected branch. **Operators MUST review changes to `$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml` whenever pulling an untrusted or unfamiliar branch (collaborator PR, fork, dependabot, agent-authored branch) before invoking `$implement-ticket` on that branch.** The file is project-local by convention and is not signed, sandboxed, or sandbox-enforced. This trust posture matches the rest of the `$AE_PROJECT_DIR/.agentic/` umbrella but is called out explicitly here because Phase 0 runs before any other phase and is therefore the first execution surface a malicious classifier file could exploit.
 
-**Rationale for `.agentic/phase0-classifiers.yml`** (over the AGENTS.md `## Tracker` extension): the project-local YAML keeps the classifier registry decoupled from tracker config (which is single-tracker by design); supports multiple un-enumerated trackers simultaneously (a project may use Jira primary + GitHub Issues secondary); and matches the `.agentic/` convention for project-local agentic state. AGENTS.md `## Tracker` remains the single-tracker config; new trackers don't replace it.
+**Rationale for `$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml`** (over the AGENTS.md `## Tracker` extension): the project-local YAML keeps the classifier registry decoupled from tracker config (which is single-tracker by design); supports multiple un-enumerated trackers simultaneously (a project may use Jira primary + GitHub Issues secondary); and matches the `$AE_PROJECT_DIR/.agentic/` convention for project-local agentic state. AGENTS.md `## Tracker` remains the single-tracker config; new trackers don't replace it.
 
 **Pagination cap.** Default 50 issues per URL/filter (combined across pagination). On overflow, prompt: `"JQL/filter returned >50 issues; capped at 50. Narrow the query or proceed with the first 50? (narrow / proceed)"`. On `narrow`: abort Phase 0. On `proceed`: keep first 50, log to `resolution_notes`.
 
@@ -530,7 +550,7 @@ classifiers:
 
 ### Step 0 - resume-vs-fresh classification (before any write). Provably complete partition.
 
-Read `.agentic/batch-state.json` if present.
+Read `$AE_PROJECT_DIR/.agentic/batch-state.json` if present.
 
 - Absent, or `mode != "open_goal"`: → Fresh init.
 - `mode == "open_goal"`: classify via `termination_reason` first (authoritative when non-null, regardless of `status`); fall back to `status` sub-partition only when `termination_reason == null`.
@@ -551,7 +571,7 @@ Read `.agentic/batch-state.json` if present.
     - `session_id` non-empty and matches current session → RESUMABLE (same-session continuation; covers crash-mid-advance re-invoked same session).
     - `session_id` non-empty, differs, AND `last_updated` older than 10 min → RESUMABLE, treated as implicitly interrupted (mirrors Phase 0a-pre "status=active AND last_updated>10min → implicit interrupt"). Covers crash-mid-advance surviving into a later session.
     - `session_id` non-empty, differs, AND `last_updated` within last 10 min → REFUSE, verbatim Contract C message: `"Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke."` Exit. (live-foreign-session; closes the null+active Contract-C bypass.)
-    - `session_id` null/absent (legacy) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` `yes` → RESUMABLE; `no` → exit/wait.
+    - `session_id` null/absent (legacy) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via $AE_PROJECT_DIR/.agentic/loop-state.json last_updated."` `yes` → RESUMABLE; `no` → exit/wait.
   - `status == "complete"` → TERMINAL, fresh ONLY (safe default; unexpected/legacy combo).
   - `status == "stalled"` → TERMINAL, fresh ONLY (same rationale).
   - any other/unrecognized `status` → TERMINAL, fresh ONLY (safe default).
@@ -581,7 +601,7 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 **Contract C check (before any write):** apply the broadened Contract C check above (Fresh init is one of the three triggering create-paths) - refuse verbatim if `batch-state.json` is active/foreign-session/recent. Exit on refusal.
 
 **On successful validation (Contract A fresh write):**
-1. Initialize `.agentic/batch-state.json`: `mode:"open_goal"`, `batch_id:"open-goal-<ISO8601>-<4hex>"`, `wallclock_cap_min:<max_wallclock_min>`, `wallclock_started_at:now`, `tickets:[]`, `open_goal:{active:true, goal_condition:<string>, iteration:1, max_iterations:<int>, risk_declared:null, termination_reason:null, dry_run:<bool>}`.
+1. Initialize `$AE_PROJECT_DIR/.agentic/batch-state.json`: `mode:"open_goal"`, `batch_id:"open-goal-<ISO8601>-<4hex>"`, `wallclock_cap_min:<max_wallclock_min>`, `wallclock_started_at:now`, `tickets:[]`, `open_goal:{active:true, goal_condition:<string>, iteration:1, max_iterations:<int>, risk_declared:null, termination_reason:null, dry_run:<bool>}`.
 2. `loop-state.json` NOT touched here - initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
 3. Breadcrumb: `[phase: open-goal-init | goal_condition="<condition>" | max_iterations=<N> | max_wallclock_min=<M> | dry_run=<bool>]`.
 4. Fall through to Phase 1 for iteration 1.
@@ -600,9 +620,9 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 
 **Trigger:** Phase 0 normalization produced ≥ 2 entries (same trigger as Phase 0a). Skip otherwise.
 
-**Single-ticket wallclock carve-out.** Single-entry invocations bypass this phase entirely - no `.agentic/batch-state.json` is read or created - EXCEPT when `max_wallclock_min` is declared on a single-entry invocation with no `goal_mode`. In that case: apply the Contract C refusal check (broadened per the Contract C definition above) ONLY - do NOT also run the separate N=1 foreign-batch warning first; both checks share the identical trigger (active + different session + ≤10min), so the softer warning first would be dead code (Contract C refusal always overrides any yes/proceed). This differs from the ordinary N=1 path, which never creates batch-state and never needs Contract C. On success (Contract A fresh write): create `.agentic/batch-state.json{mode:"single_ticket_capped", tickets:[{ticket_id:<the one entry>, status:"pending", cluster_id:null, depends_on:[]}], wallclock_cap_min:<max_wallclock_min>, wallclock_started_at:now}`. **This is the ONLY N=1 path that creates `batch-state.json`.**
+**Single-ticket wallclock carve-out.** Single-entry invocations bypass this phase entirely - no `$AE_PROJECT_DIR/.agentic/batch-state.json` is read or created - EXCEPT when `max_wallclock_min` is declared on a single-entry invocation with no `goal_mode`. In that case: apply the Contract C refusal check (broadened per the Contract C definition above) ONLY - do NOT also run the separate N=1 foreign-batch warning first; both checks share the identical trigger (active + different session + ≤10min), so the softer warning first would be dead code (Contract C refusal always overrides any yes/proceed). This differs from the ordinary N=1 path, which never creates batch-state and never needs Contract C. On success (Contract A fresh write): create `$AE_PROJECT_DIR/.agentic/batch-state.json{mode:"single_ticket_capped", tickets:[{ticket_id:<the one entry>, status:"pending", cluster_id:null, depends_on:[]}], wallclock_cap_min:<max_wallclock_min>, wallclock_started_at:now}`. **This is the ONLY N=1 path that creates `batch-state.json`.**
 
-**Read** `.agentic/batch-state.json` if present. Apply the decision table below.
+**Read** `$AE_PROJECT_DIR/.agentic/batch-state.json` if present. Apply the decision table below.
 
 | `batch-state.json` state | Action |
 |---|---|
@@ -613,7 +633,7 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 | `status=interrupted` | Print: `"Batch interrupted (reason: [interrupt_reason]). N completed, M pending/blocked."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
 | `status=active` AND `last_updated > 10 min` ago | Treat as implicit interrupt. Same prompt as `interrupted` row. |
 | `status=active` AND `last_updated ≤ 10 min` AND `session_id` matches current | Silent re-entry resume (rare; e.g. `$implement-ticket` re-invoked within the same session). Pick next pending ticket from `tickets[]`. |
-| `status=active` AND `last_updated ≤ 10 min` AND (`session_id` differs OR `session_id` is null/absent) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
+| `status=active` AND `last_updated ≤ 10 min` AND (`session_id` differs OR `session_id` is null/absent) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via $AE_PROJECT_DIR/.agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
 | Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
 | Inconsistent pair (`batch-state.json` says `active`, `loop-state.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. |
 
@@ -651,7 +671,7 @@ Phase 0a manifest:
   Purpose: run manual workflow 'ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ticket-triage` Phases 1-3 (algorithm by reference) over the Phase 0
            entries[], surface triage results to the operator, map lane-assigned tickets
            to batch-state.json, then iterate per-ticket phases 1-12 in array order.
-  Public API: reads Phase 0 entries[]; writes .agentic/batch-state.json tickets[]
+  Public API: reads Phase 0 entries[]; writes $AE_PROJECT_DIR/.agentic/batch-state.json tickets[]
               (lane-assigned only; deferred and in-progress-excluded are NOT written).
   Upstream deps: manual workflow 'ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ticket-triage` Phases 1-3 (algorithm reference - no copy);
                  investigator (Phase 2b Level 2, conditional on len(entries) <= 20);
@@ -711,7 +731,7 @@ Phase 0a manifest:
 
    Emit breadcrumb: `[phase: batch-triage | triage_algorithm=ticket-triage-phases-1-3 | N tickets | lanes=K | lane_cap=3 | deferred=P | excluded_in_progress=Q | heuristic_only=<bool>]`.
 
-3. **Initialize `.agentic/batch-state.json`** (persistent batch cursor). First apply the Contract C concurrent-batch refusal: if the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes, REFUSE with the verbatim Contract C message and exit. Otherwise, write the initial skeleton:
+3. **Initialize `$AE_PROJECT_DIR/.agentic/batch-state.json`** (persistent batch cursor). First apply the Contract C concurrent-batch refusal: if the file already exists with `status=active`, a different `session_id`, and `last_updated` within the last 10 minutes, REFUSE with the verbatim Contract C message and exit. Otherwise, write the initial skeleton:
    - `schema_version: 1`
    - `session_id: <current>`
    - `batch_id: "<first ticket's TICKET_PREFIX>-batch-<ISO8601>-<4hex>"`
@@ -729,7 +749,7 @@ Phase 0a manifest:
    - At ticket block: `status → "blocked"` with detail in `last_summary`.
    - At ticket merged-elsewhere skip: `status → "skipped_already_merged"` with `replan_log` append.
 
-**Persistent batch state lives in `.agentic/batch-state.json`. See Phase 0a-pre for the resume protocol.**
+**Persistent batch state lives in `$AE_PROJECT_DIR/.agentic/batch-state.json`. See Phase 0a-pre for the resume protocol.**
 
 ---
 
@@ -744,7 +764,7 @@ Before any architect spawn, check for an existing Brief, snapshot qa.md for Elev
 
 **Check (either condition satisfies):**
 1. A file exists at `docs/planning/<slug>.md`, OR
-2. `.agentic/brief-session.json` exists with `status: complete` AND `brief_path` matching
+2. `$AE_PROJECT_DIR/.agentic/brief-session.json` exists with `status: complete` AND `brief_path` matching
    the ticket slug.
 
 **If found:**
@@ -753,23 +773,23 @@ Before any architect spawn, check for an existing Brief, snapshot qa.md for Elev
   pre-existing and operator-confirmed.
 - Pass `brief_source: operator` to the Skeptic-on-Brief gate; use the operator-confirmed
   Skeptic variant (completeness-only review per `$AE_REPO_DIR/content/commands/brief.md` Section 6).
-- If `.agentic/brief-session.json` confirms `brief_source: operator`, set `operator_brief_injectionable: true` to signal Phase 3 that the Brief's committed constraints should be injected into the architect spawn brief (see Phase 3 "Pre-authored Brief injection").
+- If `$AE_PROJECT_DIR/.agentic/brief-session.json` confirms `brief_source: operator`, set `operator_brief_injectionable: true` to signal Phase 3 that the Brief's committed constraints should be injected into the architect spawn brief (see Phase 3 "Pre-authored Brief injection").
 
 **If not found:** proceed normally. The promotion gate in Phase 3b determines whether a
 Brief is required based on the unit count from the orchestration-planner.
 
 ### qa.md snapshot (Elevated only)
 
-After risk has been classified, if the current ticket is Elevated, snapshot any existing `.agentic/qa.md` to a per-ticket snapshot file. **Trivial invocations skip this step entirely** (preserves bit-for-bit-identical guarantee for Trivial single-ticket invocations - no `.agentic/qa.md.snapshot-*` file is produced).
+After risk has been classified, if the current ticket is Elevated, snapshot any existing `$AE_PROJECT_DIR/.agentic/qa.md` to a per-ticket snapshot file. **Trivial invocations skip this step entirely** (preserves bit-for-bit-identical guarantee for Trivial single-ticket invocations - no `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-*` file is produced).
 
 **Snapshot rules:**
 
 1. If risk is Trivial: skip this entire subsection. Do not create or touch any snapshot file.
-2. If risk is Elevated and `.agentic/qa.md` does not exist: skip silently (nothing to snapshot).
-3. If risk is Elevated and `.agentic/qa.md` exists and `.agentic/qa.md.snapshot-<ticket_id>` does NOT already exist: copy `.agentic/qa.md` to `.agentic/qa.md.snapshot-<ticket_id>` via atomic write (write to `.agentic/qa.md.snapshot-<ticket_id>.tmp`, then rename).
-4. If risk is Elevated and `.agentic/qa.md.snapshot-<ticket_id>` already exists (e.g., on resume of a paused or interrupted ticket): preserve the existing snapshot. Do not overwrite. The original snapshot represents the qa.md state at the start of this ticket's first run.
+2. If risk is Elevated and `$AE_PROJECT_DIR/.agentic/qa.md` does not exist: skip silently (nothing to snapshot).
+3. If risk is Elevated and `$AE_PROJECT_DIR/.agentic/qa.md` exists and `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` does NOT already exist: copy `$AE_PROJECT_DIR/.agentic/qa.md` to `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` via atomic write (write to `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>.tmp`, then rename).
+4. If risk is Elevated and `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` already exists (e.g., on resume of a paused or interrupted ticket): preserve the existing snapshot. Do not overwrite. The original snapshot represents the qa.md state at the start of this ticket's first run.
 
-The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path is gitignored under the existing `.agentic/` umbrella; no `.gitignore` change is needed.
+The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `$AE_PROJECT_DIR/.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path is gitignored under the existing `$AE_PROJECT_DIR/.agentic/` umbrella; no `$AE_PROJECT_DIR/.gitignore` change is needed.
 
 ### On-resume Brief migration (qa_criteria backfill)
 
@@ -813,7 +833,7 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 1. Call `mcp__mcp-atlassian__jira_get_issue` with `issue_key: "[TICKET_PREFIX]-NNN"` and `fields: "*all"` to get the full issue including description and current status.
 2. Read the full description — note any **Acceptance Criteria**, **Implementation Notes**, and **QA** content in the description or sub-tasks.
 3. Note any blocking issues — confirm they are resolved before proceeding.
-4. Note the issue type (Story, Bug, Task) — this drives branch naming.
+4. Note the issue type (Story, Bug, spawn_agent) — this drives branch naming.
 5. **Comment thread parse.** Parse `issue.fields.comment.comments` from the EXISTING `jira_get_issue fields:*all` response fetched in step 1 above. **Do NOT make a second Jira API call.** The `comment` field is included in the default `fields=*all` response. For each comment, extract the plain-text content (collapse ADF nodes to text). Scan each comment: if the body contains the string `"QA"` AND at least one of `FAIL`, `PARTIAL`, `BLOCKED`, `failed`, `re-work`, flag that comment as a prior-QA-failure comment. Accumulate flagged comments in `PRIOR_QA_COMMENTS` (array of comment bodies). Build `COMMENT_THREAD_SUMMARY` as the concatenation of all comment bodies, truncated to 2000 characters. If the `comment` field is absent or empty, set both to empty (graceful no-op).
 
 #### If TRACKER is `none`
@@ -881,13 +901,13 @@ The scan never blocks more than one turn. Proceed to Phase 3 after the response 
 
 Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the tracker's workflow states once, cache them, and validate the configured `TRACKER_STATE_*` names so misconfigurations surface as a warning at planning time rather than as a silent no-op transition at runtime.
 
-**Cache check.** Read `.agentic/tracker-states.json` if present. Use the cache when ALL hold: file exists, `fetched_at` is within 24 hours of now, `tracker` matches the resolved `TRACKER`, and `workspace` matches the resolved workspace/base-url. Otherwise fetch fresh.
+**Cache check.** Read `$AE_PROJECT_DIR/.agentic/tracker-states.json` if present. Use the cache when ALL hold: file exists, `fetched_at` is within 24 hours of now, `tracker` matches the resolved `TRACKER`, and `workspace` matches the resolved workspace/base-url. Otherwise fetch fresh.
 
 **Fetch.**
 - Linear: call `mcp__linear__list_workflow_states` (filter by the resolved team when available). Collect `{id, name, type}` for each state.
 - Jira: call `mcp__mcp-atlassian__jira_get_transitions` on a probe ticket (the first unresolved ticket in the batch, or `$TICKET_PREFIX-1` as a fallback probe). On 404 or error, fall back to an empty state list and skip validation. Map each transition's target status to `{id, name, type}` where `type` derives from the status category (`new`->`unstarted`, `indeterminate`->`started`, `done`->`completed`).
 
-**Write cache** atomically (tmp + `mv`) to `.agentic/tracker-states.json`:
+**Write cache** atomically (tmp + `mv`) to `$AE_PROJECT_DIR/.agentic/tracker-states.json`:
 
 ```json
 {
@@ -899,7 +919,7 @@ Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the
 }
 ```
 
-`.agentic/tracker-states.json` is a runtime cache, gitignored under the `.agentic/` umbrella (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
+`$AE_PROJECT_DIR/.agentic/tracker-states.json` is a runtime cache, gitignored under the `$AE_PROJECT_DIR/.agentic/` umbrella (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
 
 **Validate.** For each of the 5 resolved `TRACKER_STATE_*` values, look for an exact (case-insensitive) name match in `states[].name`. For each miss, compute the closest match by case-insensitive Levenshtein distance and emit one operator-visible warning:
 
@@ -984,23 +1004,23 @@ Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, e
 
 The orchestration-planner's output drives Phase 5 agent spawning. If Phase 3b was skipped, Phase 5 falls back to the architect's plan directly.
 
-### Task-state initialization (multi-unit only)
+### spawn_agent-state initialization (multi-unit only)
 
-**Single-unit threshold:** If the orchestration plan identifies only 1 task, skip this step entirely. Task-state initialization is only warranted for plans with 2 or more tasks. For single-unit plans, the conductor operates as today (in-context state only).
+**Single-unit threshold:** If the orchestration plan identifies only 1 task, skip this step entirely. spawn_agent-state initialization is only warranted for plans with 2 or more tasks. For single-unit plans, the conductor operates as today (in-context state only).
 
 After receiving the orchestration-planner's output and before Phase 4, initialize the task-state file:
 
 ```bash
-mkdir -p .agentic && [ -f .agentic/tasks.jsonl ] || touch .agentic/tasks.jsonl
+mkdir -p $AE_PROJECT_DIR/.agentic && [ -f $AE_PROJECT_DIR/.agentic/tasks.jsonl ] || touch $AE_PROJECT_DIR/.agentic/tasks.jsonl
 ```
 
-Also add `.agentic/` to the project's `.gitignore` if not already present.
+Also add `$AE_PROJECT_DIR/.agentic/` to the project's `$AE_PROJECT_DIR/.gitignore` if not already present.
 
 **Generate identifiers (once per conductor session):**
 - `session_id`: `<ISO-date>-<4hex>`, e.g. `20260415-a3f2`
 - `task_id` per task: `<ticket_id>-<unit_slug>` (e.g. `ENG-42-auth-middleware`), or `<session_id>-<unit_slug>` for null-ticket projects
 
-**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
+**Read the orchestration-planner's structured JSONL block** (the `## spawn_agent entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `$AE_PROJECT_DIR/.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
 
@@ -1028,13 +1048,13 @@ The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVE
 
 See `$AE_REPO_DIR/content/sections/03-planning-artifacts.md` Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
-**ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
+**ALL writes to `$AE_PROJECT_DIR/.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
 
 **File-absent vs file-present behavior:**
 
 - **File absent:** Fresh start. Create the file and append `pending` entries as described above.
 - **File present, same `session_id`:** Continuation within the same session (e.g., a prior worker returned BLOCKED and the human provided direction). Build the in-memory index using the field-level merge algorithm (see Worker behavior in the P1 design), determine which tasks are pending/in-progress/done, and proceed accordingly.
-- **File present, different `session_id`, with `in_progress` or `blocked` entries:** Orphaned tasks from a dead session. Log: "Found `.agentic/tasks.jsonl` with N orphaned tasks from a prior session." Surface the task list to the human with their last-known status and `updated_at` timestamp. Ask: "Do you want to resume from this state, or start fresh? (resume/restart)". On **restart**: rename the existing file to `.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak`, create a new file, and proceed as fresh start. On **resume**: automatic resume is not yet implemented (P2). Display the last-known state of each task and say: "Automatic resume is not yet implemented. Here is the last-known state of each task: [table]. You can manually direct re-spawns for any in-progress tasks."
+- **File present, different `session_id`, with `in_progress` or `blocked` entries:** Orphaned tasks from a dead session. Log: "Found `$AE_PROJECT_DIR/.agentic/tasks.jsonl` with N orphaned tasks from a prior session." Surface the task list to the human with their last-known status and `updated_at` timestamp. Ask: "Do you want to resume from this state, or start fresh? (resume/restart)". On **restart**: rename the existing file to `$AE_PROJECT_DIR/.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak`, create a new file, and proceed as fresh start. On **resume**: automatic resume is not yet implemented (P2). Display the last-known state of each task and say: "Automatic resume is not yet implemented. Here is the last-known state of each task: [table]. You can manually direct re-spawns for any in-progress tasks."
 - **File present, different `session_id`, all terminal (`done`, `failed`, `abandoned`):** Historical records from a prior implementation. Append new entries for the current session without disturbing existing ones.
 
 ---
@@ -1097,7 +1117,7 @@ Ensure your implementation addresses each prior QA failure point explicitly.
 
 Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
 
-**Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: "worktree"` (see $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.
+**Worktree isolation is mandatory on the Elevated path.** Before spawning the engineer, execute the Codex spawn contract above (see METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.
 
 **Stale remote branch preflight (mandatory before every engineer spawn).** Before passing `BRANCH_NAME` to the engineer (single-engineer path) or before creating per-unit sub-branches (fan-out path), the conductor MUST run:
 
@@ -1127,7 +1147,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
-**Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
+**Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside the pre-created worktree required by the Codex spawn contract above. The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
 
 **Tracker writeback (W1 — Trivial path):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the Trivial engineer spawn.
 
@@ -1135,11 +1155,11 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in $AE_CORE_SKILL_ROOT/METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
-**Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
+**spawn_agent-state reads (multi-unit only, when `$AE_PROJECT_DIR/.agentic/tasks.jsonl` is in use):**
 
 Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
 
-After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Write an update entry to `.agentic/tasks.jsonl` with these output fields. Status remains `in_progress` until Skeptic sign-off or final determination.
+After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Write an update entry to `$AE_PROJECT_DIR/.agentic/tasks.jsonl` with these output fields. Status remains `in_progress` until Skeptic sign-off or final determination.
 
 After the Skeptic/QA loop resolves: update the task entry to its terminal status (`done`, `failed`, `blocked`, or `abandoned`) and populate the `loop_state` field from the P0 LOOP_STATE object. Include `outputs.skeptic_status` and `outputs.skeptic_findings_count` from the completed Skeptic review (or `skipped`/null if Skeptic was not required).
 
@@ -1163,7 +1183,7 @@ git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_sl
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
-**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, verify all `depends_on` task_ids are `done` in the file and update each task entry from `pending` -> `in_progress`. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
+**spawn_agent-state reads (when `$AE_PROJECT_DIR/.agentic/tasks.jsonl` is in use):** Before spawning, verify all `depends_on` task_ids are `done` in the file and update each task entry from `pending` -> `in_progress`. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
 
 Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
 - The execution contract block from `$AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
@@ -1179,7 +1199,7 @@ Spawn one `engineer` agent per worktree in a single message (parallel, backgroun
 
 **Join timeout.** The join phase has a 30-minute total deadline. If the deadline elapses before all engineers have returned, units with no completion entry are treated as timed out (failed) and handled via the partial success path. Units that completed `status: done` before the deadline are still eligible for merge.
 
-**Fallback: no task-state file.** If `.agentic/tasks.jsonl` is not in use, derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
+**Fallback: no task-state file.** If `$AE_PROJECT_DIR/.agentic/tasks.jsonl` is not in use, derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
 
 After all engineers return, update task-state output fields for each unit: write `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed` to each task's entry. Status remains `in_progress` until Skeptic sign-off or final determination.
 
@@ -1261,7 +1281,7 @@ For the full adversarial brief menu (security, logic, performance, data integrit
 
 **Findings handling - loop contract:**
 
-Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (create `.agentic/` directory if absent). **Use atomic write: write to `.agentic/loop-state.json.tmp` first, then rename to `.agentic/loop-state.json`.**
+Before the loop starts, initialize loop state and write it to `$AE_PROJECT_DIR/.agentic/loop-state.json` (create `$AE_PROJECT_DIR/.agentic/` directory if absent). **Use atomic write: write to `$AE_PROJECT_DIR/.agentic/loop-state.json.tmp` first, then rename to `$AE_PROJECT_DIR/.agentic/loop-state.json`.**
 
 **Full P2 schema (extends the P0 in-context schema with cross-session resume fields):**
 
@@ -1306,9 +1326,9 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 - On clean termination: set `status=complete`, `loop_state.termination_reason=clean`
 - On stalled termination (cap_reached, convergence_failure, blocked): set `status=stalled`
 
-**Stability contract:** `.agentic/loop-state.json` is a stable contract from P0 onward. Any schema change must consider resume readers.
+**Stability contract:** `$AE_PROJECT_DIR/.agentic/loop-state.json` is a stable contract from P0 onward. Any schema change must consider resume readers.
 
-The file is overwritten (not appended) on each iteration state update and at loop exit with `termination_reason` set. It is not deleted on clean termination - the final state is the post-mortem record until the next loop invocation overwrites it. Whether `.agentic/` is gitignored is deferred to project convention.
+The file is overwritten (not appended) on each iteration state update and at loop exit with `termination_reason` set. It is not deleted on clean termination - the final state is the post-mortem record until the next loop invocation overwrites it. Whether `$AE_PROJECT_DIR/.agentic/` is gitignored is deferred to project convention.
 
 Emit the inline breadcrumb:
 
@@ -1323,7 +1343,7 @@ Emit the inline breadcrumb:
 **Telemetry emit (V1):** Bracket the Skeptic `spawn_agent` tool call with:
 ```
 agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$AE_SESSION_ID"'"}'
-# ... Agent tool call ...
+# ... spawn_agent tool call ...
 # After return, parse subagent transcript for tokens/wall_seconds:
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$AE_SESSION_ID" "${USAGE#\{}")"
@@ -1345,21 +1365,21 @@ The following findings were raised in earlier iterations. For each:
 - Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry.
 - Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - escalate rather than accepting a self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval. The conductor escalates rather than accepting an Engineer's self-declared deferral.
-- Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
+- Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json` with the updated LOOP_STATE.
 
-**Meta-divergence surfacing (in-session scan).** Before each turn boundary entering Phase 6 (loop initialization) and after returning from a Worker (after Step 5), the conductor scans `.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `.agentic/.meta-divergence-surfaced`. For any event with non-empty `data.divergence.critical_missed` or `data.divergence.major_missed`, emit a META-DIVERGENCE line at the next user-facing turn boundary and append `original_task_id` to the tracker file:
+**Meta-divergence surfacing (in-session scan).** Before each turn boundary entering Phase 6 (loop initialization) and after returning from a Worker (after Step 5), the conductor scans `$AE_PROJECT_DIR/.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced`. For any event with non-empty `data.divergence.critical_missed` or `data.divergence.major_missed`, emit a META-DIVERGENCE line at the next user-facing turn boundary and append `original_task_id` to the tracker file:
 
 ```
 META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that original Skeptic missed on <task_id>. Original sign-off stands; review recommended before merging.
 [phase: meta-divergence-critical]
 ```
 
-Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, gitignored under the `.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full specification.
+Tracker append is a single line per `original_task_id`; the file is created if absent (`$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced`, gitignored under the `$AE_PROJECT_DIR/.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
-- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
-- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
-- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
+- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
+- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
 
 **Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
 
@@ -1367,14 +1387,14 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 **Spawn brief inputs:**
 - `ticket_id`: the resolved ticket id.
-- `findings_log`: the final resolved `findings_log` from `.agentic/loop-state.json` (all entries with `status: closed` or `status: addressed`).
+- `findings_log`: the final resolved `findings_log` from `$AE_PROJECT_DIR/.agentic/loop-state.json` (all entries with `status: closed` or `status: addressed`).
 - `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
 
 **Failure semantics:**
 - `learning-extractor` failure NEVER blocks the calibration emit, meta-Skeptic sampling, or Phase 6b. Soft-fail silently.
 - The conductor does NOT wait for `learning-extractor` to return. It is fire-and-forget.
 - On return (asynchronous): if `learning-extractor` returns with a valid JSON shape, the conductor stores the `learning_ids[]` for Phase 11b and prints `operator_summary` to the user at the next turn boundary. If `skipped_reason` is populated (zero-substance, etc.), the conductor notes it silently.
-- If `learning-extractor` does not return before Phase 11b, `wrap-ticket` reads whatever entries exist in `.agentic/learnings.md` (may be partial or empty). No warning needed.
+- If `learning-extractor` does not return before Phase 11b, `wrap-ticket` reads whatever entries exist in `$AE_PROJECT_DIR/.agentic/learnings.md` (may be partial or empty). No warning needed.
 
 **Mandatory capture-sweep declaration (clean exit only).** After spawning `learning-extractor` (fire-and-forget) and BEFORE the calibration emit, the conductor MUST sweep for any mandatory-trigger event (per `$AE_REPO_DIR/content/references/conductor-operating-rules.md §learnings-agent`) that occurred during this task but was not yet evaluated. For each outstanding trigger, emit a `Capture: MUST/SKIP` declaration in the conductor's user-facing output. Apply guardrail-first precedence per `$AE_REPO_DIR/content/references/capture-classification.md` before writing any entry. A trigger with no declaration is a protocol gap. This sweep is the last-resort catch before the Stop-hook backstop fires.
 
@@ -1398,7 +1418,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
    - The original Skeptic's findings list verbatim
    - The original Skeptic's sign-off statement verbatim
    - The original adversarial brief
-   - Instruction to produce a divergence report as TEXT in the return summary (Critical missed / Major missed / Minor missed / Agreement). Meta-Skeptic does NOT write to `.agentic/`.
+   - Instruction to produce a divergence report as TEXT in the return summary (Critical missed / Major missed / Minor missed / Agreement). Meta-Skeptic does NOT write to `$AE_PROJECT_DIR/.agentic/`.
 
 5. **On meta-Skeptic return (asynchronous).** When meta-Skeptic eventually returns its textual divergence report, the conductor parses the report, constructs the `meta_review_complete` payload, and emits:
 
@@ -1422,10 +1442,10 @@ See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the ful
 **Telemetry emit (V1):** Bracket the Engineer `spawn_agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
-- If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
-- Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
+- If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
+- Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
 
 **Escalation format (cap_reached, convergence_failure, or blocked):**
 
@@ -1452,7 +1472,7 @@ Note: the escalation format surfaces findings and history only. The conductor do
 
 ### Batch-mode escalation routing (mark-blocked-and-continue)
 
-**Trigger:** `.agentic/batch-state.json` exists with `status:"active"`. Skip (fall through to single-ticket "surface and wait for human") when absent/not active.
+**Trigger:** `$AE_PROJECT_DIR/.agentic/batch-state.json` exists with `status:"active"`. Skip (fall through to single-ticket "surface and wait for human") when absent/not active.
 
 **Action:**
 1. Print the Escalation format/stalled summary unchanged and visible.
@@ -1468,11 +1488,11 @@ Note: the escalation format surfaces findings and history only. The conductor do
 At Phase 6 loop exit (both clean termination and stalled termination paths), spawn a findings-curator subagent. **Note:** `findings-curator` does not yet exist as a named agent; use `general-purpose` agent type (Tier 1, fire-and-forget) until the named agent is formally added.
 
 **Brief:**
-- Input: the full final-iteration Skeptic output (verbatim), the `ticket_id`, and the curated index path (`.agentic/findings.md`).
+- Input: the full final-iteration Skeptic output (verbatim), the `ticket_id`, and the curated index path (`$AE_PROJECT_DIR/.agentic/findings.md`).
 - The curator reads from the Skeptic's final return text - NOT from the `findings_log` field in `loop-state.json`.
 - The curator computes `pattern_hash` per the canonicalization spec: lowercase the finding text, collapse whitespace runs (including newlines) to a single space, strip code-block fence markers (` ``` ` and `~~~`), strip leading/trailing whitespace, SHA-256 the result, take the first 16 hex chars.
-- De-dup key: `(pattern_hash, ticket_id)`. Skip writing if a matching key already exists in `.agentic/findings.md`.
-- The curator is the sole writer of `.agentic/findings.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
+- De-dup key: `(pattern_hash, ticket_id)`. Skip writing if a matching key already exists in `$AE_PROJECT_DIR/.agentic/findings.md`.
+- The curator is the sole writer of `$AE_PROJECT_DIR/.agentic/findings.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
 
 Fires exactly once per ticket per `$implement-ticket` invocation.
 
@@ -1515,7 +1535,7 @@ WARNING: qa_skip value '<X>' is not a valid enum (one of: pure-backend-library, 
 
 After normalization, re-evaluate the trigger conditions (with `qa_skip` now null, QA fires if scenarios are present).
 
-**qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `$AE_REPO_DIR/.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
+**qa.md is supplemental, not gating.** Whether `$AE_PROJECT_DIR/.agentic/qa.md` (or legacy `$AE_PROJECT_DIR/.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
 
 **Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `$AE_REPO_DIR/content/sections/05-qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `$AE_REPO_DIR/content/sections/05-qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
 
@@ -1531,7 +1551,7 @@ For full QA gate rules, see `$AE_CORE_SKILL_ROOT/METHODOLOGY.md §QA Gate`.
 
 **QA loop contract:**
 
-Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (overwriting the Phase 6 state). **Use atomic write (tmp+rename).** Reset `last_phase=qa`, `last_phase_action=spawned`. Same write-trigger pattern as Phase 6 applies here: write at every phase transition (QA spawn, QA return, Engineer spawn, Engineer return). On clean exit set `status=complete`; on stalled exit set `status=stalled`.
+Before the loop starts, initialize loop state and write it to `$AE_PROJECT_DIR/.agentic/loop-state.json` (overwriting the Phase 6 state). **Use atomic write (tmp+rename).** Reset `last_phase=qa`, `last_phase_action=spawned`. Same write-trigger pattern as Phase 6 applies here: write at every phase transition (QA spawn, QA return, Engineer spawn, Engineer return). On clean exit set `status=complete`; on stalled exit set `status=stalled`.
 
 ```
 LOOP_STATE initialized:
@@ -1543,7 +1563,7 @@ LOOP_STATE initialized:
   termination_reason: null
 ```
 
-Write as JSON to `.agentic/loop-state.json` (same stability contract as Phase 6 - see above).
+Write as JSON to `$AE_PROJECT_DIR/.agentic/loop-state.json` (same stability contract as Phase 6 - see above).
 
 Emit the inline breadcrumb:
 
@@ -1557,7 +1577,7 @@ Emit the inline breadcrumb:
 
 [phase: tracker-writeback | site: W3 | target: $TRACKER_STATE_QA | iter: 1]
 
-**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `$AE_REPO_DIR/.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
+**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`$AE_PROJECT_DIR/.agentic/qa.md` preferred, legacy `$AE_PROJECT_DIR/.claude/qa.md` fallback). Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
 **Telemetry emit (V1):** Bracket the QA `spawn_agent` tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
@@ -1575,12 +1595,12 @@ The following failures were identified and fix attempts were made in earlier ite
 **Step 2.** Receive QA output. Update `qa_failures_log`:
 - Each failure gets a short slug `id`, `description`, `first_raised: <iteration>`, `status: open`.
 - If a failure carries `[PREV: <id>]`, set `re_raised: true` on the matching `qa_failures_log` entry.
-- Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
+- Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json` with the updated LOOP_STATE.
 
 **Step 3. Termination check:**
-- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
-- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
-- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
+- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
+- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
 **QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
 
@@ -1599,24 +1619,24 @@ the fence character is backticks (```) or tildes (~~~). Either of the following 
 Match by the info string `qa-screenshots-json`; do not require a specific fence character.
 ```
 
-Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
+Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `$AE_PROJECT_DIR/.agentic/loop-state.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `$AE_REPO_DIR/content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `$AE_REPO_DIR/content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `$AE_PROJECT_DIR/.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **spawn_agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
-**Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
+**Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
 
 ### QA regressions curator (Phase 6b clean exit)
 
 At Phase 6b clean exit, if any iteration of this Phase 6b loop involved a QA FAIL (i.e., `qa_failures_log` was non-empty at any point before the final PASS), spawn a qa-regressions-curator subagent. **Note:** `qa-regressions-curator` does not yet exist as a named agent; use `general-purpose` agent type (Tier 1, fire-and-forget) until the named agent is formally added. Mirrors the Phase 6 findings curator pattern (see "Findings curator (loop exit)" above).
 
 **Brief:**
-- Input: the qa-engineer's last FAIL report containing the `## Regression draft (for .agentic/qa-regressions.md)` block (verbatim), any fix-engineer documented-exception block from the QA-fix iteration, the `ticket_id`, and the curated index path (`.agentic/qa-regressions.md`).
+- Input: the qa-engineer's last FAIL report containing the `## Regression draft (for $AE_PROJECT_DIR/.agentic/qa-regressions.md)` block (verbatim), any fix-engineer documented-exception block from the QA-fix iteration, the `ticket_id`, and the curated index path (`$AE_PROJECT_DIR/.agentic/qa-regressions.md`).
 - The curator computes the dedupe key `(surface, claim)` from each draft entry: lowercase the `Surface` and `What broke` values, collapse whitespace runs to a single space, strip leading/trailing whitespace, concatenate with a `|` separator.
-- Dedupe rule: if a matching `(surface, claim)` key already exists in `.agentic/qa-regressions.md`, skip the write for that entry.
-- The curator is the sole writer of `.agentic/qa-regressions.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
-- Schema reference: `$AE_REPO_DIR/content/references/qa-regression-obligation.md` §`.agentic/qa-regressions.md` schema (canonical).
+- Dedupe rule: if a matching `(surface, claim)` key already exists in `$AE_PROJECT_DIR/.agentic/qa-regressions.md`, skip the write for that entry.
+- The curator is the sole writer of `$AE_PROJECT_DIR/.agentic/qa-regressions.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
+- Schema reference: `$AE_REPO_DIR/content/references/qa-regression-obligation.md` §`$AE_PROJECT_DIR/.agentic/qa-regressions.md` schema (canonical).
 
 Fires exactly once per ticket per `$implement-ticket` invocation. Skipped entirely if Phase 6b never recorded a FAIL (clean PASS on iteration 1 with no failures).
 
@@ -1647,14 +1667,14 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 
 **Check `DEBUGGER_ON_FAILURE` (from Setup) to determine the failure path:**
 
-**Trivial-path exclusion (unconditional).** A Trivial-path ticket NEVER invokes the Debugger, regardless of `debugger_on_failure`. The Debugger gate is `debugger_on_failure == true` AND path is Elevated; both conditions must hold. A Trivial-path gate failure always takes the default (no-Debugger) path below even when `debugger_on_failure: true` is set in `.agentic/config.json`.
+**Trivial-path exclusion (unconditional).** A Trivial-path ticket NEVER invokes the Debugger, regardless of `debugger_on_failure`. The Debugger gate is `debugger_on_failure == true` AND path is Elevated; both conditions must hold. A Trivial-path gate failure always takes the default (no-Debugger) path below even when `debugger_on_failure: true` is set in `$AE_PROJECT_DIR/.agentic/config.json`.
 
 ---
 
 **When `DEBUGGER_ON_FAILURE` is `false` OR the path is Trivial** - preserve existing behavior exactly:
 
-1. Before spawning the Phase 7 engineer: write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
-2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: "worktree"` on the Elevated path (mandatory per $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation > Worker preamble).
+1. Before spawning the Phase 7 engineer: write `$AE_PROJECT_DIR/.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
+2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. Before calling `spawn_agent`, execute the Codex spawn contract above on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble).
 3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
 4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
 5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
@@ -1669,13 +1689,13 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 
 For each debug-fix cycle (cycle count tracked in-context; escalate to human after 3 exhausted cycles with open gate failures):
 
-1. Write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=debugger_spawned` (atomic write).
+1. Write `$AE_PROJECT_DIR/.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=debugger_spawned` (atomic write).
 2. Spawn `debugger` (read-only; no worktree isolation needed - Debugger never writes files) with:
    - The captured gate failure output (`raw_output` from the failing run)
    - The failing context (branch diff, relevant files, prior cycle summaries if any)
 3. After Debugger returns: write `last_phase=quality_gate`, `last_phase_action=debugger_returned` (atomic write).
 4. Write `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
-5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: "worktree"` (mandatory on Elevated path per $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation > Worker preamble).
+5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble).
 6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
 7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.
 8. Verify the fix engineer's `quality_gate_results`.
@@ -1763,13 +1783,13 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
   fi
 
   if [ -n "$PR_CHECKOUT" ] && [ -f "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" ]; then
-    git -C "$PR_CHECKOUT" add ".agentic/session-log/${DEVELOPER}.jsonl"
+    git -C "$PR_CHECKOUT" add "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
     # Only commit if the index has a diff (avoids empty-commit on no new sessions).
     if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
       NL=$'
 '
       TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-      git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||         git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
+      git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||         git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
     fi
     # Push only on single-engineer paths (fan-out push handled in its own block).
     if [ "$PR_CHECKOUT" != "$REPO" ]; then
@@ -1784,7 +1804,7 @@ git -C $REPO push -u origin [BRANCH_NAME]
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
-**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the line-977 `git checkout`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug.
+**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `$AE_PROJECT_DIR/.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the line-977 `git checkout`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug.
 
 Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
@@ -2144,7 +2164,7 @@ FAILED=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json conclusion 2>/dev/nu
 - `STATUS empty` (no checks configured): emit `[phase: ci-wait | result: passed-by-default | no-checks]`. Proceed to Phase 10b.
 - `FAILED == 0` after all complete: emit `[phase: ci-wait | result: passed]`. Proceed to Phase 10b.
 - `FAILED > 0`: emit `[phase: ci-wait | result: failed | failing-checks: <names>]`. Enter Phase 10a.
-- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. Write `last_phase: ci_wait, last_phase_action: timeout` to `.agentic/loop-state.json`. Surface to human and STOP (do NOT auto-fix, do NOT proceed). Human decides whether to extend the wait or escalate.
+- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. Write `last_phase: ci_wait, last_phase_action: timeout` to `$AE_PROJECT_DIR/.agentic/loop-state.json`. Surface to human and STOP (do NOT auto-fix, do NOT proceed). Human decides whether to extend the wait or escalate.
 
 ---
 
@@ -2263,7 +2283,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 >
 > **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed", errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`.
 
-**Screenshot attachment upload (Linear and Jira, opt-in).** After the main tracker comment is posted, if `screenshot_upload: true` is set in `.agentic/qa.md` AND `QA_SCREENSHOT_PATHS` is non-empty, the tracker-writeback subagent also uploads the PASS screenshots as native attachments. Pass the following additional inputs to the subagent:
+**Screenshot attachment upload (Linear and Jira, opt-in).** After the main tracker comment is posted, if `screenshot_upload: true` is set in `$AE_PROJECT_DIR/.agentic/qa.md` AND `QA_SCREENSHOT_PATHS` is non-empty, the tracker-writeback subagent also uploads the PASS screenshots as native attachments. Pass the following additional inputs to the subagent:
 
 - `screenshot_upload: true` (flag; only when qa.md `screenshot_upload: true` AND paths non-empty)
 - `qa_screenshot_paths`: the `QA_SCREENSHOT_PATHS` array (PASS entries only)
@@ -2293,7 +2313,7 @@ Skip Phase 11 entirely. Print: "No tracker configured - skipping ticket update. 
 
 (This sub-section is conductor-direct - it is a print, not delegable.)
 
-**qa.md `screenshot_upload` field.** The `screenshot_upload: true` field in `.agentic/qa.md` opts the project in to native tracker attachment upload of QA screenshots. When absent or `false`, Phase 11 screenshot upload is skipped. Example qa.md entry:
+**qa.md `screenshot_upload` field.** The `screenshot_upload: true` field in `$AE_PROJECT_DIR/.agentic/qa.md` opts the project in to native tracker attachment upload of QA screenshots. When absent or `false`, Phase 11 screenshot upload is skipped. Example qa.md entry:
 
 ```yaml
 screenshot_upload: true
@@ -2309,7 +2329,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 ## Phase 11b: Wrap learnings (per-ticket capture)
 
-**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `.agentic/loop-state.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
+**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `$AE_PROJECT_DIR/.agentic/loop-state.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
 
 **Skip conditions:**
 - Phase 9 was skipped (no PR was opened): skip Phase 11b entirely.
@@ -2317,7 +2337,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
-**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap/lock` (atomic `mkdir`). The lock is shared with `$wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
+**Lock acquisition:** before spawning, attempt to acquire `$AE_PROJECT_DIR/.agentic/wrap/lock` (atomic `mkdir`). The lock is shared with `$wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `$AE_PROJECT_DIR/.agentic/context.md`.
 
 - **If the lock is held by another session** (e.g., `$wrap` is running concurrently in another session): skip Phase 11b with the operator note: `"Phase 11b skipped: $wrap is running in another session."` Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
 - **If the lock is acquired:** spawn `wrap-ticket` with the inputs below. The conductor releases the lock on every exit path (success, timeout, soft-fail) before proceeding to Phase 12.
@@ -2329,8 +2349,8 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `ticket_description`: the full ticket description.
 - `architect_plan_path`: absolute path to the architect's plan output (or in-context if no path).
 - `brief_path`: absolute path to the Brief (or "n/a" if no Brief).
-- `findings_log`: read from `.agentic/loop-state.json` `loop_state.findings_log` BEFORE Phase 12 clears the file.
-- `qa_md_diff`: the diff between `.agentic/qa.md.snapshot-<ticket_id>` (created at Phase 0b for Elevated tickets) and the current working-tree `.agentic/qa.md`. Empty if no snapshot exists or qa.md is unchanged.
+- `findings_log`: read from `$AE_PROJECT_DIR/.agentic/loop-state.json` `loop_state.findings_log` BEFORE Phase 12 clears the file.
+- `qa_md_diff`: the diff between `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` (created at Phase 0b for Elevated tickets) and the current working-tree `$AE_PROJECT_DIR/.agentic/qa.md`. Empty if no snapshot exists or qa.md is unchanged.
 - `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
 - `pr_url`: the PR URL captured at Phase 9.
 - `conversation_summary`: a brief recap of the conductor's session covering this ticket.
@@ -2351,7 +2371,7 @@ Lock release: the conductor runs `agentic-wrap-release-lock` (PATH-wired helper)
 After releasing the lock and after wrap-ticket has returned (or been skipped), the conductor performs this step if ALL of the following hold:
 - wrap-ticket returned a valid JSON shape (not a timeout, not a non-JSON return).
 - `cluster_results` in the return is a non-empty array.
-- `skill_candidate_detection` is not `false` in `.agentic/config.json` (default true when absent or config missing).
+- `skill_candidate_detection` is not `false` in `$AE_PROJECT_DIR/.agentic/config.json` (default true when absent or config missing).
 - `$AE_SESSION_ID` is set and non-empty.
 
 If any condition is not met, skip silently. This step is soft-fail and MUST NOT block or delay Phase 12 in any way.
@@ -2442,8 +2462,8 @@ else
       f_var="${pair%%:*}"; a_var="${pair##*:}"
       KFILE="${!f_var}"; AJSON="${!a_var}"
       [ -z "$KFILE" ] && continue
-      # Safety floor: never touch .agentic/ runtime state files on the feature branch.
-      case "$KFILE" in .agentic/*) continue ;; esac
+      # Safety floor: never touch $AE_PROJECT_DIR/.agentic/ runtime state files on the feature branch.
+      case "$KFILE" in $AE_PROJECT_DIR/.agentic/*) continue ;; esac
       _ae_append_entries "$KFILE" "$AJSON" "$CHECKOUT"
       git -C "$CHECKOUT" add "$KFILE" 2>/dev/null || true
     done
@@ -2496,19 +2516,19 @@ Note on `worktree prune`: prune clears stale git administration entries (dead sy
 
 ## Phase 12: Loop state cleanup
 
-After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `$implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
+After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `$AE_PROJECT_DIR/.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `$implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
 
 If the file does not exist (it was never written, e.g. loop never started), skip silently.
 
-**`findings_log` clearing.** Phase 12 is the ONLY clearer of `findings_log`. The findings-curator at Phase 6 exit reads `findings_log` from `.agentic/loop-state.json` but does NOT clear it. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this Phase 12 cleanup. Setting `status: "complete"` (or deleting the file) is the moment `findings_log` is dropped.
+**`findings_log` clearing.** Phase 12 is the ONLY clearer of `findings_log`. The findings-curator at Phase 6 exit reads `findings_log` from `$AE_PROJECT_DIR/.agentic/loop-state.json` but does NOT clear it. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this Phase 12 cleanup. Setting `status: "complete"` (or deleting the file) is the moment `findings_log` is dropped.
 
-**qa.md snapshot cleanup.** Remove `.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
+**qa.md snapshot cleanup.** Remove `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
 
 ```bash
-rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
+rm -f $AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
 ```
 
-**Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `.agentic/config.json`):
+**Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `$AE_PROJECT_DIR/.agentic/config.json`):
 
 ```bash
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
@@ -2548,7 +2568,7 @@ Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true
 
 ## Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)
 
-**Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
+**Trigger:** `$AE_PROJECT_DIR/.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
 
 After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit below, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
 

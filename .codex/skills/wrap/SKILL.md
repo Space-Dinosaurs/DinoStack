@@ -15,15 +15,35 @@ Before executing this skill, resolve the physical directory containing this load
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
-the process working directory. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude`
-cross-adapter configuration directory. Interpret canonical Claude `Agent` and `Task` operations as
-Codex `spawn_agent`: load the named role from the mapped `agents` resource and create an explicit
-repository git worktree before any spawn that requires isolation. Map canonical filesystem tools
-to Codex filesystem reads, `rg --files`, `rg`, shell, and `apply_patch`; ask one bounded direct
-question only after default derivation. Derive `AE_SESSION_ID` by passing hook JSON to
+the process working directory. Bind `AE_PROJECT_DIR` to the absolute invoked project root before
+changing directories (`git rev-parse --show-toplevel` when inside a repository, otherwise the
+verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
+compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
+`AE_REPO_DIR`. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude` cross-adapter
+configuration directory. Map canonical filesystem tools to Codex filesystem reads, `rg --files`,
+`rg`, shell, and `apply_patch`; ask one bounded direct question only after default derivation.
+Derive `AE_SESSION_ID` by passing hook JSON to
 `$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
 `$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+
+**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an
+isolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):
+
+1. `git fetch origin`.
+2. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
+3. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" origin/main`.
+4. Load the named role instructions with
+   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+5. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
+   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
+   instructions plus the execution contract. The spawned agent must use shell commands in that
+   worktree and must not edit the conductor checkout.
+
+Codex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and
+wait operations to collect completion, and applies the existing review gates to the returned diff.
+Claude hook payload fields and Claude Task behavior do not apply on Codex.
+
 
 # $wrap — On-Demand Session Context Enrichment
 
@@ -31,13 +51,13 @@ Other DinoStack workflows remain manual command resources loaded with
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
 
-The Stop hook auto-writes `<cwd>/.agentic/context.md` after every turn with raw session data. `$wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project``: where `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` scaffolds the AGENTS.md hierarchy, `$wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
+The Stop hook auto-writes `$AE_PROJECT_DIR/.agentic/context.md` after every turn with raw session data. `$wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project``: where `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` scaffolds the AGENTS.md hierarchy, `$wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
 
-**Relationship to `wrap-ticket`.** `$wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/context.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `$AE_REPO_DIR/content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `$implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/context.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, context.md) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `$wrap` MUST NOT run concurrently — both acquire `.agentic/wrap/lock`. If `$wrap` is invoked while `wrap-ticket` holds the lock, `$wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `$wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
+**Relationship to `wrap-ticket`.** `$wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `$AE_PROJECT_DIR/.agentic/context.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `$AE_REPO_DIR/content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `$implement-ticket` — it appends to MEMORY.md, decisions.md, and `$AE_PROJECT_DIR/.agentic/context.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, context.md) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `$wrap` MUST NOT run concurrently — both acquire `$AE_PROJECT_DIR/.agentic/wrap/lock`. If `$wrap` is invoked while `wrap-ticket` holds the lock, `$wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `$wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
 
 ## Deferred background enrichment (daemon)
 
-Manual `$wrap` is synchronous: there is no in-session auto-enrichment protocol. Background completion of forgotten wraps is performed by the deferred-wrap daemon (Claude-only, opt-in via the `deferred_wrap_daemon` toggle in `.agentic/config.json`), which headlessly resumes each cleanly-ended session and runs the non-interactive `$wrap-deferred` command. The daemon is the sole consumer of the per-session marker staged in Step 0a; see `$AE_REPO_DIR/content/references/conductor-operating-rules.md` for the daemon drain protocol.
+Manual `$wrap` is synchronous: there is no in-session auto-enrichment protocol. Background completion of forgotten wraps is performed by the deferred-wrap daemon (Claude-only, opt-in via the `deferred_wrap_daemon` toggle in `$AE_PROJECT_DIR/.agentic/config.json`), which headlessly resumes each cleanly-ended session and runs the non-interactive `manual workflow 'wrap-deferred' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command wrap-deferred`` command. The daemon is the sole consumer of the per-session marker staged in Step 0a; see `$AE_REPO_DIR/content/references/conductor-operating-rules.md` for the daemon drain protocol.
 
 ## Your job (main agent)
 
@@ -49,33 +69,33 @@ Manual `$wrap` is synchronous: there is no in-session auto-enrichment protocol. 
    - **Track directories:** overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` only - tracks do not have their own `MEMORY.md`, so no `@MEMORY.md` import is added.
    - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched).
 
-2. **`$AE_REPO_DIR/.claude/` → `.agentic/` session state migration.** If `<cwd>/.claude/context.md` exists and `<cwd>/.agentic/context.md` does not:
-   - `mkdir -p <cwd>/.agentic`
-   - `mv <cwd>/.claude/context.md <cwd>/.agentic/context.md`
-   - Same for `<cwd>/.claude/memory.md` and `<cwd>/.claude/memory/` (the auto-memory dir).
-   - Redo symlinks in `$AE_SHARED_CONFIG_DIR/projects/[hash]/` to point at the new `.agentic/` paths.
+2. **`$AE_PROJECT_DIR/.claude/` → `$AE_PROJECT_DIR/.agentic/` session state migration.** If `$AE_PROJECT_DIR/.claude/context.md` exists and `$AE_PROJECT_DIR/.agentic/context.md` does not:
+   - `mkdir -p $AE_PROJECT_DIR/.agentic`
+   - `mv $AE_PROJECT_DIR/.claude/context.md $AE_PROJECT_DIR/.agentic/context.md`
+   - Same for `$AE_PROJECT_DIR/.claude/memory.md` and `$AE_PROJECT_DIR/.claude/memory/` (the auto-memory dir).
+   - Redo symlinks in `$AE_SHARED_CONFIG_DIR/projects/[hash]/` to point at the new `$AE_PROJECT_DIR/.agentic/` paths.
 
-3. **Legacy config migration (`$AE_REPO_DIR/.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`, `learnings.md`:
-   - **Both paths exist on disk**: do NOT migrate. Log a drift warning in the wrap run output (e.g. "Drift (both $AE_REPO_DIR/.claude/findings.md and .agentic/findings.md exist - skipping auto-migration; resolve manually via manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`)"), and add a bullet under the context.md "Watch Out For" section naming the conflicting files. Skip to the next name.
-   - **Only legacy `$AE_REPO_DIR/.claude/<name>.md` exists**: first, run `git status --porcelain` to check working-tree cleanliness. If there are staged or unstaged changes, do NOT migrate - log a drift note ("Skipped migration of legacy $AE_REPO_DIR/.claude/<name>.md: working tree dirty. Commit or stash, then re-run $wrap or manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`.") and add a Watch Out For bullet. If the working tree is clean, migrate: `git mv $AE_REPO_DIR/.claude/<name>.md .agentic/<name>.md`. Log the move to the wrap run output only.
-   - **Only `.agentic/<name>.md` exists**: no action.
+3. **Legacy config migration (`$AE_PROJECT_DIR/.claude/<name>.md` → `$AE_PROJECT_DIR/.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`, `learnings.md`:
+   - **Both paths exist on disk**: do NOT migrate. Log a drift warning in the wrap run output (e.g. "Drift (both $AE_PROJECT_DIR/.claude/findings.md and $AE_PROJECT_DIR/.agentic/findings.md exist - skipping auto-migration; resolve manually via manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`)"), and add a bullet under the context.md "Watch Out For" section naming the conflicting files. Skip to the next name.
+   - **Only legacy `$AE_PROJECT_DIR/.claude/<name>.md` exists**: first, run `git status --porcelain` to check working-tree cleanliness. If there are staged or unstaged changes, do NOT migrate - log a drift note ("Skipped migration of legacy $AE_PROJECT_DIR/.claude/<name>.md: working tree dirty. Commit or stash, then re-run $wrap or manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`.") and add a Watch Out For bullet. If the working tree is clean, migrate: `git mv $AE_PROJECT_DIR/.claude/<name>.md $AE_PROJECT_DIR/.agentic/<name>.md`. Log the move to the wrap run output only.
+   - **Only `$AE_PROJECT_DIR/.agentic/<name>.md` exists**: no action.
    - **Neither exists**: no action at this step - the missing-stub creation below handles creation.
 
-4. **Missing-stub creation.** If any of `.agentic/tracking.md`, `.agentic/deploy.md` (only when release signals detected), or `.agentic/learnings.md` is missing (checked via resolver: `.agentic/<name>.md` preferred, legacy `$AE_REPO_DIR/.claude/<name>.md` fallback), create a stub at `.agentic/<name>.md` per the template in `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` Steps 6a-6d. For `.agentic/learnings.md`, use the template from `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` Step 8 (unconditional — always create).
+4. **Missing-stub creation.** If any of `$AE_PROJECT_DIR/.agentic/tracking.md`, `$AE_PROJECT_DIR/.agentic/deploy.md` (only when release signals detected), or `$AE_PROJECT_DIR/.agentic/learnings.md` is missing (checked via resolver: `$AE_PROJECT_DIR/.agentic/<name>.md` preferred, legacy `$AE_PROJECT_DIR/.claude/<name>.md` fallback), create a stub at `$AE_PROJECT_DIR/.agentic/<name>.md` per the template in `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` Steps 6a-6d. For `$AE_PROJECT_DIR/.agentic/learnings.md`, use the template from `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` Step 8 (unconditional — always create).
 
 5. **Silent auto-fix for remaining drift.** $wrap is silent and hands-off. For any drift $wrap can fix without user input, fix it inline:
    - Create `docs/overview/`, `docs/technical/`, `docs/planning/`, `docs/research/` (with `.gitkeep`) if missing.
-   - Create `$AE_REPO_DIR/.claude/settings.json` (`{}`) if missing.
-   - Create `$AE_REPO_DIR/.claude/settings.local.json` with `autoMemoryDirectory` set to `<cwd>/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value). **Scope note:** `autoMemoryDirectory: <cwd>/.agentic/memory` is intentional - it routes Claude Code's native auto-memory writes to a local gitignored scratch area. The canonical conductor-managed, human-reviewed durable-facts store remains `<cwd>/MEMORY.md` (see the **Memory path (memory.md)** note below).
-   - Create `.gitignore` entries for `$AE_REPO_DIR/.claude/settings.local.json` and the `.agentic/` runtime-artifact block (per `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` Step 9) if missing.
+   - Create `$AE_PROJECT_DIR/.claude/settings.json` (`{}`) if missing.
+   - Create `$AE_PROJECT_DIR/.claude/settings.local.json` with `autoMemoryDirectory` set to `$AE_PROJECT_DIR/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value). **Scope note:** `autoMemoryDirectory: $AE_PROJECT_DIR/.agentic/memory` is intentional - it routes Claude Code's native auto-memory writes to a local gitignored scratch area. The canonical conductor-managed, human-reviewed durable-facts store remains `<cwd>/MEMORY.md` (see the **Memory path (memory.md)** note below).
+   - Create `$AE_PROJECT_DIR/.gitignore` entries for `$AE_PROJECT_DIR/.claude/settings.local.json` and the `$AE_PROJECT_DIR/.agentic/` runtime-artifact block (per `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` Step 9) if missing.
    - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines, do NOT attempt the Worker+Skeptic three-way split inline — that migration requires user confirmation of the proposed split, and $wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in context.md: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project` to run the Worker+Skeptic split and migrate.`
 
 6. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during $wrap. Instead, record a bullet under "Watch Out For" in the context.md output noting which scaffolding items are still incomplete. The user can address these later by running `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`` interactively. Specific drift kinds that always require user input and must be listed here:
    - **CLAUDE.md split** — the pre-AGENTS.md migration requires the user to review and accept the three-way split (AGENTS.md / residual CLAUDE.md / MEMORY.md). $wrap cannot perform this silently; it points at `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project``.
    - Linear workspace slug or QA assignee UUID not yet set when `## Linear` is present.
    - Jira `JIRA_BASE_URL`, `TICKET_PREFIX`, or transition name not yet set when `## Tracker` is present.
-   - Release command / rollback procedure confirmation when `.agentic/deploy.md` has TODO placeholders.
-   - Choice among multiple detected web UIs for `.agentic/qa.md` in a multi-track project.
+   - Release command / rollback procedure confirmation when `$AE_PROJECT_DIR/.agentic/deploy.md` has TODO placeholders.
+   - Choice among multiple detected web UIs for `$AE_PROJECT_DIR/.agentic/qa.md` in a multi-track project.
 
 All steps are silent on success. Log each migration action taken (e.g. "Migrated admin/CLAUDE.md to admin/AGENTS.md + pointer") to the wrap run output only, not as user prompts. After preflight completes, proceed to Step 0.
 
@@ -83,18 +103,18 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 
 **Pre-flight lock acquisition.** $wrap writes to several shared project-local files (context.md, memory.md, AGENTS.md, compression-state.json, rolling snapshots). Concurrent $wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:
 
-1. Ensure `<cwd>/.agentic/wrap/` exists (`mkdir -p <cwd>/.agentic/wrap`).
-2. Attempt atomic acquisition: `mkdir <cwd>/.agentic/wrap/lock` (atomic on POSIX - succeeds only if the directory did not exist).
-3. **If `mkdir` succeeds**, immediately write owner metadata: `<cwd>/.agentic/wrap/lock/owner` containing two lines - the current process PID and an ISO8601 UTC timestamp (e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`). Proceed.
-4. **If `mkdir` fails** (lock already held), attempt to read `<cwd>/.agentic/wrap/lock/owner` to get the owner PID and timestamp.
-   - **If the owner file cannot be read or parsed** (file missing, unreadable, or contains no valid ISO8601 timestamp): treat as stale. Report to the user: "A $wrap lock exists at `<cwd>/.agentic/wrap/lock` but its owner file could not be read or parsed. If no $wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step.
-   - **If the timestamp is older than 30 minutes**: treat as potentially stale, but do NOT remove the lock automatically. Report to the user: "A $wrap lock exists at `<cwd>/.agentic/wrap/lock` (pid N, started at TIME) and is older than 30 minutes. If no $wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step. Rationale: only the process that wrote the lock should remove it - auto-removal risks clobbering a live run if the 30-minute heuristic is wrong.
-   - **If the timestamp is less than 30 minutes old** (live lock): run the acquire helper as a BACKGROUND command (`run_in_background: true`): `agentic-wrap-acquire-lock "$cwd"`. It polls every 5 seconds in-process and exits when the lock is acquired or after 20 minutes; it is non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch by exit code: **0** (`acquired <lockPath>`) - the lock is now held by $wrap, proceed normally. **2** (timeout) - report "Waited 20 minutes for $wrap lock at `<cwd>/.agentic/wrap/lock` without acquiring it. If no $wrap run is active, remove it manually: `rm -rf <cwd>/.agentic/wrap/lock`." then abort. **3** (unreadable owner) - report the same unreadable-owner message as the sub-case above, then abort. **4** (stale-needs-manual) - report the same >30-minute message as the sub-case above (the binary did not remove the lock; the user must), then abort. **1** (unexpected failure) - surface the WARNING line from stdout, then abort.
+1. Ensure `$AE_PROJECT_DIR/.agentic/wrap/` exists (`mkdir -p $AE_PROJECT_DIR/.agentic/wrap`).
+2. Attempt atomic acquisition: `mkdir $AE_PROJECT_DIR/.agentic/wrap/lock` (atomic on POSIX - succeeds only if the directory did not exist).
+3. **If `mkdir` succeeds**, immediately write owner metadata: `$AE_PROJECT_DIR/.agentic/wrap/lock/owner` containing two lines - the current process PID and an ISO8601 UTC timestamp (e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`). Proceed.
+4. **If `mkdir` fails** (lock already held), attempt to read `$AE_PROJECT_DIR/.agentic/wrap/lock/owner` to get the owner PID and timestamp.
+   - **If the owner file cannot be read or parsed** (file missing, unreadable, or contains no valid ISO8601 timestamp): treat as stale. Report to the user: "A $wrap lock exists at `$AE_PROJECT_DIR/.agentic/wrap/lock` but its owner file could not be read or parsed. If no $wrap run is active, remove it manually: `rm -rf $AE_PROJECT_DIR/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step.
+   - **If the timestamp is older than 30 minutes**: treat as potentially stale, but do NOT remove the lock automatically. Report to the user: "A $wrap lock exists at `$AE_PROJECT_DIR/.agentic/wrap/lock` (pid N, started at TIME) and is older than 30 minutes. If no $wrap run is active, remove it manually: `rm -rf $AE_PROJECT_DIR/.agentic/wrap/lock`." Then abort. Do not proceed to any subsequent step. Rationale: only the process that wrote the lock should remove it - auto-removal risks clobbering a live run if the 30-minute heuristic is wrong.
+   - **If the timestamp is less than 30 minutes old** (live lock): start the helper with Codex `exec_command`; if it yields a session ID, keep the conductor responsive and poll it with `write_stdin` until completion: `agentic-wrap-acquire-lock "$cwd"`. It polls every 5 seconds in-process and exits when the lock is acquired or after 20 minutes; it is non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch by exit code: **0** (`acquired <lockPath>`) - the lock is now held by $wrap, proceed normally. **2** (timeout) - report "Waited 20 minutes for $wrap lock at `$AE_PROJECT_DIR/.agentic/wrap/lock` without acquiring it. If no $wrap run is active, remove it manually: `rm -rf $AE_PROJECT_DIR/.agentic/wrap/lock`." then abort. **3** (unreadable owner) - report the same unreadable-owner message as the sub-case above, then abort. **4** (stale-needs-manual) - report the same >30-minute message as the sub-case above (the binary did not remove the lock; the user must), then abort. **1** (unexpected failure) - surface the WARNING line from stdout, then abort.
 5. Do not perform a PID liveness check (`ps -p`). PID reuse makes the check unreliable for Claude Code processes - the timestamp is the authoritative signal.
 
 The 30-minute staleness heuristic exists because a crashed or force-killed $wrap may leave the lock dir behind. The timestamp backstop is the reliable signal; PID checks are omitted because Claude Code process hierarchies make `ps -p` results unreliable.
 
-**Lock release is mandatory on every exit path.** The lock dir MUST be removed (run `agentic-wrap-release-lock` — the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`) before $wrap returns control to the user, on ALL of:
+**Lock release is mandatory on every exit path.** The lock dir MUST be removed (run `agentic-wrap-release-lock` — the PATH-wired helper that releases `$AE_PROJECT_DIR/.agentic/wrap/lock`) before $wrap returns control to the user, on ALL of:
 - successful completion at Step 6;
 - escalation to the user at Step 3 (format re-invocation limit or contested finding);
 - compression failure or escalation at Part E;
@@ -102,13 +122,13 @@ The 30-minute staleness heuristic exists because a crashed or force-killed $wrap
 
 If $wrap aborts before the lock is acquired (e.g. at the active-Workers check above, or because a live or stale lock was detected and the command aborted without acquiring), no lock was acquired and no release is needed.
 
-**Pre-flight path check:** Confirm `<cwd>/.agentic/` exists or can be created. The $wrap skill now writes project-local under `<cwd>/.agentic/` instead of the legacy `$AE_SHARED_CONFIG_DIR/projects/[hash]/` hashed directories. No disambiguation needed - one canonical location per project.
+**Pre-flight path check:** Confirm `$AE_PROJECT_DIR/.agentic/` exists or can be created. The $wrap skill now writes project-local under `$AE_PROJECT_DIR/.agentic/` instead of the legacy `$AE_SHARED_CONFIG_DIR/projects/[hash]/` hashed directories. No disambiguation needed - one canonical location per project.
 
 ## Deferred-enrichment data model
 
-This section is the single source of truth for the on-disk artifacts that drive the synchronous `$wrap` Step 0a staging and the deferred-wrap daemon. Every other unit (the Stop hook `$AE_REPO_DIR/hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the deferred-wrap daemon) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename) and umbrella-ignored by `.agentic/*`.
+This section is the single source of truth for the on-disk artifacts that drive the synchronous `$wrap` Step 0a staging and the deferred-wrap daemon. Every other unit (the Stop hook `$AE_REPO_DIR/hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the deferred-wrap daemon) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename) and umbrella-ignored by `$AE_PROJECT_DIR/.agentic/*`.
 
-**1. `.agentic/wrap/pending-<session_id>.json` (the per-session enrichment marker).** One marker per session, keyed by `session_id` in the filename so concurrent sessions never collide. Staged when a session has substantive un-wrapped work, so the daemon (or the next session in that project) completes enrichment idempotently. Schema:
+**1. `$AE_PROJECT_DIR/.agentic/wrap/pending-<session_id>.json` (the per-session enrichment marker).** One marker per session, keyed by `session_id` in the filename so concurrent sessions never collide. Staged when a session has substantive un-wrapped work, so the daemon (or the next session in that project) completes enrichment idempotently. Schema:
 
     {
       "schema_version": 3,
@@ -129,9 +149,9 @@ This section is the single source of truth for the on-disk artifacts that drive 
 - `staged_at` is immutable and is the FIFO ordering key the daemon uses to drain `ready` markers oldest-first. `claimed_at` plus a staleness window are a wastefulness reducer, not a correctness invariant - they make a double-claim rare, never impossible; idempotency is what makes a double-run safe.
 - `attempts` increments at claim time, before enrichment begins, so a crash mid-enrichment still counts toward the give-up budget.
 
-**2. `.agentic/wrap/last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `$wrap` (sync or background enrichment) last successfully wrote `context.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).
+**2. `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `$wrap` (sync or background enrichment) last successfully wrote `context.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).
 
-**3. `.agentic/wrap/deferred-activity.jsonl` (the spillover log).** Append-only JSONL, one record per Stop-hook (or OpenCode-idle) invocation that found `wrap/lock` held and therefore skipped its `context.md` write. Drained into the `context.md` activity block by the enrichment flow during its Part A write (atomic three-step drain, see Part A below). Record schema:
+**3. `$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl` (the spillover log).** Append-only JSONL, one record per Stop-hook (or OpenCode-idle) invocation that found `wrap/lock` held and therefore skipped its `context.md` write. Drained into the `context.md` activity block by the enrichment flow during its Part A write (atomic three-step drain, see Part A below). Record schema:
 
     {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
 
@@ -145,21 +165,21 @@ This is what `$AE_REPO_DIR/hooks/stop-context.js` and `.opencode/plugins/session
 
 `$wrap` is synchronous: it runs the body inline and returns control only after Step 6 completes. Step 0a stages a per-session marker that is consumed by the deferred-wrap DAEMON, not by any in-session pipeline - so that if THIS session is later force-killed or ends without finishing a manual `$wrap`, the daemon can complete enrichment headlessly. Staging is GATED: it runs ONLY on the Claude host with the daemon enabled and not inside a daemon run.
 
-**Claude-host + opt-in + non-daemon guard (MAJOR-1).** Wrap both the toggle read and the marker staging in this guard. Off-Claude (no `.agentic/wrap/claude-host` sentinel - the sentinel is written only by the Claude SessionStart hook and `$AE_REPO_DIR/.claude/install.sh`), toggle off, or inside a daemon run (`AGENTIC_WRAP_DAEMON=1`) -> stage NOTHING, and `$wrap` runs byte-identical to the classic synchronous wrap (no marker, no daemon involvement, exactly today's pre-feature behavior):
+**Claude-host + opt-in + non-daemon guard (MAJOR-1).** Wrap both the toggle read and the marker staging in this guard. Off-Claude (no `$AE_PROJECT_DIR/.agentic/wrap/claude-host` sentinel - the sentinel is written only by the Claude SessionStart hook and `$AE_PROJECT_DIR/.claude/install.sh`), toggle off, or inside a daemon run (`AGENTIC_WRAP_DAEMON=1`) -> stage NOTHING, and `$wrap` runs byte-identical to the classic synchronous wrap (no marker, no daemon involvement, exactly today's pre-feature behavior):
 
-    # Claude-host + opt-in + non-daemon guard. Off-Claude (no .agentic/wrap/claude-host sentinel),
+    # Claude-host + opt-in + non-daemon guard. Off-Claude (no $AE_PROJECT_DIR/.agentic/wrap/claude-host sentinel),
     # toggle off, or inside a daemon run -> stage nothing, $wrap runs byte-identical to today.
-    if [ -f "$cwd/.agentic/wrap/claude-host" ] && [ "$AGENTIC_WRAP_DAEMON" != "1" ] && <deferred_wrap_daemon toggle is true in .agentic/config.json>; then
+    if [ -f "$cwd/.agentic/wrap/claude-host" ] && [ "$AGENTIC_WRAP_DAEMON" != "1" ] && <deferred_wrap_daemon toggle is true in $AE_PROJECT_DIR/.agentic/config.json>; then
         <stage the per-session pending-<session_id>.json marker (per the schema below)>
     fi
 
-When the guard passes, stage `<cwd>/.agentic/wrap/pending-<session_id>.json` (atomic tmp + rename) per the per-session schema_version 3 marker in the Deferred-enrichment data model section above, with:
+When the guard passes, stage `$AE_PROJECT_DIR/.agentic/wrap/pending-<session_id>.json` (atomic tmp + rename) per the per-session schema_version 3 marker in the Deferred-enrichment data model section above, with:
 
 - `schema_version: 3`, `session_id: <this session_id>`, `staged_at: <now, ISO8601 UTC>`, `status: "pending"`, `claimed_by: null`, `claimed_kind: null`, `claimed_at: null`, `attempts: 0`, `project_root: <absolute cwd>`, `last_error: null`.
 
 The marker is keyed by `session_id` in its filename, so per-session markers never collide. If this session's own marker already exists with status `pending`, `ready`, or `in_progress`, do NOT overwrite it (MAJOR-3 `ready`-non-stageable). A marker with `status: gave_up`, or `done` WITHOUT a `wrapped_at` stamp, is not a completion tombstone; staging may proceed. A `done` marker WITH `wrapped_at` is a completion tombstone for THIS session and suppresses re-staging (the `last-wrap`-rollover guard). With the guard false (off-Claude, toggle-off, or under the daemon guard), `$wrap` stages no marker at all and behaves exactly as the classic synchronous wrap.
 
-**Step 0a does NOT write `.agentic/wrap/last-wrap`.** `last-wrap` is written only after a successful Part A `context.md` write (see Part A). Writing it here would suppress this very session's own recovery marker on the next Stop-hook fire.
+**Step 0a does NOT write `$AE_PROJECT_DIR/.agentic/wrap/last-wrap`.** `last-wrap` is written only after a successful Part A `context.md` write (see Part A). Writing it here would suppress this very session's own recovery marker on the next Stop-hook fire.
 
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
 
@@ -174,16 +194,16 @@ Survey the current conversation and note down:
 - Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into context.md only.
 - Identify the project root (absolute cwd).
 - Check for and read: the root `AGENTS.md` (if it exists), and any `[track]/AGENTS.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
-- **Migrate `$AE_REPO_DIR/.claude/compression-state.json` → `.agentic/compression-state.json`** if `$AE_REPO_DIR/.claude/compression-state.json` exists AND `.agentic/compression-state.json` does NOT exist: `mv <cwd>/.claude/compression-state.json <cwd>/.agentic/compression-state.json`. Log the move to the wrap run output only.
-- **Read `.agentic/compression-state.json`** if it exists in the project. Record its full current content — this will be passed to Part E later to determine whether compression is needed for each target.
-- **Read `.agentic/learnings.md`** if it exists in the project. Record its full current content — this will be passed to the draft Worker in Step 1 so it does not re-derive facts already captured by `learnings-agent`.
+- **Migrate `$AE_PROJECT_DIR/.claude/compression-state.json` → `$AE_PROJECT_DIR/.agentic/compression-state.json`** if `$AE_PROJECT_DIR/.claude/compression-state.json` exists AND `$AE_PROJECT_DIR/.agentic/compression-state.json` does NOT exist: `mv $AE_PROJECT_DIR/.claude/compression-state.json $AE_PROJECT_DIR/.agentic/compression-state.json`. Log the move to the wrap run output only.
+- **Read `$AE_PROJECT_DIR/.agentic/compression-state.json`** if it exists in the project. Record its full current content — this will be passed to Part E later to determine whether compression is needed for each target.
+- **Read `$AE_PROJECT_DIR/.agentic/learnings.md`** if it exists in the project. Record its full current content — this will be passed to the draft Worker in Step 1 so it does not re-derive facts already captured by `learnings-agent`.
 - Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates.
 - **Check for missing AGENTS.md files:** For each directory that had files touched this session, check whether an AGENTS.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
 - **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
-- **Note task-state summary** - if `.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
-- **Note loop-state summary** — if `.agentic/loop-state.json` exists: if `status=active`, note in the wrap summary that an incomplete loop was active when `$wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `$implement-ticket` invocation will offer to resume). The wrap command does NOT delete or modify `loop-state.json` - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
+- **Note task-state summary** - if `$AE_PROJECT_DIR/.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
+- **Note loop-state summary** — if `$AE_PROJECT_DIR/.agentic/loop-state.json` exists: if `status=active`, note in the wrap summary that an incomplete loop was active when `$wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `$implement-ticket` invocation will offer to resume). The wrap command does NOT delete or modify `loop-state.json` - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
 - **Enumerate open PRs targeting the conductor's current branch.** $wrap writes AGENTS.md and memory.md additions onto the conductor's current branch (typically `main`). If those additions cite file paths or feature keys that live on branches with open PRs not yet merged, the doc additions will land on the target branch describing files/keys that do not yet exist there. Capture the open-PR set now so Step 1 can defer such additions:
 
   ```bash
@@ -247,7 +267,7 @@ You are a Worker agent. Format the raw session data below into three outputs. Re
 [paste your Step 0 notes here verbatim — this covers the task, files touched, errors, next steps, tools used, and stable facts. Do NOT embed existing AGENTS.md file contents here; those go in the dedicated field below.]
 
 **Existing learnings:**
-[Paste the full current content of `.agentic/learnings.md` read in Step 0, clearly labeled. If the file was not found, write "None." The Worker must check whether a proposed memory entry is already captured here as a structured learning before proposing it.]
+[Paste the full current content of `$AE_PROJECT_DIR/.agentic/learnings.md` read in Step 0, clearly labeled. If the file was not found, write "None." The Worker must check whether a proposed memory entry is already captured here as a structured learning before proposing it.]
 
 **Existing AGENTS.md file contents:**
 [For each AGENTS.md file read in Step 0, paste its full current content here, clearly labeled with its absolute path, e.g.:
@@ -276,7 +296,7 @@ Produce this exact structure. Include only temporary session state here (current
     ## Recent Focus
     [1–3 sentences: what was being worked on when $wrap was invoked]
 
-    ## Current Task / Next Steps
+    ## Current spawn_agent / Next Steps
     [Specific next steps: file paths, branch names, open PRs, exact commands. Concrete enough to act on without reading the chat history.]
 
     ## Key File Paths
@@ -302,13 +322,13 @@ Review the raw session data for stable project facts: setup commands that don't 
 
 Use today's date for all entries. If there are no stable facts to record, write "None."
 
-Before proposing a memory entry, check the **Existing learnings** field above. If the same fact is already captured as a structured learning entry (same pattern, same gotcha, same architectural decision), skip it. Do not duplicate content between `.agentic/learnings.md` and `.agentic/memory.md` — they serve different purposes (structured fix-patterns vs. session-synthesized stable facts), but the underlying fact should only be recorded once.
+Before proposing a memory entry, check the **Existing learnings** field above. If the same fact is already captured as a structured learning entry (same pattern, same gotcha, same architectural decision), skip it. Do not duplicate content between `$AE_PROJECT_DIR/.agentic/learnings.md` and `$AE_PROJECT_DIR/.agentic/memory.md` — they serve different purposes (structured fix-patterns vs. session-synthesized stable facts), but the underlying fact should only be recorded once.
 
 Stable = true every session, not just this one. Temporary = only relevant right now (current task, files touched this session).
 
 For architectural and technology decisions especially: the entry must clearly state why the chosen approach was selected on its own merits. Alternatives considered and their rejection reasons are useful supporting context but are secondary - the positive reasoning for the choice is the primary requirement. A future session asking "should we reconsider X?" should find the answer in the entry without re-researching it.
 
-**Deferral hint:** If an entry's substance depends on file paths, feature keys, or symbols that appear in the Open-PR overlap set above (i.e. the fact only becomes true once an unmerged PR lands), append the marker `[defer-pr: <pr_number>]` to the end of the entry text. The conductor uses this hint plus its own path cross-reference to route the entry to `.agentic/memory-pending.md` instead of `.agentic/memory.md`.
+**Deferral hint:** If an entry's substance depends on file paths, feature keys, or symbols that appear in the Open-PR overlap set above (i.e. the fact only becomes true once an unmerged PR lands), append the marker `[defer-pr: <pr_number>]` to the end of the entry text. The conductor uses this hint plus its own path cross-reference to route the entry to `$AE_PROJECT_DIR/.agentic/memory-pending.md` instead of `$AE_PROJECT_DIR/.agentic/memory.md`.
 
 **Output 3 — AGENTS.md updates**
 
@@ -344,7 +364,7 @@ Rules:
 - Quality directive: lean and curated. No verbose rationale paragraphs, no outdated entries, no conflicting information. Brief, actionable bullets only.
 - If nothing new for a particular file, write "None" for that file.
 - If no AGENTS.md files were found in the project, write "None."
-- **Deferral hint:** if a proposed addition cites a file path, directory, or feature key that appears in the Open-PR overlap set above (i.e. the addition describes something that only exists on an unmerged branch), append the marker `[defer-pr: <pr_number>]` to the end of each affected bullet or section content. The conductor uses this hint plus its own path cross-reference to route the addition to `.agentic/agents-md-pending.md` instead of applying it now.
+- **Deferral hint:** if a proposed addition cites a file path, directory, or feature key that appears in the Open-PR overlap set above (i.e. the addition describes something that only exists on an unmerged branch), append the marker `[defer-pr: <pr_number>]` to the end of each affected bullet or section content. The conductor uses this hint plus its own path cross-reference to route the addition to `$AE_PROJECT_DIR/.agentic/agents-md-pending.md` instead of applying it now.
 
 **New AGENTS.md files:** For any touched directory explicitly noted as a "new AGENTS.md candidate" in the raw session data (i.e. the directory had files touched but has no existing AGENTS.md), propose creating a new file. Use this format:
 
@@ -392,27 +412,27 @@ If Critical or Major findings remain: spawn a new draft Worker with the original
 
 Background subagents cannot reliably get Write/Edit permissions. The main agent must perform all writes directly. Invoking $wrap implies permission to write these files.
 
-**Mandatory Skeptic on hand-authored output.** If the conductor authored any of the final outputs inline — for example, after a draft Worker hallucination, after a re-route loop hit its limit, after a light-path escape hatch fell back to the standard path mid-flight, or any other case where the conductor bypassed the Worker → Skeptic chain in Steps 1–3 — the conductor MUST spawn a fresh Skeptic on the on-disk files BEFORE releasing the lock in Step 6. The conductor's escape hatch from Worker iteration does NOT exempt the outputs from Skeptic review; that loophole is closed. The Skeptic in this case reads the on-disk files directly (`.agentic/context.md`, `.agentic/memory.md`, any AGENTS.md files updated, plus any deferred-write files at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`) and applies the same adversarial brief from Step 2 (with the same scope constraint — the Skeptic's findings only trigger doc rewrites, never code changes). If the Skeptic raises Critical or Major findings, the conductor revises the on-disk files inline and re-spawns a fresh Skeptic until sign-off, subject to the same 3-re-route limit; on cap exhaustion, escalate to the user with the open findings.
+**Mandatory Skeptic on hand-authored output.** If the conductor authored any of the final outputs inline — for example, after a draft Worker hallucination, after a re-route loop hit its limit, after a light-path escape hatch fell back to the standard path mid-flight, or any other case where the conductor bypassed the Worker → Skeptic chain in Steps 1–3 — the conductor MUST spawn a fresh Skeptic on the on-disk files BEFORE releasing the lock in Step 6. The conductor's escape hatch from Worker iteration does NOT exempt the outputs from Skeptic review; that loophole is closed. The Skeptic in this case reads the on-disk files directly (`$AE_PROJECT_DIR/.agentic/context.md`, `$AE_PROJECT_DIR/.agentic/memory.md`, any AGENTS.md files updated, plus any deferred-write files at `$AE_PROJECT_DIR/.agentic/memory-pending.md` and `$AE_PROJECT_DIR/.agentic/agents-md-pending.md`) and applies the same adversarial brief from Step 2 (with the same scope constraint — the Skeptic's findings only trigger doc rewrites, never code changes). If the Skeptic raises Critical or Major findings, the conductor revises the on-disk files inline and re-spawns a fresh Skeptic until sign-off, subject to the same 3-re-route limit; on cap exhaustion, escalate to the user with the open findings.
 
 **Project directory:** [absolute cwd]
 
-**Output path (context.md):** `<cwd>/.agentic/context.md`. Project-local. The file lives next to the code it describes and is gate-free (no sensitive-file check). The Stop hook writes to the same path. Create the `<cwd>/.agentic/` directory if it does not exist.
+**Output path (context.md):** `$AE_PROJECT_DIR/.agentic/context.md`. Project-local. The file lives next to the code it describes and is gate-free (no sensitive-file check). The Stop hook writes to the same path. Create the `$AE_PROJECT_DIR/.agentic/` directory if it does not exist.
 
-**Memory path (memory.md):** `<cwd>/.agentic/memory.md`. Same directory as context.md. `.agentic/memory.md` is $wrap-internal rolling scratch (written exclusively by $wrap). It is gitignored and is NOT the canonical durable-facts store. The canonical durable-facts store is `<cwd>/MEMORY.md`, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project``).
+**Memory path (memory.md):** `$AE_PROJECT_DIR/.agentic/memory.md`. Same directory as context.md. `$AE_PROJECT_DIR/.agentic/memory.md` is $wrap-internal rolling scratch (written exclusively by $wrap). It is gitignored and is NOT the canonical durable-facts store. The canonical durable-facts store is `<cwd>/MEMORY.md`, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project``).
 
-**Migration note:** Earlier versions of this skill wrote to `$AE_SHARED_CONFIG_DIR/projects/[hash]/{context,memory}.md`. If those files exist for the current project but the project-local files do not, copy them once into `<cwd>/.agentic/` before merging. Symlinks at the old hashed location pointing at the new project paths are acceptable - they preserve any platform mechanism that auto-loads from the legacy path while keeping writes gate-free.
+**Migration note:** Earlier versions of this skill wrote to `$AE_SHARED_CONFIG_DIR/projects/[hash]/{context,memory}.md`. If those files exist for the current project but the project-local files do not, copy them once into `$AE_PROJECT_DIR/.agentic/` before merging. Symlinks at the old hashed location pointing at the new project paths are acceptable - they preserve any platform mechanism that auto-loads from the legacy path while keeping writes gate-free.
 
 **Part A — Write context.md**
 
-The pinned header prefix, the spillover-drain procedure, the `.agentic/wrap/last-wrap` write contract, and the `context.md` rolling-session-label merge algorithm are defined in `$AE_REPO_DIR/content/references/wrap-context-format.md` (the shared normative home cited by both `$wrap` and `$wrap-deferred`). This Part A is the `$wrap`-specific wrapper around that shared algorithm; the algorithm itself is NOT restated here.
+The pinned header prefix, the spillover-drain procedure, the `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` write contract, and the `context.md` rolling-session-label merge algorithm are defined in `$AE_REPO_DIR/content/references/wrap-context-format.md` (the shared normative home cited by both `$wrap` and `manual workflow 'wrap-deferred' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command wrap-deferred``). This Part A is the `$wrap`-specific wrapper around that shared algorithm; the algorithm itself is NOT restated here.
 
 Inside the Part A `context.md` write window (the whole-flow `wrap/lock` acquired at pre-flight is held throughout - see "Pre-flight lock acquisition" and the Step 6 release; Part A introduces no new lock window), run, in this exact order:
 
-1. **Atomic spillover drain** - the 3-step rename-first procedure in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `.agentic/wrap/deferred-activity.jsonl` -> `.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
+1. **Atomic spillover drain** - the 3-step rename-first procedure in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl` -> `$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
 
-2. **Rolling-session-label merge write** of `.agentic/context.md` - the algorithm in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/wrap / merge branches, the duplicate-claim dedup, the 1-to-5 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by $wrap` (the matcher contract); no site parses the header date.
+2. **Rolling-session-label merge write** of `$AE_PROJECT_DIR/.agentic/context.md` - the algorithm in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/wrap / merge branches, the duplicate-claim dedup, the 1-to-5 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by $wrap` (the matcher contract); no site parses the header date.
 
-3. **Write `.agentic/wrap/last-wrap`** = this session's `session_id` (atomic) - per `$AE_REPO_DIR/content/references/wrap-context-format.md` §"`.agentic/wrap/last-wrap` write contract".
+3. **Write `$AE_PROJECT_DIR/.agentic/wrap/last-wrap`** = this session's `session_id` (atomic) - per `$AE_REPO_DIR/content/references/wrap-context-format.md` §"`$AE_PROJECT_DIR/.agentic/wrap/last-wrap` write contract".
 
 The net behavior of Part A is unchanged by this extraction: the cited reference is semantically identical to the algorithm `$wrap` formerly inlined here (identical aside from the Result/Return label), pinned by the golden-file parity test (`$AE_REPO_DIR/hooks/tests/test-wrap-context-format-golden.js`).
 
@@ -420,19 +440,19 @@ The net behavior of Part A is unchanged by this extraction: the cited reference 
 
 Skip Part B entirely if the memory entries input above is "None".
 
-**Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry, cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `<cwd>/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`. Non-deferred entries continue to the steps below. The pending file is plain markdown — a follow-up doc PR after the source PRs merge can move entries from `.agentic/memory-pending.md` into `.agentic/memory.md`. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, memory.md describes paths or keys that do not yet exist on the target branch.
+**Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry, cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `$AE_PROJECT_DIR/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`. Non-deferred entries continue to the steps below. The pending file is plain markdown — a follow-up doc PR after the source PRs merge can move entries from `$AE_PROJECT_DIR/.agentic/memory-pending.md` into `$AE_PROJECT_DIR/.agentic/memory.md`. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, memory.md describes paths or keys that do not yet exist on the target branch.
 
 1. Use the Read tool to attempt to read the file at the memory.md path.
 
 2. **If the file does not exist**: write all non-deferred entries directly as a markdown list. Return: "Wrote fresh memory to [path] (N entries written, M deferred to memory-pending.md)."
 
-3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured — not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read in Step 0): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded, K deferred to memory-pending.md)."
+3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured — not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `$AE_PROJECT_DIR/.agentic/learnings.md` (read in Step 0): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded, K deferred to memory-pending.md)."
 
 **Part C — Write AGENTS.md updates**
 
 Skip Part C entirely if the AGENTS.md updates input above is "None" or all files within it are marked "None".
 
-**Open-PR deferral pass (run BEFORE iterating files).** For each proposed `Add:`, `New section:`, `New file: true`, and `Update:` block, cross-reference the file paths, directory paths, and feature keys cited in the proposed content against the Open-PR overlap set captured in Step 0. A block is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the block with `[defer-pr: <pr_number>]`. Strip the marker from the block content and route the deferred block to `<cwd>/.agentic/agents-md-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>) — <target AGENTS.md path>`. Non-deferred blocks continue through the per-file write below. A follow-up doc PR after the source PRs merge can move entries from `.agentic/agents-md-pending.md` into the actual AGENTS.md files. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, AGENTS.md describes paths or keys that do not yet exist on the target branch — exactly the failure mode that historically produced Critical findings during $wrap Skeptic review.
+**Open-PR deferral pass (run BEFORE iterating files).** For each proposed `Add:`, `New section:`, `New file: true`, and `Update:` block, cross-reference the file paths, directory paths, and feature keys cited in the proposed content against the Open-PR overlap set captured in Step 0. A block is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the block with `[defer-pr: <pr_number>]`. Strip the marker from the block content and route the deferred block to `$AE_PROJECT_DIR/.agentic/agents-md-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>) — <target AGENTS.md path>`. Non-deferred blocks continue through the per-file write below. A follow-up doc PR after the source PRs merge can move entries from `$AE_PROJECT_DIR/.agentic/agents-md-pending.md` into the actual AGENTS.md files. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, AGENTS.md describes paths or keys that do not yet exist on the target branch — exactly the failure mode that historically produced Critical findings during $wrap Skeptic review.
 
 For each file with non-deferred updates:
 
@@ -458,7 +478,7 @@ Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file wri
 
 Skip Part D on the **zero-substance path** (already skipped Steps 1-3; no session activity to extract from). Run Part D on the **light path** and the **standard path**. This step runs INSIDE the `wrap/lock` window already held from pre-flight. Soft-fail: any error in this step is silently swallowed; Part D failure NEVER breaks or delays the wrap.
 
-**Gate:** Read `.agentic/config.json`. If `skill_candidate_detection` is explicitly `false`, skip Part D entirely. Default (key absent or config missing) is `true` - proceed.
+**Gate:** Read `$AE_PROJECT_DIR/.agentic/config.json`. If `skill_candidate_detection` is explicitly `false`, skip Part D entirely. Default (key absent or config missing) is `true` - proceed.
 
 **Extraction (inline LLM reasoning over the session already reflected on in Step 0):**
 
@@ -496,9 +516,9 @@ Skip Part D.5 on the **zero-substance path** (already skipped Steps 1-3; no sess
 
 **Deterministic evidence gathering.** Each of the four signals below is individually guarded: a missing file, a missing or broken `agentic-feedback` binary, or a read error on any ONE signal must never break or stall the wrap, and must never prevent the remaining signals from being checked. Gather candidates from whichever signals are available; skip any that error or are absent.
 
-1. **Tool-friction signal.** If `.agentic/events.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file). Filter to lines where `event == "tool_failure_workaround"` AND `data.session_uuid == $AE_SESSION_ID`. Each match is a candidate: `category = tool-friction`, evidence `"tool_failure_workaround: <tool> (<domain_tag>) - <note>"`.
-2. **Skeptic-loop-stall signal.** If `.agentic/loop-state.json` exists AND its `session_id == $AE_SESSION_ID` AND `status == "stalled"`: one candidate, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
-3. **Guardrail-fire signal.** If `.agentic/.abdication-guard-fire-count` exists and its `count >= 1` at wrap time: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`. **Honesty note:** this counter resets to 0 on every genuine new user turn (see `$AE_REPO_DIR/hooks/enforce-no-abdication.py`), so a nonzero count at wrap time reflects only "an abdication-guard loop was present in the session's final turn" — it is NOT a whole-session tally of guardrail fires. State this narrowly in the evidence text; do not describe it as a session-wide count.
+1. **Tool-friction signal.** If `$AE_PROJECT_DIR/.agentic/events.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file). Filter to lines where `event == "tool_failure_workaround"` AND `data.session_uuid == $AE_SESSION_ID`. Each match is a candidate: `category = tool-friction`, evidence `"tool_failure_workaround: <tool> (<domain_tag>) - <note>"`.
+2. **Skeptic-loop-stall signal.** If `$AE_PROJECT_DIR/.agentic/loop-state.json` exists AND its `session_id == $AE_SESSION_ID` AND `status == "stalled"`: one candidate, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
+3. **Guardrail-fire signal.** If `$AE_PROJECT_DIR/.agentic/.abdication-guard-fire-count` exists and its `count >= 1` at wrap time: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`. **Honesty note:** this counter resets to 0 on every genuine new user turn (see `$AE_REPO_DIR/hooks/enforce-no-abdication.py`), so a nonzero count at wrap time reflects only "an abdication-guard loop was present in the session's final turn" — it is NOT a whole-session tally of guardrail fires. State this narrowly in the evidence text; do not describe it as a session-wide count.
 4. **Operator-correction signal.** Using the same session reflection Part D already surveys (no new mechanism — inline LLM reasoning over the transcript), identify up to 5 turns where the operator explicitly corrected, rejected, or expressed frustration with a conductor action this session. Each is a candidate: `category = operator-correction`, evidence = the operator's verbatim correction, trimmed to the relevant sentence(s).
 
 If the combined candidate set across all four signals is empty: emit `[]` and STOP here — no temp file write, no `agentic-feedback` invocation (mirrors Part D's "output `[]` if nothing qualifies"). This keeps Part D.5 latency-free on light and zero-substance sessions where nothing fired.
@@ -544,7 +564,7 @@ Skip Part E entirely if Parts B and C both reported no changes (no new memory en
 
 Skip any target that does not exist.
 
-**State file:** `[cwd]/.agentic/compression-state.json`. Schema:
+**State file:** `$AE_PROJECT_DIR/.agentic/compression-state.json`. Schema:
 
     {
       "targets": {
@@ -603,7 +623,7 @@ Otherwise skip that target silently.
    - (b) Write a rolling snapshot `FILE.pre-YYYY-MM-DD-HHMMSS.md` (using the current UTC timestamp at write time) from the current (pre-compression) file content. Always write; never skip.
    - (c) Prune rolling snapshots: keep only the 3 most recent `FILE.pre-*.md` snapshots for this target (by timestamp in filename). Delete older ones.
    - (d) Overwrite `FILE.md` with the compressed content.
-   - (e) Update `[cwd]/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file if it does not exist (the `.agentic/` directory is already created by the lock acquisition step).
+   - (e) Update `$AE_PROJECT_DIR/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file if it does not exist (the `$AE_PROJECT_DIR/.agentic/` directory is already created by the lock acquisition step).
 
 **Step 5 — Worktree cleanup.**
 
@@ -611,15 +631,15 @@ If the project is a git repository with a `manual workflow 'cleanup-worktrees' v
 
 **Step 6 — Terminal marker transition + confirm completion.**
 
-Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
+Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired helper that releases `$AE_PROJECT_DIR/.agentic/wrap/lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
 
-**Terminal marker transition (transitions its OWN marker to a retained `done` tombstone on completion).** When Step 0a staged a per-session `.agentic/wrap/pending-<session_id>.json` marker (the daemon guard passed), this synchronous `$wrap` transitions its OWN marker to a retained `done` tombstone on completion so the daemon does not later re-wrap a session the user already wrapped manually. When the Step 0a guard was false (off-Claude, toggle-off, or under the daemon guard), no marker was staged and there is nothing to transition - skip this block entirely. Transition the marker ONLY at true completion:
+**Terminal marker transition (transitions its OWN marker to a retained `done` tombstone on completion).** When Step 0a staged a per-session `$AE_PROJECT_DIR/.agentic/wrap/pending-<session_id>.json` marker (the daemon guard passed), this synchronous `$wrap` transitions its OWN marker to a retained `done` tombstone on completion so the daemon does not later re-wrap a session the user already wrapped manually. When the Step 0a guard was false (off-Claude, toggle-off, or under the daemon guard), no marker was staged and there is nothing to transition - skip this block entirely. Transition the marker ONLY at true completion:
 
-- **Full success** (context.md written + Part B/C applied + Part E settled, no escalation outstanding): set this session's marker `status: done` AND stamp `wrapped_at: <now ISO8601 UTC>` and RETAIN the marker (do NOT unlink it). The retained `done` tombstone prevents this same session being re-staged after `.agentic/wrap/last-wrap` rolls to a different session; the daemon janitor reaps it after `deferred_wrap_pending_ttl_days`. A partial or escalated run leaves the marker in its pre-Step-6 state so the daemon can complete it later.
+- **Full success** (context.md written + Part B/C applied + Part E settled, no escalation outstanding): set this session's marker `status: done` AND stamp `wrapped_at: <now ISO8601 UTC>` and RETAIN the marker (do NOT unlink it). The retained `done` tombstone prevents this same session being re-staged after `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` rolls to a different session; the daemon janitor reaps it after `deferred_wrap_pending_ttl_days`. A partial or escalated run leaves the marker in its pre-Step-6 state so the daemon can complete it later.
 
 **Part F - Tracker status reconciliation.**
 
-Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before. Tracker/gh API calls (ticket queries, `gh pr list`, comment posts) are slow and must not extend how long `$wrap` holds `.agentic/wrap/lock` - other conductors and `wrap-ticket` invocations queue behind that lock. Purpose: give conductor-led ticket work (a session that touched a ticket outside `$implement-ticket` - e.g. a direct fix committed to `BASE_BRANCH`) a tracker footprint, so the ticket's tracker column doesn't silently lag behind shipped work.
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before. Tracker/gh API calls (ticket queries, `gh pr list`, comment posts) are slow and must not extend how long `$wrap` holds `$AE_PROJECT_DIR/.agentic/wrap/lock` - other conductors and `wrap-ticket` invocations queue behind that lock. Purpose: give conductor-led ticket work (a session that touched a ticket outside `$implement-ticket` - e.g. a direct fix committed to `BASE_BRANCH`) a tracker footprint, so the ticket's tracker column doesn't silently lag behind shipped work.
 
 Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session activity means no ticket-referencing commits to detect. Part F runs on the light path and the standard path, same as Part D.
 
@@ -637,7 +657,7 @@ Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session 
 
 **Soft-fail (absolute).** Any error anywhere in Part F - tracker resolution failure, git call failure, MCP/gh API failure, subagent spawn failure - is swallowed with a one-line stderr log (`[wrap: Part F] <error>`), and Part F moves on to the next key or exits cleanly. Part F NEVER breaks, delays, retries-with-backoff, or blocks `$wrap`'s return to the user. It runs once, best-effort, after the lock is already released - a slow or failing tracker call costs the user nothing beyond Part F's own runtime.
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `$AE_PROJECT_DIR/.agentic/memory-pending.md` and `$AE_PROJECT_DIR/.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 

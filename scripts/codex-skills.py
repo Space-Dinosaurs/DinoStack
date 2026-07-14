@@ -57,6 +57,33 @@ TOOL_MAP = {
     "Write": "apply_patch",
     "AskUserQuestion": "one bounded direct question after default derivation",
 }
+CODEX_SPAWN_CONTRACT = """**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an
+isolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):
+
+1. `git fetch origin`.
+2. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
+3. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" origin/main`.
+4. Load the named role instructions with
+   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+5. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
+   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
+   instructions plus the execution contract. The spawned agent must use shell commands in that
+   worktree and must not edit the conductor checkout.
+
+Codex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and
+wait operations to collect completion, and applies the existing review gates to the returned diff.
+Claude hook payload fields and Claude Task behavior do not apply on Codex.
+"""
+SIMPLIFY_CONTRACT = (
+    "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` "
+    "(load that section, dispatch the named cleanup role with "
+    "`$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the "
+    "required narrow Skeptic review)"
+)
+CODEX_BACKGROUND_COMMAND_CONTRACT = (
+    "start the helper with Codex `exec_command`; if it yields a session ID, keep the conductor "
+    "responsive and poll it with `write_stdin` until completion"
+)
 PATH_BINARIES = {
     "awk", "bash", "break", "case", "cat", "cd", "command", "cp", "curl",
     "done", "echo", "elif", "else", "env", "except", "export", "fi", "find",
@@ -89,6 +116,7 @@ class Occurrence:
     kind: str
     resolution_mode: str
     expected_target: str
+    scope: str
     occurrence_hash: str
 
     def record(self) -> dict[str, str]:
@@ -98,6 +126,7 @@ class Occurrence:
             "kind": self.kind,
             "occurrence_hash": self.occurrence_hash,
             "resolution_mode": self.resolution_mode,
+            "scope": self.scope,
             "source": self.source,
             "source_token": self.source_token,
         }
@@ -164,14 +193,42 @@ def add_occurrence(
     found: list[Occurrence], occupied: list[tuple[int, int]], doc: Document,
     start: int, end: int, occurrence_class: str, token: str, generated: str,
     kind: str, mode: str, target: str,
+    scope: str = "canonical-source",
 ) -> None:
     if any(start < right and end > left for left, right in occupied):
         return
     occupied.append((start, end))
     found.append(Occurrence(
-        doc.source, start, end, occurrence_class, token, generated, kind, mode, target,
+        doc.source, start, end, occurrence_class, token, generated, kind, mode, target, scope,
         line_fingerprint(doc.text, start, token, occurrence_class, doc.source),
     ))
+
+
+def add_project_path_inventory(
+    found: list[Occurrence], doc: Document, span_start: int, span_text: str,
+) -> None:
+    """Record project-path scope inside a larger paragraph-level transformation."""
+    pattern = re.compile(r"(?<![~\w/])(\.(?:agentic|claude)(?:/[A-Za-z0-9_.*<>\[\]-]+)*/?|\.gitignore)")
+    for match in pattern.finditer(span_text):
+        token = match.group(1).rstrip(".,;:")
+        if token.startswith(".claude") and not doc.source.startswith("content/commands/"):
+            continue
+        start = span_start + match.start(1)
+        found.append(Occurrence(
+            doc.source, start, start + len(token), "inventory-only-project-path", token,
+            f"$AE_PROJECT_DIR/{token}", "operational", "invoked-project-path", token,
+            "invoked-project", line_fingerprint(doc.text, start, token,
+                                                  "inventory-only-project-path", doc.source),
+        ))
+
+
+def codexify_project_paths(text: str, include_claude: bool) -> str:
+    names = "agentic|claude" if include_claude else "agentic"
+    pattern = re.compile(
+        rf"(?:<cwd>/|\[cwd\]/)?(\.(?:{names})(?:/[A-Za-z0-9_.*<>\[\]-]+)*/?)"
+    )
+    rendered = pattern.sub(lambda match: f"$AE_PROJECT_DIR/{match.group(1)}", text)
+    return re.sub(r"(?<![/\w])\.gitignore\b", "$AE_PROJECT_DIR/.gitignore", rendered)
 
 
 def shell_occurrences(doc: Document, found: list[Occurrence], occupied: list[tuple[int, int]], repo: Path) -> None:
@@ -227,32 +284,212 @@ def shell_occurrences(doc: Document, found: list[Occurrence], occupied: list[tup
 def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
     found: list[Occurrence] = []
     occupied: list[tuple[int, int]] = []
+
+    for match in re.finditer(r"\*\*All delegated tasks run in the background by default\.\*\*.*?(?=\n\n)", doc.text, re.S):
+        add_occurrence(
+            found, occupied, doc, match.start(), match.end(), "spawn-semantics",
+            match.group(0), CODEX_SPAWN_CONTRACT.rstrip(), "operational",
+            "codex-spawn-contract", "spawn_agent", "codex-harness",
+        )
+
+    worktree_paragraphs = (
+        r"\*\*Worktree isolation is MANDATORY\.\*\*.*?(?=\n\n)",
+        r"There is no in-place exception\..*?(?=\n\n)",
+        r"\*\*Isolation is mandatory for every shippable-edit spawn\.\*\*.*?(?=\n\n)",
+        r"\*\*Isolation worktrees \(`worktree-agent-\*`\)\*\*.*?(?=\n\n)",
+        r"\*\*Worktree isolation is mandatory on the Elevated path\.\*\*.*?(?=\n\n)",
+        r"\*\*Trivial-path solo engineer carve-out\.\*\*.*?(?=\n\n)",
+        r"\*\*Step 1\.\*\* Spawn `qa-engineer`.*?(?=\n\n)",
+        r"2\. Spawn one `engineer` fix pass scoped to the quality gate failure output.*?(?=\n\n)",
+        r"5\. Spawn one `engineer` fix pass with the Debugger's Fix brief appended.*?(?=\n\n)",
+    )
+    for pattern in worktree_paragraphs:
+        for match in re.finditer(pattern, doc.text, re.S):
+            generated = match.group(0)
+            generated = re.sub(
+                r"Every concurrent (`engineer`, `qa-engineer`, and `release-orchestrator`) spawn MUST set "
+                r"`isolation: \"worktree\"` on the Agent tool call",
+                r"Before every concurrent \1 spawn, execute the Codex spawn contract above",
+                generated,
+            )
+            generated = re.sub(
+                r"Every (`engineer`, `qa-engineer`, and `release-orchestrator`) spawn MUST set "
+                r"`isolation: \"worktree\"` on the Agent tool call",
+                r"Before every \1 spawn, execute the Codex spawn contract above",
+                generated,
+            )
+            generated = generated.replace(
+                "The Agent tool call spawning the engineer MUST set `isolation: \"worktree\"`",
+                "Before spawning the engineer, execute the Codex spawn contract above",
+            )
+            generated = generated.replace(
+                "The Agent tool call MUST set `isolation: \"worktree\"`",
+                "Before calling `spawn_agent`, execute the Codex spawn contract above",
+            )
+            generated = generated.replace(
+                "The Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`",
+                "The Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above",
+            )
+            generated = generated.replace(
+                "the Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`",
+                "the Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above",
+            )
+            generated = generated.replace(
+                "inside its own worktree (`isolation: \"worktree\"`)",
+                "inside the pre-created worktree required by the Codex spawn contract above",
+            )
+            generated = generated.replace(
+                "are created by the Agent tool when `isolation: \"worktree\"` is set",
+                "are created explicitly by the conductor with `git worktree add` before `spawn_agent`, "
+                "as required by the Codex spawn contract above",
+            )
+            generated = codexify_project_paths(
+                generated, include_claude=doc.source.startswith("content/commands/")
+            )
+            if generated == match.group(0) or "isolation:" in generated:
+                raise SkillError(f"incomplete Codex worktree paragraph mapping in {doc.source}")
+            add_project_path_inventory(found, doc, match.start(), match.group(0))
+            add_occurrence(
+                found, occupied, doc, match.start(), match.end(), "spawn-semantics",
+                match.group(0), generated, "operational", "codex-spawn-contract",
+                "git worktree add + spawn_agent", "codex-harness",
+            )
+
+    for match in re.finditer(
+        r"\*\*Routing enforcement differs by harness\.\*\*.*?(?=\n\n)", doc.text, re.S
+    ):
+        generated = (
+            "**Routing enforcement differs by harness.** Claude Code's `PreToolUse` hooks enforce "
+            "its legacy Agent and Task behavior, but those hooks do not mediate Codex `spawn_agent`. "
+            "On Codex, the conductor follows the binding prose contract and, for a role routed to "
+            "another harness, executes discover -> dispatch -> status -> collect without silently "
+            "falling back to a native spawn. See "
+            "`$AE_REPO_DIR/content/references/cross-harness-teams.md` for the full decision rule, "
+            "config schema, "
+            "self-containment guard, dispatch table, and enforcement-status table."
+        )
+        add_occurrence(
+            found, occupied, doc, match.start(), match.end(), "spawn-semantics",
+            match.group(0), generated, "operational", "codex-spawn-contract",
+            "cross-harness dispatch contract", "codex-harness",
+        )
+
+    for match in re.finditer(r".*?`run_in_background:\s*true`.*?(?=\n)", doc.text):
+        if any(match.start() < right and match.end() > left for left, right in occupied):
+            continue
+        generated = match.group(0).replace(
+            "run the acquire helper as a BACKGROUND command (`run_in_background: true`)",
+            CODEX_BACKGROUND_COMMAND_CONTRACT,
+        )
+        if generated == match.group(0):
+            continue
+        if "run_in_background" in generated:
+            raise SkillError(f"incomplete Codex background-command mapping in {doc.source}")
+        generated = codexify_project_paths(generated, include_claude=True)
+        generated = re.sub(r"(?<![\w.])/wrap\b", "$wrap", generated)
+        add_project_path_inventory(found, doc, match.start(), match.group(0))
+        add_occurrence(
+            found, occupied, doc, match.start(), match.end(), "spawn-semantics",
+            match.group(0), generated, "operational", "codex-session-polling",
+            "exec_command + write_stdin", "codex-harness",
+        )
+
     literal_rules = [
-        (r"~/DinoStack/\.claude/skills/agentic-engineering", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering"),
-        (r"~/DinoStack", "dinostack-home", "$AE_REPO_DIR", "validated-repository", "repository-root", "content/SKILL.md"),
-        (r"~?/??\.claude/skills/agentic-engineering", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering"),
-        (r"~/\.claude", "claude-path", "$AE_SHARED_CONFIG_DIR", "shared-config-path", "global-config-root", "$HOME/.claude"),
-        (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents"),
-        (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands"),
-        (r"(?<![~\w/])\.claude", "claude-path", "$AE_REPO_DIR/.claude", "validated-repository", "repository-path", ".claude"),
-        (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/agentic-codex-session-id"),
+        (r"~/DinoStack/\.claude/skills/agentic-engineering", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering", "dinostack-repository"),
+        (r"~/DinoStack", "dinostack-home", "$AE_REPO_DIR", "validated-repository", "repository-root", "content/SKILL.md", "dinostack-repository"),
+        (r"~?/??\.claude/skills/agentic-engineering", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering", "dinostack-repository"),
+        (r"~/\.claude", "claude-path", "$AE_SHARED_CONFIG_DIR", "shared-config-path", "global-config-root", "$HOME/.claude", "shared-user-config"),
+        (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents", "dinostack-repository"),
+        (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands", "dinostack-repository"),
+        (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/agentic-codex-session-id", "codex-harness"),
     ]
-    for pattern, cls, generated, mode, target_kind, target in literal_rules:
+    for pattern, cls, generated, mode, target_kind, target, scope in literal_rules:
         for match in re.finditer(pattern, doc.text):
             add_occurrence(found, occupied, doc, match.start(), match.end(), cls, match.group(0),
-                           generated, "operational", mode, target)
+                           generated, "operational", mode, target, scope)
+
+    explicit_project = re.compile(
+        r"(?:<cwd>|\[cwd\])/(\.(?:claude|agentic)(?:/[A-Za-z0-9_.*<>\[\]-]+)*/?|\.gitignore)"
+    )
+    for match in explicit_project.finditer(doc.text):
+        token = match.group(1).rstrip(".,;:)")
+        end = match.start(1) + len(token)
+        add_occurrence(found, occupied, doc, match.start(), end, "project-path", match.group(0)[:end-match.start()],
+                       f"$AE_PROJECT_DIR/{token}", "operational", "invoked-project-path", token,
+                       "invoked-project")
+
+    scoped_path = re.compile(r"(?<![~\w/])(\.(?:claude|agentic)(?:/[A-Za-z0-9_.*<>\[\]-]+)*/?)")
+    for match in scoped_path.finditer(doc.text):
+        token = match.group(1).rstrip(".,;:)")
+        end = match.start(1) + len(token)
+        is_project = token.startswith(".agentic") or doc.source.startswith("content/commands/")
+        if is_project:
+            generated, mode, scope = f"$AE_PROJECT_DIR/{token}", "invoked-project-path", "invoked-project"
+        else:
+            generated, mode, scope = f"$AE_REPO_DIR/{token}", "validated-repository", "dinostack-repository"
+        add_occurrence(found, occupied, doc, match.start(1), end, "scoped-path", token,
+                       generated, "operational", mode, token, scope)
+
+    for match in re.finditer(r"(?<![/\w])\.gitignore\b", doc.text):
+        add_occurrence(found, occupied, doc, match.start(), match.end(), "project-path", ".gitignore",
+                       "$AE_PROJECT_DIR/.gitignore", "operational", "invoked-project-path",
+                       ".gitignore", "invoked-project")
+
+    for match in re.finditer(r"isolation:\s*[\"']worktree[\"']", doc.text):
+        add_occurrence(found, occupied, doc, match.start(), match.end(), "unsupported-spawn-field",
+                       match.group(0), "the explicit Codex worktree bootstrap contract above",
+                       "operational", "codex-spawn-contract", "git worktree add", "codex-harness")
+    for match in re.finditer(r"run_in_background(?:\s*:\s*(?:true|false))?", doc.text):
+        add_occurrence(found, occupied, doc, match.start(), match.end(), "unsupported-spawn-field",
+                       match.group(0), "the asynchronous Codex spawn contract above",
+                       "operational", "codex-spawn-contract", "spawn_agent", "codex-harness")
 
     names = command_names(repo)
-    slash_pattern = r"(?<![\w./-])/((?:" + "|".join(map(re.escape, names)) + r"))\b"
+    mapped_slashes = tuple(sorted((*names, "simplify"), key=len, reverse=True))
+    slash_pattern = r"(?<![\w./-])/((?:" + "|".join(map(re.escape, mapped_slashes)) + r"))\b"
     for match in re.finditer(slash_pattern, doc.text):
         name = match.group(1)
         if name in WORKFLOWS or name == "agentic-engineering":
             generated, mode, target = f"${name}", "native-skill", name
+        elif name == "simplify":
+            generated, mode, target = SIMPLIFY_CONTRACT, "cleanup-resource-contract", "references/skeptic-protocol.md#section-12"
         else:
             generated = f"manual workflow '{name}' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command {name}`"
             mode, target = "manual-command-resource", f"content/commands/{name}.md"
         add_occurrence(found, occupied, doc, match.start(), match.end(), "slash-workflow",
-                       match.group(0), generated, "operational", mode, target)
+                       match.group(0), generated, "operational", mode, target, "dinostack-repository")
+
+    all_slashes = re.compile(r"(?<![\w./:-])/([a-z][a-z0-9-]+)\b")
+    display_slashes = {
+        "attachments", "blob", "browse", "dev", "issue", "issues", "jira", "null",
+        "operators", "pull", "rest", "staleness", "tmp", "unavailable", "view", "wrap-internal",
+    }
+    for match in all_slashes.finditer(doc.text):
+        if any(match.start() < right and match.end() > left for left, right in occupied):
+            continue
+        name = match.group(1)
+        line_start = doc.text.rfind("\n", 0, match.start()) + 1
+        line_end = doc.text.find("\n", match.end())
+        if line_end < 0:
+            line_end = len(doc.text)
+        line = doc.text[line_start:line_end]
+        quoted = (match.start() > 0 and doc.text[match.start() - 1] == "`") or (
+            match.end() < len(doc.text) and doc.text[match.end()] == "`"
+        )
+        operational = quoted or bool(re.search(r"\b(?:run|invoke|execute|command|use)\b", line, re.I))
+        if name == "exit":
+            add_occurrence(found, occupied, doc, match.start(), match.end(), "slash-workflow",
+                           match.group(0), match.group(0), "operational", "codex-built-in",
+                           "Codex CLI /exit", "codex-harness")
+        elif name in display_slashes or not operational:
+            add_occurrence(found, occupied, doc, match.start(), match.end(), "slash-token",
+                           match.group(0), match.group(0), "display-only", "display-only",
+                           "hashed-source-occurrence", "display-only")
+        else:
+            raise SkillError(
+                f"unsupported operational slash workflow {match.group(0)!r} in {doc.source}; "
+                "add an explicit native, manual-resource, cleanup-resource, or Codex built-in mapping"
+            )
 
     for match in re.finditer(r"(?<![/\w.-])METHODOLOGY\.md\b", doc.text):
         add_occurrence(found, occupied, doc, match.start(), match.end(), "methodology-reference",
@@ -269,14 +506,44 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
     tool_pattern = r"`(Agent|Task|Read|Glob|Grep|Bash|Edit|Write|AskUserQuestion)`"
     for match in re.finditer(tool_pattern, doc.text):
         token = match.group(1)
+        line_start = doc.text.rfind("\n", 0, match.start()) + 1
+        line_end = doc.text.find("\n", match.end())
+        if line_end < 0:
+            line_end = len(doc.text)
+        line = doc.text[line_start:line_end]
+        claude_historical = token in {"Agent", "Task"} and bool(
+            re.search(r"Claude Code|PreToolUse|hook|legacy", line, re.I)
+        )
+        if claude_historical:
+            generated = "Claude Agent" if token == "Agent" else "legacy Claude Task"
+            mode, target, scope = "claude-harness-reference", token, "claude-harness"
+        else:
+            generated = TOOL_MAP[token]
+            mode, target, scope = "codex-tool", TOOL_MAP[token], "codex-harness"
         add_occurrence(found, occupied, doc, match.start(1), match.end(1), "agent-tool",
-                       token, TOOL_MAP[token], "operational", "codex-tool", TOOL_MAP[token])
+                       token, generated, "operational", mode, target, scope)
 
     semantic_pattern = r"\b(Agent|Task|Read|Glob|Grep|Bash|Edit|Write|AskUserQuestion)\b"
     for match in re.finditer(semantic_pattern, doc.text):
         token = match.group(1)
+        if token == "Task" and doc.text[match.end():].startswith(" Decomposition"):
+            add_occurrence(found, occupied, doc, match.start(1), match.end(1), "agent-tool",
+                           token, token, "semantic-reference", "section-title",
+                           "Task Decomposition", "canonical-source")
+            continue
+        line_start = doc.text.rfind("\n", 0, match.start()) + 1
+        line_end = doc.text.find("\n", match.end())
+        if line_end < 0:
+            line_end = len(doc.text)
+        line = doc.text[line_start:line_end]
+        if token in {"Agent", "Task"}:
+            historical = bool(re.search(r"Claude Code|PreToolUse|hook|legacy", line, re.I))
+            generated = ("Claude Agent" if token == "Agent" else "legacy Claude Task") if historical else "spawn_agent"
+            mode = "claude-harness-reference" if historical else "codex-spawn-contract"
+        else:
+            generated, mode = token, "compatibility-preamble"
         add_occurrence(found, occupied, doc, match.start(1), match.end(1), "agent-tool",
-                       token, token, "semantic-reference", "compatibility-preamble", TOOL_MAP[token])
+                       token, generated, "semantic-reference", mode, TOOL_MAP[token], "codex-harness")
 
     shell_occurrences(doc, found, occupied, repo)
     return sorted(found, key=lambda item: item.start)
@@ -327,6 +594,8 @@ def load_compatibility(repo: Path) -> dict[str, object]:
 def transform(text: str, occurrences: Iterable[Occurrence]) -> str:
     rendered = text
     for item in sorted(occurrences, key=lambda value: value.start, reverse=True):
+        if item.occurrence_class.startswith("inventory-only-"):
+            continue
         if rendered[item.start:item.end] != item.source_token:
             raise SkillError(f"transform identity mismatch in {item.source}: {item.source_token!r}")
         rendered = rendered[:item.start] + item.generated_token + rendered[item.end:]
@@ -358,15 +627,19 @@ Before executing this skill, resolve the physical directory containing this load
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
-the process working directory. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude`
-cross-adapter configuration directory. Interpret canonical Claude `Agent` and `Task` operations as
-Codex `spawn_agent`: load the named role from the mapped `agents` resource and create an explicit
-repository git worktree before any spawn that requires isolation. Map canonical filesystem tools
-to Codex filesystem reads, `rg --files`, `rg`, shell, and `apply_patch`; ask one bounded direct
-question only after default derivation. Derive `AE_SESSION_ID` by passing hook JSON to
+the process working directory. Bind `AE_PROJECT_DIR` to the absolute invoked project root before
+changing directories (`git rev-parse --show-toplevel` when inside a repository, otherwise the
+verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
+compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
+`AE_REPO_DIR`. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude` cross-adapter
+configuration directory. Map canonical filesystem tools to Codex filesystem reads, `rg --files`,
+`rg`, shell, and `apply_patch`; ask one bounded direct question only after default derivation.
+Derive `AE_SESSION_ID` by passing hook JSON to
 `$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
 `$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+
+{CODEX_SPAWN_CONTRACT}
 
 """
 

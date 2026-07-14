@@ -179,6 +179,104 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.build()
         self.assertEqual(tree_before, fingerprint(self.repo / ".codex/skills"))
 
+    def test_project_local_paths_keep_invoked_project_scope(self) -> None:
+        wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
+        ticket = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
+        core = (self.repo / ".codex/skills/agentic-engineering/SKILL.md").read_text(encoding="utf-8")
+        for path in (
+            ".claude/settings.json",
+            ".claude/settings.local.json",
+            ".claude/compression-state.json",
+            ".agentic/compression-state.json",
+            ".gitignore",
+        ):
+            self.assertIn(f"$AE_PROJECT_DIR/{path}", wrap)
+            self.assertNotIn(f"$AE_REPO_DIR/{path}", wrap)
+        for path in (".agentic/qa.md", ".claude/qa.md"):
+            self.assertIn(f"$AE_PROJECT_DIR/{path}", ticket)
+            self.assertNotIn(f"$AE_REPO_DIR/{path}", ticket)
+        self.assertIn("$AE_REPO_DIR/.claude/build.sh", core)
+
+        payload = json.loads((self.repo / ".codex/skill-compatibility.yml").read_text())
+        project_records = [
+            item for item in payload["occurrences"]
+            if item["source_token"] in {
+                ".claude/settings.json", ".claude/settings.local.json",
+                ".claude/compression-state.json", ".agentic/compression-state.json",
+                ".agentic/qa.md", ".claude/qa.md", ".gitignore",
+            }
+        ]
+        self.assertTrue(project_records)
+        self.assertTrue(all(item.get("scope") == "invoked-project" for item in project_records))
+        repository_records = [
+            item for item in payload["occurrences"]
+            if item["source_token"] == ".claude/build.sh"
+        ]
+        self.assertTrue(repository_records)
+        self.assertTrue(all(item.get("scope") == "dinostack-repository" for item in repository_records))
+
+    def test_generated_spawn_contract_is_executable_codex_semantics(self) -> None:
+        generated = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((self.repo / ".codex/skills").rglob("*.md"))
+        )
+        self.assertNotRegex(generated, r"\bisolation\s*:")
+        self.assertNotIn("run_in_background", generated)
+        self.assertNotIn("on BOTH `spawn_agent` and `spawn_agent`", generated)
+        self.assertNotIn("legacy `legacy Claude Task`", generated)
+        self.assertNotIn("set `the explicit Codex", generated)
+        self.assertNotIn("legacy Claude Task Decomposition", generated)
+        self.assertNotIn(".agentic$wrap", generated)
+        self.assertIn("git worktree add", generated)
+        self.assertIn("origin/main", generated)
+        self.assertIn("Work only in the pre-created worktree", generated)
+        self.assertIn("$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>", generated)
+        self.assertIn("spawn_agent", generated)
+
+        payload = json.loads((self.repo / ".codex/skill-compatibility.yml").read_text())
+        unsupported = [
+            item for item in payload["occurrences"]
+            if "isolation:" in item["source_token"] or "run_in_background" in item["source_token"]
+        ]
+        self.assertTrue(unsupported)
+        self.assertTrue(all(
+            item["resolution_mode"] in {"codex-spawn-contract", "codex-session-polling"}
+            for item in unsupported
+        ))
+
+    def test_simplify_uses_explicit_cleanup_resource_contract(self) -> None:
+        generated = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((self.repo / ".codex/skills").rglob("*.md"))
+        )
+        self.assertNotIn("/simplify", generated)
+        self.assertIn("skeptic-protocol.md Section 12", generated)
+        self.assertIn("spawn_agent", generated)
+        payload = json.loads((self.repo / ".codex/skill-compatibility.yml").read_text())
+        simplify = [item for item in payload["occurrences"] if item["source_token"] == "/simplify"]
+        self.assertEqual(3, len(simplify))
+        self.assertTrue(all(item["resolution_mode"] == "cleanup-resource-contract" for item in simplify))
+
+    def test_unsupported_spawn_fields_and_operational_slash_fail_closed(self) -> None:
+        source = self.repo / "content/SKILL.md"
+        original = source.read_text(encoding="utf-8")
+        additions = (
+            "Spawn with `isolation: \"worktree\"`.",
+            "Set `run_in_background: true`.",
+            "Run `/unsupported-codex-workflow` now.",
+        )
+        for addition in additions:
+            with self.subTest(addition=addition):
+                source.write_text(original + f"\n{addition}\n", encoding="utf-8")
+                result = self.check(expected=1)
+                self.assertTrue(
+                    "compatibility inventory drift" in result.stderr
+                    or "unsupported operational slash workflow" in result.stderr,
+                    result.stderr,
+                )
+        source.write_text(original, encoding="utf-8")
+        self.check()
+
 
 def clean_clone_test() -> None:
     with tempfile.TemporaryDirectory(prefix="codex-skills-clean-clone-") as temporary:

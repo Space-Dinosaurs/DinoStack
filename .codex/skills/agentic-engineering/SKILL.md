@@ -15,15 +15,35 @@ Before executing this skill, resolve the physical directory containing this load
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
-the process working directory. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude`
-cross-adapter configuration directory. Interpret canonical Claude `Agent` and `Task` operations as
-Codex `spawn_agent`: load the named role from the mapped `agents` resource and create an explicit
-repository git worktree before any spawn that requires isolation. Map canonical filesystem tools
-to Codex filesystem reads, `rg --files`, `rg`, shell, and `apply_patch`; ask one bounded direct
-question only after default derivation. Derive `AE_SESSION_ID` by passing hook JSON to
+the process working directory. Bind `AE_PROJECT_DIR` to the absolute invoked project root before
+changing directories (`git rev-parse --show-toplevel` when inside a repository, otherwise the
+verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
+compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
+`AE_REPO_DIR`. Bind `AE_SHARED_CONFIG_DIR` to the validated `$HOME/.claude` cross-adapter
+configuration directory. Map canonical filesystem tools to Codex filesystem reads, `rg --files`,
+`rg`, shell, and `apply_patch`; ask one bounded direct question only after default derivation.
+Derive `AE_SESSION_ID` by passing hook JSON to
 `$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
 `$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+
+**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an
+isolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):
+
+1. `git fetch origin`.
+2. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
+3. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" origin/main`.
+4. Load the named role instructions with
+   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+5. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
+   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
+   instructions plus the execution contract. The spawned agent must use shell commands in that
+   worktree and must not edit the conductor checkout.
+
+Codex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and
+wait operations to collect completion, and applies the existing review gates to the returned diff.
+Claude hook payload fields and Claude Task behavior do not apply on Codex.
+
 
 <!--
 Purpose: Canonical body text for the agentic-engineering skill loaded by AI coding agents.
