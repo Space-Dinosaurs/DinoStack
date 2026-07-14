@@ -25,7 +25,10 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
                The branch prune block never force-deletes unproven work - see
-               Safe boundary note in that section.
+               Safe boundary note in that section. A locked-but-dir-missing
+               worktree admin entry survives a bare `git worktree prune` - the
+               isolation-cleanup and session-start-prune paths both unlock
+               before pruning to reclaim it.
 
 Performance: Standard.
 -->
@@ -71,13 +74,30 @@ Run at session start (conductor preflight) - ONCE per session, not before every 
 ```bash
 # Run at session start (conductor preflight):
 git fetch origin
+# Unlock any locked entry whose directory is already gone, so prune can actually clear
+# the stale admin metadata - a locked-but-dir-missing entry is NOT cleared by a bare
+# `git worktree prune`:
+git worktree list --porcelain | awk '
+  /^worktree /{p=$2; locked=0}
+  /^locked/{locked=1}
+  /^$/{if (p && locked) print p; p=""}
+' | while read -r p; do
+  [ -d "$p" ] || git worktree unlock "$p" 2>/dev/null || true
+done
 git worktree prune
 # Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
-# Delete any worktree-agent-* branches not currently checked out in a worktree:
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
+# Delete any worktree-agent-* branches not currently checked out in a worktree.
+# NOTE: `git branch` prefixes a branch checked out in ANOTHER linked worktree with `+`
+# (not just `*` for the current one) - the sed must strip both, or the guard below
+# silently misparses the name and the liveness check/delete operate on a malformed string:
+git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```
+
+## Guardrail: never force-override the harness lock
+
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Branch prune (stale local branches)
 
