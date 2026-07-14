@@ -75,6 +75,21 @@ H_LABELS=(claude codex cursor gemini kimi opencode pi omp hermes openclaw copilo
 H_BINS=(claude codex cursor-agent gemini kimi-cli opencode pi omp hermes openclaw copilot)
 H_COUNT=${#H_LABELS[@]}
 
+# Adapter label -> dispatchable harness name (bin/_role_spec KNOWN_HARNESSES).
+# The adapter-install label space (above) is a SUPERSET of the team-dispatchable
+# harness space: `cursor` installs the `cursor-agent` CLI, and `hermes`/`openclaw`
+# are installable adapters with no worker-dispatch support in bin/agentic-team.
+# Screen 3 assignments must be expressed in dispatchable names or agentic-team
+# silently drops them (its --assign validates against KNOWN_HARNESSES). Empty
+# string = installable but NOT team-dispatchable.
+team_harness_for_label() {
+	case "$1" in
+	cursor)            printf 'cursor-agent' ;;   # adapter label -> CLI/dispatch name
+	hermes|openclaw)   printf '' ;;               # installable, not dispatchable
+	*)                 printf '%s' "$1" ;;         # claude/codex/gemini/kimi/opencode/pi/omp/copilot
+	esac
+}
+
 adapter_dir()  { printf '%s/.%s' "$REPO_DIR" "$1"; }
 adapter_script(){ printf '%s/.%s/install.sh' "$REPO_DIR" "$1"; }
 
@@ -758,9 +773,9 @@ should_run || exit 75
 # a notice and exit 0; --reconfigure bypasses. Runs after should_run so the
 # non-TTY fall-through (exit 75, which bootstrap chains on) is untouched.
 # ---------------------------------------------------------------------------
-AE_TUI_CONFIG="${AGENTIC_CONFIG_DIR:-$HOME/.claude}/agentic-engineering.json"
-if ! $RECONFIGURE && [[ -f "$AE_TUI_CONFIG" ]]; then
-	echo "install-tui: already configured (found $AE_TUI_CONFIG); re-run with --reconfigure to change"
+AE_TUI_STATE="${AGENTIC_STATE_DIR:-$HOME/.agentic}/install-tui-state.json"
+if ! $RECONFIGURE && [[ -f "$AE_TUI_STATE" ]]; then
+	echo "install-tui: already configured (found $AE_TUI_STATE); re-run with --reconfigure to change"
 	exit 0
 fi
 
@@ -810,19 +825,29 @@ elif _ask_yesno "Configure per-role harness/model assignments now? [y/N] "; then
 	# Optional: pull a user-supplied OpenAI-compatible gateway (9Router, LiteLLM,
 	# ...) into the model picker before any role is configured.
 	_setup_custom_provider
+	# Only team-DISPATCHABLE harnesses can be assigned to a role. Map each
+	# installed adapter label to its dispatch name and drop the ones with no
+	# worker-dispatch support (hermes/openclaw) - otherwise the assignment is
+	# silently rejected later by `agentic-team --assign` (KNOWN_HARNESSES).
+	DISPATCHABLE=()
+	for _lbl in ${CHOSEN[@]+"${CHOSEN[@]}"}; do
+		_dh="$(team_harness_for_label "$_lbl")"
+		[[ -n "$_dh" ]] && DISPATCHABLE+=("$_dh")
+	done
 	# Default harness for roles without an explicit assignment (optional).
-	_DH_VALS=(${CHOSEN[@]+"${CHOSEN[@]}"} "(skip)")
+	_DH_VALS=(${DISPATCHABLE[@]+"${DISPATCHABLE[@]}"} "(skip)")
 	_ask_single "Default harness for unassigned roles:" "${_DH_VALS[@]}"
 	[[ "$REPLY_VAL" != "(skip)" ]] && TEAM_DEFAULT="$REPLY_VAL"
 	# Guided per-role assignments: role -> harness -> model (catalog picker).
 	while _ask_yesno "Add a role assignment? [y/N] "; do
 		_ask_single "  Role:" conductor investigator architect orchestration-planner engineer debugger qa-engineer skeptic security-auditor
 		_ROLE="$REPLY_VAL"
-		_H_VALS=(${CHOSEN[@]+"${CHOSEN[@]}"} "(other...)")
+		_H_VALS=(${DISPATCHABLE[@]+"${DISPATCHABLE[@]}"} "(other...)")
 		_ask_single "  Harness for $_ROLE:" "${_H_VALS[@]}"
 		_HARNESS="$REPLY_VAL"
 		if [[ "$_HARNESS" == "(other...)" ]]; then
-			_ask_text "  harness name: "; _HARNESS="$REPLY_VAL"
+			_ask_text "  harness name: "; _HARNESS="$(team_harness_for_label "$REPLY_VAL")"
+			[[ -n "$REPLY_VAL" && -z "$_HARNESS" ]] && echo "  ! '$REPLY_VAL' is not a dispatchable harness (installable adapter only); skipped" >&2
 		fi
 		if [[ -z "$_HARNESS" ]]; then echo "  ! skipped (no harness)"; continue; fi
 		_pick_model "$_ROLE"
@@ -1083,6 +1108,15 @@ echo ""
 echo "Summary:"
 if [[ "${#FAIL_LABELS[@]}" -eq 0 ]]; then
 	echo "  all ${#PLAN_LABELS[@]} install(s) succeeded."
+	# Harness-agnostic ask-once marker: written once per completed run so a
+	# later re-invocation (from ANY harness) short-circuits at the gate above
+	# instead of re-prompting. --reconfigure bypasses. Skipped under DRY_RUN.
+	if [[ "${DRY_RUN:-0}" != "1" ]]; then
+		mkdir -p "$(dirname "$AE_TUI_STATE")" 2>/dev/null \
+			&& printf '{"completed_at":"%s","mode":"%s","tier":"%s","harnesses":"%s"}\n' \
+			"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MODE" "$TIER" "${CHOSEN[*]}" \
+			> "$AE_TUI_STATE" 2>/dev/null || true
+	fi
 	exit 0
 fi
 for ((i = 0; i < ${#FAIL_LABELS[@]}; i++)); do
