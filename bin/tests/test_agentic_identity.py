@@ -1159,6 +1159,140 @@ def test_cli_profile_dir_is_regular_file_clean_error():
         assert "Traceback" not in r.stderr, f"Traceback leaked: {r.stderr!r}"
         print("PASS test_cli_profile_dir_is_regular_file_clean_error")
 
+def test_cli_init_profile_happy_path():
+    """(L5) `init <handle> --scope profile --profile-dir <dir>` writes a
+    NON-provisional identity.yml (exit 0). Only the mkdir-failure branch of
+    init was covered before - this pins the success path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        env = _cli_env(fake_home)
+
+        r = _run_cli(["init", "prof-init-dev", "--scope", "profile",
+                      "--profile-dir", str(prof)], env)
+        assert r.returncode == 0, f"init failed: rc={r.returncode} stderr={r.stderr}"
+        content = (prof / "identity.yml").read_text(encoding="utf-8")
+        assert "developer_id: prof-init-dev" in content
+        assert "provisional" not in content, \
+            "init writes a confirmed (non-provisional) identity"
+        print("PASS test_cli_init_profile_happy_path")
+
+def test_cli_init_profile_force_overwrites_confirmed():
+    """(L6) `init --scope profile --force` overwrites an already-CONFIRMED
+    profile identity; without --force it is rejected (exit 2)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        _write_identity_file(prof / "identity.yml", "old-dev", provisional=False)
+        env = _cli_env(fake_home)
+
+        # No --force over a confirmed identity -> rejected, unchanged.
+        r = _run_cli(["init", "new-dev", "--scope", "profile",
+                      "--profile-dir", str(prof)], env)
+        assert r.returncode == 2, f"Expected rc=2, got {r.returncode} stderr={r.stderr}"
+        assert "developer_id: old-dev" in (prof / "identity.yml").read_text(encoding="utf-8"), \
+            "Identity must be unchanged without --force"
+
+        # --force -> overwrite succeeds.
+        r = _run_cli(["init", "new-dev", "--scope", "profile", "--force",
+                      "--profile-dir", str(prof)], env)
+        assert r.returncode == 0, f"--force init failed: rc={r.returncode} stderr={r.stderr}"
+        content = (prof / "identity.yml").read_text(encoding="utf-8")
+        assert "developer_id: new-dev" in content, "Identity must be overwritten with --force"
+        print("PASS test_cli_init_profile_force_overwrites_confirmed")
+
+def test_cli_show_profile_three_paths():
+    """(L7) `show --scope profile` command-level coverage of its three print
+    paths: no config-dir/no --profile-dir; --profile-dir set but no identity;
+    identity present. Only the underlying helpers were unit-tested before."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        env = _cli_env(fake_home)  # profile env vars stripped
+
+        # Path 1: no config-dir env, no --profile-dir -> "No profile scope..."
+        r = _run_cli(["show", "--scope", "profile"], env)
+        assert r.returncode == 0, f"rc={r.returncode} stderr={r.stderr}"
+        assert "No profile scope" in r.stdout, f"stdout={r.stdout!r}"
+
+        # Path 2: --profile-dir set but no identity file -> "No identity at profile scope."
+        r = _run_cli(["show", "--scope", "profile", "--profile-dir", str(prof)], env)
+        assert r.returncode == 0, f"rc={r.returncode} stderr={r.stderr}"
+        assert "No identity at profile scope" in r.stdout, f"stdout={r.stdout!r}"
+
+        # Path 3: identity present -> developer_id printed.
+        _write_identity_file(prof / "identity.yml", "shown-dev", provisional=False)
+        r = _run_cli(["show", "--scope", "profile", "--profile-dir", str(prof)], env)
+        assert r.returncode == 0, f"rc={r.returncode} stderr={r.stderr}"
+        assert "developer_id:  shown-dev" in r.stdout, f"stdout={r.stdout!r}"
+        print("PASS test_cli_show_profile_three_paths")
+
+def test_cross_language_profile_resolution_agrees():
+    """(X1) Python (`agentic-identity show --scope effective`) and JS
+    (`stop-context.js`) resolve the SAME winning identity on ONE identical
+    fixture. Nothing else diffs their real output on the same input, so a
+    precedence/containment change on one side unmirrored on the other would
+    ship silently. Uses AGENTIC_CONFIG_DIR -> a profile dir under $HOME with a
+    confirmed profile identity that must beat a confirmed global identity."""
+    import subprocess
+    js_hook = _BIN_PATH.parent.parent / "hooks" / "stop-context.js"
+    if not js_hook.is_file():
+        print("SKIP test_cross_language_profile_resolution_agrees (no JS hook)")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # realpath tmp: macOS mkdtemp yields /var -> /private/var; both sides
+        # realpath $HOME, so the fixture must live under the resolved spelling.
+        tmp_path = Path(tmp).resolve()
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        prof = fake_home / ".claude-tenant"
+        project = tmp_path / "project"
+        (project / ".agentic").mkdir(parents=True)
+        # Confirmed global + confirmed profile: profile must win at both sides.
+        _write_identity_file(fake_home / ".agentic" / "identity.yml",
+                             "global-dev", provisional=False)
+        _write_identity_file(prof / "identity.yml", "profile-dev", provisional=False)
+
+        env = dict(os.environ)
+        for k in ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+            env.pop(k, None)
+        env["HOME"] = str(fake_home)
+        env["AGENTIC_CONFIG_DIR"] = str(prof)
+
+        # Python side: `show --scope effective` reports the resolved scope+id.
+        py = subprocess.run(
+            [sys.executable, str(_BIN_PATH), "show", "--scope", "effective"],
+            capture_output=True, text=True, env=env, cwd=str(project), timeout=30)
+        assert py.returncode == 0, f"py show failed: {py.stderr}"
+        assert "developer_id:  profile-dev" in py.stdout, \
+            f"Python did not resolve profile-dev: {py.stdout!r}"
+        assert "scope:         profile" in py.stdout, \
+            f"Python scope not profile: {py.stdout!r}"
+
+        # JS side: run the hook; it writes a per-project session log keyed by
+        # the winning developer_id. profile-dev winning => that log exists,
+        # global-dev's does not.
+        payload = json.dumps({"cwd": str(project), "session_id": "x1-uuid",
+                              "transcript": []})
+        js = subprocess.run(
+            ["node", str(js_hook)], input=payload, capture_output=True, text=True,
+            env=env, timeout=30)
+        assert js.returncode == 0, f"js hook failed: {js.stderr}"
+        js_log = project / ".agentic" / "session-log" / "profile-dev.jsonl"
+        js_log_global = project / ".agentic" / "session-log" / "global-dev.jsonl"
+        assert js_log.is_file(), \
+            f"JS did not resolve profile-dev (no {js_log}); stderr={js.stderr}"
+        assert not js_log_global.is_file(), \
+            "JS resolved global-dev but Python resolved profile-dev (divergence)"
+        print("PASS test_cross_language_profile_resolution_agrees")
+
 
 if __name__ == "__main__":
     test_flushed_line_canonical_shape()
@@ -1191,4 +1325,8 @@ if __name__ == "__main__":
     test_cli_confirm_profile_flushes_tagged_pending()
     test_cli_confirm_profile_no_identity_errors()
     test_cli_profile_dir_is_regular_file_clean_error()
+    test_cli_init_profile_happy_path()
+    test_cli_init_profile_force_overwrites_confirmed()
+    test_cli_show_profile_three_paths()
+    test_cross_language_profile_resolution_agrees()
     print("All tests passed.")

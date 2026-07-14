@@ -155,7 +155,10 @@ def _profile_config_dir() -> Path | None:
             continue
         candidate = Path(os.path.expanduser(raw))
         if _is_under_home(candidate):
-            return candidate
+            # Return the resolved spelling so this matches the JS mirror
+            # (_profileConfigDir returns _realpathNonStrict output); both sides
+            # then agree byte-for-byte on the active config dir.
+            return candidate.resolve()
     return None
 
 
@@ -170,7 +173,7 @@ def _profile_identity_path(profile_dir: Path | str | None = None) -> Path | None
         candidate = Path(os.path.expanduser(str(profile_dir)))
         if not _is_under_home(candidate):
             return None
-        return candidate / "identity.yml"
+        return candidate.resolve() / "identity.yml"
     cfg = _profile_config_dir()
     if cfg is None:
         return None
