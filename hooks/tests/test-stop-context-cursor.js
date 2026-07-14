@@ -22,6 +22,11 @@
  *       never trip.
  *   (e) oversized transcript: fixture transcript file > 256KB -> context.md contains
  *       '(transcript too large)' and the hook still exits fast.
+ *   Regression (Skeptic Major): the cwd guard normalizes via path.resolve(), it must
+ *       never reject a non-canonical-but-legitimate workspace root - a trailing slash
+ *       and a '/./' segment both resolve to the same directory and .agentic/context.md
+ *       IS written there (case b's mkdtempSync fixture can never carry either variant,
+ *       so it cannot catch this on its own).
  *
  * Run with: node hooks/tests/test-stop-context-cursor.js
  */
@@ -188,6 +193,85 @@ async function testContingencyNoWorkspaceRoot() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression (Skeptic Major): a non-canonical-but-legitimate workspace root
+// (trailing slash, or a '/./' segment) must still get context.md written -
+// the cwd guard normalizes via path.resolve(), it must never reject. Case b
+// cannot catch this: mkdtempSync never returns a trailing slash or a '/./'
+// segment, so these need their own fixtures that deliberately construct one.
+// ---------------------------------------------------------------------------
+
+async function testTrailingSlashWorkspaceRoot() {
+  const fixtureCwd = mkFixtureDir('cursor-stop-test-trailing-');
+  const trailingSlashRoot = fixtureCwd + '/';
+
+  const payload = {
+    status: 'completed',
+    loop_count: 2,
+    conversation_id: 'conv-trailing-slash',
+    model: 'claude-sonnet-4.5',
+    hook_event_name: 'stop',
+    cursor_version: '1.4.0',
+    workspace_roots: [trailingSlashRoot],
+    user_email: null,
+    transcript_path: null,
+  };
+
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: [HOOK_PATH],
+    chunks: [JSON.stringify(payload)],
+    gapMs: 0,
+    holdOpenMs: 0,
+  });
+
+  assert(result.code === 0, 'regression (trailing slash): exits 0');
+  assertStdoutShape(result.stdout, 'regression (trailing slash)');
+
+  const contextPath = path.join(path.resolve(trailingSlashRoot), '.agentic', 'context.md');
+  assert(
+    fs.existsSync(contextPath),
+    'regression (trailing slash): .agentic/context.md IS written (normalized, not rejected)'
+  );
+}
+
+async function testDotSegmentWorkspaceRoot() {
+  const fixtureCwd = mkFixtureDir('cursor-stop-test-dotseg-');
+  // Deliberately construct a workspace root containing a '/./' segment -
+  // path.dirname/basename recombination that path.resolve() will normalize
+  // back to fixtureCwd.
+  const dotSegmentRoot = `${path.dirname(fixtureCwd)}/./${path.basename(fixtureCwd)}`;
+
+  const payload = {
+    status: 'completed',
+    loop_count: 2,
+    conversation_id: 'conv-dot-segment',
+    model: 'claude-sonnet-4.5',
+    hook_event_name: 'stop',
+    cursor_version: '1.4.0',
+    workspace_roots: [dotSegmentRoot],
+    user_email: null,
+    transcript_path: null,
+  };
+
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: [HOOK_PATH],
+    chunks: [JSON.stringify(payload)],
+    gapMs: 0,
+    holdOpenMs: 0,
+  });
+
+  assert(result.code === 0, "regression (dot segment): exits 0");
+  assertStdoutShape(result.stdout, 'regression (dot segment)');
+
+  const contextPath = path.join(path.resolve(dotSegmentRoot), '.agentic', 'context.md');
+  assert(
+    fs.existsSync(contextPath),
+    "regression (dot segment): .agentic/context.md IS written for a '/./'-containing root"
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Case (e): oversized transcript -> skipped entirely, placeholder used
 // ---------------------------------------------------------------------------
 
@@ -243,6 +327,12 @@ async function main() {
 
   console.log('Case c: contingency - no workspace_roots, env scrubbed');
   await testContingencyNoWorkspaceRoot();
+
+  console.log('Regression: trailing-slash workspace root (Skeptic Major)');
+  await testTrailingSlashWorkspaceRoot();
+
+  console.log('Regression: /./-segment workspace root');
+  await testDotSegmentWorkspaceRoot();
 
   console.log('Case e: oversized transcript');
   await testOversizedTranscript();

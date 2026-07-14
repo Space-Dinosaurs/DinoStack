@@ -40,11 +40,22 @@
  *                workspace-root-equivalent field and neither
  *                CURSOR_PROJECT_DIR nor CLAUDE_PROJECT_DIR is set, this is a
  *                GUARDED SAFE NO-OP (Scope B contingency): exit 0, no write,
- *                because there is no directory to write into. A resolved cwd
- *                containing path-traversal components (path.resolve(cwd) !==
- *                cwd) is rejected the same way, defence in depth, mirroring
- *                hooks/stop-context.js's writeLoopState guard. An oversized
- *                or unreadable transcript file never blocks the write path -
+ *                because there is no directory to write into. The resolved
+ *                cwd is CANONICALIZED via path.resolve(cwd) before any path
+ *                join (not rejected) - this normalizes a trailing slash,
+ *                `/./` segments, `//` double-slashes, and any `..`
+ *                traversal component into a clean absolute path, so a
+ *                non-canonical-but-legitimate workspace root (Cursor's exact
+ *                workspace_roots formatting is an unverified empirical gap)
+ *                still gets its context.md written instead of silently
+ *                no-op'ing. This is strictly safer than a reject-on-mismatch
+ *                comparison would be: the only path segments ever joined to
+ *                cwd downstream are the fixed constants '.agentic' and
+ *                'context.md' (never attacker- or payload-controlled), so
+ *                there is no traversal surface a reject branch would have
+ *                protected that normalization does not already close. An
+ *                oversized or unreadable transcript file never blocks the
+ *                write path -
  *                fs.statSync is checked before any read, and anything over
  *                256 KB is skipped entirely in favor of a placeholder string.
  *                DOCUMENTED NON-PARTICIPATION: like the existing Copilot
@@ -145,11 +156,16 @@ async function run() {
   // guarded safe no-op, nothing to write to and nothing safe to guess.
   if (!cwd) return exitOk();
 
-  // Defence in depth: reject traversal components before any path join,
-  // mirroring hooks/stop-context.js's writeLoopState guard. path.resolve
-  // normalizes '..' segments; a mismatch means the input was not already a
-  // clean absolute path and could escape the intended project dir.
-  if (path.resolve(cwd) !== cwd) return exitOk();
+  // Canonicalize (never reject): path.resolve normalizes a trailing slash,
+  // '/./' segments, '//' double-slashes, and any '..' traversal component
+  // into a clean absolute path. A reject-on-mismatch comparison here would
+  // false-positive on any of those purely cosmetic variants (Cursor's exact
+  // workspace_roots formatting is unverified) and silently skip the write
+  // for a legitimate cwd. Normalizing is strictly safer AND lossless: the
+  // only segments ever joined to cwd below are the fixed constants
+  // '.agentic' and 'context.md', so there is nothing attacker-controlled
+  // for a reject branch to have protected that this does not already close.
+  cwd = path.resolve(cwd);
 
   // --- 4. Extract remaining fields (all optional, all defensive) ---
   const sessionId = (typeof payload.conversation_id === 'string' && payload.conversation_id.trim())
