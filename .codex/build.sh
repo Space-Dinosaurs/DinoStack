@@ -5,19 +5,7 @@ CONTENT="$REPO_DIR/content"
 CODEX_DIR="$REPO_DIR/.codex"
 REFS_DST="$CODEX_DIR/references"
 COMMANDS_DST="$CODEX_DIR/commands"
-SKILL_DST="$CODEX_DIR/skill"
-
-# ---------------------------------------------------------------------------
-# Portable inode helper (macOS uses -f, Linux uses -c)
-# ---------------------------------------------------------------------------
-
-get_inode() {
-  if stat -c %i /dev/null >/dev/null 2>&1; then
-    stat -c %i "$1"
-  else
-    stat -f %i "$1"
-  fi
-}
+SKILLS_DST="$CODEX_DIR/skills"
 
 # ---------------------------------------------------------------------------
 # Build AGENTS.md
@@ -78,32 +66,14 @@ FOOTER
 echo "Built AGENTS.md"
 
 # ---------------------------------------------------------------------------
-# Build skill directory
+# Build the four native skills
 #
-# The Codex skill lives at .codex/skill/ (staging) and gets symlinked to
-# ~/.agents/skills/agentic-engineering/ by install.sh. It contains:
-#   - SKILL.md          (trigger metadata + methodology summary)
-#   - references/       (hardlinks to content/references/)
+# scripts/codex-skills.py transforms canonical prose through the reviewed
+# compatibility inventory, renders privately, validates resource closure, and
+# atomically synchronizes the exact generated allowlist.
 # ---------------------------------------------------------------------------
 
-mkdir -p "$SKILL_DST/references"
-
-# References: hardlink from content/ so edits stay in sync
-hardlink_from_content() {
-  local src="$1"
-  local dst="$2"
-  if [[ -e "$dst" ]] && [[ "$(get_inode "$src")" == "$(get_inode "$dst")" ]]; then
-    return
-  fi
-  rm -f "$dst"
-  ln "$src" "$dst"
-}
-
-for src in "$CONTENT/references/"*.md; do
-  hardlink_from_content "$src" "$SKILL_DST/references/$(basename "$src")"
-done
-
-echo "Rebuilt skill/references/ hardlinks"
+python3 "$REPO_DIR/scripts/codex-skills.py" build --repo "$REPO_DIR" --output "$SKILLS_DST"
 
 # ---------------------------------------------------------------------------
 # Build .codex/hooks/skill-auto-load-check.sh
@@ -121,74 +91,49 @@ echo "Rebuilt skill/references/ hardlinks"
 # ---------------------------------------------------------------------------
 
 mkdir -p "$CODEX_DIR/hooks"
-hardlink_from_content "$REPO_DIR/hooks/skill-auto-load-check.sh" "$CODEX_DIR/hooks/skill-auto-load-check.sh"
 
-echo "Rebuilt hooks/skill-auto-load-check.sh hardlink"
+# ---------------------------------------------------------------------------
+# Build tracked relative symlink mirrors
+#
+# .codex/references and .codex/commands expose canonical sources for browsing
+# and manual workflows. Correctness never depends on inode identity.
+# ---------------------------------------------------------------------------
 
-# SKILL.md is a static file maintained in .codex/skill/SKILL.md
-# (not generated - its frontmatter and body are hand-authored for Codex's skill format)
-if [[ ! -f "$SKILL_DST/SKILL.md" ]]; then
-  echo "WARNING: $SKILL_DST/SKILL.md is missing - run install.sh to initialize it"
+sync_link_directory() {
+  local source_dir="$1"
+  local destination_dir="$2"
+  local relative_prefix="$3"
+  local src name existing
+  mkdir -p "$destination_dir"
+  for src in "$source_dir"/*.md; do
+    name="$(basename "$src")"
+    if [[ -e "$destination_dir/$name" && ! -L "$destination_dir/$name" ]]; then
+      rm "$destination_dir/$name"
+    fi
+    if [[ -L "$destination_dir/$name" && "$(readlink "$destination_dir/$name")" != "$relative_prefix/$name" ]]; then
+      rm "$destination_dir/$name"
+    fi
+    if [[ ! -L "$destination_dir/$name" ]]; then
+      ln -s "$relative_prefix/$name" "$destination_dir/$name"
+    fi
+  done
+  for existing in "$destination_dir"/*.md; do
+    [[ -e "$existing" || -L "$existing" ]] || continue
+    [[ -e "$source_dir/$(basename "$existing")" ]] || rm "$existing"
+  done
+}
+
+sync_link_directory "$CONTENT/references" "$REFS_DST" "../../content/references"
+sync_link_directory "$CONTENT/commands" "$COMMANDS_DST" "../../content/commands"
+
+if [[ -e "$CODEX_DIR/hooks/skill-auto-load-check.sh" && ! -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" ]]; then
+  rm "$CODEX_DIR/hooks/skill-auto-load-check.sh"
+fi
+if [[ ! -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" ]]; then
+  ln -s "../../hooks/skill-auto-load-check.sh" "$CODEX_DIR/hooks/skill-auto-load-check.sh"
 fi
 
-# ---------------------------------------------------------------------------
-# Build .codex/references/ (local project copies)
-#
-# .codex/references/ contains hardlinks to content/references/ for users
-# browsing the repo without installing. .codex/skill/references/ is a
-# symlink to .codex/references/ so there is one source of truth.
-# ---------------------------------------------------------------------------
-
-mkdir -p "$REFS_DST"
-
-for src in "$CONTENT/references/"*.md; do
-  hardlink_from_content "$src" "$REFS_DST/$(basename "$src")"
-done
-
-# Make skill/references/ a symlink to ../references (single source of truth)
-# Use a RELATIVE target so the symlink stays valid regardless of repo location.
-if [[ -L "$SKILL_DST/references" ]]; then
-  current_target="$(readlink "$SKILL_DST/references")"
-  if [[ "$current_target" != "../references" ]]; then
-    rm "$SKILL_DST/references"
-    ln -s "../references" "$SKILL_DST/references"
-  fi
-elif [[ -d "$SKILL_DST/references" ]]; then
-  # Was a real directory (old hardlink set) - replace with symlink
-  rm -rf "$SKILL_DST/references"
-  ln -s "../references" "$SKILL_DST/references"
-else
-  ln -s "../references" "$SKILL_DST/references"
-fi
-
-echo "Rebuilt references/ hardlinks"
-
-# project-scaffolding.yml and templates/: hardlink into .codex/skill/ so agentic-migrate can find them
-hardlink_from_content "$CONTENT/project-scaffolding.yml" "$SKILL_DST/project-scaffolding.yml"
-mkdir -p "$SKILL_DST/templates/.agentic"
-for tmpl_src in "$CONTENT"/templates/.agentic/*; do
-  [[ -f "$tmpl_src" ]] || continue
-  hardlink_from_content "$tmpl_src" "$SKILL_DST/templates/.agentic/$(basename "$tmpl_src")"
-done
-echo "Rebuilt skill/project-scaffolding.yml and templates/"
-
-# ---------------------------------------------------------------------------
-# Build .codex/commands/ (hardlinks from content/commands/, no transforms)
-#
-# Commands are hardlinked from content/commands/ as-is. The
-# /agentic-engineering prerequisite blockquote is NOT present in content/
-# (it is Claude Code-specific and prepended only by .claude/build.sh),
-# so no transform is needed here.
-# ---------------------------------------------------------------------------
-
-mkdir -p "$COMMANDS_DST"
-
-for src in "$CONTENT/commands/"*.md; do
-  name="$(basename "$src")"
-  hardlink_from_content "$src" "$COMMANDS_DST/$name"
-done
-
-echo "Rebuilt commands/ hardlinks"
+echo "Rebuilt command, reference, and shared-hook symlinks"
 
 # ---------------------------------------------------------------------------
 # Build .codex/agents/ (generated TOML files from content/agents/*.md)
@@ -223,7 +168,6 @@ for src in "$CONTENT/agents/"*.md; do
   # Extract the YAML block between the first pair of --- delimiters.
   fm_name=""
   fm_description=""
-  fm_model=""
   in_fm=0
   past_fm=0
   body_lines=()
@@ -250,7 +194,6 @@ for src in "$CONTENT/agents/"*.md; do
       case "$key" in
         name)        fm_name="$val" ;;
         description) fm_description="$val" ;;
-        model)       fm_model="$val" ;;
       esac
       continue
     fi

@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""
+Purpose: Resolve manual DinoStack commands, named-agent prompts, and logical
+         Codex skill resources through one repository-owned compatibility shim.
+
+Public API: agentic-codex-dispatch command NAME | agent NAME | path LOGICAL |
+            legacy-cli NAME [ARGS...]. Command and agent modes print canonical
+            resource bytes; path prints the resolved absolute path.
+
+Upstream deps: repository content/SKILL.md signature, content/commands, content/agents,
+               and generated agentic-engineering RESOURCE-MAP.json.
+
+Downstream consumers: generated Codex compatibility prose and operator tooling.
+
+Failure modes: rejects traversal, missing resources, invalid maps, and unsupported
+               legacy CLIs with a nonzero actionable error. Read-only.
+
+Performance: constant-time path validation plus one bounded file read.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+
+def fail(message: str) -> "NoReturn":
+    print(f"agentic-codex-dispatch: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def repo_root() -> Path:
+    root = Path(__file__).resolve().parent.parent
+    required = (root / "content/SKILL.md", root / ".codex", root / "bin/agentic-codex-dispatch")
+    if not all(path.exists() for path in required):
+        fail(f"DinoStack repository signature missing under {root}")
+    return root
+
+
+def safe_name(value: str) -> str:
+    if not value or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for char in value):
+        fail(f"invalid resource name: {value!r}")
+    return value
+
+
+def emit(path: Path) -> None:
+    try:
+        data = path.resolve(strict=True).read_bytes()
+    except OSError as exc:
+        fail(f"cannot load {path}: {exc}")
+    sys.stdout.buffer.write(data)
+
+
+if len(sys.argv) < 3:
+    fail("usage: command NAME | agent NAME | path LOGICAL | legacy-cli NAME")
+
+root = repo_root()
+mode, value = sys.argv[1], sys.argv[2]
+if mode == "command":
+    emit(root / "content/commands" / f"{safe_name(value)}.md")
+elif mode == "agent":
+    emit(root / "content/agents" / f"{safe_name(value)}.md")
+elif mode == "path":
+    map_path = root / ".codex/skills/agentic-engineering/RESOURCE-MAP.json"
+    try:
+        descriptor = json.loads(map_path.read_text(encoding="utf-8"))["resources"][value]
+        target = (map_path.parent / descriptor["path"]).resolve(strict=True)
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        fail(f"cannot resolve logical resource {value!r}: {exc}")
+    print(target)
+elif mode == "legacy-cli":
+    fail(f"unsupported Claude-oriented CLI {value!r}; use the mapped Codex workflow resource")
+else:
+    fail(f"unknown mode {mode!r}")
