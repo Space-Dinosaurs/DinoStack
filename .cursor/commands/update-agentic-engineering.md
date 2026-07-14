@@ -150,7 +150,7 @@ If `HOOK_CHANGES` is empty, skip silently.
 Spawn a Worker subagent with instructions:
 1. Read the current file(s) to be changed.
 2. Apply the edit using the Edit tool.
-3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/agentic-engineering/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) The other nine adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
+3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/agentic-engineering/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) The other ten adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
 4. If editing `content/commands/`: edit only the `content/commands/` path. The `.claude/commands/*.md` copies are build artifacts - `build.sh` prepends the `/agentic-engineering` prerequisite blockquote and writes the result to `.claude/commands/`. The build must be run after approval for the change to take effect.
 5. Commit the edit to the isolation worktree branch with `git commit -s` and a short message describing the change.
 6. Return the full diff, the commit SHA (full 40-character), and the worktree branch name.
@@ -230,7 +230,8 @@ After approval, if the diff touches ANY file under `content/`, rebuild every ada
 cd "$AE_REPO_DIR" && \
 bash .claude/build.sh && bash .cursor/build.sh && bash .codex/build.sh && \
 bash .gemini/build.sh && bash .kimi/build.sh && bash .opencode/build.sh && \
-bash .omp/build.sh && bash .pi/build.sh && bash .hermes/build.sh && bash .openclaw/build.sh
+bash .omp/build.sh && bash .pi/build.sh && bash .hermes/build.sh && bash .openclaw/build.sh && \
+bash .copilot/build.sh
 ```
 
 Then run `git status --porcelain` and confirm the only changes are the `content/` source file(s) plus their regenerated adapter copies. If any unrelated source file shows as modified, STOP and show the user - a build script can silently revert an out-of-date source file (the adapter-rebuild revert hazard).
@@ -241,7 +242,7 @@ If the diff touches `content/sections/`, also regenerate the methodology baselin
 bash scripts/build-methodology.sh | shasum -a 256 | awk '{print $1}' > scripts/.methodology-baseline.sha256
 ```
 
-Note: `.claude/skills/agentic-engineering/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so the other nine adapters' committed artifacts match `content/`.
+Note: `.claude/skills/agentic-engineering/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so the other ten adapters' committed artifacts match `content/`.
 
 ## Step 3.5 - Docs update check
 
