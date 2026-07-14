@@ -28,6 +28,15 @@
  *   6.  stream error event -> resolves gracefully with accumulated content.
  *   7.  tryParse: null disables early-completion - same input as case 3
  *       resolves only via the inactivity backstop, not early.
+ *   8.  REGRESSION (Skeptic Major finding): a process that calls
+ *       readStdinGuarded and never calls process.exit() itself must still
+ *       exit on its own once resolved, even when the writer holds the pipe
+ *       open indefinitely. pause() alone does not release the underlying
+ *       pipe handle from the event loop in that scenario - only unref()
+ *       does. This case hangs on the pre-fix code and passes on the fix.
+ *   9.  multi-byte UTF-8 codepoint split mid-sequence across two raw-Buffer
+ *       chunks -> the resolved string is intact (locks the
+ *       setEncoding('utf8') / StringDecoder claim in the manifest).
  *
  * Run with: node hooks/tests/test-stdin-guard.js
  */
@@ -94,6 +103,35 @@ function parseFixtureStdout(stdout) {
   } catch (_) {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Second fixture (case 8 / Major regression): identical to the fixture
+// above EXCEPT it deliberately never calls process.exit(). The whole point
+// is to prove the process can terminate on its own once readStdinGuarded
+// resolves and cleans up - even when the writer never closes the pipe -
+// which only holds true once cleanup() actually releases the underlying
+// stdin handle from the event loop (stdin.unref(), not just pause()).
+// ---------------------------------------------------------------------------
+
+const fixtureNoExitSource = `
+'use strict';
+const { readStdinGuarded } = require(${JSON.stringify(libPathAbs)});
+let opts = {};
+try { opts = JSON.parse(process.argv[2] || '{}'); } catch (_) { opts = {}; }
+if (opts.tryParse === 'none') { opts.tryParse = null; }
+const start = Date.now();
+readStdinGuarded(opts).then((result) => {
+  const elapsedMs = Date.now() - start;
+  process.stdout.write(JSON.stringify({ elapsedMs, length: result.length, content: result }));
+  // No process.exit() call here - see file header for why.
+});
+`;
+const fixtureNoExitPath = path.join(os.tmpdir(), `stdin-guard-fixture-noexit-${process.pid}-${Date.now()}.js`);
+fs.writeFileSync(fixtureNoExitPath, fixtureNoExitSource, 'utf8');
+
+function fixtureNoExitArgs(opts) {
+  return [fixtureNoExitPath, JSON.stringify(opts || {})];
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +345,73 @@ async function testTryParseNullDisablesEarlyCompletion() {
 }
 
 // ---------------------------------------------------------------------------
+// Case 8 (Skeptic Major regression): process exits naturally without ever
+// calling process.exit() itself, even when the writer holds the pipe open
+// well past resolution. Uses the no-exit fixture and a bounded maxWaitMs so
+// a regression fails the suite fast instead of hanging it forever.
+// ---------------------------------------------------------------------------
+
+async function testNaturalExitWithoutProcessExitCall() {
+  const payload = JSON.stringify({ ok: true, marker: 'natural-exit-regression' });
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: fixtureNoExitArgs({}),
+    chunks: [payload],
+    gapMs: 0,
+    holdOpenMs: 3000, // writer holds the pipe open well past when resolution+cleanup happens
+    maxWaitMs: 6000,  // safety net: fail fast, not hang forever, if the fix regresses
+  });
+  assert(!result.timedOut, 'case 8 (Major regression): process exits naturally, is not force-killed by the test harness');
+  assert(result.code === 0, 'case 8 (Major regression): process exits 0');
+  assert(
+    result.elapsedMs < 2000,
+    `case 8 (Major regression): process exited naturally well before the writer closed the pipe ` +
+    `at 3000ms (${result.elapsedMs}ms) - proves stdin.unref() actually releases the event loop, not just pause()`
+  );
+  const parsed = parseFixtureStdout(result.stdout);
+  assert(!!parsed, 'case 8 (Major regression): fixture printed valid JSON result before exiting');
+  if (parsed) {
+    assert(parsed.content === payload, 'case 8 (Major regression): full payload delivered before natural exit');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Case 9 (Minor-1): a multi-byte UTF-8 codepoint split mid-sequence across
+// two raw-Buffer chunks reassembles intact.
+// ---------------------------------------------------------------------------
+
+async function testMultiByteCodepointSplitAcrossChunks() {
+  const prefixBuf = Buffer.from('abc-', 'utf8');
+  const emojiBuf = Buffer.from('\u{1F600}', 'utf8'); // 4-byte UTF-8 sequence
+  const suffixBuf = Buffer.from('-xyz', 'utf8');
+  const fullBuf = Buffer.concat([prefixBuf, emojiBuf, suffixBuf]);
+  const expectedText = fullBuf.toString('utf8');
+
+  // Split 2 bytes into the emoji's 4-byte sequence - deliberately mid-codepoint.
+  const splitPoint = prefixBuf.length + 2;
+  const chunk1 = fullBuf.subarray(0, splitPoint);
+  const chunk2 = fullBuf.subarray(splitPoint);
+
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: fixtureArgs({ tryParse: 'none' }), // plain text, not JSON - isolate the codepoint concern
+    chunks: [chunk1, chunk2],
+    gapMs: 50, // force two distinct 'data' events, not one coalesced read
+    holdOpenMs: 0, // end() right after writing - resolves via EOF
+  });
+  assert(result.code === 0, 'case 9 (Minor-1): child exits 0');
+  const parsed = parseFixtureStdout(result.stdout);
+  assert(!!parsed, 'case 9 (Minor-1): fixture printed valid JSON result');
+  if (parsed) {
+    assert(
+      parsed.content === expectedText,
+      `case 9 (Minor-1): multi-byte UTF-8 codepoint split across two chunks reassembles intact ` +
+      `(got ${JSON.stringify(parsed.content)})`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sanity: module loads clean with no side effects at require time
 // ---------------------------------------------------------------------------
 
@@ -348,8 +453,15 @@ async function main() {
 
     console.log('Case 7: tryParse: null disables early-completion');
     await testTryParseNullDisablesEarlyCompletion();
+
+    console.log('Case 8: REGRESSION - process exits naturally without calling process.exit()');
+    await testNaturalExitWithoutProcessExitCall();
+
+    console.log('Case 9: multi-byte UTF-8 codepoint split across two chunks');
+    await testMultiByteCodepointSplitAcrossChunks();
   } finally {
     try { fs.unlinkSync(fixturePath); } catch (_) { /* ignore */ }
+    try { fs.unlinkSync(fixtureNoExitPath); } catch (_) { /* ignore */ }
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

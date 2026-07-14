@@ -58,9 +58,19 @@
  *                (resolves with whatever arrived). A stream 'error' event is
  *                treated as an EOF-equivalent: resolves with whatever
  *                accumulated, never propagates the error. All timers are
- *                cleared and all listeners removed before resolving, and
- *                process.stdin.pause() is called so an idle process is free
- *                to exit. DOCUMENTED TRADE-OFF: if a real payload's first
+ *                cleared and all listeners removed before resolving; cleanup
+ *                also calls process.stdin.pause() followed by a guarded
+ *                stdin.unref() (only invoked when the stream actually
+ *                exposes unref, since not every stream-like object does) so
+ *                an idle process is free to exit on every resolution path -
+ *                including the primary target scenario where the writer
+ *                never closes the pipe. pause() alone does NOT release the
+ *                underlying pipe/socket handle from the event loop in that
+ *                scenario (verified empirically on Node v24: a process that
+ *                has received data, paused stdin, and removed all listeners
+ *                still hangs indefinitely if the writer holds the pipe
+ *                open); unref() is what actually lets the process exit.
+ *                DOCUMENTED TRADE-OFF: if a real payload's first
  *                byte takes longer than firstByteTimeoutMs to arrive (default
  *                750ms; e.g. the spawning machine is under extreme load at
  *                session exit), this function resolves '' and the caller
@@ -144,6 +154,20 @@ function readStdinGuarded(options) {
         stdin.pause();
       } catch (_) {
         /* stdin may already be in an unusable state - safe to ignore */
+      }
+      // pause() alone does not release the underlying pipe/socket handle
+      // from the event loop when a writer still holds the other end open
+      // (the exact never-closing-stdin scenario this module exists to
+      // survive) - unref() is required so an idle process can actually
+      // exit. Guarded: unref is not defined on every stream-like object
+      // (e.g. a plain EventEmitter stand-in used in tests), so this must
+      // never assume it exists.
+      try {
+        if (typeof stdin.unref === 'function') {
+          stdin.unref();
+        }
+      } catch (_) {
+        /* ignore */
       }
     }
 

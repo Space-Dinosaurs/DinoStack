@@ -66,10 +66,15 @@ function spawnSilentStdin(opts) {
 
 /**
  * Spawn cmd and write each chunk to its stdin with gapMs between writes,
- * then hold the pipe open for holdOpenMs before closing it.
+ * then hold the pipe open for holdOpenMs before closing it. Symmetric with
+ * spawnSilentStdin's kill guard: if the child does not exit on its own
+ * within maxWaitMs (default generous - well above any expected
+ * write+gap+hold timeline), it is force-killed and timedOut is set true, so
+ * a future regression in the module under test fails the suite fast instead
+ * of hanging it.
  *
- * @param {{cmd: string, args?: string[], cwd?: string, env?: object, chunks: string[], gapMs?: number, holdOpenMs?: number}} opts
- * @returns {Promise<{code: number|null, elapsedMs: number, stdout: string, stderr: string}>}
+ * @param {{cmd: string, args?: string[], cwd?: string, env?: object, chunks: Array<string|Buffer>, gapMs?: number, holdOpenMs?: number, maxWaitMs?: number}} opts
+ * @returns {Promise<{code: number|null, elapsedMs: number, stdout: string, stderr: string, timedOut: boolean}>}
  */
 function spawnDelayedChunks(opts) {
   const cmd = opts.cmd;
@@ -79,6 +84,7 @@ function spawnDelayedChunks(opts) {
   const chunks = opts.chunks || [];
   const gapMs = typeof opts.gapMs === 'number' ? opts.gapMs : 0;
   const holdOpenMs = typeof opts.holdOpenMs === 'number' ? opts.holdOpenMs : 0;
+  const maxWaitMs = typeof opts.maxWaitMs === 'number' ? opts.maxWaitMs : 10000;
 
   return new Promise((resolve) => {
     const start = Date.now();
@@ -87,18 +93,25 @@ function spawnDelayedChunks(opts) {
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timer = null;
 
     child.stdout.on('data', (c) => { stdout += c; });
     child.stderr.on('data', (c) => { stderr += c; });
 
-    function finish(code) {
+    function finish(code, timedOut) {
       if (settled) return;
       settled = true;
-      resolve({ code, elapsedMs: Date.now() - start, stdout, stderr });
+      if (timer) clearTimeout(timer);
+      resolve({ code, elapsedMs: Date.now() - start, stdout, stderr, timedOut: !!timedOut });
     }
 
-    child.on('exit', (code) => finish(code));
-    child.on('error', () => finish(null));
+    child.on('exit', (code) => finish(code, false));
+    child.on('error', () => finish(null, false));
+
+    timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch (_) { /* ignore */ }
+      finish(null, true);
+    }, maxWaitMs);
 
     (async () => {
       for (const chunk of chunks) {
