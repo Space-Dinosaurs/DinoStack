@@ -207,7 +207,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Worker Preamble and Execution Contract Template** - when spawning an Elevated-risk engineer: read `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template for the full contract fields, verification mandate, and task_id field semantics.
 
-**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
+**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both. Immediately after issuing the spawn call - the conductor regains control right away because isolation spawns run in the background by default - the conductor locks any newly-created `worktree-agent-*` worktree via `git worktree lock` so a concurrent session's `/cleanup-worktrees` or prune cannot delete it mid-task; see `content/references/worktree-lifecycle.md` §Isolation-worktree liveness lock for the exact commands and the residual-race caveat.
 
 There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: "worktree"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.
 
@@ -610,13 +610,15 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
+Immediately after any isolation spawn, the conductor locks the new `worktree-agent-*` worktree (`git worktree lock`) so a concurrent session cannot delete it mid-task; the engineer's own lock-on-entry is a defense-in-depth backstop only. See `content/references/worktree-lifecycle.md` §Isolation-worktree liveness lock.
+
 **Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
 **Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
-**Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
+**Subagents do not have hooks.** Hooks fire only in the main session. The harness may auto-clean an isolation worktree it judges "unchanged" - the exact trigger and timing are opaque and not fixable from the methodology layer, and this can race a still-working engineer that has not yet committed. The methodology-owned protection is the git-native lock (conductor-side, primary; engineer-side, defense-in-depth - see §Isolation-worktree liveness lock): a locked worktree is refused by non-force `git worktree remove`, its branch by `git branch -D`, and by `git worktree prune`. Locked worktrees persist until the conductor unlocks and removes them, or a stale-then-confirmed cleanup path applies.
 
 ## Protocol Details (read on trigger)
 
@@ -937,7 +939,7 @@ git branch -d <branch-name>
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The agentic-engineering repo itself enforces a DCO check, so commits to it require `-s`.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. No worktree coordination is needed between sessions at the conductor level.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch - but worktrees DO require cross-session coordination: a `worktree-agent-*` isolation worktree is `git status`-clean for its entire pre-commit lifetime (engineers commit once, at the end), so a concurrent session's `/cleanup-worktrees` or prune cannot tell a live worktree from an abandoned one by cleanliness alone. Coordination is enforced by a git-native liveness lock, not by session/branch separation - see `content/references/worktree-lifecycle.md` §Isolation-worktree liveness lock.
 
 ## Context Economy
 
@@ -2559,7 +2561,7 @@ For `learnings-agent` session-tracking semantics, see `content/references/conduc
 
 **Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
 
-**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
+**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both. Immediately after issuing the spawn call - the conductor regains control right away because isolation spawns run in the background by default - the conductor locks any newly-created `worktree-agent-*` worktree via `git worktree lock` so a concurrent session's `/cleanup-worktrees` or prune cannot delete it mid-task; see `content/references/worktree-lifecycle.md` §Isolation-worktree liveness lock for the exact commands and the residual-race caveat.
 
 There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: "worktree"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.
 
@@ -5579,14 +5581,17 @@ Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
                       and feature worktree removal commands);
                       /cleanup-worktrees command; /implement-ticket lifecycle
-                      cleanup.
+                      cleanup; the Isolation-worktree liveness lock section
+                      (conductor-side and engineer-side lock contracts).
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
                The branch prune block never force-deletes unproven work - see
-               Safe boundary note in that section.
+               Safe boundary note in that section. A locked-but-dir-missing
+               worktree entry survives git worktree prune until explicitly
+               unlocked first - both cleanup paths above now do this.
 
 Performance: Standard.
 -->
@@ -5603,6 +5608,7 @@ Once the agent returns its output and the conductor has opened a PR (or confirme
 # Verify no uncommitted changes before removing:
 git -C <worktree-path> status --porcelain
 # If clean (no output), remove the worktree and its branch:
+git worktree unlock <worktree-path> 2>/dev/null || true   # NEW: release the liveness lock (see §Isolation-worktree liveness lock) before removing
 git worktree remove <worktree-path>
 git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
 # Safe even with a PR open: the PR is backed by the branch on origin, not this local ref.
@@ -5612,6 +5618,61 @@ git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; sa
 # then force-remove only after confirming nothing important is uncommitted:
 # git worktree remove --force <worktree-path>
 # git branch -D <branch-name>
+```
+
+## Isolation-worktree liveness lock
+
+`worktree-agent-*` isolation worktrees are `git status`-clean for their entire pre-commit lifetime (engineers commit once, at the end). Cleanliness alone can never distinguish a live engineer from an abandoned one. The fix is a git-native `git worktree lock`: a locked worktree refuses non-force AND single-`-f`-force `git worktree remove` (`fatal: cannot remove a locked working tree ... use 'remove -f -f' to override or unlock first`), its checked-out branch refuses `git branch -D`, and `git worktree prune` leaves it untouched - verified on git 2.39.5.
+
+**Primary mechanism - conductor-side lock, set immediately after spawn.**
+
+```bash
+# BEFORE issuing the Agent spawn call(s) with isolation: "worktree":
+PRE_WT_SNAPSHOT="$(mktemp)"
+git worktree list --porcelain | awk '/^worktree /{print $2}' > "$PRE_WT_SNAPSHOT"
+
+# Issue the spawn call(s) now. Isolation spawns run in the background by default, so
+# control returns to the conductor immediately - do NOT wait for the subagent to return
+# before running the sweep below; run it in the same turn.
+
+# IMMEDIATELY after the spawn call(s) return control:
+git worktree list --porcelain | awk '
+  FNR==NR { seen[$0]=1; next }
+  /^worktree / { path=$2; is_new=!(path in seen) }
+  /^branch refs\/heads\/worktree-agent-/ { if (is_new) print path }
+' "$PRE_WT_SNAPSHOT" - | while read -r wt; do
+  git worktree lock "$wt" --reason "conductor-locked: engineer active, spawned $(date -u +%FT%TZ)" 2>/dev/null || true
+done
+rm -f "$PRE_WT_SNAPSHOT"
+```
+
+This exact `FNR==NR` temp-file transport is required - **never** pass a multi-line snapshot value via `awk -v`, which fails hard on BSD awk (macOS default `/usr/bin/awk`): `awk: newline in string ... at source line 1`, exit 2, zero output, with the failure silent to the conductor (stderr only; the downstream `while read` loop simply iterates zero times).
+
+**Residual race, stated precisely.** "Minimized, not eliminated" is accurate only where the sweep above actually runs (i.e., it must be this BSD-safe form). Given that, a small window remains between the harness creating the worktree (part of the Agent tool call) and this sweep executing - not prevented, minimized to a single tool-call round-trip. If the sweep somehow does not run at all (conductor skips the step, or an environment lacks `awk`/`mktemp`), the engineer-side lock-on-entry below is the SOLE protection for that spawn, carrying its own window (the engineer's first-Bash-call timing) - a degraded-but-not-silent fallback, not equivalent coverage.
+
+**Defense-in-depth - engineer-side lock on entry.**
+
+```bash
+if git rev-parse --show-toplevel 2>/dev/null | grep -q '/worktree-agent-'; then
+  git worktree lock "$(git rev-parse --show-toplevel)" --reason "engineer-locked: pid=$$ since=$(date -u +%FT%TZ)" 2>/dev/null || true
+fi
+```
+
+Detection is by the worktree's own directory path, not `git branch --show-current` - the path stays stable even after the engineer renames its own branch per its `worktree_setup` contract, and it does not silently no-op on detached HEAD the way a branch-name check would. This is a backstop only. A forgetful or crashed engineer that never reaches this line is still covered by the conductor-side lock. Locking twice is harmless - the second call errors "already locked" and is swallowed.
+
+**Owner cleanup (unlock-before-remove/prune).** The conductor (never the engineer) unlocks and removes a worktree once its work has landed in a PR:
+
+```bash
+git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree remove <worktree-path>
+```
+
+**Stale-ceiling scope (honest statement).** The 24-hour stale-then-confirm ceiling in `/cleanup-worktrees` Step 3 Case 1 covers ONLY a locked worktree whose directory still exists and is clean - a crashed engineer the harness never removed. It does NOT cover: a DIRTY crashed worktree (never auto-removed by design, regardless of age - uncommitted work always needs a human look); or a worktree whose directory was removed out from under git while still locked (Case 2 - no time ceiling needed there; unlock-then-prune is safe immediately since there is no working tree left to protect).
+
+**Portable mtime.**
+
+```bash
+mtime_epoch() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 ```
 
 ## Feature worktree cleanup commands
@@ -5632,10 +5693,22 @@ Run at session start (conductor preflight) - ONCE per session, not before every 
 ```bash
 # Run at session start (conductor preflight):
 git fetch origin
+# Unlock any locked entry whose directory is already gone, so prune can actually clear
+# the stale admin metadata - a lock never protects a worktree that no longer exists:
+git worktree list --porcelain | awk '
+  /^worktree /{p=$2; locked=0}
+  /^locked/{locked=1}
+  /^$/{if (p && locked) print p; p=""}
+' | while read -r p; do
+  [ -d "$p" ] || git worktree unlock "$p" 2>/dev/null || true
+done
 git worktree prune
 # Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
-# Delete any worktree-agent-* branches not currently checked out in a worktree:
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
+# Delete any worktree-agent-* branches not currently checked out in a worktree.
+# NOTE: `git branch` prefixes a branch checked out in ANOTHER linked worktree with `+`
+# (not just `*` for the current one) - the sed must strip both, or the guard below
+# silently misparses the name and the liveness check/delete operate on a malformed string:
+git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```
@@ -7090,7 +7163,14 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **No suppression.** Never use `// @ts-ignore`, `# noqa`, `eslint-disable`, or similar to silence errors. Fix the code.
 - **Match conventions.** Read before you write. Use the same naming style, file structure, and patterns as the surrounding code.
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
-- **Never commit or push.** Implement and report. The orchestrator handles version control.
+- **Commit/push follows your contract, never by default.** If your brief includes a `git_finalization`/`worktree_setup` contract (the `/implement-ticket` Elevated, fan-out, and Trivial paths all do), commit and push exactly as that contract specifies - once, at the end, after gates pass. If your brief includes NO git-finalization contract (the ad-hoc conductor-merge flow), do not commit or push; implement and report, and the conductor handles version control. Either way, never open, merge, or force-push a PR yourself.
+- **Lock your worktree on entry (defense-in-depth backstop).** As one of your first actions, if you are running inside a `worktree-agent-*` isolation worktree, lock it. The conductor already locks it immediately after spawning you - this is a backstop only, for the rare case that lock fails or races, not the primary protection:
+  ```bash
+  if git rev-parse --show-toplevel 2>/dev/null | grep -q '/worktree-agent-'; then
+    git worktree lock "$(git rev-parse --show-toplevel)" --reason "engineer-locked: pid=$$ since=$(date -u +%FT%TZ)" 2>/dev/null || true
+  fi
+  ```
+  Do NOT unlock it yourself; the conductor unlocks and removes it after your work is captured in a PR.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
 - **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
@@ -11507,24 +11587,46 @@ Categorize each remaining entry by its branch name:
 
 ## Step 3: Remove isolation worktrees
 
-For each isolation worktree, check its status before touching it:
+For each isolation worktree, first check whether it is locked - the lock (set by the conductor immediately after spawning the engineer, and by the engineer on entry as a backstop; see `content/references/worktree-lifecycle.md` §Isolation-worktree liveness lock) is the authoritative liveness signal, not working-tree cleanliness:
 
 ```bash
-git -C <worktree-path> status --porcelain
+git worktree list --porcelain
 ```
 
-There are three cases:
+Find the worktree's stanza. If it contains a `locked` line, evaluate Case 1. Otherwise check `git -C <worktree-path> status --porcelain` and evaluate Cases 2-4, in this order (first match wins):
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. Run `git worktree prune` to clean the stale metadata, then delete the branch.
+**Case 1 - Locked, directory exists:**
 
-**Directory exists, clean (no output):** Remove the worktree and delete the branch:
+```bash
+mtime_epoch() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+age_seconds=$(( $(date +%s) - $(mtime_epoch "<worktree-path>") ))
+```
 
+If `age_seconds` <= 86400 (24h): skip, report "live (locked)" - regardless of clean/dirty.
+
+If `age_seconds` > 86400 (>24h):
+- AND `git -C <worktree-path> status --porcelain` is clean: report "possibly-orphaned locked worktree (locked >24h, clean)" and remove ONLY after explicit user confirmation:
+  ```bash
+  git worktree unlock <worktree-path>
+  git worktree remove <worktree-path>
+  git branch -D <branch-name>
+  ```
+- AND dirty: report "possibly-orphaned locked but dirty (>24h) - manual review needed" and skip. NEVER auto-remove - a dirty worktree, locked or not, always needs a human to inspect the diff first. Do not offer an automated removal path for this sub-case, even on confirmation.
+
+**Case 2 - Directory does not exist** (command errors with "not a git repository" or similar): the lock (if any) no longer protects anything - there is no working tree left. Unlock first (safe unconditionally here, since nothing is lost), then prune, then delete the branch (unconditional force-D - see the Intent note above for why gating this on `[gone]`/merged status would strand it forever):
+```bash
+git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree prune
+git branch -D <branch-name>
+```
+
+**Case 3 - Directory exists, dirty:** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
+
+**Case 4 - Directory exists, clean, unlocked:** apply a shallow recency backstop - if the worktree's directory mtime is within the last 30 minutes, skip and report "possibly live (recently active, unlocked)". This backstop covers only the conductor-lock's small residual spawn-to-lock race window and any legacy pre-lock worktree; it does NOT reliably detect a purely-reading engineer (mtime does not move on reads) - the lock (Case 1) is the real protection. Otherwise remove:
 ```bash
 git worktree remove <worktree-path>
 git branch -D <branch-name>
 ```
-
-**Directory exists, dirty (output present):** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
 
 ---
 

@@ -141,7 +141,7 @@ git branch -d <branch-name>
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The agentic-engineering repo itself enforces a DCO check, so commits to it require `-s`.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. No worktree coordination is needed between sessions at the conductor level.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch - but worktrees DO require cross-session coordination: a `worktree-agent-*` isolation worktree is `git status`-clean for its entire pre-commit lifetime (engineers commit once, at the end), so a concurrent session's `/cleanup-worktrees` or prune cannot tell a live worktree from an abandoned one by cleanliness alone. Coordination is enforced by a git-native liveness lock, not by session/branch separation - see `content/references/worktree-lifecycle.md` §Isolation-worktree liveness lock.
 
 ## Context Economy
 

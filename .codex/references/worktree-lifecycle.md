@@ -18,14 +18,17 @@ Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
                       and feature worktree removal commands);
                       /cleanup-worktrees command; /implement-ticket lifecycle
-                      cleanup.
+                      cleanup; the Isolation-worktree liveness lock section
+                      (conductor-side and engineer-side lock contracts).
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
                The branch prune block never force-deletes unproven work - see
-               Safe boundary note in that section.
+               Safe boundary note in that section. A locked-but-dir-missing
+               worktree entry survives git worktree prune until explicitly
+               unlocked first - both cleanup paths above now do this.
 
 Performance: Standard.
 -->
@@ -42,6 +45,7 @@ Once the agent returns its output and the conductor has opened a PR (or confirme
 # Verify no uncommitted changes before removing:
 git -C <worktree-path> status --porcelain
 # If clean (no output), remove the worktree and its branch:
+git worktree unlock <worktree-path> 2>/dev/null || true   # NEW: release the liveness lock (see §Isolation-worktree liveness lock) before removing
 git worktree remove <worktree-path>
 git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
 # Safe even with a PR open: the PR is backed by the branch on origin, not this local ref.
@@ -51,6 +55,61 @@ git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; sa
 # then force-remove only after confirming nothing important is uncommitted:
 # git worktree remove --force <worktree-path>
 # git branch -D <branch-name>
+```
+
+## Isolation-worktree liveness lock
+
+`worktree-agent-*` isolation worktrees are `git status`-clean for their entire pre-commit lifetime (engineers commit once, at the end). Cleanliness alone can never distinguish a live engineer from an abandoned one. The fix is a git-native `git worktree lock`: a locked worktree refuses non-force AND single-`-f`-force `git worktree remove` (`fatal: cannot remove a locked working tree ... use 'remove -f -f' to override or unlock first`), its checked-out branch refuses `git branch -D`, and `git worktree prune` leaves it untouched - verified on git 2.39.5.
+
+**Primary mechanism - conductor-side lock, set immediately after spawn.**
+
+```bash
+# BEFORE issuing the Agent spawn call(s) with isolation: "worktree":
+PRE_WT_SNAPSHOT="$(mktemp)"
+git worktree list --porcelain | awk '/^worktree /{print $2}' > "$PRE_WT_SNAPSHOT"
+
+# Issue the spawn call(s) now. Isolation spawns run in the background by default, so
+# control returns to the conductor immediately - do NOT wait for the subagent to return
+# before running the sweep below; run it in the same turn.
+
+# IMMEDIATELY after the spawn call(s) return control:
+git worktree list --porcelain | awk '
+  FNR==NR { seen[$0]=1; next }
+  /^worktree / { path=$2; is_new=!(path in seen) }
+  /^branch refs\/heads\/worktree-agent-/ { if (is_new) print path }
+' "$PRE_WT_SNAPSHOT" - | while read -r wt; do
+  git worktree lock "$wt" --reason "conductor-locked: engineer active, spawned $(date -u +%FT%TZ)" 2>/dev/null || true
+done
+rm -f "$PRE_WT_SNAPSHOT"
+```
+
+This exact `FNR==NR` temp-file transport is required - **never** pass a multi-line snapshot value via `awk -v`, which fails hard on BSD awk (macOS default `/usr/bin/awk`): `awk: newline in string ... at source line 1`, exit 2, zero output, with the failure silent to the conductor (stderr only; the downstream `while read` loop simply iterates zero times).
+
+**Residual race, stated precisely.** "Minimized, not eliminated" is accurate only where the sweep above actually runs (i.e., it must be this BSD-safe form). Given that, a small window remains between the harness creating the worktree (part of the Agent tool call) and this sweep executing - not prevented, minimized to a single tool-call round-trip. If the sweep somehow does not run at all (conductor skips the step, or an environment lacks `awk`/`mktemp`), the engineer-side lock-on-entry below is the SOLE protection for that spawn, carrying its own window (the engineer's first-Bash-call timing) - a degraded-but-not-silent fallback, not equivalent coverage.
+
+**Defense-in-depth - engineer-side lock on entry.**
+
+```bash
+if git rev-parse --show-toplevel 2>/dev/null | grep -q '/worktree-agent-'; then
+  git worktree lock "$(git rev-parse --show-toplevel)" --reason "engineer-locked: pid=$$ since=$(date -u +%FT%TZ)" 2>/dev/null || true
+fi
+```
+
+Detection is by the worktree's own directory path, not `git branch --show-current` - the path stays stable even after the engineer renames its own branch per its `worktree_setup` contract, and it does not silently no-op on detached HEAD the way a branch-name check would. This is a backstop only. A forgetful or crashed engineer that never reaches this line is still covered by the conductor-side lock. Locking twice is harmless - the second call errors "already locked" and is swallowed.
+
+**Owner cleanup (unlock-before-remove/prune).** The conductor (never the engineer) unlocks and removes a worktree once its work has landed in a PR:
+
+```bash
+git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree remove <worktree-path>
+```
+
+**Stale-ceiling scope (honest statement).** The 24-hour stale-then-confirm ceiling in `/cleanup-worktrees` Step 3 Case 1 covers ONLY a locked worktree whose directory still exists and is clean - a crashed engineer the harness never removed. It does NOT cover: a DIRTY crashed worktree (never auto-removed by design, regardless of age - uncommitted work always needs a human look); or a worktree whose directory was removed out from under git while still locked (Case 2 - no time ceiling needed there; unlock-then-prune is safe immediately since there is no working tree left to protect).
+
+**Portable mtime.**
+
+```bash
+mtime_epoch() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 ```
 
 ## Feature worktree cleanup commands
@@ -71,10 +130,22 @@ Run at session start (conductor preflight) - ONCE per session, not before every 
 ```bash
 # Run at session start (conductor preflight):
 git fetch origin
+# Unlock any locked entry whose directory is already gone, so prune can actually clear
+# the stale admin metadata - a lock never protects a worktree that no longer exists:
+git worktree list --porcelain | awk '
+  /^worktree /{p=$2; locked=0}
+  /^locked/{locked=1}
+  /^$/{if (p && locked) print p; p=""}
+' | while read -r p; do
+  [ -d "$p" ] || git worktree unlock "$p" 2>/dev/null || true
+done
 git worktree prune
 # Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
-# Delete any worktree-agent-* branches not currently checked out in a worktree:
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
+# Delete any worktree-agent-* branches not currently checked out in a worktree.
+# NOTE: `git branch` prefixes a branch checked out in ANOTHER linked worktree with `+`
+# (not just `*` for the current one) - the sed must strip both, or the guard below
+# silently misparses the name and the liveness check/delete operate on a malformed string:
+git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```

@@ -182,7 +182,14 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **No suppression.** Never use `// @ts-ignore`, `# noqa`, `eslint-disable`, or similar to silence errors. Fix the code.
 - **Match conventions.** Read before you write. Use the same naming style, file structure, and patterns as the surrounding code.
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
-- **Never commit or push.** Implement and report. The orchestrator handles version control.
+- **Commit/push follows your contract, never by default.** If your brief includes a `git_finalization`/`worktree_setup` contract (the `/implement-ticket` Elevated, fan-out, and Trivial paths all do), commit and push exactly as that contract specifies - once, at the end, after gates pass. If your brief includes NO git-finalization contract (the ad-hoc conductor-merge flow), do not commit or push; implement and report, and the conductor handles version control. Either way, never open, merge, or force-push a PR yourself.
+- **Lock your worktree on entry (defense-in-depth backstop).** As one of your first actions, if you are running inside a `worktree-agent-*` isolation worktree, lock it. The conductor already locks it immediately after spawning you - this is a backstop only, for the rare case that lock fails or races, not the primary protection:
+  ```bash
+  if git rev-parse --show-toplevel 2>/dev/null | grep -q '/worktree-agent-'; then
+    git worktree lock "$(git rev-parse --show-toplevel)" --reason "engineer-locked: pid=$$ since=$(date -u +%FT%TZ)" 2>/dev/null || true
+  fi
+  ```
+  Do NOT unlock it yourself; the conductor unlocks and removes it after your work is captured in a PR.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
 - **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.

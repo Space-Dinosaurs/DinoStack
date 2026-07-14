@@ -41,24 +41,46 @@ Categorize each remaining entry by its branch name:
 
 ## Step 3: Remove isolation worktrees
 
-For each isolation worktree, check its status before touching it:
+For each isolation worktree, first check whether it is locked - the lock (set by the conductor immediately after spawning the engineer, and by the engineer on entry as a backstop; see `content/references/worktree-lifecycle.md` §Isolation-worktree liveness lock) is the authoritative liveness signal, not working-tree cleanliness:
 
 ```bash
-git -C <worktree-path> status --porcelain
+git worktree list --porcelain
 ```
 
-There are three cases:
+Find the worktree's stanza. If it contains a `locked` line, evaluate Case 1. Otherwise check `git -C <worktree-path> status --porcelain` and evaluate Cases 2-4, in this order (first match wins):
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. Run `git worktree prune` to clean the stale metadata, then delete the branch.
+**Case 1 - Locked, directory exists:**
 
-**Directory exists, clean (no output):** Remove the worktree and delete the branch:
+```bash
+mtime_epoch() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+age_seconds=$(( $(date +%s) - $(mtime_epoch "<worktree-path>") ))
+```
 
+If `age_seconds` <= 86400 (24h): skip, report "live (locked)" - regardless of clean/dirty.
+
+If `age_seconds` > 86400 (>24h):
+- AND `git -C <worktree-path> status --porcelain` is clean: report "possibly-orphaned locked worktree (locked >24h, clean)" and remove ONLY after explicit user confirmation:
+  ```bash
+  git worktree unlock <worktree-path>
+  git worktree remove <worktree-path>
+  git branch -D <branch-name>
+  ```
+- AND dirty: report "possibly-orphaned locked but dirty (>24h) - manual review needed" and skip. NEVER auto-remove - a dirty worktree, locked or not, always needs a human to inspect the diff first. Do not offer an automated removal path for this sub-case, even on confirmation.
+
+**Case 2 - Directory does not exist** (command errors with "not a git repository" or similar): the lock (if any) no longer protects anything - there is no working tree left. Unlock first (safe unconditionally here, since nothing is lost), then prune, then delete the branch (unconditional force-D - see the Intent note above for why gating this on `[gone]`/merged status would strand it forever):
+```bash
+git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree prune
+git branch -D <branch-name>
+```
+
+**Case 3 - Directory exists, dirty:** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
+
+**Case 4 - Directory exists, clean, unlocked:** apply a shallow recency backstop - if the worktree's directory mtime is within the last 30 minutes, skip and report "possibly live (recently active, unlocked)". This backstop covers only the conductor-lock's small residual spawn-to-lock race window and any legacy pre-lock worktree; it does NOT reliably detect a purely-reading engineer (mtime does not move on reads) - the lock (Case 1) is the real protection. Otherwise remove:
 ```bash
 git worktree remove <worktree-path>
 git branch -D <branch-name>
 ```
-
-**Directory exists, dirty (output present):** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
 
 ---
 
