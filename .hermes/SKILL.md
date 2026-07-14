@@ -14464,6 +14464,121 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 
 ---
 
+## Phase 12b: Operator Runbook
+
+**Trigger:** fires once after Phase 12a completes (whether or not Phase 12a triggered a pause). In batch mode, fires once per ticket completion — printed after the per-ticket Phase 12a evaluation, before the conductor advances to the next ticket. In single-ticket mode, fires once after Phase 12a.
+
+**Skip conditions:**
+- Phase 9 was skipped (no PR was opened, e.g. open-goal dry-run): skip silently.
+- Phase 12a already exited the outer loop (goal-met short-circuit fired): skip — the goal-met exit already prints a terminal summary.
+
+**Failure semantics:** soft-fail throughout. Any error reading state files is swallowed; the runbook degrades gracefully to whatever information is available. Phase 12b NEVER blocks Phase 12 cleanup, PR completion, or batch advancement.
+
+**Output format:** the runbook is printed as plain operator-readable text, not structured JSON. It is plan-only — it suggests commands, never invokes them (yolo-guard applies). All file paths in pasted command lines are absolute (operator handoff convention).
+
+---
+
+**What to render:**
+
+### 1. What landed
+
+For each PR opened this session (collected from Phase 9 across all completed tickets), print one line:
+
+```
+✓  PR #<number>  <ticket_id>: <ticket_title>  → <pr_url>
+```
+
+Derive the list from the session's completed `tickets[]` entries in `.agentic/batch-state.json` (field `pr_number`, `pr_url`, `ticket_id`, `ticket_title`). For single-ticket mode (no `batch-state.json`), derive from the in-context `PR_NUMBER` / `PR_URL` set at Phase 9.
+
+### 2. Next command
+
+Inspect `.agentic/batch-state.json` for remaining tickets (status `pending` or `failed`). If any remain:
+
+```
+Next:  /implement-ticket <ticket_id_1>, <ticket_id_2>, ...
+       (from: <absolute_path_to_repo>)
+```
+
+If no batch-state.json exists (single-ticket run) or all tickets are complete, check for a triage artifact: glob `docs/planning/triage-*.md` (or `.agentic/triage-*.md`) — pick the newest by mtime. If a triage artifact is found, extract its next recommended lane (heuristic: first unstarted lane not covered by just-merged tickets):
+
+```
+Next:  /ticket-triage <lane_key>   # or /implement-ticket <next_lane_tickets>
+       (from: <absolute_path_to_repo>)
+       Triage artifact: <absolute_path_to_triage_file>
+```
+
+If neither remaining tickets nor a triage artifact exists, print:
+
+```
+Next:  /ticket-triage   # no outstanding work detected; re-triage to pick next batch
+       (from: <absolute_path_to_repo>)
+```
+
+### 3. Parallel-session guidance
+
+Derive safe parallel lanes from the triage artifact's conflict notes (section headed `Conflict` or `Parallel` in triage output) cross-referenced against the merged diff paths collected at Phase 11b. Heuristic — same caveats as `/ticket-triage`:
+
+- **Safe to start now in a NEW session:** lanes whose file-touch sets do not overlap with any just-merged diff paths AND are not listed as `depends_on` the just-merged tickets.
+- **Conflicts — wait for review/merge first:** lanes that overlap with just-merged paths or that listed the just-merged tickets as blockers.
+
+Print:
+
+```
+Parallel sessions:
+  ✓ Safe now:    <lane_key>  (<brief reason, e.g. "no shared paths">)
+  ✗ Wait:        <lane_key>  (<brief reason, e.g. "touches content/commands/implement-ticket.md — just merged">)
+```
+
+If no triage artifact is available or conflict notes cannot be parsed, print:
+
+```
+Parallel sessions:  no triage artifact found — run /ticket-triage to map safe lanes
+```
+
+### 4. Blockers and deferred items
+
+Collect any blockers or deferrals surfaced during this session:
+
+- QA-blocked units: any `qa_blocked` entries from the findings_log in `.agentic/loop-state.json` (read BEFORE Phase 12 clears it; if already cleared, skip this sub-item).
+- Tickets that were deferred from the batch (Phase 12a `status: "paused"` with `pause_reason` not `wallclock_cap`): list each with the reason.
+- Operator decisions noted during implementation (check `.agentic/MEMORY.md` last N lines for any line beginning `Decision needed:` or `⚠` added this session — heuristic, soft-fail if file unreadable).
+
+Print:
+
+```
+Blockers / deferred:
+  · <item description>
+```
+
+If no blockers or deferrals, omit this section entirely (keep output clean for smooth runs).
+
+---
+
+**Full runbook example output:**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPERATOR RUNBOOK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+What landed:
+  ✓  PR #451  DS-69: implement-ticket operator runbook  → https://github.com/…/pull/451
+  ✓  PR #452  DS-52: story-size preflight               → https://github.com/…/pull/452
+
+Next:
+  /implement-ticket DS-45, DS-50
+  (from: /Users/dev/project)
+
+Parallel sessions:
+  ✓ Safe now:    docs-lane    (no shared paths with just-merged PRs)
+  ✗ Wait:        api-lane     (touches src/api/session.ts — merged in PR #451)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+Emit breadcrumb: `[phase: operator-runbook | tickets_landed=<k> | blockers=<n>]`
+
+---
+
 ### /init-project
 
 # /init-project
