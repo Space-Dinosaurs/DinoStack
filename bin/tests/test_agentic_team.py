@@ -1449,6 +1449,105 @@ def test_is_live_readonly_pure():
         (rd / "exit").write_text("0\n", encoding="utf-8")
         assert _is_live_readonly(rd) is False
 
+# --- status.json-driven liveness (new supervisor states) -------------------
+
+import json as _json
+
+
+def _make_status_run(tmp_path: Path, run_id: str, status: dict) -> Path:
+    """Create a run dir whose liveness is governed solely by status.json.
+
+    No pid file: any answer from this dir must come from status.json, never
+    from the legacy PID fallback.
+    """
+    rd = tmp_path / run_id
+    rd.mkdir(parents=True, exist_ok=True)
+    (rd / "status.json").write_text(_json.dumps(status), encoding="utf-8")
+    return rd
+
+
+@pytest.mark.parametrize(
+    "state,expected_live",
+    [
+        ("running", True),
+        ("retrying", True),
+        ("failed_over", True),
+        ("done", False),
+        ("failed", False),
+        ("killed", False),
+        ("unkillable", False),
+    ],
+)
+def test_is_live_readonly_status_json_states(tmp_path, state, expected_live):
+    """status.json drives liveness for every documented supervisor state."""
+    rd = _make_status_run(tmp_path, f"engineer-{state}-1", {"state": state})
+    assert _is_live_readonly(rd) is expected_live, (
+        f"state={state!r}: expected live={expected_live}"
+    )
+
+
+def test_is_live_readonly_status_json_overrides_dead_pid(tmp_path):
+    """An in-progress status.json beats a dead-pid legacy signal."""
+    rd = _make_status_run(tmp_path, "engineer-retry-1", {"state": "retrying"})
+    (rd / "pid").write_text("999999\n", encoding="utf-8")  # dead pid
+    assert _is_live_readonly(rd) is True
+
+
+def test_is_live_readonly_status_json_overrides_live_pid(tmp_path):
+    """A terminal status.json beats a live pid with no exit file."""
+    rd = _make_status_run(tmp_path, "engineer-done-1", {"state": "done", "exit_code": 0})
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")  # alive
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_malformed_status_json_falls_back(tmp_path):
+    """Corrupt status.json -> legacy fallback (read_status returns None)."""
+    rd = tmp_path / "engineer-corrupt-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text("{not valid json", encoding="utf-8")
+    # Live pid, no exit file -> legacy path reports live.
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+    # Exit file present -> legacy path reports terminal.
+    (rd / "exit").write_text("0\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_status_json_missing_state_falls_back(tmp_path):
+    """status.json without a 'state' key -> legacy fallback."""
+    rd = tmp_path / "engineer-nostate-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text(
+        _json.dumps({"run_id": "engineer-nostate-1", "attempt": 1}),
+        encoding="utf-8",
+    )
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+    (rd / "exit").write_text("1\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_status_json_unknown_state_falls_back(tmp_path):
+    """Unknown/empty state value -> legacy fallback, not a guessed answer."""
+    rd = tmp_path / "engineer-bogus-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text(
+        _json.dumps({"state": "hibernating"}), encoding="utf-8"
+    )
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+    (rd / "exit").write_text("0\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_status_json_empty_file_falls_back(tmp_path):
+    """Empty status.json -> read_status None -> legacy fallback."""
+    rd = tmp_path / "engineer-empty-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text("", encoding="utf-8")
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+
 
 # ===========================================================================
 # Unit 1 configure subcommand tests (migrated from test_agentic_configure.py)

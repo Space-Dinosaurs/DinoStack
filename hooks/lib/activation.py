@@ -18,6 +18,13 @@ the project root's activation instead of going silently dormant):
   5. any candidate root listed in ~/.agentic/activation.list (allowlist) -> ACTIVE
   6. none of the above                                              -> DORMANT
 
+Worktree-zone hardening: candidate roots at or below
+<outermost-git-root>/.agentic/worktrees/ are subagent scratch space, not
+operator boundaries. Markers at those levels (active, active.session, dormant)
+are IGNORED and the walk continues up: a subagent must not be able to disable
+enforce-* hooks by writing its own dormant tombstone, and an active marker in
+scratch space is meaningless. The project root's own markers always decide.
+
 Public API:
   is_active(cwd) -> bool
     True  = methodology active (hook should run).
@@ -155,6 +162,26 @@ def _iter_roots(cwd: str) -> list[str]:
         return [cwd]
 
 
+def _in_worktree_zone(root: str, bound: str | None) -> bool:
+    """True if *root* is at or below ``<bound>/.agentic/worktrees/``.
+
+    Subagent isolation worktrees are scratch space, never an operator
+    boundary: activation markers found there (active, active.session,
+    dormant) must be ignored so a subagent cannot self-disable the enforce-*
+    hooks by writing a tombstone inside its own worktree. Only the
+    ``.agentic/worktrees`` convention is special-cased; no other worktree
+    location exists in the methodology. Returns False when there is no git
+    bound (no checkout above cwd) or on any path error.
+    """
+    if bound is None:
+        return False
+    try:
+        rel = os.path.relpath(root, bound)
+    except Exception:
+        return False
+    parts = rel.split(os.sep)
+    return len(parts) >= 2 and parts[0] == ".agentic" and parts[1] == "worktrees"
+
 def _decide_at(root: str) -> bool | None:
     """Return True/False/None for activation markers at a single candidate root.
 
@@ -214,8 +241,12 @@ def is_active(cwd) -> bool:
     try:
         if not isinstance(cwd, str) or not cwd.strip():
             return True  # indeterminate cwd -> fail ACTIVE
-        roots = _iter_roots(cwd.strip())
+        clean = cwd.strip()
+        roots = _iter_roots(clean)
+        bound = _git_bound(clean)
         for root in roots:
+            if _in_worktree_zone(root, bound):
+                continue  # subagent scratch space: markers here are ignored
             try:
                 decision = _decide_at(root)
             except Exception:

@@ -8,13 +8,20 @@ activation.{sh,py,js} read. Those guards do pure stat checks on the hot path;
 this module owns the *writes* (and the structured ~/.agentic/activation.json
 that the flat activation.list mirrors) plus the read used by `/ds status`.
 
-Activation layers (must match hooks/lib/activation.* - first hit wins):
-  1. <cwd>/.agentic/active          (explicit, persistent)
-  2. <cwd>/.agentic/active.session  (explicit, this session only)
-  3. <cwd>/.agentic/dormant         (tombstone; overrides auto-detect)
-  4. <cwd>/.agentic/ dir exists     (zero-migration auto-detect)
-  5. cwd in ~/.agentic/activation.list (installer/config allowlist)
+Activation layers (must match hooks/lib/activation.* - first hit wins),
+evaluated per candidate root while walking from cwd up to the outermost git
+root (so /ds status inside a worktree agrees with what the hooks do):
+  1. <root>/.agentic/active          (explicit, persistent)
+  2. <root>/.agentic/active.session  (explicit, this session only)
+  3. <root>/.agentic/dormant         (tombstone; overrides auto-detect)
+  4. <root>/.agentic/ dir exists     (zero-migration auto-detect)
+  5. any candidate root in ~/.agentic/activation.list (installer/config allowlist)
   6. none -> dormant
+
+Worktree-zone hardening: candidate roots at or below
+<outermost-git-root>/.agentic/worktrees/ are subagent scratch space; markers
+at those levels are ignored and the walk continues up (see hooks/lib/
+activation.py for the rationale).
 
 Public API:
   resolve_state(cwd) -> dict
@@ -152,25 +159,88 @@ def _in_allowlist(cwd: str) -> bool:
 # --------------------------------------------------------------------------- #
 # State resolution (mirrors hooks/lib/activation.* precedence exactly).        #
 # --------------------------------------------------------------------------- #
+def _git_bound(cwd: str):
+    """Return the outermost ancestor (incl. cwd) that contains a .git entry.
+
+    Mirrors hooks/lib/activation.py _git_bound: the main checkout carries a
+    .git *directory*, a worktree a .git *file*; both count. Returns None when
+    no ancestor is a git checkout (the walk then checks cwd only).
+    """
+    try:
+        cur = _realpath(cwd)
+        top = None
+        while True:
+            if os.path.exists(os.path.join(cur, ".git")):
+                top = cur
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
+        return top
+    except Exception:
+        return None
+
+def _iter_roots(cwd: str, bound) -> list:
+    """Candidate project roots from cwd up to the outermost git root (inclusive).
+
+    With no checkout above cwd, returns [realpath(cwd)] (legacy exact-cwd
+    behavior; never escapes into an ancestor .agentic dir).
+    """
+    start = _realpath(cwd)
+    roots = []
+    cur = start
+    while True:
+        roots.append(cur)
+        if bound is None or cur == bound:
+            break
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return roots
+
+def _in_worktree_zone(root: str, bound) -> bool:
+    """True if *root* is at or below ``<bound>/.agentic/worktrees/``.
+
+    Subagent isolation worktrees are scratch space, never an operator
+    boundary: activation markers found there must be ignored (see
+    hooks/lib/activation.py). Returns False when there is no git bound.
+    """
+    if bound is None:
+        return False
+    try:
+        rel = os.path.relpath(root, bound)
+    except Exception:
+        return False
+    parts = rel.split(os.sep)
+    return len(parts) >= 2 and parts[0] == ".agentic" and parts[1] == "worktrees"
+
 def resolve_state(cwd) -> dict:
     """Resolve activation for *cwd*; see module docstring for precedence."""
     try:
         if not isinstance(cwd, str) or not cwd.strip():
             return {"active": True, "reason": "error", "tier": None}
-        agentic = _agentic_dir(cwd.strip())
-        active_file = agentic / "active"
-        session_file = agentic / "active.session"
-        tombstone = agentic / "dormant"
-        if active_file.exists():
-            return {"active": True, "reason": "active-file", "tier": _read_tier(active_file)}
-        if session_file.exists():
-            return {"active": True, "reason": "session-file", "tier": _read_tier(session_file)}
-        if tombstone.exists():
-            return {"active": False, "reason": "tombstone", "tier": None}
-        if agentic.is_dir():
-            return {"active": True, "reason": "auto-detect", "tier": None}
-        if _in_allowlist(cwd.strip()):
-            return {"active": True, "reason": "allowlist", "tier": None}
+        clean = cwd.strip()
+        bound = _git_bound(clean)
+        roots = _iter_roots(clean, bound)
+        for root in roots:
+            if _in_worktree_zone(root, bound):
+                continue  # subagent scratch space: markers here are ignored
+            agentic = _agentic_dir(root)
+            active_file = agentic / "active"
+            session_file = agentic / "active.session"
+            tombstone = agentic / "dormant"
+            if active_file.exists():
+                return {"active": True, "reason": "active-file", "tier": _read_tier(active_file)}
+            if session_file.exists():
+                return {"active": True, "reason": "session-file", "tier": _read_tier(session_file)}
+            if tombstone.exists():
+                return {"active": False, "reason": "tombstone", "tier": None}
+            if agentic.is_dir():
+                return {"active": True, "reason": "auto-detect", "tier": None}
+        for root in roots:
+            if _in_allowlist(root):
+                return {"active": True, "reason": "allowlist", "tier": None}
         return {"active": False, "reason": "dormant", "tier": None}
     except Exception:
         return {"active": True, "reason": "error", "tier": None}
