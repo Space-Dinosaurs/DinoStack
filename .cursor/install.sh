@@ -379,17 +379,106 @@ fi
 
 # ---------------------------------------------------------------------------
 # Copy hooks.json
+#
+# The checked-in template keeps the stop hook's command RELATIVE ("node
+# hooks/stop-context.js") - do not "fix" it to an absolute path. Converging
+# to the resolved absolute path is install.sh's job (below), on every run,
+# in both branches of the exists-check: this lets a future repo move
+# re-point an already-installed hooks.json with a simple re-run, and keeps
+# the template diff-stable across machines with different checkout paths.
 # ---------------------------------------------------------------------------
+
+CURSOR_STOP_JS="$REPO_DIR/.cursor/hooks/stop-context-cursor.js"
+CURSOR_STOP_CMD="node \"$CURSOR_STOP_JS\""
+
+# _ae_cursor_converge_hooks_stop DST NEW_CMD
+#   Rewrites every hooks.stop[] entry in DST whose "command" matches the
+#   AE-managed stop-context hook filename - old "stop-context.js" or the
+#   current "stop-context-cursor.js" port, at any path - to NEW_CMD. Every
+#   other key (beforeSubmitPrompt, locally-added stop entries) is left
+#   untouched. Fails safe: prints 0 and leaves DST on disk untouched when
+#   JSON is malformed, hooks.stop is missing or not a list, or python3 is
+#   unavailable. Writes atomically (tmp file + rename in the same
+#   directory) and only when at least one entry actually changed - repeat
+#   runs on an already-converged file leave it byte-identical. Prints the
+#   changed-entry count to stdout.
+_ae_cursor_converge_hooks_stop() {
+  local dst="$1"
+  local new_cmd="$2"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  ! python3 not found - leaving $dst untouched (stop hook not converged)" >&2
+    echo 0
+    return 0
+  fi
+
+  python3 - "$dst" "$new_cmd" <<'PYEOF'
+import json, os, re, sys, tempfile
+
+dst, new_cmd = sys.argv[1], sys.argv[2]
+pattern = re.compile(r"stop-context(-cursor)?\.js")
+
+try:
+    with open(dst) as f:
+        data = json.load(f)
+except Exception:
+    print(0)
+    sys.exit(0)
+
+hooks = data.get("hooks") if isinstance(data, dict) else None
+if not isinstance(hooks, dict):
+    print(0)
+    sys.exit(0)
+
+stop_list = hooks.get("stop")
+if not isinstance(stop_list, list):
+    print(0)
+    sys.exit(0)
+
+changed = 0
+for entry in stop_list:
+    if not isinstance(entry, dict):
+        continue
+    command = entry.get("command")
+    if isinstance(command, str) and pattern.search(command) and command != new_cmd:
+        entry["command"] = new_cmd
+        changed += 1
+
+if changed > 0:
+    dir_name = os.path.dirname(dst) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        os.rename(tmp_path, dst)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        print(0)
+        sys.exit(0)
+
+print(changed)
+PYEOF
+}
 
 echo "Installing hooks.json..."
 
 if [[ -e "$HOOKS_DST" ]]; then
-  echo "  ! $HOOKS_DST already exists - skipping to preserve your customizations."
-  echo "    Manually merge entries from $HOOKS_SRC if needed."
+  _ae_changed="$(_ae_cursor_converge_hooks_stop "$HOOKS_DST" "$CURSOR_STOP_CMD")"
+  if [[ "${_ae_changed:-0}" -gt 0 ]]; then
+    echo "  ~ $HOOKS_DST converged ($_ae_changed stop hook entry updated)"
+  else
+    echo "  = $HOOKS_DST already current - preserving customizations"
+  fi
 else
   cp "$HOOKS_SRC" "$HOOKS_DST"
-  echo "  + hooks.json copied to $HOOKS_DST"
+  _ae_cursor_converge_hooks_stop "$HOOKS_DST" "$CURSOR_STOP_CMD" >/dev/null
+  echo "  + hooks.json copied to $HOOKS_DST (stop -> $CURSOR_STOP_CMD)"
 fi
+unset _ae_changed
 
 # ---------------------------------------------------------------------------
 # Symlink bin/ scripts to ~/.local/bin

@@ -241,6 +241,129 @@ if [[ "$SKIP_CURSOR" != "true" ]]; then
     _fail "cursor (e): --dry-run output missing 'would re-point'"
   fi
   rm -rf "$FAKE_HOME"
+
+  # -------------------------------------------------------------------------
+  # Cursor (f): fresh install - stop[0].command is the absolute port path.
+  # -------------------------------------------------------------------------
+  FAKE_HOME="$(mktemp -d)"
+  EXPECTED_STOP_CMD="node \"$REPO_DIR/.cursor/hooks/stop-context-cursor.js\""
+
+  _run_cursor "$FAKE_HOME" || true
+
+  if [[ -f "$FAKE_HOME/.cursor/hooks.json" ]]; then
+    ACTUAL_STOP_CMD_F="$(python3 - "$FAKE_HOME/.cursor/hooks.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+print(data["hooks"]["stop"][0]["command"])
+PYEOF
+)"
+    if [[ "$ACTUAL_STOP_CMD_F" == "$EXPECTED_STOP_CMD" ]]; then
+      _pass "cursor (f): fresh install converges stop[0].command to absolute port path"
+    else
+      _fail "cursor (f): expected stop[0].command '$EXPECTED_STOP_CMD', got '$ACTUAL_STOP_CMD_F'"
+    fi
+  else
+    _fail "cursor (f): $FAKE_HOME/.cursor/hooks.json was not created"
+  fi
+  rm -rf "$FAKE_HOME"
+
+  # -------------------------------------------------------------------------
+  # Cursor (g): stale existing hooks.json converges narrowly - only the
+  # AE-managed stop entry is rewritten; beforeSubmitPrompt and a custom
+  # stop entry are left unchanged (compared by parsed JSON value).
+  # -------------------------------------------------------------------------
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.cursor"
+  CURSOR_HOOKS_TEMPLATE="$REPO_DIR/.cursor/hooks.json"
+  CUSTOM_STOP_CMD='bash "/tmp/my-custom-hook.sh"'
+
+  python3 - "$CURSOR_HOOKS_TEMPLATE" "$FAKE_HOME/.cursor/hooks.json" "$CUSTOM_STOP_CMD" <<'PYEOF'
+import json, sys
+src, dst, custom_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(src) as f:
+    data = json.load(f)
+data["hooks"]["stop"].append({"command": custom_cmd})
+with open(dst, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PYEOF
+
+  EXPECTED_STOP_CMD_G="node \"$REPO_DIR/.cursor/hooks/stop-context-cursor.js\""
+
+  _run_cursor "$FAKE_HOME" || true
+
+  if [[ -f "$FAKE_HOME/.cursor/hooks.json" ]]; then
+    ACTUAL_STOP0_G="$(python3 - "$FAKE_HOME/.cursor/hooks.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+print(data["hooks"]["stop"][0]["command"])
+PYEOF
+)"
+    ACTUAL_STOP1_G="$(python3 - "$FAKE_HOME/.cursor/hooks.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+print(data["hooks"]["stop"][1]["command"])
+PYEOF
+)"
+    ACTUAL_BEFORE_EQ_G="$(python3 - "$FAKE_HOME/.cursor/hooks.json" "$CURSOR_HOOKS_TEMPLATE" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    actual = json.load(f)
+with open(sys.argv[2]) as f:
+    template = json.load(f)
+print("EQUAL" if actual["hooks"]["beforeSubmitPrompt"] == template["hooks"]["beforeSubmitPrompt"] else "DIFFERENT")
+PYEOF
+)"
+
+    if [[ "$ACTUAL_STOP0_G" == "$EXPECTED_STOP_CMD_G" ]]; then
+      _pass "cursor (g): stale hooks.json converges stop[0].command to absolute port path"
+    else
+      _fail "cursor (g): expected stop[0].command '$EXPECTED_STOP_CMD_G', got '$ACTUAL_STOP0_G'"
+    fi
+
+    if [[ "$ACTUAL_STOP1_G" == "$CUSTOM_STOP_CMD" ]]; then
+      _pass "cursor (g): custom stop entry left unchanged"
+    else
+      _fail "cursor (g): custom stop entry was altered - got '$ACTUAL_STOP1_G'"
+    fi
+
+    if [[ "$ACTUAL_BEFORE_EQ_G" == "EQUAL" ]]; then
+      _pass "cursor (g): beforeSubmitPrompt entries left unchanged (narrow-scope converge)"
+    else
+      _fail "cursor (g): beforeSubmitPrompt entries were altered"
+    fi
+  else
+    _fail "cursor (g): $FAKE_HOME/.cursor/hooks.json missing after install"
+  fi
+  rm -rf "$FAKE_HOME"
+
+  # -------------------------------------------------------------------------
+  # Cursor (h): idempotency - a second install run reports "already
+  # current" and leaves hooks.json byte-for-byte unchanged.
+  # -------------------------------------------------------------------------
+  FAKE_HOME="$(mktemp -d)"
+
+  _run_cursor "$FAKE_HOME" || true
+  FIRST_RUN_CONTENT="$(cat "$FAKE_HOME/.cursor/hooks.json")"
+
+  _run_cursor "$FAKE_HOME" || true
+  SECOND_RUN_CONTENT="$(cat "$FAKE_HOME/.cursor/hooks.json")"
+
+  if [[ "$SECOND_RUN_CONTENT" == "$FIRST_RUN_CONTENT" ]]; then
+    _pass "cursor (h): second install run leaves hooks.json byte-for-byte unchanged"
+  else
+    _fail "cursor (h): hooks.json content changed on second install run"
+  fi
+
+  if grep -q "already current" "$FAKE_HOME/.install_out" 2>/dev/null; then
+    _pass "cursor (h): second install run reports 'already current'"
+  else
+    _fail "cursor (h): second install run output missing 'already current'"
+  fi
+  rm -rf "$FAKE_HOME"
 fi
 
 # ===========================================================================
