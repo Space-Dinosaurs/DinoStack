@@ -304,6 +304,15 @@ host_rows="$(
 	for hh in "0x-labs.com" "api.0x.org" "0x.org" "0xproject.com" "0xdeadbeef.io"; do
 		if _host_is_internal "$hh"; then echo "REFUSE $hh"; else echo "allow $hh"; fi
 	done
+	# Extended lexical ranges (CGNAT 100.64/10, IETF 192.0.0.0/24, multicast
+	# 224/4 + ff00::/8, discard 100::/64): boundaries must fall on the right
+	# side of the denylist - a reverted glob flips exactly one of these rows.
+	for hh in "100.64.0.1" "100.127.255.254" "224.0.0.1" "239.255.255.255" "192.0.0.1" "192.0.0.255" "ff02::1" "100::1" "fe80::1"; do
+		if _host_is_internal "$hh"; then echo "refuse $hh"; else echo "ALLOW $hh"; fi
+	done
+	for hh in "100.63.255.255" "100.128.0.0" "223.255.255.255" "192.0.1.1" "192.0.2.1"; do
+		if _host_is_internal "$hh"; then echo "REFUSE $hh"; else echo "allow $hh"; fi
+	done
 )"
 for hh in "::0.0.0.1" "::0.0.0.0" "0:0:0:0:0:0:0.0.0.1" "0x7f000001" "0x7f.0.0.1"; do
 	printf '%s\n' "$host_rows" | grep -qxF "refuse $hh" \
@@ -312,6 +321,14 @@ done
 for hh in "0x-labs.com" "api.0x.org" "0x.org" "0xproject.com" "0xdeadbeef.io"; do
 	printf '%s\n' "$host_rows" | grep -qxF "allow $hh" \
 		&& pass "host allowed (DNS name): $hh" || fail "host WRONGLY refused: $hh"
+done
+for hh in "100.64.0.1" "100.127.255.254" "224.0.0.1" "239.255.255.255" "192.0.0.1" "192.0.0.255" "ff02::1" "100::1" "fe80::1"; do
+	printf '%s\n' "$host_rows" | grep -qxF "refuse $hh" \
+		&& pass "host refused (extended range): $hh" || fail "host NOT refused (extended range): $hh"
+done
+for hh in "100.63.255.255" "100.128.0.0" "223.255.255.255" "192.0.1.1" "192.0.2.1"; do
+	printf '%s\n' "$host_rows" | grep -qxF "allow $hh" \
+		&& pass "host allowed (range boundary): $hh" || fail "host WRONGLY refused (range boundary): $hh"
 done
 
 echo "Test 2.10: newline in key is rejected (curl-config directive injection)"
@@ -341,6 +358,79 @@ msg_i="$(printf '%s\n' "$out_i" | sed -n '3,$p')"
 printf '%s\n' "$msg_i" | grep -q "contains a newline" && pass "newline key: rejection message printed" \
 	|| fail "newline key: message was '$msg_i'"
 [[ ! -s "$TMP/reqlog" ]] && pass "newline key: no request sent" || fail "newline key: fixture was hit"
+
+echo "Test 2.11: DNS-resolution gate + TOCTOU curl pin"
+# (j) hostname resolving to an internal IP (fake resolver seam) is refused
+# even though the name itself passes every lexical rule - the lexical
+# denylist alone cannot see DNS answers. Discriminating: removing the DNS
+# gate lets the fetch proceed and the row fails on the missing message.
+: >"$TMP/reqlog"
+out_j="$(
+	unset INSTALL_TUI_SCRIPT AE_CUSTOM_PROVIDER_ALLOW_INTERNAL
+	export AE_CUSTOM_PROVIDER_BASE="http://metadata.google.internal/v1"
+	export AE_CUSTOM_PROVIDER_NAME=metaname
+	export AE_TEST_FAKE_RESOLVE="metadata.google.internal=10.0.0.1"
+	source "$TUI"
+	_have_tty() { return 1; }
+	msg="$(_setup_custom_provider)"; rc=$?
+	printf '%s\n%s\n%s\n' "$rc" "${#CUSTOM_IDS[@]}" "$msg"
+)"
+rc_j="$(printf '%s\n' "$out_j" | sed -n 1p)"
+count_j="$(printf '%s\n' "$out_j" | sed -n 2p)"
+msg_j="$(printf '%s\n' "$out_j" | sed -n '3,$p')"
+[[ "$rc_j" -eq 0 && "$count_j" -eq 0 ]] && pass "DNS gate: internal answer refused (soft skip)" \
+	|| fail "DNS gate: rc=$rc_j count=$count_j (want 0/0)"
+printf '%s\n' "$msg_j" | grep -q "resolves to internal address '10.0.0.1'" \
+	&& pass "DNS gate: refusal names the internal answer" || fail "DNS gate: message was '$msg_j'"
+# (k) unresolvable hostname is refused fail-closed (explicit empty seam
+# answer - no real DNS lookup, so the test never touches the network).
+: >"$TMP/reqlog"
+out_k="$(
+	unset INSTALL_TUI_SCRIPT AE_CUSTOM_PROVIDER_ALLOW_INTERNAL
+	export AE_CUSTOM_PROVIDER_BASE="http://ghost.invalid.test/v1"
+	export AE_CUSTOM_PROVIDER_NAME=ghost
+	export AE_TEST_FAKE_RESOLVE="ghost.invalid.test="
+	source "$TUI"
+	_have_tty() { return 1; }
+	msg="$(_setup_custom_provider)"; rc=$?
+	printf '%s\n%s\n%s\n' "$rc" "${#CUSTOM_IDS[@]}" "$msg"
+)"
+rc_k="$(printf '%s\n' "$out_k" | sed -n 1p)"
+count_k="$(printf '%s\n' "$out_k" | sed -n 2p)"
+msg_k="$(printf '%s\n' "$out_k" | sed -n '3,$p')"
+[[ "$rc_k" -eq 0 && "$count_k" -eq 0 ]] && pass "DNS gate: unresolvable host refused (fail-closed)" \
+	|| fail "DNS gate: unresolvable rc=$rc_k count=$count_k (want 0/0)"
+printf '%s\n' "$msg_k" | grep -q "cannot resolve host 'ghost.invalid.test'" \
+	&& pass "DNS gate: fail-closed message names the host" || fail "DNS gate: message was '$msg_k'"
+# (l) TOCTOU pin: with the DNS gate passing an external answer, curl must be
+# invoked with --resolve host:port:vettedIP (the fetch is pinned to the exact
+# IP the gate vetted). curl is shadowed so the test stays offline - the
+# shadow records argv and fails the fetch, which the function turns into the
+# usual soft skip. Rows: default port from the scheme (443 for https) and an
+# explicit port preserved from the URL.
+for spec in "https://example.com/v1|example.com:443:93.184.216.34" "http://example.com:8443/v1|example.com:8443:93.184.216.34"; do
+	base_l="${spec%%|*}"; want_l="${spec#*|}"
+	: >"$TMP/curlargs"
+	out_l="$(
+		unset INSTALL_TUI_SCRIPT AE_CUSTOM_PROVIDER_ALLOW_INTERNAL
+		export AE_CUSTOM_PROVIDER_BASE="$base_l"
+		export AE_CUSTOM_PROVIDER_NAME=pinprov
+		export AE_TEST_FAKE_RESOLVE="example.com=93.184.216.34"
+		export TMP
+		source "$TUI"
+		_have_tty() { return 1; }
+		curl() { printf '%s\n' "$*" >>"$TMP/curlargs"; return 1; }
+		_setup_custom_provider >/dev/null
+		printf '%s\n' "${#CUSTOM_IDS[@]}"
+	)"
+	[[ "$out_l" -eq 0 ]] && pass "pin row: shadowed curl -> soft skip ($base_l)" \
+		|| fail "pin row: count=$out_l (want 0) for $base_l"
+	if [[ -s "$TMP/curlargs" ]] && grep -qF -- "--resolve $want_l" "$TMP/curlargs"; then
+		pass "pin row: curl pinned to $want_l"
+	else
+		fail "pin row: --resolve $want_l missing (args: $(cat "$TMP/curlargs" 2>/dev/null))"
+	fi
+done
 
 echo "Test 3: merged curated + custom pool still ranks through agentic-models"
 curated="$(python3 "$READER" ids)"

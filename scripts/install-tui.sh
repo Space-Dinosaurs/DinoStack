@@ -12,9 +12,10 @@ set -euo pipefail
 #          adapter install logic or team.yml writing.
 #
 # Public API:
-#   ./scripts/install-tui.sh [--no-tui]
+#   ./scripts/install-tui.sh [--no-tui] [--reconfigure]
 #     Interactive mode (default) when: /dev/tty readable AND stdout is a TTY
-#     AND --no-tui absent AND INSTALL_TUI_SCRIPT unset.
+#     AND --no-tui absent AND INSTALL_TUI_SCRIPT unset. --reconfigure forces
+#     re-prompting when the per-harness config already exists (ask-once gate).
 #   INSTALL_TUI_SCRIPT=<file> ./scripts/install-tui.sh
 #     Scripted mode for CI: <file> holds newline-separated pre-answers (format
 #     below); drives the SAME code paths deterministically, no /dev/tty needed.
@@ -122,8 +123,11 @@ next_answer() {
 # Entry gate. Return 0 => run (interactive or scripted); 1 => fall through.
 # ---------------------------------------------------------------------------
 NO_TUI=false
+# --reconfigure bypasses the already-configured gate below (fresh answers).
+RECONFIGURE=false
 for arg in "$@"; do
 	[[ "$arg" == "--no-tui" ]] && NO_TUI=true
+	[[ "$arg" == "--reconfigure" ]] && RECONFIGURE=true
 done
 
 should_run() {
@@ -356,6 +360,8 @@ _host_is_internal() {
 			case "$h" in
 				fe8*|fe9*|fea*|feb*) return 0 ;;             # link-local fe80::/10
 				fc*|fd*) return 0 ;;                         # ULA fc00::/7
+				ff*) return 0 ;;                             # multicast ff00::/8
+				100*) return 0 ;;                            # discard prefix 100::/64 (RFC 6666)
 			esac
 			return 1 ;;
 	esac
@@ -409,8 +415,102 @@ _host_is_internal() {
 		10.*|192.168.*) return 0 ;;                         # RFC1918
 		172.1[6-9].*|172.2[0-9].*|172.3[01].*) return 0 ;;  # 172.16/12
 		169.254.*) return 0 ;;                              # link-local (cloud metadata)
+		100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 0 ;;  # CGNAT 100.64/10
+		192.0.0.*) return 0 ;;                              # IETF assignments 192.0.0.0/24
+		22[4-9].*|23[0-9].*) return 0 ;;                    # multicast 224.0.0.0/4
 	esac
 	return 1
+}
+
+# _resolve_host_ips HOST: print every IP HOST resolves to, one per line;
+# return 1 when resolution fails or yields nothing. Resolver order honors the
+# AE_TEST_FAKE_RESOLVE seam first (comma-separated host=ip pairs, tests only;
+# an explicit host= with empty ip forces failure), then OS resolvers in
+# availability order, each guarded by command -v. Fail-closed: callers treat
+# an unresolvable host as a refusal (an NXDOMAIN that later resolves - DNS
+# rebinding, CWE-350 - must not slip past the SSRF gate).
+_resolve_host_ips() {
+	local h="$1" fake pair ips
+	fake="${AE_TEST_FAKE_RESOLVE:-}"
+	if [[ -n "$fake" ]]; then
+		while :; do
+			pair="${fake%%,*}"
+			case "$pair" in
+				"$h"=*)
+					ips="${pair#*=}"
+					[[ -n "$ips" ]] && printf '%s\n' "$ips" && return 0
+					return 1 ;;
+			esac
+			[[ "$fake" == *,* ]] || break
+			fake="${fake#*,}"
+		done
+	fi
+	if command -v getent >/dev/null 2>&1; then
+		ips="$(getent hosts "$h" 2>/dev/null | awk '{print $1}' | sort -u || true)"
+		[[ -n "$ips" ]] && { printf '%s\n' "$ips"; return 0; }
+	fi
+	if command -v dscacheutil >/dev/null 2>&1; then
+		ips="$(dscacheutil -q host -a name "$h" 2>/dev/null \
+			| awk '/^(ip_address|ipv6_address):/{print $2}' | sort -u || true)"
+		[[ -n "$ips" ]] && { printf '%s\n' "$ips"; return 0; }
+	fi
+	if command -v host >/dev/null 2>&1; then
+		ips="$( { host -t a "$h"; host -t aaaa "$h"; } 2>/dev/null \
+			| awk '/address/{print $NF}' | sort -u || true)"
+		[[ -n "$ips" ]] && { printf '%s\n' "$ips"; return 0; }
+	fi
+	if command -v dig >/dev/null 2>&1; then
+		ips="$( { dig +short a "$h"; dig +short aaaa "$h"; } 2>/dev/null \
+			| grep -E '^[0-9a-fA-F:.]+$' | sort -u || true)"
+		[[ -n "$ips" ]] && { printf '%s\n' "$ips"; return 0; }
+	fi
+	if command -v python3 >/dev/null 2>&1; then
+		ips="$(python3 -c 'import socket,sys
+try:
+	for r in socket.getaddrinfo(sys.argv[1], None):
+		print(r[4][0])
+except OSError:
+	sys.exit(1)' "$h" 2>/dev/null | sort -u || true)"
+		[[ -n "$ips" ]] && { printf '%s\n' "$ips"; return 0; }
+	fi
+	return 1
+}
+
+# _host_resolves_internal HOST: 0 when HOST resolves to any internal address
+# (refuse), 1 when every answer is external. IP literals are skipped - the
+# lexical gate (_host_is_internal) already owns them. Sets the global
+# _RESOLVED_IP to the first answer so the caller can pin the fetch to the
+# vetted IP (DNS-rebinding / TOCTOU defense, CWE-367). Unresolvable hosts are
+# refused: a name that answers nothing now but an internal IP at fetch time is
+# the rebinding attack this gate exists to stop.
+_RESOLVED_IP=""
+_host_resolves_internal() {
+	local h="$1" ips ip stripped
+	case "$h" in *:*) return 1 ;; esac   # IPv6 literal: lexical gate owns it
+	stripped="${h//[0-9]/}"; stripped="${stripped//./}"
+	if [[ -z "$stripped" && "$h" == *.* ]]; then
+		return 1                          # IPv4 literal: lexical gate owns it
+	fi
+	_RESOLVED_IP=""
+	if ! ips="$(_resolve_host_ips "$h")"; then
+		echo "  ! custom provider: cannot resolve host '$h' - refusing (fail-closed)"
+		return 0
+	fi
+	while IFS= read -r ip; do
+		[[ -n "$ip" ]] || continue
+		if _host_is_internal "$ip"; then
+			echo "  ! custom provider: host '$h' resolves to internal address '$ip' - refusing"
+			return 0
+		fi
+		if [[ -z "$_RESOLVED_IP" ]]; then
+			_RESOLVED_IP="$ip"
+		fi
+	done <<<"$ips"
+	if [[ -n "$_RESOLVED_IP" ]]; then
+		return 1
+	fi
+	echo "  ! custom provider: cannot resolve host '$h' - refusing (fail-closed)"
+	return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -473,14 +573,25 @@ _setup_custom_provider() {
 	local host="$url"
 	host="${host#*://}"; host="${host%%/*}"      # scheme://HOST[:port]/... -> HOST[:port]
 	host="${host#*@}"                             # strip userinfo
+	local port=""
 	case "$host" in
-		\[*\]*) host="${host#\[}"; host="${host%%\]*}" ;;  # [v6]:port -> v6
-		*) host="${host%%:*}" ;;                           # host:port -> host
+		\[*\]*:*) port="${host##*:}"; host="${host#\[}"; host="${host%%\]*}" ;;  # [v6]:port -> v6 + port
+		\[*\]*) host="${host#\[}"; host="${host%%\]*}" ;;                        # [v6] -> v6
+		*:*) port="${host#*:}"; host="${host%%:*}" ;;                                # host:port -> host + port
 	esac
+	_RESOLVED_IP=""
 	case "${AE_CUSTOM_PROVIDER_ALLOW_INTERNAL:-}" in
 		""|0|false|no)
 			if _host_is_internal "$host"; then
 				echo "  ! custom provider: refusing internal/loopback host '$host' (set AE_CUSTOM_PROVIDER_ALLOW_INTERNAL=1 to allow) - skipping"
+				return 0
+			fi
+			# DNS gate: a hostname passing the lexical denylist can still resolve
+			# to an internal IP (attacker DNS, /etc/hosts, split-horizon). Vet
+			# every answer and pin the fetch to the first vetted IP below, so a
+			# re-resolution between check and connect (DNS rebinding / TOCTOU,
+			# CWE-367) cannot redirect the request at an internal target.
+			if _host_resolves_internal "$host"; then
 				return 0
 			fi ;;
 	esac
@@ -495,6 +606,18 @@ _setup_custom_provider() {
 			echo "  - fetching without Authorization header"
 		fi
 	fi
+	# TOCTOU pin (CWE-367): when the DNS gate vetted an answer, force curl to
+	# connect to exactly that IP for this host - a second lookup returning an
+	# internal address between the check above and the connect cannot redirect
+	# the fetch. Empty when the host is an IP literal or the allow-override
+	# skipped the gate (the lexical denylist already owns those paths).
+	local pin=()
+	if [[ -n "$_RESOLVED_IP" ]]; then
+		if [[ -z "$port" ]]; then
+			case "$url" in http://*) port=80 ;; *) port=443 ;; esac
+		fi
+		pin=(--resolve "$host:$port:$_RESOLVED_IP")
+	fi
 	local tmp; tmp="$(mktemp)" || { echo "  ! custom provider: mktemp failed - skipping"; return 0; }
 	if [[ -n "$key" ]]; then
 		# Key must never appear on argv (CWE-214: ps / /proc/<pid>/cmdline leak
@@ -508,12 +631,12 @@ _setup_custom_provider() {
 		esac
 		local esc="${key//\\/\\\\}"; esc="${esc//\"/\\\"}"
 		if ! printf 'header = "Authorization: Bearer %s"\n' "$esc" \
-			| curl -fsS --max-time 15 --max-filesize 1048576 --proto '=http,https' -K - "$url" -o "$tmp" 2>/dev/null; then
+			| curl -fsS --max-time 15 --max-filesize 1048576 --proto '=http,https' ${pin[@]+"${pin[@]}"} -K - "$url" -o "$tmp" 2>/dev/null; then
 			echo "  ! custom provider: fetch failed ($url) - skipping"
 			rm -f "$tmp"; return 0
 		fi
 	else
-		if ! curl -fsS --max-time 15 --max-filesize 1048576 --proto '=http,https' "$url" -o "$tmp" 2>/dev/null; then
+		if ! curl -fsS --max-time 15 --max-filesize 1048576 --proto '=http,https' ${pin[@]+"${pin[@]}"} "$url" -o "$tmp" 2>/dev/null; then
 			echo "  ! custom provider: fetch failed ($url) - skipping"
 			rm -f "$tmp"; return 0
 		fi
@@ -626,6 +749,20 @@ _pick_model() {
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0 2>/dev/null || exit 0; fi
 
 should_run || exit 75
+
+# ---------------------------------------------------------------------------
+# Ask-once gate: the TUI's primary artifact is the per-harness config holding
+# mode/tier (~/.claude/agentic-engineering.json, always written on a completed
+# install; --config-dir only reroutes it under --dry-run, which never lands
+# here). A second run on the same machine is an accidental re-prompt, so print
+# a notice and exit 0; --reconfigure bypasses. Runs after should_run so the
+# non-TTY fall-through (exit 75, which bootstrap chains on) is untouched.
+# ---------------------------------------------------------------------------
+AE_TUI_CONFIG="${AGENTIC_CONFIG_DIR:-$HOME/.claude}/agentic-engineering.json"
+if ! $RECONFIGURE && [[ -f "$AE_TUI_CONFIG" ]]; then
+	echo "install-tui: already configured (found $AE_TUI_CONFIG); re-run with --reconfigure to change"
+	exit 0
+fi
 
 # Prompt-free child installs: every adapter inherits this so ae_confirm-based
 # prompts and identity auto-detect default to "no" without a TTY read. Claude

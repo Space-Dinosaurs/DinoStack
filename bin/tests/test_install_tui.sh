@@ -226,6 +226,44 @@ run_tui "claude" "dormant" "minimal" "skip" "skip" "yes" "skip" "skip" "yes"
 hasnt "deprecated 6-line answer file" "$OUT"
 
 # ---------------------------------------------------------------------------
+# Test 11: ask-once gate. The per-harness config
+# ($HOME/.claude/agentic-engineering.json, under the sandboxed HOME) is the
+# TUI's primary artifact: when it already exists, a second scripted run exits
+# 0 with a notice and consumes NO answers (no prompts, no DRY_RUN lines);
+# --reconfigure bypasses the gate and prompts again.
+# ---------------------------------------------------------------------------
+echo "Test 11: ask-once gate (already configured)"
+rm -rf "$HOME/.claude"
+mkdir -p "$HOME/.claude"
+printf '{"mode":"opt-out","tier":"minimal"}\n' >"$HOME/.claude/agentic-engineering.json"
+run_tui "claude" "dormant" "minimal" "skip" "skip" "skip" "skip" "skip" "yes"
+[[ "$RC" -eq 0 ]] && pass "second run exits 0" || fail "expected exit 0, got $RC"
+has "already configured (found $HOME/.claude/agentic-engineering.json); re-run with --reconfigure to change" "$OUT"
+# No prompting: the answer queue was never touched, so no plan summary and no
+# install lines appear.
+hasnt "Install plan:" "$OUT"
+hasnt "DRY_RUN: bash" "$OUT"
+# --reconfigure bypasses the gate and consumes the scripted answers again.
+ans="$SANDBOX/answers"
+: >"$ans"
+for line in "claude" "dormant" "minimal" "skip" "skip" "skip" "skip" "skip" "yes"; do
+	printf '%s\n' "$line" >>"$ans"
+done
+set +e
+OUT="$(INSTALL_TUI_SCRIPT="$ans" DRY_RUN=1 bash "$TUI" --reconfigure 2>&1)"
+RC=$?
+set -e
+[[ "$RC" -eq 0 ]] && pass "--reconfigure exits 0" || fail "expected exit 0, got $RC"
+has "DRY_RUN: bash $REPO_DIR/.claude/install.sh --tier=minimal --mode=opt-in --dormant" "$OUT"
+hasnt "already configured" "$OUT"
+# No config -> no gate (clean slate prompts normally).
+rm -rf "$HOME/.claude"
+run_tui "claude" "dormant" "minimal" "skip" "skip" "skip" "skip" "skip" "yes"
+[[ "$RC" -eq 0 ]] && pass "clean slate runs normally" || fail "expected exit 0, got $RC"
+hasnt "already configured" "$OUT"
+has "DRY_RUN: bash $REPO_DIR/.claude/install.sh --tier=minimal --mode=opt-in --dormant" "$OUT"
+
+# ---------------------------------------------------------------------------
 echo
 if [[ "$FAILS" -eq 0 ]]; then
 	echo "ALL PASS"
